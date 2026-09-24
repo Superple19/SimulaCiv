@@ -18,6 +18,14 @@ pub struct AgentState {
     pub group_id: GroupId,
 }
 
+impl AgentState {
+    /// Returns true if the agent is alive and has health strictly greater than 0.0.
+    #[inline]
+    pub fn is_behaviorally_eligible(&self) -> bool {
+        self.alive && self.health > 0.0
+    }
+}
+
 /// Authoritative Day 0 state of a settlement / locality bucket.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SettlementState {
