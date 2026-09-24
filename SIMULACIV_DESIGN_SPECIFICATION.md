@@ -361,6 +361,16 @@ All subsequent pool clearance calculations operate strictly on $\text{effective\
   - If the target is `None`, or if the target is no longer eligible at Phase 6B (e.g., `alive == false`, `health <= 0.0`, or `food <= 0.0`), the intent resolves with **zero state modification** (zero commands).
   - If the target remains eligible, resolution is evaluated against configuration parameter `theft_success_probability` via coordinate PRNG draw in Phase 6:
     $$\mathcal{R}(\text{MasterSeed}, \text{ReplicateId}, \text{Day}, \text{Phase}=6, \text{Subsystem}=TheftSuccess, \text{thief.agent\_id}, \text{DrawIndex}=0)$$
+    - **Theft Success Threshold Rule**:
+      Let $p = \text{theft\_success\_probability}$ and let $u$ be the canonical Phase 6 `TheftSuccess` coordinate-PRNG `f32` draw.
+      The theft attempt succeeds iff:
+      $$u < p$$
+      and fails otherwise.
+      Therefore:
+      - $p = 0.0$ produces no successful thefts,
+      - $p = 1.0$ makes every valid theft attempt succeed because $u < 1.0$ always,
+      - equality $u == p$ is classified as failure.
+      No additional RNG draw is consumed.
     - *Success*: Emits `Command::ModifyFood` deducting `actual_stolen` from victim and crediting thief (immediately committed into live state).
     - *Failure*: Emits zero food commands.
 - Complex criminal justice systems, trial phases, and duration-based productivity sanctions are excluded from M0.
