@@ -7,6 +7,7 @@ pub mod initialization;
 pub mod intents;
 pub mod partitioning;
 pub mod phases;
+pub mod resolution;
 pub mod state;
 pub mod subsystems;
 
@@ -26,5 +27,8 @@ pub use intents::{
 };
 pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
 pub use phases::{execute_phases_1_and_2, phase1_resource_regrowth, phase2_biological_degradation};
+pub use resolution::{
+    Phase6AError, SettlementWorkResolution, WorkAllocation, phase6a_work_resolution,
+};
 pub use state::{AgentState, SettlementState, WorldState};
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};
