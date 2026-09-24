@@ -680,6 +680,16 @@ Because an agent within a settlement can simultaneously be an initiator in one i
 
 #### Phase 6B — Targeted Interaction Resolution
 - Process `GiveFood` and `StealFood` intents as a single deterministic sequential resolution stream per settlement.
+- **Zero-Target Preclassification Rule**:
+  Before `ResolutionKey` evaluation, Phase 6B deterministically classifies `GiveFood` and `StealFood` intents whose `target_agent_id` is `None` as zero-op resolutions.
+  Such intents:
+  - consume no `ResolutionPriority` key,
+  - consume no `TheftSuccess` RNG draw,
+  - emit zero commands,
+  - perform zero state mutation,
+  - do not participate in the keyed targeted-interaction stream.
+  Only intents with `target_agent_id = Some(AgentId)` enter `ResolutionKey` evaluation and the sequential Phase 6B resolution stream.
+  This rule does not constitute fallback or target reselection.
 - **Deterministic 64-bit ResolutionKey Evaluation**:
   Each targeted intent is assigned a 64-bit resolution priority key evaluated via the stateless `SplitMix64-CoordinateMixer` (§17.2):
   - **Coordinate Fields**:
