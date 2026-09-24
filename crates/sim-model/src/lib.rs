@@ -5,6 +5,7 @@ pub mod decision;
 pub mod features;
 pub mod initialization;
 pub mod intents;
+pub mod partitioning;
 pub mod phases;
 pub mod state;
 pub mod subsystems;
@@ -23,6 +24,7 @@ pub use intents::{
     Intent, IntentError, generate_intents, get_give_food_candidates, get_steal_food_candidates,
     phase4_generate_intents,
 };
+pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
 pub use phases::{execute_phases_1_and_2, phase1_resource_regrowth, phase2_biological_degradation};
 pub use state::{AgentState, SettlementState, WorldState};
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};
