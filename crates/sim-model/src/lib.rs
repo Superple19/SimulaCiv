@@ -1,5 +1,6 @@
 //! Domain models, subsystem mappings, configuration, Day 0 initialization, and Phase 1-3 execution for SimulaCiv.
 
+pub mod commands;
 pub mod config;
 pub mod decision;
 pub mod features;
@@ -11,6 +12,7 @@ pub mod resolution;
 pub mod state;
 pub mod subsystems;
 
+pub use commands::{Command, CommandExecutionError};
 pub use config::{
     ConfigError, ConfigValidationError, DecisionConfig, EconomyConfig, EnvironmentConfig,
     InteractionConfig, SimConfig, TraitConfig, WorldConfig,
@@ -28,7 +30,10 @@ pub use intents::{
 pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
 pub use phases::{execute_phases_1_and_2, phase1_resource_regrowth, phase2_biological_degradation};
 pub use resolution::{
-    Phase6AError, SettlementWorkResolution, WorkAllocation, phase6a_work_resolution,
+    Phase6AError, Phase6BError, SettlementTargetedResolution, SettlementWorkResolution,
+    TargetedActionKind, TargetedOutcome, TargetedResolution, WorkAllocation,
+    compare_keyed_interactions, compute_resolution_key, phase6a_work_resolution,
+    phase6b_targeted_resolution,
 };
 pub use state::{AgentState, SettlementState, WorldState};
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};
