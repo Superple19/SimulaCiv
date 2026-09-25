@@ -123,13 +123,32 @@ impl From<CommandExecutionError> for Phase9Error {
 pub fn phase9_mortality_commitment(
     world: &mut WorldState,
 ) -> Result<Phase9MortalityResolution, Phase9Error> {
-    let mut seen_agents = HashSet::new();
+    let n = world.agents.len();
+    let mut seen_set = if n > 32 {
+        Some(HashSet::with_capacity(n))
+    } else {
+        None
+    };
+
+    let newly_deceased_estimate = world
+        .agents
+        .iter()
+        .filter(|a| a.alive && a.health <= 0.0)
+        .count();
+    let mut newly_deceased = Vec::with_capacity(newly_deceased_estimate);
+
     let mut already_dead_count = 0;
     let mut survivors_count = 0;
-    let mut newly_deceased = Vec::new();
 
-    for agent in &world.agents {
-        if !seen_agents.insert(agent.agent_id) {
+    for (i, agent) in world.agents.iter().enumerate() {
+        let duplicate = if let Some(ref mut set) = seen_set {
+            !set.insert(agent.agent_id)
+        } else {
+            world.agents[..i]
+                .iter()
+                .any(|a| a.agent_id == agent.agent_id)
+        };
+        if duplicate {
             return Err(Phase9Error::DuplicateAgent(agent.agent_id));
         }
         if !agent.health.is_finite() {
