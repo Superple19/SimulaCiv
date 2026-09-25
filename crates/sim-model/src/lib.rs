@@ -6,6 +6,7 @@ pub mod decision;
 pub mod features;
 pub mod initialization;
 pub mod intents;
+pub mod metrics;
 pub mod partitioning;
 pub mod phases;
 pub mod resolution;
@@ -28,6 +29,10 @@ pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
     Intent, IntentError, generate_intents, get_give_food_candidates, get_steal_food_candidates,
     phase4_generate_intents,
+};
+pub use metrics::{
+    DailyMetrics, Phase10Error, phase10_metrics, phase10_metrics_observation, phase10_observe,
+    phase10_observe_with_config,
 };
 pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
 pub use phases::{
