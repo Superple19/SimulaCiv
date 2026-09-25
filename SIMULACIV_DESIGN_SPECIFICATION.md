@@ -2,7 +2,7 @@
 **A High-Performance, Deterministic, Agent-Based Social Simulation Engine**
 
 - **Target Implementation Core:** Rust (`sim-core`, `sim-model`) / Python (Experimentation & Analytics)
-- **Status:** Working Draft / Pre-Implementation
+- **Status:** M1 Frozen Contracts (Reference Implementation: M0 Complete)
 
 ---
 
@@ -164,26 +164,24 @@ To guarantee theoretical correctness, behavioral transparency, and high computat
 
 ```
 Current Stage:
-Architecture / Contract Draft
+M1 — Contract Freeze (M0 Complete, 521 tests passed)
 
-↓
-
-M0 — Reference Model
-* Minimal, single-threaded reference implementation to explore and validate semantics
-* Implements draft contracts in an executable, observable form
+M0 — Reference Model [COMPLETE]
+* Minimal, single-threaded reference implementation validating semantics
+* Implemented and empirically verified all 11 daily simulation phases
 * Zero optimization (simple data structures, e.g. Vec<Agent>, allowed)
 * Establishes canonical results for given config and seed; acts as semantic oracle
 
 ↓
 
-M1 — Contract Freeze
-* Formal locking of Contracts C01 through C10 based on empirical M0 semantics
-* Freezes data representations, phase boundaries, and invariant assertions
+M1 — Contract Freeze [FROZEN]
+* Authoritative freeze of Contracts C01 through C10 in docs/contracts/M1_CONTRACT_FREEZE.md
+* Freezes data representations, phase boundaries, and determinism oracles
 * Any subsequent semantic breaking change requires an explicit contract amendment
 
 ↓
 
-M2 — High-Performance Runtime
+M2 — High-Performance Runtime [NEXT]
 * Implements frozen M1 contracts under optimized performance architecture
 * Segmented SoA, Rayon parallelism, bucketed interactions, cache-aligned layouts
 * Must pass automated differential testing against M0 on identical workloads
@@ -241,15 +239,15 @@ M0 serves as the trusted semantic specification. M2 is an optimized implementati
 **Behavioral Eligibility Rule**:
 An agent is eligible to participate in daily activities (intent generation, market orders, resource harvesting, mutual aid, theft) if and only if:
 $$\text{alive} == \text{true} \quad\land\quad \text{health} > 0.0$$
-Agents whose `health` reaches $\le 0.0$ during Phase 2 biological degradation immediately lose behavioral eligibility for all subsequent daily phases (Phases 3–8). Their vital status is formally committed to `alive = false` during Phase 9 compaction.
+Agents whose `health` reaches $\le 0.0$ during Phase 2 biological degradation immediately lose behavioral eligibility for all subsequent daily phases (Phases 3–8). Their vital status is formally committed to `alive = false` during Phase 9 (Mortality Commitment). M0 performs no physical compaction; deceased agents are retained in-place as dead tombstones.
 
 ### 6.3 Fixed-Point Currency Representation (`Money`)
 To enforce strict, non-drifting financial conservation laws without floating-point rounding errors:
 - **Primitive Definition**: `pub type Money = i64;`
 - **Subunit Scaling**: $1.000 \text{ Currency Unit} = 1,000 \text{ Subunits}$.
 - **Rounding Policy**: Integer division truncates towards zero. In general institutional accounting, remaining fractional pennies are routed to the settlement civic treasury; however, for Phase 7 market pool clearance, the explicit seller-proceeds reconciliation rule in §6.6 takes strict precedence (integer rounding difference is reconciled entirely among participating sellers, while the treasury receives exactly `tax_withheld`).
-- **Overflow Policy**: All financial operations must use checked arithmetic (`checked_add`, `checked_sub`). Arithmetic overflow triggers a fatal engine panic.
-- **Non-Negative Wealth Invariant**: Debt and credit facilities are excluded in the M0 baseline; an agent's wealth balance must satisfy $\text{wealth} \ge 0$ and settlement treasury must satisfy $\text{Treasury} \ge 0$ at all times. Any transaction attempting to reduce wealth or treasury below zero triggers an invariant panic.
+- **Overflow Policy**: All financial operations must use checked arithmetic (`checked_add`, `checked_sub`). Arithmetic overflow, underflow, financial imbalance, or invariant violation is a fail-fast error. Implementations must not saturate, wrap, silently clamp, or continue with corrupted state.
+- **Non-Negative Wealth Invariant**: Debt and credit facilities are excluded in the M0 baseline; an agent's wealth balance must satisfy $\text{wealth} \ge 0$ and settlement treasury must satisfy $\text{Treasury} \ge 0$ at all times. Any transaction attempting to reduce wealth or treasury below zero is a fail-fast invariant violation rejected before mutation.
 - **Global Currency Conservation Invariant**:
   $$\text{CurrentMoneySupply} = \text{InitialMoneySupply} + \text{Minted} - \text{Burned}$$
   $$\sum_{i} \text{wealth}_i + \text{Treasury} + \text{Escrow} = \text{CurrentMoneySupply}$$
@@ -406,7 +404,7 @@ To guarantee bitwise-identical trajectory reproduction across implementations, P
      - seller wealth credits
      - treasury tax credits
      - proceeds balance and reconciliation calculations
-   - Any overflow or underflow triggers a fail-fast runtime panic.
+   - Any overflow or underflow is a fail-fast error that rejects the transaction before state mutation.
    - Agent wealth and settlement treasury must strictly remain non-negative at all times.
 
 6. **Seller Proceeds Reconciliation Precedence**:
@@ -566,7 +564,7 @@ To guarantee bitwise-identical trajectory reproduction across implementations, P
   - Prohibited from initiating Work, GiveFood, or StealFood.
   - Barred from receiving mutual aid or welfare in subsequent phases.
 - **Formal Status Commitment (Phase 9)**:
-  At Phase 9 (Mortality & Compaction), all agents with $\text{health} \le 0.0$ have their vital status formally committed to `alive = false`, and are processed for entity compaction.
+  At Phase 9 (Mortality Commitment), all agents with $\text{health} \le 0.0$ have their vital status formally committed to `alive = false`. M0 performs no physical compaction; deceased agents are retained in-place as dead tombstones.
 - **Live-State Target Invalidation**:
   If an agent was selected as a target by another agent in Phase 4, but by Phase 6 has $\text{health} \le 0.0$ or $\text{alive} == \text{false}$, the Phase 6 resolver's live-state TOCTOU validation immediately rejects the interaction, producing **zero state modification**.
 - Gompertz-Makeham age hazard calculations are excluded from M0 baseline execution (deferred to future model milestones).
@@ -684,7 +682,7 @@ graph TD
 
 ## 10. Core Contract Specifications (C01 – C10)
 
-These ten specifications represent **Draft Contracts under M0 validation**. During M0, they are implemented and exercised in an executable reference simulator to validate empirical simulation semantics and are subject to refinement. They are formally locked only at M1 Contract Freeze, after which M2 implementations must strictly satisfy the frozen contracts.
+These ten specifications represent **Frozen Contracts under M1**. Validated against the completed M0 reference model (521 passing tests, 500-day pause/resume equivalence verified), these contracts are formally frozen as the authoritative semantic specification for the M2 High-Performance Runtime. Full contract clause reconciliations, evidence matrices, and amendment procedures are defined in the authoritative freeze document: [docs/contracts/M1_CONTRACT_FREEZE.md](file:///c:/AI/SimulaCiv/docs/contracts/M1_CONTRACT_FREEZE.md).
 
 ### C01: Agent Identity Contract
 - **Responsibility**: Guarantees distinct, permanent identity for every agent throughout the entire simulation lifecycle.
@@ -692,18 +690,19 @@ These ten specifications represent **Draft Contracts under M0 validation**. Duri
   - `AgentId` is unique and **never reused** within a simulation run, even after death.
   - Runtime storage position (`DenseSlot`) may shift during array compaction; `AgentId` remains invariant.
   - All external references (social graphs, parent/child links, event logs) must use `AgentId`, never `DenseSlot`.
-- **Inputs**: Entity creation request.
+  - Dynamic birth allocation and demographic replenishment are **DEFERRED** from M1 baseline (fixed initial population with tombstone retention on death).
+- **Inputs**: Entity creation request (initial world generation; dynamic birth allocation is DEFERRED).
 - **Outputs**: Newly allocated `AgentId` with mapped initial `DenseSlot`.
-- **Validation**: Monotonic counter check; assertion that deceased IDs never appear in birth allocations.
+- **Validation**: Monotonic counter check during initialization; assertion that deceased IDs are retained as tombstones and never reused or deleted (dynamic births DEFERRED; M0 validates fixed initial population with tombstone retention).
 
 ### C02: Time & Phase Ordering Contract
-- **Responsibility**: Enforces non-overlapping, sequential lifecycle phases separated by strict synchronization barriers.
+- **Responsibility**: Enforces non-overlapping, sequential lifecycle phases separated by strict synchronization boundaries.
 - **Invariants**:
   - No system may execute out of its designated phase slot.
-  - Read-only phases cannot mutate state; mutation phases cannot initiate parallel reads without locks.
+  - Read-only phases cannot mutate state; mutation phases cannot initiate parallel reads without synchronization. In M0, this is enforced structurally via the sequential reference runner; runtime capability flags and lock-based synchronization mechanisms are an **M2 parallel execution obligation**.
 - **Inputs**: Tick advance signal.
 - **Outputs**: Phase barrier transitions.
-- **Validation**: Runtime state flag assertions checking current phase capability flags.
+- **Validation**: Strict sequential phase execution in reference runner (`run_m0_day`); runtime capability flags and multithreaded phase barrier assertions are deferred to M2.
 
 ### C03: State Storage Contract (Semantic Specification)
 - **Responsibility**: Guarantees unambiguous authoritative state storage, identity mapping, and bounds-safe entity access.
@@ -724,7 +723,7 @@ These ten specifications represent **Draft Contracts under M0 validation**. Duri
   - No global or thread-local mutable RNG states are permitted.
 - **Inputs**: Logical coordinate tuple.
 - **Outputs**: Uniform pseudo-random primitive (`u64`, `f32`).
-- **Validation**: SHA-256 hash comparison of 1,000,000 draws under 1-thread vs 16-thread execution.
+- **Validation**: Golden vector tests (`golden_prng_tests`) against external Stafford Mix13 and coordinate fixtures; bitwise differential validation against M2 parallel execution is an M2 acceptance requirement.
 
 ### C05: Intent Contract
 - **Responsibility**: Represents an agent's intended action evaluated during the read-only decision phase.
@@ -751,8 +750,8 @@ These ten specifications represent **Draft Contracts under M0 validation**. Duri
 - **Responsibility**: Provides an immutable, append-only historical record of resolved occurrences and observations.
 - **Invariants**:
   - Events are partitioned into two distinct categories:
-    1. `StateTransitionEvent`: Originates strictly from committed commands and verified state transitions.
-    2. `Observation/SystemEvent`: Emitted by lifecycle hooks, market clearing summaries, resource regeneration observations, or environmental shocks (possessing zero state mutation authority).
+    1. `StateTransitionEvent`: Originates strictly from committed commands and verified state transitions (WorkResolved, FoodTransferred, MarketCleared, WelfareDistributed, MortalityCommitted).
+    2. `Observation/SystemEvent`: Emitted by lifecycle hooks (DailyMetricsObserved, SnapshotEmitted), possessing zero state mutation authority. Speculative variants such as resource regeneration observations or environmental shocks are **DEFERRED** and excluded from the frozen M1 baseline vocabulary.
   - Event recording must not alter the simulation state trajectory (Observer Independence).
   - **Canonical Event Ordering Contract**:
     $$\text{Canonical Event Key} = (\text{day}, \text{phase}, \text{partition\_key}, \text{deterministic\_local\_sequence})$$
@@ -963,7 +962,7 @@ flowchart TD
     Phase5 --> Phase6[Phase 6: Local Conflict Resolution]
     Phase6 --> Phase7[Phase 7: Settlement Market Clearance]
     Phase7 --> Phase8[Phase 8: Institutional Policy & Welfare]
-    Phase8 --> Phase9[Phase 9: Mortality & Entity Compaction]
+    Phase8 --> Phase9[Phase 9: Mortality Commitment]
     Phase9 --> Barrier2{{Sync Barrier}}
     Barrier2 --> Phase10[Phase 10: Metrics & Observation Hook]
     Phase10 --> Phase11[Phase 11: Snapshot & Event Stream Flush]
@@ -1003,8 +1002,8 @@ flowchart TD
    Sales tax is withheld at source and credited to settlement civic treasury in this phase. Seller food deductions operate strictly on reconciled effective supply, guaranteeing food inventory non-negativity.
 8. **Phase 8 (Institutional Policy & Welfare)**:
    Evaluate welfare eligibility for living, behaviorally eligible agents with $\text{food} < \text{starvation\_threshold}$ and disburse integer `Money` welfare strictly equally from civic treasury (§6.9). *(Tax withholding occurs strictly in Phase 7; Phase 8 performs zero taxation).*
-9. **Phase 9 (Mortality & Compaction)**:
-   All agents with $\text{health} \le 0.0$ are formally committed as deceased ($\text{alive} = \text{false}$). In M2, perform swap-remove compaction to restore dense contiguous storage.
+9. **Phase 9 (Mortality Commitment)**:
+   All agents with $\text{health} \le 0.0$ are formally committed as deceased ($\text{alive} = \text{false}$). M0 performs no physical compaction; deceased agents remain in place as dead tombstones. Physical compaction may be implemented in M2 as an internal optimization, provided canonical outputs remain invariant.
 10. **Phase 10 (Metrics & Observation)**: Aggregate macro statistics (population, Gini, food reserves, treasury) without state mutation.
 11. **Phase 11 (Snapshot & Event Flush)**: Emit canonical snapshot if at epoch boundary; flush buffered events.
 
@@ -1025,13 +1024,16 @@ Slot 2: [ AgentId: 0899 | Health: 0.40 | Wealth: 00400 | Alive: 1 ]
 Slot 3: [ AgentId: 1042 | Health: 0.72 | Wealth: 34000 | Alive: 1 ]
 ```
 
-### 14.1 Compaction & Swap-Remove Policy
-- When an agent dies, they are flagged as `alive = false`.
-- At Phase 9 (Entity Compaction), the dead agent's slot is overwritten by the last active agent in the array (**Swap-Remove**).
+### 14.1 M2 Physical Compaction & Non-Canonical Storage Optimization
+- **M0 Baseline Behavior**: M0 performs no physical compaction; deceased agents are retained in-place as dead tombstones to guarantee simple index stability.
+- **M2 Physical Storage Optimization**: M2 may compact or reorder physical storage after mortality commitment (e.g. via swap-remove or segmented compaction to restore dense contiguous memory), provided:
+  - stable `AgentId` identity is preserved
+  - `DenseSlot` remains strictly non-canonical
+  - canonical State, Metrics, and Event outputs remain identical to M0
 - The indirection registry updates the moved agent's `DenseSlot` mapping in $O(1)$ time.
 - All social networks, family links, and event logs retain permanent `AgentId`s without pointer corruption.
 - `AgentId`s are **never recycled** within a simulation run.
-- **Dense Packing Boundary Guarantee**: M2 authoritative active storage must be densely packed at defined lifecycle boundaries after compaction (specifically at Phase 9 / Day Boundary). During intra-day phases prior to compaction, slots of deceased agents may transiently exist as flagged tombstones.
+- `DenseSlot` indices and physical array ordering are strictly excluded from canonical state hashes and snapshots; physical compaction order must not influence simulation determinism.
 
 ### 14.2 M2-Specific Physical Storage Requirements
 While M0 is permitted to use simple object structures (`Vec<Agent>`), M2 must enforce:
@@ -1088,7 +1090,7 @@ The M0 baseline engine executes strictly on a **daily sequential lifecycle**:
 ### 17.2 Stateless Coordinate-Addressed PRNG Specification
 To eliminate thread contention, avoid shared mutable state synchronization, and guarantee thread-count-independent execution, all pseudo-random generation and tie-breaking priorities evaluate the **`SplitMix64-CoordinateMixer`** (Stafford Mix13 variant). The integer `u64` output of `SplitMix64-CoordinateMixer` provides platform-independent, bit-exact results for identical semantic coordinates. Floating-point bitwise determinism of the overall simulation trajectory is guaranteed strictly within the scope of the declared determinism profile in §17.1; full floating-point trajectory identity across differing hardware architectures (such as x86_64 ↔ ARM64) remains an unresolved open question under OQ-01.
 
-The `SplitMix64-CoordinateMixer` is fixed for the current M0 baseline and acts as the draft PRNG semantic used during M0 validation. It becomes formally frozen only at M1 Contract Freeze.
+The `SplitMix64-CoordinateMixer` is formally frozen under M1 Contract Freeze based on empirical M0 validation, golden fixed vectors, and determinism graduation gate verification.
 
 #### 1. Mathematical Algorithm: `Mix64` (Stafford Mix13)
 For any 64-bit unsigned integer $z \in [0, 2^{64}-1]$:
@@ -1234,7 +1236,7 @@ $$\text{Max Latency per Agent-Day} \le \frac{1}{2,723} \approx 367 \ \mu\text{s 
 
 - **Phase 4 (Intent Generation)**: Embarrassingly parallel across agents using Rayon data chunks. Agents read immutable state views and write to thread-local intent buffers.
 - **Phase 5 & 6 (Conflict Resolution)**: Work is partitioned across settlement buckets (`group_id`). Different settlements resolve in parallel without mutex synchronization.
-- **Phase 9 (Compaction)**: Sequential single-threaded compaction or partitioned parallel index update to ensure zero pointer race conditions.
+- **Phase 9 (Mortality Commitment & Optional M2 Compaction)**: M0 performs sequential mortality status commitment with zero compaction. In M2, optional physical compaction or partitioned index updates must ensure zero pointer race conditions without altering logical canonical state.
 
 ---
 
@@ -1261,10 +1263,10 @@ SimulaCiv enforces a **Fail-Fast Engine** policy:
 1. **Financial Conservation Law**: Total currency in the system must match the current money supply at all times:
    $$\text{CurrentMoneySupply} = \text{InitialMoneySupply} + \text{Minted} - \text{Burned}$$
    $$\sum_{i} \text{wealth}_i + \text{Treasury} + \text{Escrow} = \text{CurrentMoneySupply}$$
-   Any discrepancy immediately panics.
+   Any discrepancy is a fail-fast invariant violation that terminates the execution according to caller error policy.
 2. **Bounds Enforcement**: Continuous biological variables (`health`, `food`) are checked for `NaN` and $\pm\infty$.
 3. **Behavioral Inactivity of Deceased and Incapacitated Entities**: Entities with $\text{alive} == \text{false}$ or $\text{health} \le 0.0$ cannot generate intents, submit market orders, or initiate actions. If targeted prior to incapacitation, resolvers reject interactions with zero state modification. *(Post-mortem asset transfer, estate settlement, and inheritance policies are handled by dedicated model rules, not hardcoded into Core engine state bans).*
-4. **Non-Negative Wealth Invariant**: All agent `wealth` and settlement `Treasury` balances must be $\ge 0$ (debt, credit facilities, and negative balances are forbidden in the M0 baseline; any underflow attempt triggers an invariant panic).
+4. **Non-Negative Wealth Invariant**: All agent `wealth` and settlement `Treasury` balances must be $\ge 0$ (debt, credit facilities, and negative balances are forbidden in the M0 baseline; any underflow attempt is a fail-fast invariant violation that aborts the transaction before mutation).
 
 ---
 
@@ -1365,9 +1367,9 @@ The architecture is structured to support future expansion layers:
 - *Question*: Is bitwise identical state required across different CPU instruction sets (x86_64 vs ARM64) or compiler optimization levels?
 - *Trade-off*: Enforcing strict IEEE-754 cross-platform bit identity requires software floating-point emulation or strict compiler flags (`-C target-cpu`, avoiding FMA instructions), incurring a 10%–25% throughput penalty.
 
-#### OQ-02: Compaction Frequency vs. Index Stability
-- *Question*: Should dead agent swap-remove compaction execute daily at Phase 9, or on a batched weekly cadence?
-- *Trade-off*: Daily compaction maintains dense contiguous memory for SIMD; batched compaction reduces indirection updates but leaves temporary sparse holes.
+#### OQ-02: M2 Compaction Frequency vs. Index Stability
+- *Question*: In M2 runtime optimization, should dead agent compaction execute daily after Phase 9, or on a batched weekly cadence? (The M0 reference model performs zero compaction, permanently retaining dead tombstones in-place).
+- *Trade-off*: Daily compaction maintains dense contiguous memory for SIMD; batched compaction reduces indirection updates but leaves temporary sparse holes. Both are non-semantic internal storage choices in M2.
 
 #### OQ-03: Discrete Event Priority Queue vs. Cyclic Phase Synchronization
 - **Status**: **DEFERRED — not part of M0 baseline semantics.**
@@ -1396,10 +1398,10 @@ To achieve the M1 Contract Freeze gate, all contracts must define verified test 
 
 ```text
 Current Stage:
-Architecture / Contract Draft
+M1 Contract Freeze (M0 Complete, M1 Frozen)
 
 Next Milestone:
-M0 Reference Model
+M2 High-Performance Runtime
 
-M2 implementation may begin only after M1 Contract Freeze.
+M2 implementation is authorized to proceed against frozen M1 contracts and the M0 reference oracle.
 ```
