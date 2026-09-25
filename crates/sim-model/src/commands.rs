@@ -42,6 +42,17 @@ pub enum CommandExecutionError {
         total_payout: Money,
         tax_withheld: Money,
     },
+    NegativeWelfarePayout {
+        agent_id: AgentId,
+        payout: Money,
+    },
+    NegativeTreasuryDebit(Money),
+    InsufficientTreasury {
+        group_id: GroupId,
+        treasury: Money,
+        required: Money,
+    },
+    WealthOverflow(AgentId),
 }
 
 impl std::fmt::Display for CommandExecutionError {
@@ -109,6 +120,30 @@ impl std::fmt::Display for CommandExecutionError {
                     total_debit, total_payout, tax_withheld
                 )
             }
+            Self::NegativeWelfarePayout { agent_id, payout } => {
+                write!(
+                    f,
+                    "negative welfare payout for agent {}: {}",
+                    agent_id, payout
+                )
+            }
+            Self::NegativeTreasuryDebit(amt) => {
+                write!(f, "negative treasury debit: {}", amt)
+            }
+            Self::InsufficientTreasury {
+                group_id,
+                treasury,
+                required,
+            } => {
+                write!(
+                    f,
+                    "insufficient treasury for group {}: has {}, requires {}",
+                    group_id, treasury, required
+                )
+            }
+            Self::WealthOverflow(aid) => {
+                write!(f, "wealth overflow for agent {}", aid)
+            }
         }
     }
 }
@@ -131,6 +166,13 @@ pub struct SellerMarketUpdate {
     pub seller_net: Money,
 }
 
+/// Individual recipient state update in welfare distribution.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WelfareRecipientUpdate {
+    pub agent_id: AgentId,
+    pub payout: Money,
+}
+
 /// Minimal atomic authoritative command representation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Command {
@@ -144,6 +186,11 @@ pub enum Command {
         buyer_updates: Vec<BuyerMarketUpdate>,
         seller_updates: Vec<SellerMarketUpdate>,
         tax_withheld: Money,
+    },
+    WelfareDistribution {
+        group_id: GroupId,
+        recipient_updates: Vec<WelfareRecipientUpdate>,
+        treasury_debit: Money,
     },
 }
 
@@ -297,6 +344,76 @@ impl Command {
                 }
 
                 world.settlements[settlement_idx].treasury += *tax_withheld;
+
+                Ok(())
+            }
+            Command::WelfareDistribution {
+                group_id,
+                recipient_updates,
+                treasury_debit,
+            } => {
+                let settlement_idx = world
+                    .settlements
+                    .iter()
+                    .position(|s| s.group_id == *group_id)
+                    .ok_or(CommandExecutionError::MissingSettlement(*group_id))?;
+
+                if *treasury_debit < 0 {
+                    return Err(CommandExecutionError::NegativeTreasuryDebit(
+                        *treasury_debit,
+                    ));
+                }
+
+                if world.settlements[settlement_idx].treasury < *treasury_debit {
+                    return Err(CommandExecutionError::InsufficientTreasury {
+                        group_id: *group_id,
+                        treasury: world.settlements[settlement_idx].treasury,
+                        required: *treasury_debit,
+                    });
+                }
+
+                let mut total_payout: Money = 0;
+                for r in recipient_updates {
+                    if r.payout < 0 {
+                        return Err(CommandExecutionError::NegativeWelfarePayout {
+                            agent_id: r.agent_id,
+                            payout: r.payout,
+                        });
+                    }
+                    total_payout = total_payout
+                        .checked_add(r.payout)
+                        .ok_or(CommandExecutionError::FinancialOverflow)?;
+
+                    let agent = world
+                        .agents
+                        .iter()
+                        .find(|a| a.agent_id == r.agent_id)
+                        .ok_or(CommandExecutionError::MissingAgent(r.agent_id))?;
+
+                    agent
+                        .wealth
+                        .checked_add(r.payout)
+                        .ok_or(CommandExecutionError::WealthOverflow(r.agent_id))?;
+                }
+
+                if total_payout != *treasury_debit {
+                    return Err(CommandExecutionError::FinancialImbalance {
+                        total_debit: *treasury_debit,
+                        total_payout,
+                        tax_withheld: 0,
+                    });
+                }
+
+                world.settlements[settlement_idx].treasury -= *treasury_debit;
+
+                for r in recipient_updates {
+                    let agent = world
+                        .agents
+                        .iter_mut()
+                        .find(|a| a.agent_id == r.agent_id)
+                        .expect("agent existence checked above");
+                    agent.wealth += r.payout;
+                }
 
                 Ok(())
             }
