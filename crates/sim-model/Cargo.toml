@@ -8,3 +8,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.10"
 sim-core = { path = "../sim-core" }
 toml = "1.1.6"
+
+[[bench]]
+name = "m0_baseline_bench"
+harness = false
