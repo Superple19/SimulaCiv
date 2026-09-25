@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod config;
 pub mod decision;
+pub mod events;
 pub mod features;
 pub mod initialization;
 pub mod intents;
@@ -24,6 +25,13 @@ pub use config::{
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,
     phase4_primary_action_selection, select_action, stable_softmax,
+};
+pub use events::{
+    Event, EventBuffer, EventError, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
+    StateTransitionEvent, event_from_daily_metrics, event_from_snapshot_emission,
+    events_from_market_resolution, events_from_mortality_resolution,
+    events_from_targeted_resolution, events_from_welfare_resolution, events_from_work_resolution,
+    partition_key_from_group, phase11_flush_events,
 };
 pub use features::{AgentFeatures, FeatureVector, Phase3Error, phase3_observation_and_features};
 pub use initialization::{InitializationError, initialize_world};
