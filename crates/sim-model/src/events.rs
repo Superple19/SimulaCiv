@@ -13,7 +13,6 @@ use crate::resolution::{
 use crate::snapshot::SnapshotMetadata;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, Money};
-use std::collections::HashSet;
 
 /// Partition key value assigned to global, non-settlement-local observations.
 pub const GLOBAL_PARTITION_KEY: u64 = u64::MAX;
@@ -214,16 +213,10 @@ impl std::error::Error for EventError {}
 /// - Successful flush empties `buffer.pending`.
 /// - Flushed records are ordered canonically regardless of insertion order.
 pub fn phase11_flush_events(buffer: &mut EventBuffer) -> Result<Vec<EventRecord>, EventError> {
-    // 1. Validate all records and detect duplicate keys without mutating buffer
-    let mut seen_keys = HashSet::with_capacity(buffer.pending.len());
-
+    // 1. Validate all records (phase bounds, finite floats, non-negative money) without mutating buffer
     for record in &buffer.pending {
         if record.key.phase < 1 || record.key.phase > 11 {
             return Err(EventError::InvalidPhase(record.key.phase));
-        }
-
-        if !seen_keys.insert(record.key) {
-            return Err(EventError::DuplicateKey(record.key));
         }
 
         match &record.event {
@@ -315,9 +308,23 @@ pub fn phase11_flush_events(buffer: &mut EventBuffer) -> Result<Vec<EventRecord>
         }
     }
 
-    // 2. All validations passed; atomically drain and sort
+    // 2. All field validations passed; atomically drain and sort in-place
     let mut flushed = std::mem::take(&mut buffer.pending);
-    flushed.sort_by_key(|r| r.key);
+    flushed.sort_unstable_by_key(|r| r.key);
+
+    // 3. Detect duplicate keys via adjacent pairwise comparison
+    let mut duplicate_key = None;
+    for pair in flushed.windows(2) {
+        if pair[0].key == pair[1].key {
+            duplicate_key = Some(pair[0].key);
+            break;
+        }
+    }
+
+    if let Some(dup) = duplicate_key {
+        buffer.pending = flushed;
+        return Err(EventError::DuplicateKey(dup));
+    }
 
     Ok(flushed)
 }
