@@ -5,6 +5,7 @@ pub mod config;
 pub mod decision;
 pub mod events;
 pub mod features;
+pub mod hashing;
 pub mod initialization;
 pub mod intents;
 pub mod metrics;
@@ -34,6 +35,14 @@ pub use events::{
     partition_key_from_group, phase11_flush_events,
 };
 pub use features::{AgentFeatures, FeatureVector, Phase3Error, phase3_observation_and_features};
+pub use hashing::{
+    CanonicalHash, CanonicalHashError, DOMAIN_EVENTS, DOMAIN_METRICS, DOMAIN_STATE,
+    EVENT_CATEGORY_OBSERVATION, EVENT_CATEGORY_STATE_TRANSITION, OBSERVATION_EVENT_DAILY_METRICS,
+    OBSERVATION_EVENT_SNAPSHOT_EMITTED, STATE_EVENT_FOOD_TRANSFERRED, STATE_EVENT_MARKET_CLEARED,
+    STATE_EVENT_MORTALITY_COMMITTED, STATE_EVENT_WELFARE_DISTRIBUTED, STATE_EVENT_WORK_RESOLVED,
+    canonical_event_bytes, canonical_event_hash, canonical_metrics_bytes, canonical_metrics_hash,
+    canonical_state_bytes, canonical_state_hash,
+};
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
     Intent, IntentError, generate_intents, get_give_food_candidates, get_steal_food_candidates,
