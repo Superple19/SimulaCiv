@@ -10,6 +10,7 @@ pub mod metrics;
 pub mod partitioning;
 pub mod phases;
 pub mod resolution;
+pub mod snapshot;
 pub mod state;
 pub mod subsystems;
 
@@ -49,6 +50,11 @@ pub use resolution::{
     phase7_market_clearance, phase7_market_clearance_with_config, phase7_market_resolution,
     phase8_welfare_distribution, phase8_welfare_distribution_with_config,
     phase8_welfare_distribution_with_subconfigs, phase8_welfare_resolution,
+};
+pub use snapshot::{
+    CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,
+    SnapshotMetadata, decode_snapshot, encode_snapshot, phase11_snapshot_if_boundary,
+    restore_snapshot,
 };
 pub use state::{AgentState, SettlementState, WorldState};
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};
