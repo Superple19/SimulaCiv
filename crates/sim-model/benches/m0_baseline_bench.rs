@@ -8,7 +8,6 @@
 //! 5. Population scaling (N = 10, 50, 100, 500, 1000)
 //! 6. Correctness verification against M1 frozen graduation hashes
 
-use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use sim_core::SimulationDay;
@@ -209,20 +208,40 @@ fn run_instrumented_500_days(
 
         // Event staging
         let t_staging = Instant::now();
-        let mut event_buffer = EventBuffer::new();
-        let mut phase6_counts: BTreeMap<u16, u64> = BTreeMap::new();
+        let estimated_cap = world.agents.len().saturating_mul(2) + world.settlements.len() + 4;
+        let mut event_buffer = EventBuffer::with_capacity(estimated_cap);
+        let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_res.len());
         for w in &work_res {
             let work_events = events_from_work_resolution(executed_day, w);
-            *phase6_counts.entry(w.group_id.0).or_default() += work_events.len() as u64;
+            let count = work_events.len() as u64;
+            if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == w.group_id.0)
+            {
+                entry.1 += count;
+            } else {
+                phase6_counts.push((w.group_id.0, count));
+            }
             event_buffer.push_all(work_events);
         }
         for t in &targeted_res {
             let mut targeted_events = events_from_targeted_resolution(executed_day, t);
-            let count_entry = phase6_counts.entry(t.group_id.0).or_default();
-            for te in &mut targeted_events {
-                te.key.local_sequence += *count_entry;
+            let offset = if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == t.group_id.0)
+            {
+                let prev = entry.1;
+                entry.1 += targeted_events.len() as u64;
+                prev
+            } else {
+                phase6_counts.push((t.group_id.0, targeted_events.len() as u64));
+                0
+            };
+            if offset > 0 {
+                for te in &mut targeted_events {
+                    te.key.local_sequence += offset;
+                }
             }
-            *count_entry += targeted_events.len() as u64;
             event_buffer.push_all(targeted_events);
         }
         for m in &market_res {
