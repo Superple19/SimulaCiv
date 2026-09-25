@@ -1,6 +1,6 @@
 use crate::commands::{Command, CommandExecutionError};
 use crate::config::SimConfig;
-use crate::state::WorldState;
+use crate::state::{AgentDynamicSoAScratch, WorldState};
 use serde::{Deserialize, Serialize};
 use sim_core::AgentId;
 use std::collections::HashSet;
@@ -79,6 +79,25 @@ pub fn phase2_biological_degradation(world: &mut WorldState, config: &SimConfig)
             decay_rate,
         );
     }
+}
+
+/// Executes Phase 2: Biological Degradation directly on an [`AgentDynamicSoAScratch`] buffer.
+pub fn phase2_biological_degradation_soa(scratch: &mut AgentDynamicSoAScratch, config: &SimConfig) {
+    let f_metabolic = config.environment.base_metabolic_cost;
+    let decay_rate = config.environment.health_decay_rate;
+    scratch.update_biological_degradation(f_metabolic, decay_rate);
+}
+
+/// Executes Phase 2: Biological Degradation using an external [`AgentDynamicSoAScratch`] buffer,
+/// collecting hot dynamic state, executing SoA degradation, and writing back to authoritative state.
+pub fn phase2_biological_degradation_with_scratch(
+    world: &mut WorldState,
+    config: &SimConfig,
+    scratch: &mut AgentDynamicSoAScratch,
+) {
+    scratch.collect_from_agents(&world.agents);
+    phase2_biological_degradation_soa(scratch, config);
+    scratch.write_back_phase2(&mut world.agents);
 }
 
 /// Minimal M0-03 runner executing Phase 1 followed by Phase 2 in strict order.

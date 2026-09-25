@@ -18,13 +18,20 @@ use sim_model::events::{
     events_from_targeted_resolution, events_from_welfare_resolution, events_from_work_resolution,
     phase11_flush_events,
 };
-use sim_model::features::phase3_observation_and_features;
+use sim_model::features::{
+    phase3_observation_and_features, phase3_observation_and_features_into,
+    phase3_observation_and_features_soa_into, phase3_observation_and_features_with_scratch,
+};
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::intents::phase4_generate_intents;
-use sim_model::metrics::{DailyMetrics, phase10_observe_with_scratch};
+use sim_model::metrics::{
+    DailyMetrics, phase10_observe_compact_aos, phase10_observe_soa_fresh,
+    phase10_observe_with_scratch,
+};
 use sim_model::partitioning::phase5_partition_intents;
 use sim_model::phases::{
-    phase1_resource_regrowth, phase2_biological_degradation, phase9_mortality_commitment,
+    phase1_resource_regrowth, phase2_biological_degradation, phase2_biological_degradation_soa,
+    phase2_biological_degradation_with_scratch, phase9_mortality_commitment,
 };
 use sim_model::resolution::{
     phase6a_work_resolution, phase6b_targeted_resolution, phase7_market_clearance_with_config,
@@ -385,6 +392,571 @@ fn measure_population_scaling(base_config: &SimConfig, context: &M0RunContext) {
     }
 }
 
+fn measure_soa_ablation(base_config: &SimConfig, context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-16.1 SoA Ablation Benchmark");
+    println!(
+        "Comparing: A: Compact AoS (M2-15), B: SoA Scratch Reuse (M2-16), C: SoA Fresh Allocation"
+    );
+    println!("=================================================================");
+
+    // 1. 500-Day Trajectory Comparison
+    println!("\nPart 1: 500-Day Trajectory Macro Metrics Ablation (N=10, 500 Days)");
+    println!(
+        "{:<30} | {:>14} | {:>14} | {:>14} | {:>16}",
+        "Variant", "Phase10 (ms)", "Avg/Day (us)", "Total (ms)", "Throughput (d/s)"
+    );
+    println!("{:-<96}", "");
+
+    // Variant A: Compact AoS Baseline (M2-15)
+    {
+        let mut world = initialize_world(base_config).expect("world init succeeds");
+        let mut metrics_a = Vec::with_capacity(500);
+        let mut t10_total = Duration::ZERO;
+        let start = Instant::now();
+        for _ in 0..500 {
+            let executed_day = world.current_day.as_u32();
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, base_config, context, &opts).unwrap();
+            let t0 = Instant::now();
+            let m = phase10_observe_compact_aos(&world, executed_day).expect("phase10 succeeds");
+            t10_total += t0.elapsed();
+            metrics_a.push(m);
+        }
+        let total_time = start.elapsed();
+        let hash = canonical_metrics_hash(&metrics_a).unwrap().to_hex();
+        assert_eq!(hash, EXPECTED_METRICS_HASH, "Metrics hash mismatch in A!");
+        let p10_ms = t10_total.as_secs_f64() * 1000.0;
+        let p10_us = (t10_total.as_nanos() as f64) / 500.0 / 1000.0;
+        let tot_ms = total_time.as_secs_f64() * 1000.0;
+        let tp = 500.0 / total_time.as_secs_f64();
+        println!(
+            "{:<30} | {:>14.3} | {:>14.2} | {:>14.3} | {:>16.0}",
+            "A. Compact AoS (M2-15)", p10_ms, p10_us, tot_ms, tp
+        );
+    }
+
+    // Variant B: SoA Scratch Reuse (M2-16)
+    {
+        let mut world = initialize_world(base_config).expect("world init succeeds");
+        let mut metrics_b = Vec::with_capacity(500);
+        let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
+        let mut t10_total = Duration::ZERO;
+        let start = Instant::now();
+        for _ in 0..500 {
+            let executed_day = world.current_day.as_u32();
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, base_config, context, &opts).unwrap();
+            let t0 = Instant::now();
+            let m = phase10_observe_with_scratch(&world, executed_day, &mut metrics_scratch)
+                .expect("phase10 succeeds");
+            t10_total += t0.elapsed();
+            metrics_b.push(m);
+        }
+        let total_time = start.elapsed();
+        let hash = canonical_metrics_hash(&metrics_b).unwrap().to_hex();
+        assert_eq!(hash, EXPECTED_METRICS_HASH, "Metrics hash mismatch in B!");
+        let p10_ms = t10_total.as_secs_f64() * 1000.0;
+        let p10_us = (t10_total.as_nanos() as f64) / 500.0 / 1000.0;
+        let tot_ms = total_time.as_secs_f64() * 1000.0;
+        let tp = 500.0 / total_time.as_secs_f64();
+        println!(
+            "{:<30} | {:>14.3} | {:>14.2} | {:>14.3} | {:>16.0}",
+            "B. SoA Scratch Reuse (M2-16)", p10_ms, p10_us, tot_ms, tp
+        );
+    }
+
+    // Variant C: SoA Fresh Allocation
+    {
+        let mut world = initialize_world(base_config).expect("world init succeeds");
+        let mut metrics_c = Vec::with_capacity(500);
+        let mut t10_total = Duration::ZERO;
+        let start = Instant::now();
+        for _ in 0..500 {
+            let executed_day = world.current_day.as_u32();
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, base_config, context, &opts).unwrap();
+            let t0 = Instant::now();
+            let m = phase10_observe_soa_fresh(&world, executed_day).expect("phase10 succeeds");
+            t10_total += t0.elapsed();
+            metrics_c.push(m);
+        }
+        let total_time = start.elapsed();
+        let hash = canonical_metrics_hash(&metrics_c).unwrap().to_hex();
+        assert_eq!(hash, EXPECTED_METRICS_HASH, "Metrics hash mismatch in C!");
+        let p10_ms = t10_total.as_secs_f64() * 1000.0;
+        let p10_us = (t10_total.as_nanos() as f64) / 500.0 / 1000.0;
+        let tot_ms = total_time.as_secs_f64() * 1000.0;
+        let tp = 500.0 / total_time.as_secs_f64();
+        println!(
+            "{:<30} | {:>14.3} | {:>14.2} | {:>14.3} | {:>16.0}",
+            "C. SoA Fresh Alloc", p10_ms, p10_us, tot_ms, tp
+        );
+    }
+
+    // 2. Population Scaling Ablation (Phase 10 Isolated Latency)
+    println!("\nPart 2: Population Scaling Phase 10 Latency Comparison (50 Days)");
+    println!(
+        "{:<8} | {:>13} | {:>13} | {:>13} | {:>10} | {:>10} | {:>10}",
+        "Pop (N)",
+        "A: AoS (us/d)",
+        "B: Reuse (us/d)",
+        "C: Fresh (us/d)",
+        "B vs A",
+        "B vs C",
+        "C vs A"
+    );
+    println!("{:-<86}", "");
+
+    let populations = [100, 250, 500, 1000];
+    let days = 50;
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let mut world = match initialize_world(&cfg) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+
+        // Advance 25 days so world has active, dynamic agent states
+        for _ in 0..25 {
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, &cfg, context, &opts).unwrap();
+        }
+
+        let mut t_a = Duration::ZERO;
+        let mut t_b = Duration::ZERO;
+        let mut t_c = Duration::ZERO;
+        let mut scratch_b = AgentDynamicSoAScratch::with_capacity(world.agents.len());
+
+        for _ in 0..days {
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, &cfg, context, &opts).unwrap();
+            let day = world.current_day.as_u32();
+
+            // Condition A: Compact AoS
+            let t0 = Instant::now();
+            let _ = phase10_observe_compact_aos(&world, day).unwrap();
+            t_a += t0.elapsed();
+
+            // Condition C: SoA Fresh
+            let t0 = Instant::now();
+            let _ = phase10_observe_soa_fresh(&world, day).unwrap();
+            t_c += t0.elapsed();
+
+            // Condition B: SoA Scratch Reuse
+            let t0 = Instant::now();
+            let _ = phase10_observe_with_scratch(&world, day, &mut scratch_b).unwrap();
+            t_b += t0.elapsed();
+        }
+
+        let us_a = (t_a.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_b = (t_b.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_c = (t_c.as_nanos() as f64) / (days as f64) / 1000.0;
+
+        let speedup_b_a = us_a / us_b;
+        let speedup_b_c = us_c / us_b;
+        let speedup_c_a = us_a / us_c;
+
+        println!(
+            "{:<8} | {:>13.2} | {:>13.2} | {:>13.2} | {:>9.2}x | {:>9.2}x | {:>9.2}x",
+            pop, us_a, us_b, us_c, speedup_b_a, speedup_b_c, speedup_c_a
+        );
+    }
+}
+
+fn measure_hot_path_soa_expansion(base_config: &SimConfig, context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-17 Hot Path SoA Expansion Benchmark (Phases 2 & 3)");
+    println!("=================================================================");
+
+    // Part 1: 500-Day Canonical Trajectory with Combined Phase 2+3 SoA
+    println!("\nPart 1: 500-Day Canonical Trajectory with Combined SoA Phase 2+3");
+    let mut world = initialize_world(base_config).expect("world init succeeds");
+    let mut metrics = Vec::with_capacity(500);
+    let mut all_events = Vec::new();
+    let mut scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
+    let mut features_scratch = Vec::with_capacity(world.agents.len());
+
+    let mut t_p2_soa = Duration::ZERO;
+    let mut t_p3_soa = Duration::ZERO;
+    let mut t_collect = Duration::ZERO;
+    let mut t_writeback = Duration::ZERO;
+
+    let start_500 = Instant::now();
+
+    for _d in 0..500 {
+        let executed_day = world.current_day.as_u32();
+        let next_day = executed_day + 1;
+
+        let mut effective_config = base_config.clone();
+        effective_config.world.master_seed = context.master_seed;
+        effective_config.world.replicate_id = context.replicate_id;
+
+        // Phase 1
+        phase1_resource_regrowth(&mut world, &effective_config);
+
+        // Combined SoA Phase 2 + Phase 3:
+        let t_c0 = Instant::now();
+        scratch.collect_from_agents(&world.agents);
+        t_collect += t_c0.elapsed();
+
+        let t_p2_0 = Instant::now();
+        phase2_biological_degradation_soa(&mut scratch, &effective_config);
+        t_p2_soa += t_p2_0.elapsed();
+
+        let t_p3_0 = Instant::now();
+        phase3_observation_and_features_soa_into(
+            &world,
+            &effective_config,
+            &scratch,
+            &mut features_scratch,
+        )
+        .expect("phase3 soa succeeds");
+        t_p3_soa += t_p3_0.elapsed();
+
+        let t_w0 = Instant::now();
+        scratch.write_back_phase2(&mut world.agents);
+        t_writeback += t_w0.elapsed();
+
+        // Phase 4
+        let choices = phase4_primary_action_selection(&world, &effective_config, &features_scratch)
+            .expect("phase4 decision succeeds");
+        let intents = phase4_generate_intents(&world, &effective_config, &choices)
+            .expect("phase4 intent succeeds");
+
+        // Phase 5
+        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+
+        // Phase 6A
+        let work_res = phase6a_work_resolution(&mut world, &partitions).expect("phase6a succeeds");
+
+        // Phase 6B
+        let targeted_res = phase6b_targeted_resolution(&mut world, &effective_config, &partitions)
+            .expect("phase6b succeeds");
+
+        // Phase 7
+        let market_res =
+            phase7_market_clearance_with_config(&mut world, &partitions, &effective_config.economy)
+                .expect("phase7 succeeds");
+
+        // Phase 8
+        let welfare_res = phase8_welfare_distribution_with_config(&mut world, &effective_config)
+            .expect("phase8 succeeds");
+
+        // Phase 9
+        let mortality_res = phase9_mortality_commitment(&mut world).expect("phase9 succeeds");
+
+        // Event staging
+        let estimated_cap = world.agents.len().saturating_mul(2) + world.settlements.len() + 4;
+        let mut event_buffer = EventBuffer::with_capacity(estimated_cap);
+        let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_res.len());
+        for w in &work_res {
+            let work_events = events_from_work_resolution(executed_day, w);
+            let count = work_events.len() as u64;
+            if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == w.group_id.0)
+            {
+                entry.1 += count;
+            } else {
+                phase6_counts.push((w.group_id.0, count));
+            }
+            event_buffer.push_all(work_events);
+        }
+        for t in &targeted_res {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, t);
+            let offset = if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == t.group_id.0)
+            {
+                let prev = entry.1;
+                entry.1 += targeted_events.len() as u64;
+                prev
+            } else {
+                let count = targeted_events.len() as u64;
+                phase6_counts.push((t.group_id.0, count));
+                0
+            };
+            if offset > 0 {
+                for te in &mut targeted_events {
+                    te.key.local_sequence += offset;
+                }
+            }
+            event_buffer.push_all(targeted_events);
+        }
+        for m in &market_res {
+            event_buffer.push_all(events_from_market_resolution(executed_day, m));
+        }
+        for wel in &welfare_res {
+            event_buffer.push_all(events_from_welfare_resolution(executed_day, wel));
+        }
+        event_buffer.push_all(events_from_mortality_resolution(
+            executed_day,
+            &mortality_res,
+        ));
+
+        // Phase 10
+        let m = phase10_observe_with_scratch(&world, executed_day, &mut scratch)
+            .expect("phase10 succeeds");
+        event_buffer.push(event_from_daily_metrics(&m));
+        metrics.push(m);
+
+        // Phase 11 Snapshot (Day 199 only)
+        if _d == 199 {
+            let meta = SnapshotMetadata::new(
+                next_day,
+                context.master_seed,
+                context.replicate_id,
+                DEFAULT_MODEL_VERSION,
+                DEFAULT_CONFIG_VERSION,
+            );
+            let _snap = encode_snapshot(&world, &meta).expect("snapshot succeeds");
+            let snap_ev = EventRecord::new(
+                EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: meta.day,
+                    master_seed: meta.master_seed,
+                    replicate_id: meta.replicate_id,
+                    schema_version: SNAPSHOT_SCHEMA_VERSION,
+                }),
+            );
+            event_buffer.push(snap_ev);
+        }
+
+        // Phase 11 Event Flush
+        let flushed = phase11_flush_events(&mut event_buffer).expect("event flush succeeds");
+        all_events.extend(flushed);
+
+        world.current_day = SimulationDay(next_day);
+    }
+
+    let elapsed_500 = start_500.elapsed();
+
+    // Correctness Verification
+    let actual_state_hash = canonical_state_hash(&world).unwrap().to_hex();
+    let actual_metrics_hash = canonical_metrics_hash(&metrics).unwrap().to_hex();
+    let actual_event_hash = canonical_event_hash(&all_events).unwrap().to_hex();
+
+    println!("CanonicalStateHash:   {}", actual_state_hash);
+    println!("  Expected:           {}", EXPECTED_STATE_HASH);
+    assert_eq!(
+        actual_state_hash, EXPECTED_STATE_HASH,
+        "State hash mismatch in SoA trajectory!"
+    );
+
+    println!("CanonicalMetricsHash: {}", actual_metrics_hash);
+    println!("  Expected:           {}", EXPECTED_METRICS_HASH);
+    assert_eq!(
+        actual_metrics_hash, EXPECTED_METRICS_HASH,
+        "Metrics hash mismatch in SoA trajectory!"
+    );
+
+    println!("CanonicalEventHash:   {}", actual_event_hash);
+    println!("  Expected:           {}", EXPECTED_EVENT_HASH);
+    assert_eq!(
+        actual_event_hash, EXPECTED_EVENT_HASH,
+        "Event hash mismatch in SoA trajectory!"
+    );
+    println!("CANONICAL GRADUATION TRAJECTORY: 100% BIT-EXACT MATCH.");
+
+    let total_ms = elapsed_500.as_secs_f64() * 1000.0;
+    let avg_day_us = (elapsed_500.as_nanos() as f64) / 500.0 / 1000.0;
+    let tp = 500.0 / elapsed_500.as_secs_f64();
+
+    println!(
+        "\n500-Day SoA Trajectory Execution Time: {:.3} ms ({:.2} us/day, {:.0} days/sec)",
+        total_ms, avg_day_us, tp
+    );
+    println!(
+        "  Collect Overhead:   {:.3} ms ({:.2} us/day)",
+        t_collect.as_secs_f64() * 1000.0,
+        (t_collect.as_nanos() as f64) / 500.0 / 1000.0
+    );
+    println!(
+        "  Phase 2 SoA Update: {:.3} ms ({:.2} us/day)",
+        t_p2_soa.as_secs_f64() * 1000.0,
+        (t_p2_soa.as_nanos() as f64) / 500.0 / 1000.0
+    );
+    println!(
+        "  Phase 3 SoA Extract:{:.3} ms ({:.2} us/day)",
+        t_p3_soa.as_secs_f64() * 1000.0,
+        (t_p3_soa.as_nanos() as f64) / 500.0 / 1000.0
+    );
+    println!(
+        "  Write-back Overhead:{:.3} ms ({:.2} us/day)",
+        t_writeback.as_secs_f64() * 1000.0,
+        (t_writeback.as_nanos() as f64) / 500.0 / 1000.0
+    );
+
+    // Part 2: Population Scaling (Isolated vs Combined across N in [100, 250, 500, 1000])
+    println!("\nPart 2: Population Scaling Hot Path Comparison (50 Days)");
+    println!(
+        "{:<6} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10}",
+        "Pop(N)",
+        "P2 AoS",
+        "P2 SoA",
+        "P3 AoS",
+        "P3 SoA",
+        "P2+3 AoS",
+        "P2+3 SoA",
+        "P2+3 Pure",
+        "Speedup"
+    );
+    println!("{:-<96}", "");
+
+    let populations = [100, 250, 500, 1000];
+    let days = 50;
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let mut world = match initialize_world(&cfg) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+
+        // Advance 25 days to reach active dynamic state
+        for _ in 0..25 {
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, &cfg, context, &opts).unwrap();
+        }
+
+        let mut t_p2_aos = Duration::ZERO;
+        let mut t_p2_soa_iso = Duration::ZERO;
+        let mut t_p3_aos = Duration::ZERO;
+        let mut t_p3_soa_iso = Duration::ZERO;
+        let mut t_comb_aos = Duration::ZERO;
+        let mut t_comb_soa = Duration::ZERO;
+        let mut t_comb_pure = Duration::ZERO;
+
+        let mut scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
+        let mut features_scratch = Vec::with_capacity(world.agents.len());
+
+        for _ in 0..days {
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, &cfg, context, &opts).unwrap();
+
+            // 1. Phase 2 Isolated AoS vs SoA
+            let mut w_clone = world.clone();
+            let t0 = Instant::now();
+            phase2_biological_degradation(&mut w_clone, &cfg);
+            t_p2_aos += t0.elapsed();
+
+            let mut w_clone2 = world.clone();
+            let t0 = Instant::now();
+            phase2_biological_degradation_with_scratch(&mut w_clone2, &cfg, &mut scratch);
+            t_p2_soa_iso += t0.elapsed();
+
+            // 2. Phase 3 Isolated AoS vs SoA
+            let t0 = Instant::now();
+            phase3_observation_and_features_into(&world, &cfg, &mut features_scratch).unwrap();
+            t_p3_aos += t0.elapsed();
+
+            let t0 = Instant::now();
+            phase3_observation_and_features_with_scratch(
+                &world,
+                &cfg,
+                &mut scratch,
+                &mut features_scratch,
+            )
+            .unwrap();
+            t_p3_soa_iso += t0.elapsed();
+
+            // 3. Combined Phase 2 + Phase 3: AoS
+            let mut w_comb_aos = world.clone();
+            let t0 = Instant::now();
+            phase2_biological_degradation(&mut w_comb_aos, &cfg);
+            phase3_observation_and_features_into(&w_comb_aos, &cfg, &mut features_scratch).unwrap();
+            t_comb_aos += t0.elapsed();
+
+            // 4. Combined Phase 2 + Phase 3: SoA with scratch reuse (collect -> p2 -> p3 -> writeback)
+            let mut w_comb_soa = world.clone();
+            let t0 = Instant::now();
+            scratch.collect_from_agents(&w_comb_soa.agents);
+            phase2_biological_degradation_soa(&mut scratch, &cfg);
+            phase3_observation_and_features_soa_into(
+                &w_comb_soa,
+                &cfg,
+                &scratch,
+                &mut features_scratch,
+            )
+            .unwrap();
+            scratch.write_back_phase2(&mut w_comb_soa.agents);
+            t_comb_soa += t0.elapsed();
+
+            // 5. Combined Pure SoA (no collect / writeback)
+            let t0 = Instant::now();
+            phase2_biological_degradation_soa(&mut scratch, &cfg);
+            phase3_observation_and_features_soa_into(
+                &w_comb_soa,
+                &cfg,
+                &scratch,
+                &mut features_scratch,
+            )
+            .unwrap();
+            t_comb_pure += t0.elapsed();
+        }
+
+        let us_p2_aos = (t_p2_aos.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_p2_soa = (t_p2_soa_iso.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_p3_aos = (t_p3_aos.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_p3_soa = (t_p3_soa_iso.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_comb_aos = (t_comb_aos.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_comb_soa = (t_comb_soa.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_comb_pure = (t_comb_pure.as_nanos() as f64) / (days as f64) / 1000.0;
+        let speedup = us_comb_aos / us_comb_soa;
+
+        println!(
+            "{:<6} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>9.2}x",
+            pop,
+            us_p2_aos,
+            us_p2_soa,
+            us_p3_aos,
+            us_p3_soa,
+            us_comb_aos,
+            us_comb_soa,
+            us_comb_pure,
+            speedup
+        );
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -504,6 +1076,12 @@ fn main() {
 
     // 5. Population Scaling
     measure_population_scaling(&config, &context);
+
+    // 6. M2-16.1 SoA Ablation Benchmark
+    measure_soa_ablation(&config, &context);
+
+    // 7. M2-17 Hot Path SoA Expansion Benchmark
+    measure_hot_path_soa_expansion(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

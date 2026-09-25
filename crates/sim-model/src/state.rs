@@ -129,6 +129,7 @@ pub struct AgentDynamicSoAScratch {
     pub wealth: Vec<Money>,
     pub alive: Vec<bool>,
     pub agent_ids: Vec<AgentId>,
+    pub group_ids: Vec<GroupId>,
     pub indices: Vec<usize>,
     pub settlement_indices: Vec<usize>,
 }
@@ -149,6 +150,7 @@ impl AgentDynamicSoAScratch {
             wealth: Vec::with_capacity(capacity),
             alive: Vec::with_capacity(capacity),
             agent_ids: Vec::with_capacity(capacity),
+            group_ids: Vec::with_capacity(capacity),
             indices: Vec::with_capacity(capacity),
             settlement_indices: Vec::new(),
         }
@@ -162,6 +164,7 @@ impl AgentDynamicSoAScratch {
         self.wealth.clear();
         self.alive.clear();
         self.agent_ids.clear();
+        self.group_ids.clear();
         self.indices.clear();
         self.settlement_indices.clear();
     }
@@ -174,6 +177,7 @@ impl AgentDynamicSoAScratch {
         self.wealth.reserve(n);
         self.alive.reserve(n);
         self.agent_ids.reserve(n);
+        self.group_ids.reserve(n);
         self.indices.reserve(n);
     }
 
@@ -188,6 +192,36 @@ impl AgentDynamicSoAScratch {
             self.wealth.push(agent.wealth);
             self.alive.push(agent.alive);
             self.agent_ids.push(agent.agent_id);
+            self.group_ids.push(agent.group_id);
+        }
+    }
+
+    /// Updates dynamic state fields under Phase 2 biological degradation rules.
+    #[inline]
+    pub fn update_biological_degradation(&mut self, f_metabolic: f32, decay_rate: f32) {
+        let n = self.health.len();
+        for i in 0..n {
+            if !self.alive[i] {
+                continue;
+            }
+            let f_consumed = self.food[i].min(f_metabolic);
+            let f_deficit = f_metabolic - f_consumed;
+            let health_delta = -decay_rate * f_deficit;
+
+            self.food[i] = (self.food[i] - f_consumed).max(0.0);
+            self.health[i] = (self.health[i] + health_delta).clamp(0.0, 1.0);
+        }
+    }
+
+    /// Writes back modified Phase 2 dynamic fields (`health` and `food`) to an authoritative [`AgentState`] slice.
+    #[inline]
+    pub fn write_back_phase2(&self, agents: &mut [AgentState]) {
+        for (agent, (h, f)) in agents
+            .iter_mut()
+            .zip(self.health.iter().zip(self.food.iter()))
+        {
+            agent.health = *h;
+            agent.food = *f;
         }
     }
 }

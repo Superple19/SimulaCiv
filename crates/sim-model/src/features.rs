@@ -1,5 +1,5 @@
 use crate::config::SimConfig;
-use crate::state::WorldState;
+use crate::state::{AgentDynamicSoAScratch, WorldState};
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId};
 
@@ -149,4 +149,95 @@ pub fn phase3_observation_and_features(
     let mut features_list = Vec::with_capacity(world.agents.len());
     phase3_observation_and_features_into(world, config, &mut features_list)?;
     Ok(features_list)
+}
+
+/// Executes Phase 3: Observation & Normalized Feature Extraction directly from an [`AgentDynamicSoAScratch`] buffer.
+///
+/// For each behaviorally eligible agent (`alive == true && health > 0.0`), computes the canonical 5-element
+/// normalized feature vector in [0.0, 1.0]^5 directly from contiguous SoA vectors:
+/// - φ0: hunger_ratio = clamp(1.0 - food / starvation_threshold, 0.0, 1.0)
+/// - φ1: wealth_pressure = clamp(1.0 - (wealth as f32) / (target_reserve as f32), 0.0, 1.0)
+/// - φ2: health_deficit = clamp(1.0 - health, 0.0, 1.0)
+/// - φ3: local_scarcity = 1.0 - clamp(local_resource / carrying_capacity, 0.0, 1.0)
+/// - φ4: food_surplus = clamp((food - starvation_threshold) / target_food, 0.0, 1.0)
+///
+/// Output is sorted strictly in ascending `AgentId` order.
+pub fn phase3_observation_and_features_soa_into(
+    world: &WorldState,
+    config: &SimConfig,
+    scratch: &AgentDynamicSoAScratch,
+    out: &mut Vec<AgentFeatures>,
+) -> Result<(), Phase3Error> {
+    out.clear();
+    let n = scratch.agent_ids.len();
+    if out.capacity() < n {
+        out.reserve(n - out.capacity());
+    }
+
+    let k = config.environment.carrying_capacity;
+    let starvation_threshold = config.interaction.starvation_threshold;
+    let target_reserve = config.economy.target_reserve as f32;
+    let target_food = config.economy.target_food;
+
+    let mut stack_scarcity = [(GroupId(0), 0.0f32); 8];
+    let num_settlements = world.settlements.len();
+    let heap_scarcity;
+    let scarcity_slice: &[(GroupId, f32)] = if num_settlements <= 8 {
+        for (i, s) in world.settlements.iter().enumerate() {
+            stack_scarcity[i] = (s.group_id, 1.0 - (s.resource / k).clamp(0.0, 1.0));
+        }
+        &stack_scarcity[..num_settlements]
+    } else {
+        heap_scarcity = world
+            .settlements
+            .iter()
+            .map(|s| (s.group_id, 1.0 - (s.resource / k).clamp(0.0, 1.0)))
+            .collect::<Vec<_>>();
+        &heap_scarcity[..]
+    };
+
+    for i in 0..n {
+        if !scratch.alive[i] || scratch.health[i] <= 0.0 {
+            continue;
+        }
+
+        let group_id = scratch.group_ids[i];
+        let local_scarcity = scarcity_slice
+            .iter()
+            .find(|(gid, _)| *gid == group_id)
+            .map(|(_, sc)| *sc)
+            .ok_or(Phase3Error::MissingSettlement(group_id))?;
+
+        let hunger_ratio = (1.0 - scratch.food[i] / starvation_threshold).clamp(0.0, 1.0);
+        let wealth_pressure = (1.0 - (scratch.wealth[i] as f32) / target_reserve).clamp(0.0, 1.0);
+        let health_deficit = (1.0 - scratch.health[i]).clamp(0.0, 1.0);
+        let food_surplus = ((scratch.food[i] - starvation_threshold) / target_food).clamp(0.0, 1.0);
+
+        out.push(AgentFeatures {
+            agent_id: scratch.agent_ids[i],
+            features: FeatureVector::new([
+                hunger_ratio,
+                wealth_pressure,
+                health_deficit,
+                local_scarcity,
+                food_surplus,
+            ]),
+        });
+    }
+
+    // Canonical output order: strictly ascending AgentId
+    out.sort_by_key(|af| af.agent_id);
+    Ok(())
+}
+
+/// Executes Phase 3: Observation & Normalized Feature Extraction using an external [`AgentDynamicSoAScratch`] buffer,
+/// collecting hot dynamic state and executing SoA feature extraction into a reusable buffer.
+pub fn phase3_observation_and_features_with_scratch(
+    world: &WorldState,
+    config: &SimConfig,
+    scratch: &mut AgentDynamicSoAScratch,
+    out: &mut Vec<AgentFeatures>,
+) -> Result<(), Phase3Error> {
+    scratch.collect_from_agents(&world.agents);
+    phase3_observation_and_features_soa_into(world, config, scratch, out)
 }

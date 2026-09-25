@@ -8,7 +8,9 @@
 //!
 //! All operations are strictly read-only on `WorldState`, guaranteeing observer independence.
 
-use crate::state::{AgentDynamicSoAScratch, AgentDynamicState, AgentState, WorldState};
+use crate::state::{
+    AgentDynamicSoAScratch, AgentDynamicState, AgentState, SettlementState, WorldState,
+};
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, Money};
 use std::collections::HashSet;
@@ -247,6 +249,106 @@ pub fn phase10_observe_with_config(
     _config: &crate::config::SimConfig,
 ) -> Result<DailyMetrics, Phase10Error> {
     phase10_observe(world, world.current_day.0)
+}
+
+/// Compact AoS Phase 10 execution (M2-15 baseline representation) for ablation benchmarking.
+pub fn phase10_observe_compact_aos(
+    world: &WorldState,
+    day: u32,
+) -> Result<DailyMetrics, Phase10Error> {
+    // 1. Structural validation
+    let mut seen_agents = HashSet::with_capacity(world.agents.len());
+    for agent in &world.agents {
+        if !seen_agents.insert(agent.agent_id) {
+            return Err(Phase10Error::DuplicateAgent(agent.agent_id));
+        }
+        if !agent.food.is_finite() {
+            return Err(Phase10Error::NonFiniteFood {
+                agent_id: agent.agent_id,
+                food: agent.food,
+            });
+        }
+        if agent.food < 0.0 {
+            return Err(Phase10Error::NegativeFood {
+                agent_id: agent.agent_id,
+                food: agent.food,
+            });
+        }
+        if agent.wealth < 0 {
+            return Err(Phase10Error::NegativeWealth {
+                agent_id: agent.agent_id,
+                wealth: agent.wealth,
+            });
+        }
+    }
+
+    let mut seen_groups = HashSet::with_capacity(world.settlements.len());
+    for settlement in &world.settlements {
+        if !seen_groups.insert(settlement.group_id) {
+            return Err(Phase10Error::DuplicateSettlement(settlement.group_id));
+        }
+        if settlement.treasury < 0 {
+            return Err(Phase10Error::NegativeTreasury {
+                group_id: settlement.group_id,
+                treasury: settlement.treasury,
+            });
+        }
+    }
+
+    // 2. Canonical living agents: ascending AgentId using compact dynamic state
+    let mut alive_dynamics: Vec<AgentDynamicState> = Vec::with_capacity(world.agents.len());
+    for a in &world.agents {
+        if a.alive {
+            alive_dynamics.push(AgentDynamicState::from_agent(a));
+        }
+    }
+    alive_dynamics.sort_unstable_by_key(|d| d.agent_id);
+
+    // 3. Population: u64 count of alive agents
+    let population = alive_dynamics.len() as u64;
+
+    // 4. Total food reserves: sequential f64 sum in ascending AgentId order
+    let mut total_food_reserves = 0.0_f64;
+    for d in &alive_dynamics {
+        total_food_reserves += d.food as f64;
+    }
+    if !total_food_reserves.is_finite() {
+        return Err(Phase10Error::InvariantViolation(
+            "total food reserves non-finite".into(),
+        ));
+    }
+
+    // 5. Total treasury: ascending GroupId checked Money addition
+    let mut sorted_settlements: Vec<&SettlementState> = Vec::with_capacity(world.settlements.len());
+    sorted_settlements.extend(world.settlements.iter());
+    sorted_settlements.sort_by_key(|s| s.group_id);
+
+    let mut total_treasury: Money = 0;
+    for s in &sorted_settlements {
+        total_treasury = total_treasury
+            .checked_add(s.treasury)
+            .ok_or(Phase10Error::ArithmeticOverflow)?;
+    }
+
+    // 6. Wealth Gini
+    let wealth_gini = compute_wealth_gini_dynamic(&mut alive_dynamics)?;
+
+    Ok(DailyMetrics {
+        day,
+        population,
+        wealth_gini,
+        total_food_reserves,
+        total_treasury,
+    })
+}
+
+/// SoA Phase 10 execution with fresh allocation on every invocation for ablation benchmarking.
+pub fn phase10_observe_soa_fresh(
+    world: &WorldState,
+    day: u32,
+) -> Result<DailyMetrics, Phase10Error> {
+    let mut scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
+    phase10_observe_with_scratch(world, day, &mut scratch)
 }
 
 /// Computes the wealth Gini coefficient for alive agents according to the exact M0 reference semantics.

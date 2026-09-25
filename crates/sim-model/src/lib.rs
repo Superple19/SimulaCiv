@@ -35,7 +35,11 @@ pub use events::{
     events_from_targeted_resolution, events_from_welfare_resolution, events_from_work_resolution,
     partition_key_from_group, phase11_flush_events,
 };
-pub use features::{AgentFeatures, FeatureVector, Phase3Error, phase3_observation_and_features};
+pub use features::{
+    AgentFeatures, FeatureVector, Phase3Error, phase3_observation_and_features,
+    phase3_observation_and_features_into, phase3_observation_and_features_soa_into,
+    phase3_observation_and_features_with_scratch,
+};
 pub use hashing::{
     CanonicalHash, CanonicalHashError, DOMAIN_EVENTS, DOMAIN_METRICS, DOMAIN_STATE,
     EVENT_CATEGORY_OBSERVATION, EVENT_CATEGORY_STATE_TRANSITION, OBSERVATION_EVENT_DAILY_METRICS,
@@ -51,13 +55,14 @@ pub use intents::{
 };
 pub use metrics::{
     DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, compute_wealth_gini_soa,
-    phase10_metrics, phase10_metrics_observation, phase10_observe, phase10_observe_with_config,
-    phase10_observe_with_scratch,
+    phase10_metrics, phase10_metrics_observation, phase10_observe, phase10_observe_compact_aos,
+    phase10_observe_soa_fresh, phase10_observe_with_config, phase10_observe_with_scratch,
 };
 pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
 pub use phases::{
     MortalityResolution, Phase9Error, Phase9MortalityResolution, execute_phases_1_and_2,
     phase1_resource_regrowth, phase2_biological_degradation, phase2_biological_degradation_dynamic,
+    phase2_biological_degradation_soa, phase2_biological_degradation_with_scratch,
     phase9_mortality_commitment, phase9_mortality_commitment_with_config,
     phase9_mortality_resolution, update_biological_degradation,
 };
