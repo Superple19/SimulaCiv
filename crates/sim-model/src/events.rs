@@ -7,7 +7,8 @@ use crate::metrics::DailyMetrics;
 use crate::phases::Phase9MortalityResolution;
 use crate::resolution::{
     SettlementMarketResolution, SettlementTargetedResolution, SettlementWelfareResolution,
-    SettlementWorkResolution, TargetedActionKind, TargetedOutcome,
+    SettlementWorkResolution, TargetedActionKind, TargetedOutcome, WelfareRecipientResolution,
+    WorkAllocation,
 };
 use crate::snapshot::SnapshotMetadata;
 use serde::{Deserialize, Serialize};
@@ -356,26 +357,24 @@ pub fn events_from_welfare_resolution(
     day: u32,
     resolution: &SettlementWelfareResolution,
 ) -> Vec<EventRecord> {
-    let mut sorted_recipients = resolution.recipients.clone();
+    let mut sorted_recipients: Vec<&WelfareRecipientResolution> =
+        Vec::with_capacity(resolution.recipients.len());
+    sorted_recipients.extend(resolution.recipients.iter());
     sorted_recipients.sort_by_key(|r| r.agent_id);
 
-    sorted_recipients
-        .into_iter()
-        .enumerate()
-        .map(|(seq, r)| EventRecord {
-            key: EventKey::new(
-                day,
-                8,
-                partition_key_from_group(resolution.group_id),
-                seq as u64,
-            ),
+    let mut events = Vec::with_capacity(sorted_recipients.len());
+    let partition_key = partition_key_from_group(resolution.group_id);
+    for (seq, r) in sorted_recipients.iter().enumerate() {
+        events.push(EventRecord {
+            key: EventKey::new(day, 8, partition_key, seq as u64),
             event: Event::StateTransition(StateTransitionEvent::WelfareDistributed {
                 group_id: resolution.group_id,
                 agent_id: r.agent_id,
                 payout: r.payout,
             }),
-        })
-        .collect()
+        });
+    }
+    events
 }
 
 /// Constructs canonical Phase 9 MortalityCommitted events from a completed mortality resolution.
@@ -388,14 +387,14 @@ pub fn events_from_mortality_resolution(
     let mut sorted_deceased = resolution.newly_deceased.clone();
     sorted_deceased.sort();
 
-    sorted_deceased
-        .into_iter()
-        .enumerate()
-        .map(|(seq, agent_id)| EventRecord {
+    let mut events = Vec::with_capacity(sorted_deceased.len());
+    for (seq, agent_id) in sorted_deceased.into_iter().enumerate() {
+        events.push(EventRecord {
             key: EventKey::new(day, 9, GLOBAL_PARTITION_KEY, seq as u64),
             event: Event::StateTransition(StateTransitionEvent::MortalityCommitted { agent_id }),
-        })
-        .collect()
+        });
+    }
+    events
 }
 
 /// Constructs a canonical Phase 10 DailyMetricsObserved observation event.
@@ -427,27 +426,25 @@ pub fn events_from_work_resolution(
     day: u32,
     resolution: &SettlementWorkResolution,
 ) -> Vec<EventRecord> {
-    let mut sorted_allocations = resolution.allocations.clone();
+    let mut sorted_allocations: Vec<&WorkAllocation> =
+        Vec::with_capacity(resolution.allocations.len());
+    sorted_allocations.extend(resolution.allocations.iter());
     sorted_allocations.sort_by_key(|a| a.agent_id);
 
-    sorted_allocations
-        .into_iter()
-        .enumerate()
-        .map(|(seq, a)| EventRecord {
-            key: EventKey::new(
-                day,
-                6,
-                partition_key_from_group(resolution.group_id),
-                seq as u64,
-            ),
+    let mut events = Vec::with_capacity(sorted_allocations.len());
+    let partition_key = partition_key_from_group(resolution.group_id);
+    for (seq, a) in sorted_allocations.iter().enumerate() {
+        events.push(EventRecord {
+            key: EventKey::new(day, 6, partition_key, seq as u64),
             event: Event::StateTransition(StateTransitionEvent::WorkResolved {
                 group_id: resolution.group_id,
                 agent_id: a.agent_id,
                 requested_harvest: a.requested_harvest,
                 allocated_harvest: a.allocated_harvest,
             }),
-        })
-        .collect()
+        });
+    }
+    events
 }
 
 /// Constructs canonical Phase 6B FoodTransferred events from a completed targeted resolution.
@@ -455,35 +452,28 @@ pub fn events_from_targeted_resolution(
     day: u32,
     resolution: &SettlementTargetedResolution,
 ) -> Vec<EventRecord> {
-    resolution
-        .resolutions
-        .iter()
-        .enumerate()
-        .map(|(seq, r)| {
-            let (amount, success) = match r.outcome {
-                TargetedOutcome::Applied { amount } => (amount, true),
-                TargetedOutcome::TheftFailed
-                | TargetedOutcome::ZeroTarget
-                | TargetedOutcome::InitiatorIneligible
-                | TargetedOutcome::TargetIneligible => (0.0, false),
-            };
+    let mut events = Vec::with_capacity(resolution.resolutions.len());
+    let partition_key = partition_key_from_group(resolution.group_id);
+    for (seq, r) in resolution.resolutions.iter().enumerate() {
+        let (amount, success) = match r.outcome {
+            TargetedOutcome::Applied { amount } => (amount, true),
+            TargetedOutcome::TheftFailed
+            | TargetedOutcome::ZeroTarget
+            | TargetedOutcome::InitiatorIneligible
+            | TargetedOutcome::TargetIneligible => (0.0, false),
+        };
 
-            EventRecord {
-                key: EventKey::new(
-                    day,
-                    6,
-                    partition_key_from_group(resolution.group_id),
-                    seq as u64,
-                ),
-                event: Event::StateTransition(StateTransitionEvent::FoodTransferred {
-                    group_id: resolution.group_id,
-                    initiator_agent_id: r.initiator_agent_id,
-                    target_agent_id: r.target_agent_id,
-                    action_kind: r.action_kind,
-                    amount,
-                    success,
-                }),
-            }
-        })
-        .collect()
+        events.push(EventRecord {
+            key: EventKey::new(day, 6, partition_key, seq as u64),
+            event: Event::StateTransition(StateTransitionEvent::FoodTransferred {
+                group_id: resolution.group_id,
+                initiator_agent_id: r.initiator_agent_id,
+                target_agent_id: r.target_agent_id,
+                action_kind: r.action_kind,
+                amount,
+                success,
+            }),
+        });
+    }
+    events
 }
