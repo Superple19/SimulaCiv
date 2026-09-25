@@ -23,7 +23,7 @@ use crate::events::{
     phase11_flush_events,
 };
 use crate::features::{AgentFeatures, Phase3Error, phase3_observation_and_features_into};
-use crate::intents::{IntentError, phase4_generate_intents};
+use crate::intents::{Intent, IntentError, phase4_generate_intents_into};
 use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe};
 use crate::partitioning::{Phase5Error, phase5_partition_intents};
 use crate::phases::{
@@ -220,6 +220,7 @@ pub fn run_m0_day(
 ) -> Result<DayOutcome, M0RunError> {
     let mut features_scratch = Vec::with_capacity(world.agents.len());
     let mut choices_scratch = Vec::with_capacity(world.agents.len());
+    let mut intents_scratch = Vec::with_capacity(world.agents.len());
     run_m0_day_with_scratch(
         world,
         config,
@@ -227,11 +228,12 @@ pub fn run_m0_day(
         options,
         &mut features_scratch,
         &mut choices_scratch,
+        &mut intents_scratch,
     )
 }
 
 /// Executes exactly one full deterministic simulation day (Phases 1 through 11)
-/// reusing external scratch buffers for Phase 3 features and Phase 4 action choices.
+/// reusing external scratch buffers for Phase 3 features, Phase 4 action choices, and Phase 4 intents.
 ///
 /// Execution rules:
 /// 1. Captures `executed_day = world.current_day`.
@@ -251,6 +253,7 @@ pub fn run_m0_day_with_scratch(
     options: &DayExecutionOptions,
     features_scratch: &mut Vec<AgentFeatures>,
     choices_scratch: &mut Vec<PrimaryActionChoice>,
+    intents_scratch: &mut Vec<Intent>,
 ) -> Result<DayOutcome, M0RunError> {
     // 1. Capture logical day coordinate
     let executed_day = world.current_day.as_u32();
@@ -277,10 +280,10 @@ pub fn run_m0_day_with_scratch(
         features_scratch,
         choices_scratch,
     )?;
-    let intents = phase4_generate_intents(world, &effective_config, choices_scratch)?;
+    phase4_generate_intents_into(world, &effective_config, choices_scratch, intents_scratch)?;
 
     // 7. Phase 5: Locality Partitioning
-    let partitions = phase5_partition_intents(&intents)?;
+    let partitions = phase5_partition_intents(intents_scratch)?;
 
     // 8. Phase 6A: Work Resolution
     let work_resolutions = phase6a_work_resolution(world, &partitions)?;
@@ -429,6 +432,7 @@ pub fn run_m0_days(
     let mut outcomes = Vec::with_capacity(days as usize);
     let mut features_scratch = Vec::with_capacity(world.agents.len());
     let mut choices_scratch = Vec::with_capacity(world.agents.len());
+    let mut intents_scratch = Vec::with_capacity(world.agents.len());
     for _ in 0..days {
         let outcome = run_m0_day_with_scratch(
             world,
@@ -437,6 +441,7 @@ pub fn run_m0_days(
             options,
             &mut features_scratch,
             &mut choices_scratch,
+            &mut intents_scratch,
         )?;
         outcomes.push(outcome);
     }

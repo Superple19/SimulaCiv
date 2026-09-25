@@ -159,7 +159,7 @@ pub fn get_steal_food_candidates(thief: &AgentState, world: &WorldState) -> Vec<
     candidates
 }
 
-/// Generates immutable Intent records for all primary action choices.
+/// Generates immutable Intent records for all primary action choices into a reusable buffer.
 ///
 /// Enforces:
 /// 1. Exactly one choice per behaviorally eligible agent.
@@ -170,18 +170,23 @@ pub fn get_steal_food_candidates(thief: &AgentState, world: &WorldState) -> Vec<
 /// 6. Strict preservation of declared action even with zero quantities or no targets (no-fallback invariant).
 /// 7. Output returned in strictly ascending initiator AgentId order.
 /// 8. Zero mutation of authoritative world state.
-pub fn generate_intents(
+pub fn generate_intents_into(
     world: &WorldState,
     config: &SimConfig,
     choices: &[PrimaryActionChoice],
-) -> Result<Vec<Intent>, IntentError> {
+    out: &mut Vec<Intent>,
+) -> Result<(), IntentError> {
+    out.clear();
     let n = choices.len();
+    if out.capacity() < n {
+        out.reserve(n - out.capacity());
+    }
+
     let mut seen_choice_agents = if n > 32 {
         Some(HashSet::with_capacity(n))
     } else {
         None
     };
-    let mut intents = Vec::with_capacity(n);
 
     for (i, choice) in choices.iter().enumerate() {
         let duplicate = if let Some(ref mut set) = seen_choice_agents {
@@ -289,7 +294,7 @@ pub fn generate_intents(
             },
         };
 
-        intents.push(intent);
+        out.push(intent);
     }
 
     // Enforce exactly one choice for every behaviorally eligible agent in world.agents
@@ -307,8 +312,22 @@ pub fn generate_intents(
     }
 
     // Canonical output ordering: strictly ascending initiator AgentId
-    intents.sort_by_key(|i| i.agent_id());
+    out.sort_by_key(|i| i.agent_id());
+    Ok(())
+}
+
+/// Generates immutable Intent records for all primary action choices.
+///
+/// Allocates a new vector and delegates to [`generate_intents_into`].
+pub fn generate_intents(
+    world: &WorldState,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+) -> Result<Vec<Intent>, IntentError> {
+    let mut intents = Vec::with_capacity(choices.len());
+    generate_intents_into(world, config, choices, &mut intents)?;
     Ok(intents)
 }
 
 pub use generate_intents as phase4_generate_intents;
+pub use generate_intents_into as phase4_generate_intents_into;
