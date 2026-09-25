@@ -1,7 +1,7 @@
 use crate::intents::Intent;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 /// Grouped collection of immutable intents belonging to a single settlement locality.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,25 +49,53 @@ pub fn phase5_partition_intents(
         return Ok(Vec::new());
     }
 
+    // 1. Detect duplicate initiators in exact input order
     let mut seen_initiators = HashSet::with_capacity(intents.len());
-    let mut buckets: BTreeMap<GroupId, Vec<Intent>> = BTreeMap::new();
-
     for intent in intents {
         let initiator = intent.agent_id();
         if !seen_initiators.insert(initiator) {
             return Err(Phase5Error::DuplicateInitiator(initiator));
         }
-
-        let group_id = intent.group_id();
-        buckets.entry(group_id).or_default().push(intent.clone());
     }
 
-    let mut partitions = Vec::with_capacity(buckets.len());
-    for (group_id, mut partition_intents) in buckets {
-        partition_intents.sort_by_key(|i| i.agent_id());
+    // 2. Collect and sort contiguous intents once by (GroupId ascending, AgentId ascending)
+    let mut sorted_intents = intents.to_vec();
+    sorted_intents.sort_by(|a, b| {
+        a.group_id()
+            .cmp(&b.group_id())
+            .then_with(|| a.agent_id().cmp(&b.agent_id()))
+    });
+
+    // 3. Form partitions contiguously without BTreeMap or per-bucket sorting
+    let mut partitions = Vec::new();
+    let mut current_group: Option<GroupId> = None;
+    let mut current_intents: Vec<Intent> = Vec::new();
+
+    for intent in sorted_intents {
+        let gid = intent.group_id();
+        match current_group {
+            Some(curr) if curr == gid => {
+                current_intents.push(intent);
+            }
+            Some(curr) => {
+                partitions.push(SettlementIntentPartition {
+                    group_id: curr,
+                    intents: std::mem::take(&mut current_intents),
+                });
+                current_group = Some(gid);
+                current_intents.push(intent);
+            }
+            None => {
+                current_group = Some(gid);
+                current_intents.push(intent);
+            }
+        }
+    }
+
+    if let Some(curr) = current_group {
         partitions.push(SettlementIntentPartition {
-            group_id,
-            intents: partition_intents,
+            group_id: curr,
+            intents: current_intents,
         });
     }
 
