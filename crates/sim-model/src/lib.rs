@@ -50,14 +50,15 @@ pub use intents::{
     phase4_generate_intents,
 };
 pub use metrics::{
-    DailyMetrics, Phase10Error, phase10_metrics, phase10_metrics_observation, phase10_observe,
-    phase10_observe_with_config,
+    DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, phase10_metrics,
+    phase10_metrics_observation, phase10_observe, phase10_observe_with_config,
 };
 pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
 pub use phases::{
     MortalityResolution, Phase9Error, Phase9MortalityResolution, execute_phases_1_and_2,
-    phase1_resource_regrowth, phase2_biological_degradation, phase9_mortality_commitment,
-    phase9_mortality_commitment_with_config, phase9_mortality_resolution,
+    phase1_resource_regrowth, phase2_biological_degradation, phase2_biological_degradation_dynamic,
+    phase9_mortality_commitment, phase9_mortality_commitment_with_config,
+    phase9_mortality_resolution, update_biological_degradation,
 };
 pub use resolution::{
     BuyerMarketResolution, Phase6AError, Phase6BError, Phase7Error, Phase8Error,
@@ -78,5 +79,5 @@ pub use snapshot::{
     SnapshotMetadata, decode_snapshot, encode_snapshot, phase11_snapshot_if_boundary,
     restore_snapshot,
 };
-pub use state::{AgentState, SettlementState, WorldState};
+pub use state::{AgentDynamicState, AgentState, SettlementState, WorldState};
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};

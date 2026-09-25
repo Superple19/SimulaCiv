@@ -8,7 +8,7 @@
 //!
 //! All operations are strictly read-only on `WorldState`, guaranteeing observer independence.
 
-use crate::state::{AgentState, SettlementState, WorldState};
+use crate::state::{AgentDynamicState, AgentState, SettlementState, WorldState};
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, Money};
 use std::collections::HashSet;
@@ -127,22 +127,22 @@ pub fn phase10_observe(world: &WorldState, day: u32) -> Result<DailyMetrics, Pha
         }
     }
 
-    // 2. Canonical living agents: ascending AgentId
-    let mut alive_agents: Vec<&AgentState> = Vec::with_capacity(world.agents.len());
+    // 2. Canonical living agents: ascending AgentId using compact dynamic state
+    let mut alive_dynamics: Vec<AgentDynamicState> = Vec::with_capacity(world.agents.len());
     for a in &world.agents {
         if a.alive {
-            alive_agents.push(a);
+            alive_dynamics.push(AgentDynamicState::from_agent(a));
         }
     }
-    alive_agents.sort_by_key(|a| a.agent_id);
+    alive_dynamics.sort_unstable_by_key(|d| d.agent_id);
 
     // 3. Population: u64 count of alive agents
-    let population = alive_agents.len() as u64;
+    let population = alive_dynamics.len() as u64;
 
     // 4. Total food reserves: sequential f64 sum in ascending AgentId order
     let mut total_food_reserves = 0.0_f64;
-    for a in &alive_agents {
-        total_food_reserves += a.food as f64;
+    for d in &alive_dynamics {
+        total_food_reserves += d.food as f64;
     }
     if !total_food_reserves.is_finite() {
         return Err(Phase10Error::InvariantViolation(
@@ -163,7 +163,7 @@ pub fn phase10_observe(world: &WorldState, day: u32) -> Result<DailyMetrics, Pha
     }
 
     // 6. Wealth Gini
-    let wealth_gini = compute_wealth_gini(&mut alive_agents)?;
+    let wealth_gini = compute_wealth_gini_dynamic(&mut alive_dynamics)?;
 
     Ok(DailyMetrics {
         day,
@@ -189,7 +189,7 @@ pub fn phase10_observe_with_config(
 }
 
 /// Computes the wealth Gini coefficient for alive agents according to the exact M0 reference semantics.
-fn compute_wealth_gini(alive_agents: &mut [&AgentState]) -> Result<f64, Phase10Error> {
+pub fn compute_wealth_gini(alive_agents: &mut [&AgentState]) -> Result<f64, Phase10Error> {
     let n = alive_agents.len() as u128;
     if n == 0 {
         return Ok(0.0);
@@ -208,6 +208,68 @@ fn compute_wealth_gini(alive_agents: &mut [&AgentState]) -> Result<f64, Phase10E
 
     // Sort by (wealth ascending, AgentId ascending) in place without allocation
     alive_agents.sort_by_key(|a| (a.wealth, a.agent_id));
+
+    let mut weighted_sum: u128 = 0;
+    for (idx, a) in alive_agents.iter().enumerate() {
+        let rank = (idx as u128) + 1; // 1-indexed: 1..=n
+        let x_i = a.wealth as u128;
+        let term = rank
+            .checked_mul(x_i)
+            .ok_or(Phase10Error::ArithmeticOverflow)?;
+        weighted_sum = weighted_sum
+            .checked_add(term)
+            .ok_or(Phase10Error::ArithmeticOverflow)?;
+    }
+
+    let two_w = weighted_sum
+        .checked_mul(2)
+        .ok_or(Phase10Error::ArithmeticOverflow)?;
+    let n_plus_one_s = (n + 1)
+        .checked_mul(sum_x)
+        .ok_or(Phase10Error::ArithmeticOverflow)?;
+
+    if two_w < n_plus_one_s {
+        return Err(Phase10Error::InvariantViolation(
+            "2*W < (n+1)*S in Gini calculation".into(),
+        ));
+    }
+
+    let numerator = two_w - n_plus_one_s;
+    let denominator = n
+        .checked_mul(sum_x)
+        .ok_or(Phase10Error::ArithmeticOverflow)?;
+
+    let gini = (numerator as f64) / (denominator as f64);
+    if !gini.is_finite() || !(0.0..=1.0).contains(&gini) {
+        return Err(Phase10Error::InvalidGini(gini));
+    }
+
+    Ok(gini)
+}
+
+/// Computes the wealth Gini coefficient for alive agents from their compact dynamic state slice
+/// according to the exact M0 reference semantics.
+pub fn compute_wealth_gini_dynamic(
+    alive_agents: &mut [AgentDynamicState],
+) -> Result<f64, Phase10Error> {
+    let n = alive_agents.len() as u128;
+    if n == 0 {
+        return Ok(0.0);
+    }
+
+    let mut sum_x: u128 = 0;
+    for a in alive_agents.iter() {
+        sum_x = sum_x
+            .checked_add(a.wealth as u128)
+            .ok_or(Phase10Error::ArithmeticOverflow)?;
+    }
+
+    if sum_x == 0 {
+        return Ok(0.0);
+    }
+
+    // Sort by (wealth ascending, AgentId ascending) in place on contiguous dynamic structs
+    alive_agents.sort_unstable_by_key(|a| (a.wealth, a.agent_id));
 
     let mut weighted_sum: u128 = 0;
     for (idx, a) in alive_agents.iter().enumerate() {

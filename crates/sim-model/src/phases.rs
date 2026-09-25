@@ -20,6 +20,40 @@ pub fn phase1_resource_regrowth(world: &mut WorldState, config: &SimConfig) {
     }
 }
 
+/// Updates a single agent's dynamic state fields under Phase 2 biological degradation rules.
+#[inline]
+pub fn update_biological_degradation(
+    health: &mut f32,
+    food: &mut f32,
+    alive: bool,
+    f_metabolic: f32,
+    decay_rate: f32,
+) {
+    if !alive {
+        return;
+    }
+
+    let f_consumed = (*food).min(f_metabolic);
+    let f_deficit = f_metabolic - f_consumed;
+    let health_delta = -decay_rate * f_deficit;
+
+    *food = (*food - f_consumed).max(0.0);
+    *health = (*health + health_delta).clamp(0.0, 1.0);
+}
+
+/// Executes Phase 2: Biological Degradation on a contiguous slice of [`AgentDynamicState`].
+pub fn phase2_biological_degradation_dynamic(
+    dynamics: &mut [crate::state::AgentDynamicState],
+    config: &SimConfig,
+) {
+    let f_metabolic = config.environment.base_metabolic_cost;
+    let decay_rate = config.environment.health_decay_rate;
+
+    for dynamic in dynamics {
+        dynamic.degrade(f_metabolic, decay_rate);
+    }
+}
+
 /// Executes Phase 2: Biological Degradation for each living agent.
 ///
 /// For each agent with `alive == true`:
@@ -37,16 +71,13 @@ pub fn phase2_biological_degradation(world: &mut WorldState, config: &SimConfig)
     let decay_rate = config.environment.health_decay_rate;
 
     for agent in &mut world.agents {
-        if !agent.alive {
-            continue;
-        }
-
-        let f_consumed = agent.food.min(f_metabolic);
-        let f_deficit = f_metabolic - f_consumed;
-        let health_delta = -decay_rate * f_deficit;
-
-        agent.food = (agent.food - f_consumed).max(0.0);
-        agent.health = (agent.health + health_delta).clamp(0.0, 1.0);
+        update_biological_degradation(
+            &mut agent.health,
+            &mut agent.food,
+            agent.alive,
+            f_metabolic,
+            decay_rate,
+        );
     }
 }
 
