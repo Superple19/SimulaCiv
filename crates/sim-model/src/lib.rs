@@ -12,6 +12,7 @@ pub mod metrics;
 pub mod partitioning;
 pub mod phases;
 pub mod resolution;
+pub mod runner;
 pub mod snapshot;
 pub mod state;
 pub mod subsystems;
@@ -67,6 +68,10 @@ pub use resolution::{
     phase7_market_clearance, phase7_market_clearance_with_config, phase7_market_resolution,
     phase8_welfare_distribution, phase8_welfare_distribution_with_config,
     phase8_welfare_distribution_with_subconfigs, phase8_welfare_resolution,
+};
+pub use runner::{
+    DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, DayOutcome, M0RunContext,
+    M0RunError, run_m0_day, run_m0_days,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,
