@@ -42,6 +42,7 @@ use sim_model::runner::{
 };
 use sim_model::snapshot::{SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot};
 use sim_model::state::{AgentDynamicSoAScratch, WorldState};
+use sim_model::storage::SegmentedAgentStorage;
 use sim_model::{SimConfig, initialize_world};
 
 const GATE_CONFIG_TOML: &str = r#"
@@ -957,6 +958,133 @@ fn measure_hot_path_soa_expansion(base_config: &SimConfig, context: &M0RunContex
     }
 }
 
+fn measure_segmented_soa_storage(base_config: &SimConfig, context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-18 Segmented SoA Storage Architecture POC Benchmark");
+    println!("=================================================================");
+
+    // Part 1: Hash Equivalence Validation
+    println!("\nPart 1: Canonical State Hash Equivalence Verification");
+    {
+        let world = initialize_world(base_config).expect("world init succeeds");
+        let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+
+        let hash_orig = canonical_state_hash(&world).unwrap().to_hex();
+        let hash_seg_direct = segmented
+            .canonical_state_hash(world.current_day, &world.settlements)
+            .unwrap()
+            .to_hex();
+        let reconstructed_world = segmented.to_world_state(
+            world.current_day,
+            world.settlements.clone(),
+            world.initial_money_supply,
+        );
+        let hash_seg_reconstructed = canonical_state_hash(&reconstructed_world).unwrap().to_hex();
+
+        println!("CanonicalStateHash (Original AoS):         {}", hash_orig);
+        println!(
+            "CanonicalStateHash (Segmented Direct):     {}",
+            hash_seg_direct
+        );
+        println!(
+            "CanonicalStateHash (Reconstructed World):  {}",
+            hash_seg_reconstructed
+        );
+
+        assert_eq!(
+            hash_orig, hash_seg_direct,
+            "Direct segmented state hash mismatch!"
+        );
+        assert_eq!(
+            hash_orig, hash_seg_reconstructed,
+            "Reconstructed state hash mismatch!"
+        );
+        println!("CANONICAL STATE HASH EQUIVALENCE: 100% BIT-EXACT MATCH PASSED.");
+    }
+
+    // Part 2: Phase 2 Execution Comparison across Populations (50 Days)
+    println!("\nPart 2: Phase 2 Execution Path Comparison (50 Days)");
+    println!(
+        "{:<8} | {:>14} | {:>14} | {:>14} | {:>10} | {:>10}",
+        "Pop (N)", "A: In-place AoS", "B: Ephemeral SoA", "C: Segmented SoA", "C vs A", "C vs B"
+    );
+    println!("{:-<84}", "");
+
+    let populations = [100, 250, 500, 1000];
+    let days = 50;
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let mut world = match initialize_world(&cfg) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+
+        // Advance 25 days to reach active dynamic state
+        for _ in 0..25 {
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, &cfg, context, &opts).unwrap();
+        }
+
+        let mut t_aos = Duration::ZERO;
+        let mut t_ephemeral = Duration::ZERO;
+        let mut t_segmented = Duration::ZERO;
+
+        let mut scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
+        let mut segmented = SegmentedAgentStorage::from_agents(&world.agents);
+
+        let f_metabolic = cfg.environment.base_metabolic_cost;
+        let decay_rate = cfg.environment.health_decay_rate;
+
+        for _ in 0..days {
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, &cfg, context, &opts).unwrap();
+
+            // Path A: In-place AoS
+            let mut w_a = world.clone();
+            let t0 = Instant::now();
+            phase2_biological_degradation(&mut w_a, &cfg);
+            t_aos += t0.elapsed();
+
+            // Path B: Ephemeral SoA (collect + update + writeback)
+            let mut w_b = world.clone();
+            let t0 = Instant::now();
+            phase2_biological_degradation_with_scratch(&mut w_b, &cfg, &mut scratch);
+            t_ephemeral += t0.elapsed();
+
+            // Path C: Segmented SoA Native (zero conversion tax)
+            segmented.sync_from_agents(&world.agents);
+            let t0 = Instant::now();
+            segmented.phase2_biological_degradation(f_metabolic, decay_rate);
+            t_segmented += t0.elapsed();
+        }
+
+        let us_aos = (t_aos.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_ephemeral = (t_ephemeral.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_segmented = (t_segmented.as_nanos() as f64) / (days as f64) / 1000.0;
+
+        let speedup_c_a = us_aos / us_segmented;
+        let speedup_c_b = us_ephemeral / us_segmented;
+
+        println!(
+            "{:<8} | {:>11.2} us | {:>11.2} us | {:>11.2} us | {:>9.2}x | {:>9.2}x",
+            pop, us_aos, us_ephemeral, us_segmented, speedup_c_a, speedup_c_b
+        );
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -1082,6 +1210,9 @@ fn main() {
 
     // 7. M2-17 Hot Path SoA Expansion Benchmark
     measure_hot_path_soa_expansion(&config, &context);
+
+    // 8. M2-18 Segmented SoA Storage Architecture POC Benchmark
+    measure_segmented_soa_storage(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

@@ -15,6 +15,7 @@ pub mod resolution;
 pub mod runner;
 pub mod snapshot;
 pub mod state;
+pub mod storage;
 pub mod subsystems;
 
 pub use commands::{
@@ -88,4 +89,5 @@ pub use snapshot::{
 pub use state::{
     AgentDynamicSoAScratch, AgentDynamicState, AgentState, SettlementState, WorldState,
 };
+pub use storage::{DemographyStorage, EconomyStorage, PersonalityStorage, SegmentedAgentStorage};
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};
