@@ -1789,14 +1789,13 @@ pub fn phase8_welfare_distribution(
     let mut group_ids: Vec<GroupId> = world.settlements.iter().map(|s| s.group_id).collect();
     group_ids.sort();
 
-    let mut seen_groups = HashSet::new();
-    for &gid in &group_ids {
-        if !seen_groups.insert(gid) {
-            return Err(Phase8Error::DuplicateSettlement(gid));
+    for w in group_ids.windows(2) {
+        if w[0] == w[1] {
+            return Err(Phase8Error::DuplicateSettlement(w[0]));
         }
     }
 
-    let mut seen_agents = HashSet::new();
+    let mut seen_agents = HashSet::with_capacity(world.agents.len());
     for agent in &world.agents {
         if !seen_agents.insert(agent.agent_id) {
             return Err(Phase8Error::DuplicateAgent(agent.agent_id));
@@ -1998,30 +1997,28 @@ pub fn phase8_welfare_distribution(
     }
 
     // Stage B: Atomic commit across all settlements
-    for plan in &planned_settlements {
+    let mut resolutions = Vec::with_capacity(planned_settlements.len());
+    for plan in planned_settlements {
         if plan.total_distributed > 0 || !plan.recipient_updates.is_empty() {
             let cmd = Command::WelfareDistribution {
                 group_id: plan.group_id,
-                recipient_updates: plan.recipient_updates.clone(),
+                recipient_updates: plan.recipient_updates,
                 treasury_debit: plan.total_distributed,
             };
             cmd.execute(world)?;
         }
-    }
 
-    let resolutions = planned_settlements
-        .into_iter()
-        .map(|p| SettlementWelfareResolution {
-            group_id: p.group_id,
-            treasury_before: p.treasury_before,
-            treasury_after: p.treasury_after,
-            eligible_count: p.eligible_count,
-            payment_per_agent: p.payment_per_agent,
-            remainder: p.remainder,
-            total_distributed: p.total_distributed,
-            recipients: p.recipients,
-        })
-        .collect();
+        resolutions.push(SettlementWelfareResolution {
+            group_id: plan.group_id,
+            treasury_before: plan.treasury_before,
+            treasury_after: plan.treasury_after,
+            eligible_count: plan.eligible_count,
+            payment_per_agent: plan.payment_per_agent,
+            remainder: plan.remainder,
+            total_distributed: plan.total_distributed,
+            recipients: plan.recipients,
+        });
+    }
 
     Ok(resolutions)
 }
