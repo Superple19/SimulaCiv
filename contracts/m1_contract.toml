@@ -1,0 +1,257 @@
+# contracts/m1_contract.toml
+#
+# Machine-readable projection of mechanically verifiable M1 contract values.
+# This file does not supersede docs/contracts/M1_CONTRACT_FREEZE.md.
+# Semantic changes require the M1 contract-amendment procedure.
+
+[manifest]
+schema_version = 1
+contract_version = "M1"
+semantic_authority = "docs/contracts/M1_CONTRACT_FREEZE.md"
+freeze_commit = "1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab"
+reference_runtime = "M0"
+
+[[phase]]
+id = "1"
+name = "environment_regrowth"
+
+[[phase]]
+id = "2"
+name = "biological_degradation"
+
+[[phase]]
+id = "3"
+name = "feature_extraction"
+
+[[phase]]
+id = "4"
+name = "decision_intent_generation"
+
+[[phase]]
+id = "5"
+name = "locality_partitioning"
+
+[[phase]]
+id = "6A"
+name = "work_resolution"
+
+[[phase]]
+id = "6B"
+name = "targeted_resolution"
+
+[[phase]]
+id = "7"
+name = "market_clearance"
+
+[[phase]]
+id = "8"
+name = "welfare"
+
+[[phase]]
+id = "9"
+name = "mortality_commitment"
+
+[[phase]]
+id = "10"
+name = "metrics_observation"
+
+[[phase]]
+id = "11"
+name = "snapshot_event_flush"
+
+[action_codes]
+work = 0
+buy_food = 1
+sell_food = 2
+give_food = 3
+steal_food = 4
+idle = 5
+
+[rng]
+coordinate_fields = [
+  "master_seed",
+  "replicate_id",
+  "day",
+  "phase",
+  "subsystem_id",
+  "agent_id",
+  "draw_index",
+]
+
+[rng.subsystems]
+initialization = 0
+decision = 1
+theft_target = 2
+mutual_aid_target = 3
+theft_success = 4
+resolution_priority = 5
+
+[rng.f32_conversion]
+upper_bit_shift = 40
+mantissa_bits = 24
+divisor = 16777216
+
+[[rng.golden]]
+name = "zero_coordinate"
+master_seed = "0x0000000000000000"
+replicate_id = 0
+day = 0
+phase = 0
+subsystem_id = 0
+agent_id = 0
+draw_index = 0
+expected_u64 = "0x1957a7604e215178"
+
+[[rng.golden]]
+name = "master_seed_1"
+master_seed = "0x0000000000000001"
+replicate_id = 0
+day = 0
+phase = 0
+subsystem_id = 0
+agent_id = 0
+draw_index = 0
+expected_u64 = "0x2aa9cfa61473238e"
+
+[[rng.golden]]
+name = "pattern_seed"
+master_seed = "0x0123456789abcdef"
+replicate_id = 0
+day = 0
+phase = 0
+subsystem_id = 0
+agent_id = 0
+draw_index = 0
+expected_u64 = "0x7cd5081854be7f81"
+
+[[rng.golden]]
+name = "mid_simulation"
+master_seed = "0x0123456789abcdef"
+replicate_id = 7
+day = 123
+phase = 4
+subsystem_id = 1
+agent_id = 42
+draw_index = 0
+expected_u64 = "0x99a401447e7d75dc"
+
+[[rng.golden]]
+name = "theft_target"
+master_seed = "0xdeadbeefcafebabe"
+replicate_id = 3
+day = 999
+phase = 4
+subsystem_id = 2
+agent_id = 123456
+draw_index = 1
+expected_u64 = "0x76397dab79ddd38b"
+
+[[rng.golden]]
+name = "boundary_max_values"
+master_seed = "0xffffffffffffffff"
+replicate_id = 4294967295
+day = 4294967295
+phase = 11
+subsystem_id = 5
+agent_id = 4294967295
+draw_index = 4294967295
+expected_u64 = "0xfa2454cf03d537e6"
+
+[snapshot]
+magic_ascii = "SIMCIVM0"
+schema_version = 1
+resume_day_offset = 1
+dense_slot_canonical = false
+agent_fields = [
+  "agent_id",
+  "alive",
+  "birth_day",
+  "health",
+  "food",
+  "wealth",
+  "productivity",
+  "cooperation",
+  "aggression",
+  "risk_tolerance",
+  "group_id",
+]
+settlement_fields = [
+  "group_id",
+  "resource",
+  "treasury",
+]
+
+[event_key]
+day_type = "u32"
+phase_type = "u8"
+partition_key_type = "u64"
+local_sequence_type = "u64"
+ordering = "lexicographic_ascending"
+global_partition_key = "0xffffffffffffffff"
+
+[event.category_tags]
+state_transition = 0
+observation = 1
+
+[event.state_transition_tags]
+work_resolved = 0
+food_transferred = 1
+market_cleared = 2
+welfare_distributed = 3
+mortality_committed = 4
+
+[event.observation_tags]
+daily_metrics_observed = 0
+snapshot_emitted = 1
+
+[event.food_transfer_action_codes]
+give_food = 3
+steal_food = 4
+
+[canonical.domain_prefixes]
+state = "SIMCIV_STATE_V1"
+metrics = "SIMCIV_METRICS_V1"
+events = "SIMCIV_EVENTS_V1"
+
+[canonical.hash]
+algorithm = "sha256"
+hex_case = "lower"
+
+[canonical.state]
+dense_slot_included = false
+snapshot_metadata_included = false
+physical_storage_order_semantic = false
+
+[canonical.metrics]
+sort_key = "day"
+
+[canonical.events]
+sort_key = "event_key"
+
+[fixed_vectors.state]
+byte_length = 84
+preimage_hex = "53494d4349565f53544154455f563101000000010000002a00000001000000000000803f0000204164000000000000000000803f0000003fcdcccc3dcdcc4c3e07000100000007000000fa43e803000000000000"
+sha256 = "df23dfb04459b91e3d34432897bcc4cdbaa3973b832ae93311dc4b7918da77c4"
+
+[fixed_vectors.metrics]
+byte_length = 57
+preimage_hex = "53494d4349565f4d4554524943535f563101000000010000006400000000000000000000000000d03f00000000007097408813000000000000"
+sha256 = "92589a21bf9cbec1dbdc910e4040d1d9f8ce46c8c669d4ec29de8f08728b6581"
+
+[fixed_vectors.events]
+byte_length = 84
+preimage_hex = "53494d4349565f4556454e54535f563102000000010000000800000000000000000000000000000000000300002a00000019000000000000000100000009ffffffffffffffff0000000000000000000463000000"
+sha256 = "8b8882d12434930e8f2e7dddf36e2cf8e7c36f4911e8a1d3d87a1b9444d07b17"
+
+[graduation]
+master_seed = "81985529216486895"
+replicate_id = 7
+initial_population = 10
+settlement_count = 2
+total_days = 500
+snapshot_occurrence_day = 199
+snapshot_resume_day = 200
+
+state_sha256 = "5b396f23a8195fd7155a7b9577b0eaca265e59768a81f0cafd8ab68c0d9d67b9"
+metrics_sha256 = "ffbadbfda9bba1f799d4e72eac222e4e58deca4905ee8447a44ece8cec3baa3b"
+events_sha256 = "2a40e01a7cd0b981eba037a14cf2f40c748ae0ff9e0df290ed802ba8b0c51cac"

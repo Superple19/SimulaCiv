@@ -213,18 +213,18 @@ Verified by independent Python-backed vectors in `crates/sim-model/tests/determi
     ```
 
 ### 5.3 M0-16B 500-Day Graduation Trajectory Hashes
-Generated from the canonical fixture (`MasterSeed = 81985529216486895`, `ReplicateId = 7`, initial population = 10, settlement count = 2) under `crates/sim-model/tests/m0_determinism_gate_tests.rs`:
+Graduation hashes are generated from the executable M0 reference oracle using the frozen M0-16B fixture (`MasterSeed = 81985529216486895`, `ReplicateId = 7`, initial population = 10, settlement count = 2) under `crates/sim-model/tests/m0_determinism_gate_tests.rs`. This reconciliation records the authoritative outputs of the M0 reference model rather than amending simulation semantics:
 - **Final `CanonicalStateHash` (Day 500)**:
   ```text
-  b450702d1a3c7fa68b753b2be03cbe3112d7c570535352c8b8744dd2589363a0
+  5b396f23a8195fd7155a7b9577b0eaca265e59768a81f0cafd8ab68c0d9d67b9
   ```
 - **Final `CanonicalMetricsHash` (Days 0..499)**:
   ```text
-  ee82103f6ebecdb57d77b55f190eec26ae026a35043bf7c327ffbbd688cf0696
+  ffbadbfda9bba1f799d4e72eac222e4e58deca4905ee8447a44ece8cec3baa3b
   ```
 - **Final `CanonicalEventHash` (Cumulative Event Batch)**:
   ```text
-  d14cb358215ea78d46152a55928d3ef71168f6381014e3e3bdf8fa87c8d93e83
+  2a40e01a7cd0b981eba037a14cf2f40c748ae0ff9e0df290ed802ba8b0c51cac
   ```
 
 ---
@@ -285,3 +285,13 @@ After this M1 freeze, any change that modifies:
 5. **M2 Alignment**: Implement the amended contract in M2 and verify differential equivalence against updated M0.
 
 No semantic amendment may be introduced as an "optimization" during M2 development.
+
+---
+
+## 9. Machine-Readable Manifest Projection
+
+The machine-readable manifest at [`contracts/m1_contract.toml`](file:///c:/AI/SimulaCiv/contracts/m1_contract.toml) projects mechanically verifiable frozen contract constants, tags, fixed vectors, and oracle fixtures for automated CI and differential verification.
+
+- The TOML manifest does **not** supersede this document.
+- This document remains the authoritative semantic contract.
+- Any modification to the TOML manifest that alters semantic meaning or contract values requires the formal **Contract Amendment Procedure** (§8).
