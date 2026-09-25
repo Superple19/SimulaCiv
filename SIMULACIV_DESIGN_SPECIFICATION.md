@@ -247,7 +247,7 @@ Agents whose `health` reaches $\le 0.0$ during Phase 2 biological degradation im
 To enforce strict, non-drifting financial conservation laws without floating-point rounding errors:
 - **Primitive Definition**: `pub type Money = i64;`
 - **Subunit Scaling**: $1.000 \text{ Currency Unit} = 1,000 \text{ Subunits}$.
-- **Rounding Policy**: Integer division truncates towards zero; remaining fractional pennies in tax/trade clearance are systematically routed to the settlement civic treasury.
+- **Rounding Policy**: Integer division truncates towards zero. In general institutional accounting, remaining fractional pennies are routed to the settlement civic treasury; however, for Phase 7 market pool clearance, the explicit seller-proceeds reconciliation rule in §6.6 takes strict precedence (integer rounding difference is reconciled entirely among participating sellers, while the treasury receives exactly `tax_withheld`).
 - **Overflow Policy**: All financial operations must use checked arithmetic (`checked_add`, `checked_sub`). Arithmetic overflow triggers a fatal engine panic.
 - **Non-Negative Wealth Invariant**: Debt and credit facilities are excluded in the M0 baseline; an agent's wealth balance must satisfy $\text{wealth} \ge 0$ and settlement treasury must satisfy $\text{Treasury} \ge 0$ at all times. Any transaction attempting to reduce wealth or treasury below zero triggers an invariant panic.
 - **Global Currency Conservation Invariant**:
@@ -332,6 +332,144 @@ All subsequent pool clearance calculations operate strictly on $\text{effective\
 - **Financial Balance Invariant**:
   $$\sum_i \text{debit}_i = \sum_j \text{seller\_net}_j + \text{tax\_withheld}$$
 - **Order Expiration**: Unmatched buy or sell quantities expire at day end; there is zero order carry-over across days.
+
+#### Phase 7 Numeric Evaluation Contract
+
+To guarantee bitwise-identical trajectory reproduction across implementations, Phase 7 market clearance adheres to the following deterministic numeric evaluation rules:
+
+1. **Canonical Participant Order**:
+   - Before all Phase 7 aggregation, buyers and sellers are ordered strictly by ascending stable `AgentId`.
+   - This canonical order strictly governs:
+     - total effective demand accumulation
+     - total effective supply accumulation
+     - buyer debit accumulation
+     - seller base-proceeds accumulation
+     - integer proceeds-balance reconciliation
+     - command commit and report ordering
+   - Runtime `DenseSlot` indices, physical `Vec` ordering, memory layouts, and host thread scheduling are non-semantic.
+
+2. **Continuous Food Arithmetic**:
+   - All market food quantities remain `f32`.
+   - Operations must evaluate ordinary single-precision IEEE 754 `f32` arithmetic only.
+   - Do not use `mul_add` (FMA), SIMD reductions, compensated summation (Kahan), or intermediate `f64` for food-pool allocation.
+   - Canonical accumulation is strictly sequential in ascending `AgentId` order:
+     $$\text{total\_effective\_demand} = \sum_{i} \text{effective\_demand}_i$$
+     $$\text{total\_effective\_supply} = \sum_{j} \text{effective\_supply}_j$$
+   - In sufficient supply ($\text{total\_effective\_supply} \ge \text{total\_effective\_demand}$):
+     $$\text{seller\_share}_j = \frac{\text{effective\_supply}_j}{\text{total\_effective\_supply}}$$
+     $$\text{sold}_j = \text{seller\_share}_j \times \text{total\_effective\_demand}$$
+     $$\text{bought}_i = \text{effective\_demand}_i$$
+   - In supply deficit ($\text{total\_effective\_supply} < \text{total\_effective\_demand}$):
+     $$\text{buyer\_share}_i = \frac{\text{effective\_demand}_i}{\text{total\_effective\_demand}}$$
+     $$\text{bought}_i = \text{buyer\_share}_i \times \text{total\_effective\_supply}$$
+     $$\text{sold}_j = \text{effective\_supply}_j$$
+   - These exact evaluation sequences and operand orders must be preserved.
+
+3. **Buyer Affordability**:
+   - `food_price` ($P_{\text{food}}$) is positive integer `Money`.
+   - With non-negative buyer wealth, maximum affordable integer units are evaluated via integer division:
+     $$\text{max\_affordable\_units}_i = \lfloor \frac{\text{buyer}_i.\text{wealth}}{P_{\text{food}}} \rfloor = \text{buyer}_i.\text{wealth} / P_{\text{food}}$$
+   - Then:
+     $$\text{max\_affordable\_food}_i = \text{max\_affordable\_units}_i \text{ as } f32$$
+     $$\text{effective\_demand}_i = \min(\text{requested\_demand}_i, \text{max\_affordable\_food}_i)$$
+   - No fractional-credit, margin, or debt facilities are introduced; buyers with $\text{buyer}_i.\text{wealth} < P_{\text{food}}$ or $\text{effective\_demand}_i = 0.0$ cannot participate in market clearance.
+
+4. **Monetary Conversion Boundary**:
+   - Whenever a non-negative `f32` market quantity or rate is converted into integer `Money`, widen the already-computed `f32` value to `f64` first and perform the Money-valued multiplication in `f64`.
+   - **Buyer Debit**:
+     Evaluate exactly:
+     $$\text{gross\_f64}_i = (\text{bought}_i \text{ as } f64) \times (P_{\text{food}} \text{ as } f64)$$
+     $$\text{debit}_i = \lfloor \text{gross\_f64}_i \rfloor \text{ converted to } \text{Money}$$
+     $$\text{TotalRevenue} = \sum_{i} \text{debit}_i$$
+   - **Tax Withholding**:
+     Evaluate exactly:
+     $$\text{tax\_f64} = (\text{TotalRevenue as } f64) \times (\text{tax\_rate as } f64)$$
+     $$\text{tax\_withheld} = \lfloor \text{tax\_f64} \rfloor \text{ converted to } \text{Money}$$
+     $$\text{net\_pool\_proceeds} = \text{TotalRevenue} - \text{tax\_withheld}$$
+   - **Seller Base Proceeds**:
+     Compute the seller share from canonical market `f32` quantities:
+     $$\text{total\_sold} = \sum_{j} \text{sold}_j$$
+     evaluated as the canonical sequential `f32` sum of $\text{sold}_j$ across participating sellers in ascending `AgentId` order (do not independently reinterpret $\text{total\_sold}$ in `f64`). Then:
+     $$\text{seller\_share\_f32}_j = \frac{\text{sold}_j}{\text{total\_sold}}$$
+     $$\text{seller\_base\_f64}_j = (\text{net\_pool\_proceeds as } f64) \times (\text{seller\_share\_f32}_j \text{ as } f64)$$
+     $$\text{seller\_net\_base}_j = \lfloor \text{seller\_base\_f64}_j \rfloor \text{ converted to } \text{Money}$$
+   - Do not recompute market quantities in `f64`. The widening occurs only at the `f32 -> Money` settlement boundary.
+   - All conversions must reject non-finite, negative, or out-of-`Money`-range values rather than saturating.
+
+5. **Money Arithmetic**:
+   - After conversion to `Money`, all financial arithmetic uses checked integer operations (`checked_add`, `checked_sub`, `checked_mul`).
+   - Use checked operations for:
+     - buyer wealth debits
+     - `TotalRevenue` accumulation
+     - tax subtraction
+     - seller proceeds accumulation
+     - seller wealth credits
+     - treasury tax credits
+     - proceeds balance and reconciliation calculations
+   - Any overflow or underflow triggers a fail-fast runtime panic.
+   - Agent wealth and settlement treasury must strictly remain non-negative at all times.
+
+6. **Seller Proceeds Reconciliation Precedence**:
+   - The authoritative Phase 7 seller base proceeds and reconciliation rule is:
+     $$\text{seller\_net\_base}_j = \lfloor (\text{net\_pool\_proceeds as } f64) \times (\text{seller\_share\_f32}_j \text{ as } f64) \rfloor \text{ converted to } \text{Money}$$
+     $$\text{seller\_base\_total} = \sum_{j} \text{seller\_net\_base}_j$$
+     $$\text{proceeds\_balance} = \text{net\_pool\_proceeds} - \text{seller\_base\_total}$$
+     evaluated using checked integer `Money` arithmetic. Because each $\text{seller\_share\_f32}_j$ is independently rounded in $f32$, $\text{proceeds\_balance}$ is a signed integer reconciliation amount that may be positive ($> 0$), zero ($== 0$), or negative ($< 0$).
+   - **Participating Seller Rule**:
+     A seller participates in monetary proceeds and proceeds-balance reconciliation iff:
+     $$\text{sold}_j > 0.0$$
+     Sellers with $\text{sold}_j == 0.0$:
+     - receive $\text{seller\_net\_base}_j = 0$,
+     - are excluded from base proceeds, positive reconciliation, and negative reconciliation,
+     - receive final payout $\text{seller\_net}_j = 0$.
+     The canonical participating-seller sequence is ordered strictly by ascending stable `AgentId`.
+   - **Signed Reconciliation Algorithm**:
+     Initialize $\text{seller\_net}_j = \text{seller\_net\_base}_j$ for all participating sellers.
+     - **Positive Balance ($\text{proceeds\_balance} > 0$)**:
+       Repeatedly add $+1$ `Money` subunit to participating sellers in strictly ascending `AgentId` order, cycling through the ordered participating-seller sequence until $\text{proceeds\_balance} == 0$:
+       ```text
+       while proceeds_balance > 0:
+           for seller in participating_sellers ascending AgentId:
+               seller_net += 1
+               proceeds_balance -= 1
+               if proceeds_balance == 0:
+                   break
+       ```
+     - **Negative Balance ($\text{proceeds\_balance} < 0$)**:
+       Perform deterministic over-allocation correction by repeatedly subtracting $-1$ `Money` subunit from participating sellers in strictly ascending `AgentId` order. A seller whose current $\text{seller\_net}_j == 0$ must be skipped. Continue cycling through the canonical participating-seller sequence until $\text{proceeds\_balance} == 0$:
+       ```text
+       while proceeds_balance < 0:
+           made_progress = false
+           for seller in participating_sellers ascending AgentId:
+               if seller_net > 0:
+                   seller_net -= 1
+                   proceeds_balance += 1
+                   made_progress = true
+               if proceeds_balance == 0:
+                   break
+           if proceeds_balance < 0 && !made_progress:
+               fail fast (invariant violation)
+       ```
+       The $\text{made\_progress} == \text{false}$ condition is a fatal invariant failure. Payouts must never become negative ($\text{seller\_net}_j \ge 0$).
+     - **Zero Balance ($\text{proceeds\_balance} == 0$)**:
+       No reconciliation is performed; $\text{seller\_net}_j = \text{seller\_net\_base}_j$.
+   - **Final Financial Invariant & Precedence**:
+     - After reconciliation, exact financial conservation holds identically:
+       $$\sum_{j} \text{seller\_net}_j = \text{net\_pool\_proceeds}$$
+       $$\text{TotalRevenue} = \sum_{j} \text{seller\_net}_j + \text{tax\_withheld}$$
+     - This §6.6 seller proceeds reconciliation rule takes strict precedence over the generic §6.3 rounding policy.
+     - Treasury receives exactly $\text{tax\_withheld}$; no reconciliation subunit is routed to treasury, and no currency is minted or burned.
+
+7. **Zero-Volume Cases**:
+   - If either:
+     $$\text{total\_effective\_supply} == 0.0 \quad\lor\quad \text{total\_effective\_demand} == 0.0$$
+     then settlement market clearance is a deterministic zero-op:
+     - zero food transfer ($\text{bought}_i = 0.0$, $\text{sold}_j = 0.0$),
+     - zero buyer debit ($\text{debit}_i = 0$),
+     - zero seller proceeds ($\text{seller\_net}_j = 0$),
+     - zero tax withheld ($\text{tax\_withheld} = 0$),
+     - zero treasury change ($\Delta \text{Treasury} = 0$).
+   - No division occurs.
 
 ### 6.7 Theft (StealFood) Semantics
 - Crime in M0 is strictly restricted to **`StealFood`** (wealth theft is not supported in the baseline).
