@@ -233,20 +233,43 @@ Graduation hashes are generated from the executable M0 reference oracle using th
 
 M2 is authorized and expected to implement radical computational and architectural optimizations. The boundary between allowed optimizations and forbidden semantic modifications is strictly defined:
 
-### What M2 is FREE to change:
-1. **Memory Layout**: Transition from `Vec<AgentState>` to Segmented Structure-of-Arrays (SoA), columnar slices, or cache-line-aligned storage blocks.
-2. **Parallel Scheduling**: Multi-threaded execution using Rayon or custom thread pools across settlements or independent partitions.
-3. **Execution Mechanisms**: Replacing single-threaded loops with SIMD vectorization, batch kernels, and work-stealing queues (strictly conditioned on preserving bitwise canonical logical equivalence).
-4. **Temporary Allocations**: Pre-allocated ring buffers, thread-local staging arenas, and zero-allocation scratch spaces.
-5. **Entity Compaction**: Internal non-canonical dense indices, storage slot arrangements, and memory addresses (provided stable `AgentId` mapping is preserved).
+### 6.1 Allowed Optimizations (변경 가능 영역)
+M2 implementations have complete freedom over implementation mechanics, provided bitwise canonical logical equivalence is preserved:
+1. **Internal Memory Layout**: Transition from monolithic `Vec<AgentState>` to Segmented Structure-of-Arrays (SoA), columnar slices, or cache-line-aligned storage blocks.
+2. **DenseSlot Implementation**: Internal storage indexing, slot assignment strategies, and dense mapping representations.
+3. **Cache Structure & Locality Staging**: Thread-local staging arenas, pre-allocated ring buffers, NUMA-aware allocation, and zero-allocation scratch spaces.
+4. **SoA / AoS Layout Transformations**: Transforming data representations between memory-efficient columnar layouts for compute kernels and row-oriented layouts for persistence/inspection.
+5. **Parallel Scheduling**: Multi-threaded execution using Rayon, work-stealing thread pools, or task-based scheduling across settlements or independent partitions.
+6. **SIMD Optimization**: Vectorized arithmetic evaluation (AVX-512, AVX2, NEON) across contiguous trait, metabolic, or feature slices.
 
-### What M2 is FORBIDDEN to change:
-1. **Mathematical Semantics & Reductions**: Regrowth formulas, metabolic costs, trait ranges, Softmax logits, coordinate PRNG bit outputs, pricing math, and wealth Gini rank-weighted integer-sum arithmetic.
-   - **Phase 7 Market Reduction Invariance**: In Phase 7 market clearing, canonical `f32` reductions and operand order are strictly frozen. No reassociation, no fused multiply-add (FMA) that alters precision, no altered reduction tree, and no `f64` reinterpretation of food arithmetic are permitted. Any SIMD implementation or parallelization must produce bitwise identical `f32` totals and buyer/seller allocations to M0's sequential reduction.
-2. **Phase Execution Sequence**: Running phases out of order or allowing cross-phase pipeline overlapping that perturbs read/write boundaries.
-3. **Behavioral Choices**: Overriding agent target selection or intent parameters during resolution.
-4. **Canonical Encodings**: Binary formats for snapshots, event keys, or determinism hash preimages.
-5. **Determinism**: Producing differing `CanonicalStateHash`, `CanonicalMetricsHash`, or `CanonicalEventHash` values on identical initial conditions.
+### 6.2 Strictly Forbidden Semantic Modifications (변경 금지 영역)
+Under no circumstances may an M2 optimization compromise the frozen semantic contracts:
+1. **AgentId Semantics**: `AgentId` represents an immutable, globally unique logical entity identity allocated sequentially at initialization and never reused, reallocated, or compacted across the simulation lifecycle.
+2. **Canonical State Encoding**: Binary layout, field inclusion, domain separator (`"SIMCIV_STATE_V1"`), and strict ascending `AgentId`/`GroupId` sort order of canonical state preimages.
+3. **Event Ordering**: The deterministic total order of simulation events governed by the lexicographical ordering of `EventKey = (day, phase, partition_key, local_sequence)`.
+4. **RNG Coordinate Semantics**: Coordinate PRNG hashing formulas (`SplitMix64-CoordinateMixer`), coordinate field packing order, subsystem ID assignments ($0 \dots 5$), and drawing sequence conventions.
+5. **Phase Ordering**: The strict sequential execution of Phases 1 through 11 and Day Complete timing.
+6. **Floating-Point Reduction Order**: Sequential IEEE-754 `f32` reduction operand order and exact precision boundaries. In Phase 7 market clearing, canonical reductions are strictly frozen; no reassociation, fused multiply-add (FMA) that alters precision, or `f64` reinterpretation of food arithmetic is permitted.
+7. **Snapshot Logical Format**: Magic constant (`"SIMCIVM0"`), schema version, resume cursor semantics ($D + 1$), and sorted table encodings.
+8. **Metrics Semantics**: Definitions, formulas, and rank-weighted integer-sum Gini calculation algorithms.
+
+### 6.3 Differential Validation Contract (차등 검증 계약)
+Acceptance of any M2 optimized runtime component requires automated differential validation against the authoritative M0 reference oracle.
+
+#### Mandatory Bitwise Equivalence:
+For identical logical inputs (`SimConfig`, `MasterSeed`, `ReplicateId`, execution days):
+$$\text{CanonicalStateHash}(\text{M2}) = \text{CanonicalStateHash}(\text{M0})$$
+$$\text{CanonicalMetricsHash}(\text{M2}) = \text{CanonicalMetricsHash}(\text{M0})$$
+$$\text{CanonicalEventHash}(\text{M2}) = \text{CanonicalEventHash}(\text{M0})$$
+
+#### Mandatory Verification Scopes:
+1. **Single Day Execution**: Isolated validation of each phase and single-day progression from identical initial states.
+2. **Multi-Day Trajectory**: Bit-exact trajectory continuation over extended horizons (including the 500-day graduation fixture).
+3. **Snapshot Pause/Resume Continuation**: Verification that executing $0 \dots D$, saving a snapshot, restoring, and continuing to $T$ produces exact hash equivalence to an uninterrupted $0 \dots T$ run.
+4. **Observer Independence**: Equivalence of state and determinism hashes regardless of whether macroscopic metrics collection and telemetry event logging are enabled or disabled.
+5. **Storage Layout & DenseSlot Permutation**: Invariance of all canonical hashes and outputs under arbitrary permutations of internal dense slots, memory addresses, or allocation orders.
+
+Detailed technical guidelines and test harness specifications for M2 are set forth in [`docs/contracts/M2_OPTIMIZATION_CONTRACT.md`](file:///c:/AI/SimulaCiv/docs/contracts/M2_OPTIMIZATION_CONTRACT.md).
 
 ---
 
