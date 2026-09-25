@@ -53,6 +53,7 @@ pub enum CommandExecutionError {
         required: Money,
     },
     WealthOverflow(AgentId),
+    IneligibleMortalityAgent(AgentId),
 }
 
 impl std::fmt::Display for CommandExecutionError {
@@ -144,6 +145,13 @@ impl std::fmt::Display for CommandExecutionError {
             Self::WealthOverflow(aid) => {
                 write!(f, "wealth overflow for agent {}", aid)
             }
+            Self::IneligibleMortalityAgent(aid) => {
+                write!(
+                    f,
+                    "agent {} has positive health and cannot be committed as deceased",
+                    aid
+                )
+            }
         }
     }
 }
@@ -191,6 +199,9 @@ pub enum Command {
         group_id: GroupId,
         recipient_updates: Vec<WelfareRecipientUpdate>,
         treasury_debit: Money,
+    },
+    MortalityStatusCommitment {
+        deceased_agents: Vec<AgentId>,
     },
 }
 
@@ -413,6 +424,32 @@ impl Command {
                         .find(|a| a.agent_id == r.agent_id)
                         .expect("agent existence checked above");
                     agent.wealth += r.payout;
+                }
+
+                Ok(())
+            }
+            Command::MortalityStatusCommitment { deceased_agents } => {
+                for &aid in deceased_agents {
+                    let agent = world
+                        .agents
+                        .iter()
+                        .find(|a| a.agent_id == aid)
+                        .ok_or(CommandExecutionError::MissingAgent(aid))?;
+                    if !agent.health.is_finite() {
+                        return Err(CommandExecutionError::InvalidAmount(agent.health));
+                    }
+                    if agent.health > 0.0 {
+                        return Err(CommandExecutionError::IneligibleMortalityAgent(aid));
+                    }
+                }
+
+                for &aid in deceased_agents {
+                    let agent = world
+                        .agents
+                        .iter_mut()
+                        .find(|a| a.agent_id == aid)
+                        .expect("agent existence checked above");
+                    agent.alive = false;
                 }
 
                 Ok(())

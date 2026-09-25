@@ -30,7 +30,11 @@ pub use intents::{
     phase4_generate_intents,
 };
 pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
-pub use phases::{execute_phases_1_and_2, phase1_resource_regrowth, phase2_biological_degradation};
+pub use phases::{
+    MortalityResolution, Phase9Error, Phase9MortalityResolution, execute_phases_1_and_2,
+    phase1_resource_regrowth, phase2_biological_degradation, phase9_mortality_commitment,
+    phase9_mortality_commitment_with_config, phase9_mortality_resolution,
+};
 pub use resolution::{
     BuyerMarketResolution, Phase6AError, Phase6BError, Phase7Error, Phase8Error,
     SellerMarketResolution, SettlementMarketResolution, SettlementTargetedResolution,

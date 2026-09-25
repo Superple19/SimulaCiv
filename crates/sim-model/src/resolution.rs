@@ -2053,3 +2053,8 @@ pub fn phase8_welfare_distribution_with_subconfigs(
         economy.welfare_payment,
     )
 }
+
+pub use crate::phases::{
+    MortalityResolution, Phase9Error, Phase9MortalityResolution, phase9_mortality_commitment,
+    phase9_mortality_commitment_with_config, phase9_mortality_resolution,
+};
