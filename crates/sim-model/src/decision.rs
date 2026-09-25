@@ -215,7 +215,7 @@ pub fn select_action(probabilities: &[f32; 6], u: f32) -> Action {
     Action::Idle
 }
 
-/// Executes Phase 4 primary action selection for all agents present in `agent_features`.
+/// Executes Phase 4 primary action selection into a reusable buffer.
 ///
 /// For each behaviorally eligible agent:
 /// 1. Validates that the agent exists in `world.agents` and satisfies `alive == true && health > 0.0`.
@@ -233,12 +233,17 @@ pub fn select_action(probabilities: &[f32; 6], u: f32) -> Action {
 ///
 /// Output is sorted strictly in ascending `AgentId` order.
 /// Phase 4 is purely read-only with respect to authoritative world state (no state mutation, no target selection).
-pub fn phase4_primary_action_selection(
+pub fn phase4_primary_action_selection_into(
     world: &WorldState,
     config: &SimConfig,
     agent_features: &[AgentFeatures],
-) -> Result<Vec<PrimaryActionChoice>, DecisionError> {
-    let mut choices = Vec::with_capacity(agent_features.len());
+    out: &mut Vec<PrimaryActionChoice>,
+) -> Result<(), DecisionError> {
+    out.clear();
+    let needed = agent_features.len();
+    if out.capacity() < needed {
+        out.reserve(needed - out.capacity());
+    }
 
     for af in agent_features {
         let agent = world
@@ -266,14 +271,28 @@ pub fn phase4_primary_action_selection(
         let u = coordinate_prng_f32(&coord);
         let action = select_action(&probabilities, u);
 
-        choices.push(PrimaryActionChoice {
+        out.push(PrimaryActionChoice {
             agent_id: agent.agent_id,
             action,
         });
     }
 
-    choices.sort_by_key(|c| c.agent_id);
+    out.sort_by_key(|c| c.agent_id);
+    Ok(())
+}
+
+/// Executes Phase 4 primary action selection for all agents present in `agent_features`.
+///
+/// Allocates a new vector and delegates to [`phase4_primary_action_selection_into`].
+pub fn phase4_primary_action_selection(
+    world: &WorldState,
+    config: &SimConfig,
+    agent_features: &[AgentFeatures],
+) -> Result<Vec<PrimaryActionChoice>, DecisionError> {
+    let mut choices = Vec::with_capacity(agent_features.len());
+    phase4_primary_action_selection_into(world, config, agent_features, &mut choices)?;
     Ok(choices)
 }
 
 pub use phase4_primary_action_selection as phase4_action_selection;
+pub use phase4_primary_action_selection_into as phase4_action_selection_into;
