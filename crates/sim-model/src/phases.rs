@@ -1,6 +1,7 @@
 use crate::commands::{Command, CommandExecutionError};
 use crate::config::SimConfig;
 use crate::state::{AgentDynamicSoAScratch, WorldState};
+use crate::storage::SegmentedAgentStorage;
 use serde::{Deserialize, Serialize};
 use sim_core::AgentId;
 use std::collections::HashSet;
@@ -98,6 +99,14 @@ pub fn phase2_biological_degradation_with_scratch(
     scratch.collect_from_agents(&world.agents);
     phase2_biological_degradation_soa(scratch, config);
     scratch.write_back_phase2(&mut world.agents);
+}
+
+/// Executes Phase 2: Biological Degradation natively on authoritative [`SegmentedAgentStorage`].
+pub fn phase2_biological_degradation_storage(
+    storage: &mut SegmentedAgentStorage,
+    config: &SimConfig,
+) {
+    storage.phase2_degradation_with_config(config);
 }
 
 /// Minimal M0-03 runner executing Phase 1 followed by Phase 2 in strict order.
@@ -244,4 +253,105 @@ pub fn phase9_mortality_commitment_with_config(
     _config: &SimConfig,
 ) -> Result<Phase9MortalityResolution, Phase9Error> {
     phase9_mortality_commitment(world)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::initialize_world;
+
+    const TEST_CONFIG_TOML: &str = r#"
+[world]
+master_seed = 81985529216486895
+replicate_id = 7
+initial_population = 10
+settlement_count = 2
+initial_health = 0.8
+initial_food = 5.0
+initial_wealth = 1000
+initial_settlement_resource = 500.0
+initial_treasury = 1000
+
+[traits]
+prod_min = 0.8
+prod_max = 1.2
+coop_min = 0.3
+coop_max = 0.7
+aggr_min = 0.1
+aggr_max = 0.5
+risk_min = 0.2
+risk_max = 0.6
+
+[environment]
+carrying_capacity = 1000.0
+regrowth_rate = 0.1
+base_metabolic_cost = 2.0
+health_decay_rate = 0.05
+
+[economy]
+base_work_yield = 2.0
+food_price = 100
+target_food = 10.0
+target_reserve = 1000
+tax_rate = 0.1
+welfare_payment = 50
+
+[interaction]
+gift_amount = 2.0
+theft_amount = 3.0
+theft_success_probability = 0.5
+starvation_threshold = 5.0
+
+[decision]
+decision_temperature = 1.0
+action_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+base_weight_matrix = [
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0]
+]
+trait_weight_cooperation = 1.0
+trait_weight_aggression = 1.0
+trait_weight_risk_tolerance = 1.0
+"#;
+
+    #[test]
+    fn test_phase2_storage_parity() {
+        let config = SimConfig::parse_and_validate(TEST_CONFIG_TOML).unwrap();
+        let mut world = initialize_world(&config).unwrap();
+
+        // Mutate some agent values to test edge cases
+        world.agents[0].alive = false;
+        world.agents[1].food = 0.5; // less than metabolic cost -> deficit
+        world.agents[2].food = 0.0; // zero food -> full deficit
+        world.agents[3].food = 10.0; // plenty of food -> zero deficit
+
+        let mut world_aos = world.clone();
+        let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+
+        // Run AoS Phase 2
+        phase2_biological_degradation(&mut world_aos, &config);
+
+        // Run Native SoA Phase 2
+        phase2_biological_degradation_storage(&mut storage, &config);
+
+        // Compare bit-for-bit
+        for (i, agent) in world_aos.agents.iter().enumerate() {
+            assert_eq!(agent.alive, storage.alive()[i]);
+            assert_eq!(
+                agent.health,
+                storage.health()[i],
+                "agent {} health mismatch",
+                i
+            );
+            assert_eq!(agent.food, storage.food()[i], "agent {} food mismatch", i);
+        }
+
+        // Test reconstructing agents from storage matches world_aos
+        let reconstructed = storage.to_agents();
+        assert_eq!(world_aos.agents, reconstructed);
+    }
 }

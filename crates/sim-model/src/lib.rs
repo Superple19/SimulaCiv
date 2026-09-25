@@ -65,9 +65,10 @@ pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_
 pub use phases::{
     MortalityResolution, Phase9Error, Phase9MortalityResolution, execute_phases_1_and_2,
     phase1_resource_regrowth, phase2_biological_degradation, phase2_biological_degradation_dynamic,
-    phase2_biological_degradation_soa, phase2_biological_degradation_with_scratch,
-    phase9_mortality_commitment, phase9_mortality_commitment_with_config,
-    phase9_mortality_resolution, update_biological_degradation,
+    phase2_biological_degradation_soa, phase2_biological_degradation_storage,
+    phase2_biological_degradation_with_scratch, phase9_mortality_commitment,
+    phase9_mortality_commitment_with_config, phase9_mortality_resolution,
+    update_biological_degradation,
 };
 pub use resolution::{
     BuyerMarketResolution, Phase6AError, Phase6BError, Phase7Error, Phase8Error,

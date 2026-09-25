@@ -75,6 +75,18 @@ impl DemographyStorage {
         self.birth_day.push(birth_day);
         self.health.push(health);
     }
+
+    /// Returns a mutable slice over the living status column.
+    #[inline]
+    pub fn alive_mut(&mut self) -> &mut [bool] {
+        &mut self.alive
+    }
+
+    /// Returns a mutable slice over the health column.
+    #[inline]
+    pub fn health_mut(&mut self) -> &mut [f32] {
+        &mut self.health
+    }
 }
 
 /// Economic holdings, trade reserves, and locality columns.
@@ -139,6 +151,18 @@ impl EconomyStorage {
         self.food.push(food);
         self.wealth.push(wealth);
         self.group_id.push(group_id);
+    }
+
+    /// Returns a mutable slice over the food holdings column.
+    #[inline]
+    pub fn food_mut(&mut self) -> &mut [f32] {
+        &mut self.food
+    }
+
+    /// Returns a mutable slice over the wealth column.
+    #[inline]
+    pub fn wealth_mut(&mut self) -> &mut [Money] {
+        &mut self.wealth
     }
 }
 
@@ -296,6 +320,41 @@ impl SegmentedAgentStorage {
     #[inline]
     pub fn agent_ids(&self) -> &[AgentId] {
         &self.agent_ids
+    }
+
+    /// Returns a mutable slice over the living status column (`demography.alive`).
+    #[inline]
+    pub fn alive_mut(&mut self) -> &mut [bool] {
+        &mut self.demography.alive
+    }
+
+    /// Returns a mutable slice over the health column (`demography.health`).
+    #[inline]
+    pub fn health_mut(&mut self) -> &mut [f32] {
+        &mut self.demography.health
+    }
+
+    /// Returns a mutable slice over the food holdings column (`economy.food`).
+    #[inline]
+    pub fn food_mut(&mut self) -> &mut [f32] {
+        &mut self.economy.food
+    }
+
+    /// Returns a mutable slice over the wealth column (`economy.wealth`).
+    #[inline]
+    pub fn wealth_mut(&mut self) -> &mut [Money] {
+        &mut self.economy.wealth
+    }
+
+    /// Returns split disjoint views over columns mutated during Phase 2 (`alive`, `health`, `food`)
+    /// without borrow conflicts.
+    #[inline]
+    pub fn phase2_columns_mut(&mut self) -> (&[bool], &mut [f32], &mut [f32]) {
+        (
+            &self.demography.alive,
+            &mut self.demography.health,
+            &mut self.economy.food,
+        )
     }
 
     /// Clears all segments and indices while retaining capacity.
@@ -467,18 +526,30 @@ impl SegmentedAgentStorage {
     /// conversion or heap allocation.
     #[inline]
     pub fn phase2_biological_degradation(&mut self, f_metabolic: f32, decay_rate: f32) {
-        let n = self.len();
-        for i in 0..n {
-            if !self.demography.alive[i] {
+        let alive = &self.demography.alive;
+        let health = &mut self.demography.health;
+        let food = &mut self.economy.food;
+
+        for (is_alive, (h, f)) in alive.iter().zip(health.iter_mut().zip(food.iter_mut())) {
+            if !*is_alive {
                 continue;
             }
-            let f_consumed = self.economy.food[i].min(f_metabolic);
+            let f_consumed = (*f).min(f_metabolic);
             let f_deficit = f_metabolic - f_consumed;
             let health_delta = -decay_rate * f_deficit;
 
-            self.economy.food[i] = (self.economy.food[i] - f_consumed).max(0.0);
-            self.demography.health[i] = (self.demography.health[i] + health_delta).clamp(0.0, 1.0);
+            *f = (*f - f_consumed).max(0.0);
+            *h = (*h + health_delta).clamp(0.0, 1.0);
         }
+    }
+
+    /// Executes Phase 2: Biological Degradation natively given [`SimConfig`](crate::SimConfig).
+    #[inline]
+    pub fn phase2_degradation_with_config(&mut self, config: &crate::SimConfig) {
+        self.phase2_biological_degradation(
+            config.environment.base_metabolic_cost,
+            config.environment.health_decay_rate,
+        );
     }
 
     /// Executes Phase 10: Macroscopic Metrics Observation natively on segmented storage columns.
