@@ -89,7 +89,7 @@ impl std::error::Error for Phase10Error {}
 /// 7. Return `DailyMetrics`.
 pub fn phase10_observe(world: &WorldState, day: u32) -> Result<DailyMetrics, Phase10Error> {
     // 1. Structural validation
-    let mut seen_agents = HashSet::new();
+    let mut seen_agents = HashSet::with_capacity(world.agents.len());
     for agent in &world.agents {
         if !seen_agents.insert(agent.agent_id) {
             return Err(Phase10Error::DuplicateAgent(agent.agent_id));
@@ -114,7 +114,7 @@ pub fn phase10_observe(world: &WorldState, day: u32) -> Result<DailyMetrics, Pha
         }
     }
 
-    let mut seen_groups = HashSet::new();
+    let mut seen_groups = HashSet::with_capacity(world.settlements.len());
     for settlement in &world.settlements {
         if !seen_groups.insert(settlement.group_id) {
             return Err(Phase10Error::DuplicateSettlement(settlement.group_id));
@@ -128,7 +128,12 @@ pub fn phase10_observe(world: &WorldState, day: u32) -> Result<DailyMetrics, Pha
     }
 
     // 2. Canonical living agents: ascending AgentId
-    let mut alive_agents: Vec<&AgentState> = world.agents.iter().filter(|a| a.alive).collect();
+    let mut alive_agents: Vec<&AgentState> = Vec::with_capacity(world.agents.len());
+    for a in &world.agents {
+        if a.alive {
+            alive_agents.push(a);
+        }
+    }
     alive_agents.sort_by_key(|a| a.agent_id);
 
     // 3. Population: u64 count of alive agents
@@ -146,7 +151,8 @@ pub fn phase10_observe(world: &WorldState, day: u32) -> Result<DailyMetrics, Pha
     }
 
     // 5. Total treasury: ascending GroupId checked Money addition
-    let mut sorted_settlements: Vec<&SettlementState> = world.settlements.iter().collect();
+    let mut sorted_settlements: Vec<&SettlementState> = Vec::with_capacity(world.settlements.len());
+    sorted_settlements.extend(world.settlements.iter());
     sorted_settlements.sort_by_key(|s| s.group_id);
 
     let mut total_treasury: Money = 0;
@@ -157,7 +163,7 @@ pub fn phase10_observe(world: &WorldState, day: u32) -> Result<DailyMetrics, Pha
     }
 
     // 6. Wealth Gini
-    let wealth_gini = compute_wealth_gini(&alive_agents)?;
+    let wealth_gini = compute_wealth_gini(&mut alive_agents)?;
 
     Ok(DailyMetrics {
         day,
@@ -183,14 +189,14 @@ pub fn phase10_observe_with_config(
 }
 
 /// Computes the wealth Gini coefficient for alive agents according to the exact M0 reference semantics.
-fn compute_wealth_gini(alive_agents: &[&AgentState]) -> Result<f64, Phase10Error> {
+fn compute_wealth_gini(alive_agents: &mut [&AgentState]) -> Result<f64, Phase10Error> {
     let n = alive_agents.len() as u128;
     if n == 0 {
         return Ok(0.0);
     }
 
     let mut sum_x: u128 = 0;
-    for a in alive_agents {
+    for a in alive_agents.iter() {
         sum_x = sum_x
             .checked_add(a.wealth as u128)
             .ok_or(Phase10Error::ArithmeticOverflow)?;
@@ -200,12 +206,11 @@ fn compute_wealth_gini(alive_agents: &[&AgentState]) -> Result<f64, Phase10Error
         return Ok(0.0);
     }
 
-    // Sort by (wealth ascending, AgentId ascending)
-    let mut sorted = alive_agents.to_vec();
-    sorted.sort_by_key(|a| (a.wealth, a.agent_id));
+    // Sort by (wealth ascending, AgentId ascending) in place without allocation
+    alive_agents.sort_by_key(|a| (a.wealth, a.agent_id));
 
     let mut weighted_sum: u128 = 0;
-    for (idx, a) in sorted.iter().enumerate() {
+    for (idx, a) in alive_agents.iter().enumerate() {
         let rank = (idx as u128) + 1; // 1-indexed: 1..=n
         let x_i = a.wealth as u128;
         let term = rank
