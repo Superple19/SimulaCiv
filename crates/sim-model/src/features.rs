@@ -77,7 +77,7 @@ impl std::fmt::Display for Phase3Error {
 
 impl std::error::Error for Phase3Error {}
 
-/// Executes Phase 3: Observation & Normalized Feature Extraction.
+/// Executes Phase 3: Observation & Normalized Feature Extraction into a reusable buffer.
 ///
 /// For each behaviorally eligible agent (`alive == true && health > 0.0`), computes the canonical 5-element
 /// normalized feature vector in [0.0, 1.0]^5:
@@ -89,11 +89,16 @@ impl std::error::Error for Phase3Error {}
 ///
 /// Output is sorted strictly in ascending `AgentId` order.
 /// Phase 3 is purely observational and does not mutate authoritative world state.
-pub fn phase3_observation_and_features(
+pub fn phase3_observation_and_features_into(
     world: &WorldState,
     config: &SimConfig,
-) -> Result<Vec<AgentFeatures>, Phase3Error> {
-    let mut features_list = Vec::with_capacity(world.agents.len());
+    out: &mut Vec<AgentFeatures>,
+) -> Result<(), Phase3Error> {
+    out.clear();
+    let needed = world.agents.len();
+    if out.capacity() < needed {
+        out.reserve(needed - out.capacity());
+    }
 
     for agent in &world.agents {
         if !agent.is_behaviorally_eligible() {
@@ -117,7 +122,7 @@ pub fn phase3_observation_and_features(
             / config.economy.target_food)
             .clamp(0.0, 1.0);
 
-        features_list.push(AgentFeatures {
+        out.push(AgentFeatures {
             agent_id: agent.agent_id,
             features: FeatureVector::new([
                 hunger_ratio,
@@ -130,6 +135,18 @@ pub fn phase3_observation_and_features(
     }
 
     // Canonical output order: strictly ascending AgentId
-    features_list.sort_by_key(|af| af.agent_id);
+    out.sort_by_key(|af| af.agent_id);
+    Ok(())
+}
+
+/// Executes Phase 3: Observation & Normalized Feature Extraction.
+///
+/// Allocates a new vector and delegates to [`phase3_observation_and_features_into`].
+pub fn phase3_observation_and_features(
+    world: &WorldState,
+    config: &SimConfig,
+) -> Result<Vec<AgentFeatures>, Phase3Error> {
+    let mut features_list = Vec::with_capacity(world.agents.len());
+    phase3_observation_and_features_into(world, config, &mut features_list)?;
     Ok(features_list)
 }

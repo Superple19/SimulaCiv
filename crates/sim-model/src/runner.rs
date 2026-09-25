@@ -22,7 +22,7 @@ use crate::events::{
     events_from_targeted_resolution, events_from_welfare_resolution, events_from_work_resolution,
     phase11_flush_events,
 };
-use crate::features::{Phase3Error, phase3_observation_and_features};
+use crate::features::{AgentFeatures, Phase3Error, phase3_observation_and_features_into};
 use crate::intents::{IntentError, phase4_generate_intents};
 use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe};
 use crate::partitioning::{Phase5Error, phase5_partition_intents};
@@ -211,6 +211,20 @@ impl From<EventError> for M0RunError {
 
 /// Executes exactly one full deterministic simulation day (Phases 1 through 11).
 ///
+/// Allocates a local scratch buffer and delegates to [`run_m0_day_with_scratch`].
+pub fn run_m0_day(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+) -> Result<DayOutcome, M0RunError> {
+    let mut features_scratch = Vec::with_capacity(world.agents.len());
+    run_m0_day_with_scratch(world, config, context, options, &mut features_scratch)
+}
+
+/// Executes exactly one full deterministic simulation day (Phases 1 through 11)
+/// reusing an external scratch buffer for Phase 3 features.
+///
 /// Execution rules:
 /// 1. Captures `executed_day = world.current_day`.
 /// 2. Validates day arithmetic (`next_day = executed_day + 1`).
@@ -222,11 +236,12 @@ impl From<EventError> for M0RunError {
 /// 8. Emits Phase 11 SnapshotEmitted observation event if snapshot created and events enabled.
 /// 9. Flushes pending event buffer canonically if `options.events_enabled`.
 /// 10. Advances `world.current_day` to `next_day` strictly upon successful Day Complete.
-pub fn run_m0_day(
+pub fn run_m0_day_with_scratch(
     world: &mut WorldState,
     config: &SimConfig,
     context: &M0RunContext,
     options: &DayExecutionOptions,
+    features_scratch: &mut Vec<AgentFeatures>,
 ) -> Result<DayOutcome, M0RunError> {
     // 1. Capture logical day coordinate
     let executed_day = world.current_day.as_u32();
@@ -244,10 +259,10 @@ pub fn run_m0_day(
     phase2_biological_degradation(world, &effective_config);
 
     // 5. Phase 3: Observation & Normalized Feature Extraction
-    let features = phase3_observation_and_features(world, &effective_config)?;
+    phase3_observation_and_features_into(world, &effective_config, features_scratch)?;
 
     // 6. Phase 4: Intent Generation (Primary Action Selection & Intent Formulation)
-    let choices = phase4_primary_action_selection(world, &effective_config, &features)?;
+    let choices = phase4_primary_action_selection(world, &effective_config, features_scratch)?;
     let intents = phase4_generate_intents(world, &effective_config, &choices)?;
 
     // 7. Phase 5: Locality Partitioning
@@ -386,7 +401,8 @@ pub fn run_m0_day(
 /// Executes multiple consecutive simulation days sequentially.
 ///
 /// Invariants:
-/// - Executes `run_m0_day` exactly `days` times in sequence.
+/// - Reuses a single runner-level scratch buffer across all days.
+/// - Executes `run_m0_day_with_scratch` exactly `days` times in sequence.
 /// - Returns sequential vector of `DayOutcome`s.
 /// - Early returns on the first error without advancing further.
 pub fn run_m0_days(
@@ -397,8 +413,10 @@ pub fn run_m0_days(
     options: &DayExecutionOptions,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
     let mut outcomes = Vec::with_capacity(days as usize);
+    let mut features_scratch = Vec::with_capacity(world.agents.len());
     for _ in 0..days {
-        let outcome = run_m0_day(world, config, context, options)?;
+        let outcome =
+            run_m0_day_with_scratch(world, config, context, options, &mut features_scratch)?;
         outcomes.push(outcome);
     }
     Ok(outcomes)
