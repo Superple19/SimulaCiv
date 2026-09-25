@@ -164,6 +164,18 @@ impl EconomyStorage {
     pub fn wealth_mut(&mut self) -> &mut [Money] {
         &mut self.wealth
     }
+
+    /// Returns a contiguous slice over the group ID column.
+    #[inline]
+    pub fn group_ids(&self) -> &[GroupId] {
+        &self.group_id
+    }
+
+    /// Returns a mutable slice over the group ID column.
+    #[inline]
+    pub fn group_ids_mut(&mut self) -> &mut [GroupId] {
+        &mut self.group_id
+    }
 }
 
 /// Personality traits and behavioral modifier columns.
@@ -344,6 +356,18 @@ impl SegmentedAgentStorage {
     #[inline]
     pub fn wealth_mut(&mut self) -> &mut [Money] {
         &mut self.economy.wealth
+    }
+
+    /// Returns a contiguous slice over the settlement locality column (`economy.group_id`).
+    #[inline]
+    pub fn group_ids(&self) -> &[GroupId] {
+        &self.economy.group_id
+    }
+
+    /// Returns a mutable slice over the settlement locality column (`economy.group_id`).
+    #[inline]
+    pub fn group_ids_mut(&mut self) -> &mut [GroupId] {
+        &mut self.economy.group_id
     }
 
     /// Returns split disjoint views over columns mutated during Phase 2 (`alive`, `health`, `food`)
@@ -550,6 +574,35 @@ impl SegmentedAgentStorage {
             config.environment.base_metabolic_cost,
             config.environment.health_decay_rate,
         );
+    }
+
+    /// Executes Phase 3: Observation & Normalized Feature Extraction natively on segmented storage columns.
+    #[inline]
+    pub fn phase3_features_into(
+        &self,
+        settlements: &[SettlementState],
+        config: &crate::SimConfig,
+        out: &mut Vec<crate::features::AgentFeatures>,
+    ) -> Result<(), crate::features::Phase3Error> {
+        crate::features::phase3_observation_and_features_storage_into(
+            self,
+            settlements,
+            config,
+            out,
+        )
+    }
+
+    /// Executes Phase 3: Observation & Normalized Feature Extraction natively on segmented storage columns,
+    /// returning a freshly allocated vector.
+    #[inline]
+    pub fn phase3_features(
+        &self,
+        settlements: &[SettlementState],
+        config: &crate::SimConfig,
+    ) -> Result<Vec<crate::features::AgentFeatures>, crate::features::Phase3Error> {
+        let mut out = Vec::with_capacity(self.len());
+        self.phase3_features_into(settlements, config, &mut out)?;
+        Ok(out)
     }
 
     /// Executes Phase 10: Macroscopic Metrics Observation natively on segmented storage columns.

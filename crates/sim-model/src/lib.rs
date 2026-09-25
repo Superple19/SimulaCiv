@@ -37,8 +37,9 @@ pub use events::{
     partition_key_from_group, phase11_flush_events,
 };
 pub use features::{
-    AgentFeatures, FeatureVector, Phase3Error, phase3_observation_and_features,
+    AgentFeatures, FeatureBuffer, FeatureVector, Phase3Error, phase3_observation_and_features,
     phase3_observation_and_features_into, phase3_observation_and_features_soa_into,
+    phase3_observation_and_features_storage, phase3_observation_and_features_storage_into,
     phase3_observation_and_features_with_scratch,
 };
 pub use hashing::{
