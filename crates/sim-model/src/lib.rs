@@ -50,8 +50,9 @@ pub use intents::{
     phase4_generate_intents,
 };
 pub use metrics::{
-    DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, phase10_metrics,
-    phase10_metrics_observation, phase10_observe, phase10_observe_with_config,
+    DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, compute_wealth_gini_soa,
+    phase10_metrics, phase10_metrics_observation, phase10_observe, phase10_observe_with_config,
+    phase10_observe_with_scratch,
 };
 pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
 pub use phases::{
@@ -79,5 +80,7 @@ pub use snapshot::{
     SnapshotMetadata, decode_snapshot, encode_snapshot, phase11_snapshot_if_boundary,
     restore_snapshot,
 };
-pub use state::{AgentDynamicState, AgentState, SettlementState, WorldState};
+pub use state::{
+    AgentDynamicSoAScratch, AgentDynamicState, AgentState, SettlementState, WorldState,
+};
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};

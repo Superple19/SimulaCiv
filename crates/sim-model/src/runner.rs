@@ -24,7 +24,7 @@ use crate::events::{
 };
 use crate::features::{AgentFeatures, Phase3Error, phase3_observation_and_features_into};
 use crate::intents::{Intent, IntentError, phase4_generate_intents_into};
-use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe};
+use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe_with_scratch};
 use crate::partitioning::{Phase5Error, phase5_partition_intents};
 use crate::phases::{
     Phase9Error, phase1_resource_regrowth, phase2_biological_degradation,
@@ -38,7 +38,7 @@ use crate::resolution::{
 use crate::snapshot::{
     CanonicalSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotError, SnapshotMetadata, encode_snapshot,
 };
-use crate::state::WorldState;
+use crate::state::{AgentDynamicSoAScratch, WorldState};
 use serde::{Deserialize, Serialize};
 use sim_core::SimulationDay;
 
@@ -221,6 +221,7 @@ pub fn run_m0_day(
     let mut features_scratch = Vec::with_capacity(world.agents.len());
     let mut choices_scratch = Vec::with_capacity(world.agents.len());
     let mut intents_scratch = Vec::with_capacity(world.agents.len());
+    let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
     run_m0_day_with_scratch(
         world,
         config,
@@ -229,11 +230,13 @@ pub fn run_m0_day(
         &mut features_scratch,
         &mut choices_scratch,
         &mut intents_scratch,
+        &mut metrics_scratch,
     )
 }
 
 /// Executes exactly one full deterministic simulation day (Phases 1 through 11)
-/// reusing external scratch buffers for Phase 3 features, Phase 4 action choices, and Phase 4 intents.
+/// reusing external scratch buffers for Phase 3 features, Phase 4 action choices, Phase 4 intents,
+/// and Phase 10 dynamic metrics aggregation.
 ///
 /// Execution rules:
 /// 1. Captures `executed_day = world.current_day`.
@@ -246,6 +249,7 @@ pub fn run_m0_day(
 /// 8. Emits Phase 11 SnapshotEmitted observation event if snapshot created and events enabled.
 /// 9. Flushes pending event buffer canonically if `options.events_enabled`.
 /// 10. Advances `world.current_day` to `next_day` strictly upon successful Day Complete.
+#[allow(clippy::too_many_arguments)]
 pub fn run_m0_day_with_scratch(
     world: &mut WorldState,
     config: &SimConfig,
@@ -254,6 +258,7 @@ pub fn run_m0_day_with_scratch(
     features_scratch: &mut Vec<AgentFeatures>,
     choices_scratch: &mut Vec<PrimaryActionChoice>,
     intents_scratch: &mut Vec<Intent>,
+    metrics_scratch: &mut AgentDynamicSoAScratch,
 ) -> Result<DayOutcome, M0RunError> {
     // 1. Capture logical day coordinate
     let executed_day = world.current_day.as_u32();
@@ -358,7 +363,7 @@ pub fn run_m0_day_with_scratch(
 
     // 14. Phase 10: Macroscopic Metrics Observation
     let metrics_opt = if options.metrics_enabled {
-        let metrics = phase10_observe(world, executed_day)?;
+        let metrics = phase10_observe_with_scratch(world, executed_day, metrics_scratch)?;
         if options.events_enabled {
             event_buffer.push(event_from_daily_metrics(&metrics));
         }
@@ -433,6 +438,7 @@ pub fn run_m0_days(
     let mut features_scratch = Vec::with_capacity(world.agents.len());
     let mut choices_scratch = Vec::with_capacity(world.agents.len());
     let mut intents_scratch = Vec::with_capacity(world.agents.len());
+    let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
     for _ in 0..days {
         let outcome = run_m0_day_with_scratch(
             world,
@@ -442,6 +448,7 @@ pub fn run_m0_days(
             &mut features_scratch,
             &mut choices_scratch,
             &mut intents_scratch,
+            &mut metrics_scratch,
         )?;
         outcomes.push(outcome);
     }

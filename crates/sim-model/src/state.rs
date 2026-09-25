@@ -119,6 +119,79 @@ pub struct SettlementState {
     pub treasury: Money,
 }
 
+/// Structure-of-Arrays (SoA) scratch view of hot dynamic agent state fields
+/// (`health`, `food`, `wealth`, `alive`, `agent_ids`) used for cache-line streaming,
+/// zero-allocation aggregation, and vectorizable observation passes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AgentDynamicSoAScratch {
+    pub health: Vec<f32>,
+    pub food: Vec<f32>,
+    pub wealth: Vec<Money>,
+    pub alive: Vec<bool>,
+    pub agent_ids: Vec<AgentId>,
+    pub indices: Vec<usize>,
+    pub settlement_indices: Vec<usize>,
+}
+
+impl AgentDynamicSoAScratch {
+    /// Constructs an empty [`AgentDynamicSoAScratch`] without initial allocation.
+    #[inline]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Constructs an [`AgentDynamicSoAScratch`] with pre-allocated capacity.
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            health: Vec::with_capacity(capacity),
+            food: Vec::with_capacity(capacity),
+            wealth: Vec::with_capacity(capacity),
+            alive: Vec::with_capacity(capacity),
+            agent_ids: Vec::with_capacity(capacity),
+            indices: Vec::with_capacity(capacity),
+            settlement_indices: Vec::new(),
+        }
+    }
+
+    /// Clears all vectors while retaining allocated capacity.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.health.clear();
+        self.food.clear();
+        self.wealth.clear();
+        self.alive.clear();
+        self.agent_ids.clear();
+        self.indices.clear();
+        self.settlement_indices.clear();
+    }
+
+    /// Reserves capacity for at least `n` elements in all vectors.
+    #[inline]
+    pub fn reserve(&mut self, n: usize) {
+        self.health.reserve(n);
+        self.food.reserve(n);
+        self.wealth.reserve(n);
+        self.alive.reserve(n);
+        self.agent_ids.reserve(n);
+        self.indices.reserve(n);
+    }
+
+    /// Populates the SoA scratch buffer with hot dynamic state from an authoritative [`AgentState`] slice.
+    #[inline]
+    pub fn collect_from_agents(&mut self, agents: &[AgentState]) {
+        self.clear();
+        self.reserve(agents.len());
+        for agent in agents {
+            self.health.push(agent.health);
+            self.food.push(agent.food);
+            self.wealth.push(agent.wealth);
+            self.alive.push(agent.alive);
+            self.agent_ids.push(agent.agent_id);
+        }
+    }
+}
+
 /// Authoritative Day 0 world state container.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorldState {

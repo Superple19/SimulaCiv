@@ -21,7 +21,7 @@ use sim_model::events::{
 use sim_model::features::phase3_observation_and_features;
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::intents::phase4_generate_intents;
-use sim_model::metrics::{DailyMetrics, phase10_observe};
+use sim_model::metrics::{DailyMetrics, phase10_observe_with_scratch};
 use sim_model::partitioning::phase5_partition_intents;
 use sim_model::phases::{
     phase1_resource_regrowth, phase2_biological_degradation, phase9_mortality_commitment,
@@ -34,7 +34,7 @@ use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext, run_m0_day,
 };
 use sim_model::snapshot::{SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot};
-use sim_model::state::WorldState;
+use sim_model::state::{AgentDynamicSoAScratch, WorldState};
 use sim_model::{SimConfig, initialize_world};
 
 const GATE_CONFIG_TOML: &str = r#"
@@ -135,6 +135,7 @@ fn run_instrumented_500_days(
     let mut metrics = Vec::with_capacity(500);
     let mut all_events = Vec::new();
     let mut timing = PhaseTimingBreakdown::default();
+    let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
 
     let total_start = Instant::now();
 
@@ -258,7 +259,8 @@ fn run_instrumented_500_days(
 
         // Phase 10
         let t10 = Instant::now();
-        let m = phase10_observe(&world, executed_day).expect("phase10 succeeds");
+        let m = phase10_observe_with_scratch(&world, executed_day, &mut metrics_scratch)
+            .expect("phase10 succeeds");
         event_buffer.push(event_from_daily_metrics(&m));
         metrics.push(m);
         timing.phase10_metrics += t10.elapsed();
