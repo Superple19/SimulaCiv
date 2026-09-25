@@ -264,6 +264,40 @@ impl SegmentedAgentStorage {
         self.agent_ids.is_empty()
     }
 
+    // =========================================================================
+    // Column Slice Accessors
+    // =========================================================================
+
+    /// Returns a contiguous slice over the living status column (`demography.alive`).
+    #[inline]
+    pub fn alive(&self) -> &[bool] {
+        &self.demography.alive
+    }
+
+    /// Returns a contiguous slice over the health column (`demography.health`).
+    #[inline]
+    pub fn health(&self) -> &[f32] {
+        &self.demography.health
+    }
+
+    /// Returns a contiguous slice over the food holdings column (`economy.food`).
+    #[inline]
+    pub fn food(&self) -> &[f32] {
+        &self.economy.food
+    }
+
+    /// Returns a contiguous slice over the wealth column (`economy.wealth`).
+    #[inline]
+    pub fn wealth(&self) -> &[Money] {
+        &self.economy.wealth
+    }
+
+    /// Returns a contiguous slice over the permanent agent IDs column (`agent_ids`).
+    #[inline]
+    pub fn agent_ids(&self) -> &[AgentId] {
+        &self.agent_ids
+    }
+
     /// Clears all segments and indices while retaining capacity.
     #[inline]
     pub fn clear(&mut self) {
@@ -445,6 +479,16 @@ impl SegmentedAgentStorage {
             self.economy.food[i] = (self.economy.food[i] - f_consumed).max(0.0);
             self.demography.health[i] = (self.demography.health[i] + health_delta).clamp(0.0, 1.0);
         }
+    }
+
+    /// Executes Phase 10: Macroscopic Metrics Observation natively on segmented storage columns.
+    #[inline]
+    pub fn phase10_metrics(
+        &self,
+        settlements: &[SettlementState],
+        day: u32,
+    ) -> Result<crate::metrics::DailyMetrics, crate::metrics::Phase10Error> {
+        crate::metrics::phase10_observe_storage(self, settlements, day)
     }
 
     // =========================================================================

@@ -25,8 +25,8 @@ use sim_model::features::{
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::intents::phase4_generate_intents;
 use sim_model::metrics::{
-    DailyMetrics, phase10_observe_compact_aos, phase10_observe_soa_fresh,
-    phase10_observe_with_scratch,
+    DailyMetrics, phase10_observe, phase10_observe_compact_aos, phase10_observe_soa_fresh,
+    phase10_observe_storage, phase10_observe_storage_with_scratch, phase10_observe_with_scratch,
 };
 use sim_model::partitioning::phase5_partition_intents;
 use sim_model::phases::{
@@ -1497,6 +1497,304 @@ fn measure_world_storage_abstraction_overhead(base_config: &SimConfig, _context:
     }
 }
 
+fn measure_phase10_native_soa(base_config: &SimConfig, context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-20 Phase 10 Native Segmented SoA Migration Benchmark");
+    println!("=================================================================");
+
+    // Part 1: 500-Day Canonical Trajectory Validation with Native Segmented Phase 10
+    println!("\nPart 1: 500-Day Canonical Trajectory with Native Segmented Phase 10");
+    let mut world = initialize_world(base_config).expect("world init succeeds");
+    let mut metrics = Vec::with_capacity(500);
+    let mut all_events = Vec::new();
+
+    let start_500 = Instant::now();
+    let mut t_p10_native = Duration::ZERO;
+
+    for _d in 0..500 {
+        let executed_day = world.current_day.as_u32();
+        let next_day = executed_day + 1;
+
+        let mut effective_config = base_config.clone();
+        effective_config.world.master_seed = context.master_seed;
+        effective_config.world.replicate_id = context.replicate_id;
+
+        // Phase 1
+        phase1_resource_regrowth(&mut world, &effective_config);
+
+        // Phase 2
+        phase2_biological_degradation(&mut world, &effective_config);
+
+        // Phase 3
+        let features =
+            phase3_observation_and_features(&world, &effective_config).expect("phase3 succeeds");
+
+        // Phase 4
+        let choices = phase4_primary_action_selection(&world, &effective_config, &features)
+            .expect("phase4 decision succeeds");
+        let intents = phase4_generate_intents(&world, &effective_config, &choices)
+            .expect("phase4 intent succeeds");
+
+        // Phase 5
+        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+
+        // Phase 6A
+        let work_res = phase6a_work_resolution(&mut world, &partitions).expect("phase6a succeeds");
+
+        // Phase 6B
+        let targeted_res = phase6b_targeted_resolution(&mut world, &effective_config, &partitions)
+            .expect("phase6b succeeds");
+
+        // Phase 7
+        let market_res =
+            phase7_market_clearance_with_config(&mut world, &partitions, &effective_config.economy)
+                .expect("phase7 succeeds");
+
+        // Phase 8
+        let welfare_res = phase8_welfare_distribution_with_config(&mut world, &effective_config)
+            .expect("phase8 succeeds");
+
+        // Phase 9
+        let mortality_res = phase9_mortality_commitment(&mut world).expect("phase9 succeeds");
+
+        // Event staging
+        let estimated_cap = world.agents.len().saturating_mul(2) + world.settlements.len() + 4;
+        let mut event_buffer = EventBuffer::with_capacity(estimated_cap);
+        let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_res.len());
+        for w in &work_res {
+            let work_events = events_from_work_resolution(executed_day, w);
+            let count = work_events.len() as u64;
+            if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == w.group_id.0)
+            {
+                entry.1 += count;
+            } else {
+                phase6_counts.push((w.group_id.0, count));
+            }
+            event_buffer.push_all(work_events);
+        }
+        for t in &targeted_res {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, t);
+            let offset = if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == t.group_id.0)
+            {
+                let prev = entry.1;
+                entry.1 += targeted_events.len() as u64;
+                prev
+            } else {
+                let count = targeted_events.len() as u64;
+                phase6_counts.push((t.group_id.0, count));
+                0
+            };
+            if offset > 0 {
+                for te in &mut targeted_events {
+                    te.key.local_sequence += offset;
+                }
+            }
+            event_buffer.push_all(targeted_events);
+        }
+        for m in &market_res {
+            event_buffer.push_all(events_from_market_resolution(executed_day, m));
+        }
+        for wel in &welfare_res {
+            event_buffer.push_all(events_from_welfare_resolution(executed_day, wel));
+        }
+        event_buffer.push_all(events_from_mortality_resolution(
+            executed_day,
+            &mortality_res,
+        ));
+
+        // Phase 10 Native Segmented SoA
+        let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+        let t0 = Instant::now();
+        let m = phase10_observe_storage(&segmented, &world.settlements, executed_day)
+            .expect("phase10 native succeeds");
+        t_p10_native += t0.elapsed();
+
+        event_buffer.push(event_from_daily_metrics(&m));
+        metrics.push(m);
+
+        // Phase 11 Snapshot (Day 199 only)
+        if _d == 199 {
+            let meta = SnapshotMetadata::new(
+                next_day,
+                context.master_seed,
+                context.replicate_id,
+                DEFAULT_MODEL_VERSION,
+                DEFAULT_CONFIG_VERSION,
+            );
+            let _snap = encode_snapshot(&world, &meta).expect("snapshot succeeds");
+            let snap_ev = EventRecord::new(
+                EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: meta.day,
+                    master_seed: meta.master_seed,
+                    replicate_id: meta.replicate_id,
+                    schema_version: SNAPSHOT_SCHEMA_VERSION,
+                }),
+            );
+            event_buffer.push(snap_ev);
+        }
+
+        // Phase 11 Event Flush
+        let flushed = phase11_flush_events(&mut event_buffer).expect("event flush succeeds");
+        all_events.extend(flushed);
+
+        world.current_day = SimulationDay(next_day);
+    }
+
+    let elapsed_500 = start_500.elapsed();
+
+    // Correctness Verification
+    let actual_state_hash = canonical_state_hash(&world).unwrap().to_hex();
+    let actual_metrics_hash = canonical_metrics_hash(&metrics).unwrap().to_hex();
+    let actual_event_hash = canonical_event_hash(&all_events).unwrap().to_hex();
+
+    println!("CanonicalStateHash:   {}", actual_state_hash);
+    println!("  Expected:           {}", EXPECTED_STATE_HASH);
+    assert_eq!(
+        actual_state_hash, EXPECTED_STATE_HASH,
+        "State hash mismatch in Native SoA trajectory!"
+    );
+
+    println!("CanonicalMetricsHash: {}", actual_metrics_hash);
+    println!("  Expected:           {}", EXPECTED_METRICS_HASH);
+    assert_eq!(
+        actual_metrics_hash, EXPECTED_METRICS_HASH,
+        "Metrics hash mismatch in Native SoA trajectory!"
+    );
+
+    println!("CanonicalEventHash:   {}", actual_event_hash);
+    println!("  Expected:           {}", EXPECTED_EVENT_HASH);
+    assert_eq!(
+        actual_event_hash, EXPECTED_EVENT_HASH,
+        "Event hash mismatch in Native SoA trajectory!"
+    );
+    println!("CANONICAL GRADUATION TRAJECTORY: 100% BIT-EXACT MATCH.");
+
+    let total_ms = elapsed_500.as_secs_f64() * 1000.0;
+    let avg_day_us = (elapsed_500.as_nanos() as f64) / 500.0 / 1000.0;
+    let p10_ms = t_p10_native.as_secs_f64() * 1000.0;
+    let p10_us = (t_p10_native.as_nanos() as f64) / 500.0 / 1000.0;
+    println!(
+        "\n500-Day Trajectory Execution Time: {:.3} ms ({:.2} us/day)",
+        total_ms, avg_day_us
+    );
+    println!(
+        "  Phase 10 Native SoA Latency:   {:.3} ms ({:.2} us/day)",
+        p10_ms, p10_us
+    );
+
+    // Part 2: Isolated Phase 10 Latency Comparison (Population Scaling)
+    println!("\nPart 2: Population Scaling Phase 10 Latency Comparison (50 Days)");
+    println!(
+        "{:<8} | {:>12} | {:>14} | {:>14} | {:>14} | {:>10} | {:>10}",
+        "Pop (N)",
+        "A: AoS (us)",
+        "B: SoA Scratch",
+        "C: Native Fresh",
+        "D: Native Reuse",
+        "D vs A",
+        "D vs B"
+    );
+    println!("{:-<94}", "");
+
+    let populations = [100, 250, 500, 1000];
+    let days = 50;
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let mut world = match initialize_world(&cfg) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+
+        // Advance 25 days so world has active, dynamic agent states
+        for _ in 0..25 {
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, &cfg, context, &opts).unwrap();
+        }
+
+        let mut t_aos = Duration::ZERO;
+        let mut t_scratch = Duration::ZERO;
+        let mut t_native_fresh = Duration::ZERO;
+        let mut t_native_reuse = Duration::ZERO;
+
+        let mut scratch_b = AgentDynamicSoAScratch::with_capacity(world.agents.len());
+        let mut index_scratch = Vec::with_capacity(world.agents.len());
+        let mut settlement_scratch = Vec::with_capacity(world.settlements.len());
+
+        for _ in 0..days {
+            let opts = DayExecutionOptions {
+                metrics_enabled: false,
+                events_enabled: false,
+                snapshot_boundary: false,
+            };
+            let _ = run_m0_day(&mut world, &cfg, context, &opts).unwrap();
+            let day = world.current_day.as_u32();
+
+            // Segmented storage ready
+            let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+
+            // Condition A: AoS Phase 10
+            let t0 = Instant::now();
+            let m_aos = phase10_observe(&world, day).unwrap();
+            t_aos += t0.elapsed();
+
+            // Condition B: SoA Scratch Phase 10 (M2-16)
+            let t0 = Instant::now();
+            let m_scratch = phase10_observe_with_scratch(&world, day, &mut scratch_b).unwrap();
+            t_scratch += t0.elapsed();
+
+            // Condition C: Native Segmented SoA Fresh (allocates index buffer)
+            let t0 = Instant::now();
+            let m_native_fresh =
+                phase10_observe_storage(&segmented, &world.settlements, day).unwrap();
+            t_native_fresh += t0.elapsed();
+
+            // Condition D: Native Segmented SoA Reuse (reusable index buffer)
+            let t0 = Instant::now();
+            let m_native_reuse = phase10_observe_storage_with_scratch(
+                &segmented,
+                &world.settlements,
+                day,
+                &mut index_scratch,
+                &mut settlement_scratch,
+            )
+            .unwrap();
+            t_native_reuse += t0.elapsed();
+
+            // Parity check
+            assert_eq!(m_aos, m_scratch);
+            assert_eq!(m_aos, m_native_fresh);
+            assert_eq!(m_aos, m_native_reuse);
+        }
+
+        let us_aos = (t_aos.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_scratch = (t_scratch.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_fresh = (t_native_fresh.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_reuse = (t_native_reuse.as_nanos() as f64) / (days as f64) / 1000.0;
+
+        let speedup_d_a = us_aos / us_reuse.max(0.001);
+        let speedup_d_b = us_scratch / us_reuse.max(0.001);
+
+        println!(
+            "{:<8} | {:>12.2} | {:>14.2} | {:>14.2} | {:>14.2} | {:>9.2}x | {:>9.2}x",
+            pop, us_aos, us_scratch, us_fresh, us_reuse, speedup_d_a, speedup_d_b
+        );
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -1631,6 +1929,9 @@ fn main() {
 
     // 10. M2-19 WorldStorage Abstraction Layer Benchmark
     measure_world_storage_abstraction_overhead(&config, &context);
+
+    // 11. M2-20 Phase 10 Native Segmented SoA Migration Benchmark
+    measure_phase10_native_soa(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

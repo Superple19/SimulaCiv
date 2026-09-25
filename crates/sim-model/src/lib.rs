@@ -55,9 +55,11 @@ pub use intents::{
     phase4_generate_intents,
 };
 pub use metrics::{
-    DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, compute_wealth_gini_soa,
-    phase10_metrics, phase10_metrics_observation, phase10_observe, phase10_observe_compact_aos,
-    phase10_observe_soa_fresh, phase10_observe_with_config, phase10_observe_with_scratch,
+    DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, compute_wealth_gini_from_slices,
+    compute_wealth_gini_soa, phase10_metrics, phase10_metrics_observation, phase10_observe,
+    phase10_observe_compact_aos, phase10_observe_segmented, phase10_observe_soa_fresh,
+    phase10_observe_storage, phase10_observe_storage_with_scratch, phase10_observe_with_config,
+    phase10_observe_with_scratch,
 };
 pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
 pub use phases::{

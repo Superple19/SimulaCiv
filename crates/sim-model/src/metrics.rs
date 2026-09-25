@@ -11,6 +11,7 @@
 use crate::state::{
     AgentDynamicSoAScratch, AgentDynamicState, AgentState, SettlementState, WorldState,
 };
+use crate::storage::SegmentedAgentStorage;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, Money};
 use std::collections::HashSet;
@@ -251,6 +252,170 @@ pub fn phase10_observe_with_config(
     phase10_observe(world, world.current_day.0)
 }
 
+/// Executes Phase 10: Macroscopic Metrics Observation natively on [`SegmentedAgentStorage`].
+///
+/// Directly reads contiguous column slices (`alive`, `food`, `wealth`, `agent_ids`) without
+/// any intermediate AoS/SoA buffer conversions or heap allocations.
+pub fn phase10_observe_storage(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    day: u32,
+) -> Result<DailyMetrics, Phase10Error> {
+    let mut indices = Vec::with_capacity(storage.len());
+    let mut settlement_indices = Vec::with_capacity(settlements.len());
+    phase10_observe_storage_with_scratch(
+        storage,
+        settlements,
+        day,
+        &mut indices,
+        &mut settlement_indices,
+    )
+}
+
+/// Convenience alias for [`phase10_observe_storage`].
+pub use phase10_observe_storage as phase10_observe_segmented;
+
+/// Executes Phase 10: Macroscopic Metrics Observation natively on [`SegmentedAgentStorage`]
+/// reusing external index scratch buffers for zero-allocation performance.
+pub fn phase10_observe_storage_with_scratch(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    day: u32,
+    indices: &mut Vec<usize>,
+    settlement_indices: &mut Vec<usize>,
+) -> Result<DailyMetrics, Phase10Error> {
+    let n = storage.len();
+
+    let agent_ids = storage.agent_ids();
+    let foods = storage.food();
+    let wealths = storage.wealth();
+    let alives = storage.alive();
+
+    // 1. Structural validation of agents
+    let mut seen_set = if n > 32 {
+        Some(HashSet::with_capacity(n))
+    } else {
+        None
+    };
+
+    for (i, &aid) in agent_ids.iter().enumerate() {
+        let duplicate = if let Some(ref mut set) = seen_set {
+            !set.insert(aid)
+        } else {
+            agent_ids[..i].contains(&aid)
+        };
+        if duplicate {
+            return Err(Phase10Error::DuplicateAgent(aid));
+        }
+        if !foods[i].is_finite() {
+            return Err(Phase10Error::NonFiniteFood {
+                agent_id: aid,
+                food: foods[i],
+            });
+        }
+        if foods[i] < 0.0 {
+            return Err(Phase10Error::NegativeFood {
+                agent_id: aid,
+                food: foods[i],
+            });
+        }
+        if wealths[i] < 0 {
+            return Err(Phase10Error::NegativeWealth {
+                agent_id: aid,
+                wealth: wealths[i],
+            });
+        }
+    }
+
+    // 2. Structural validation of settlements
+    for (i, settlement) in settlements.iter().enumerate() {
+        if settlements[..i]
+            .iter()
+            .any(|s| s.group_id == settlement.group_id)
+        {
+            return Err(Phase10Error::DuplicateSettlement(settlement.group_id));
+        }
+        if settlement.treasury < 0 {
+            return Err(Phase10Error::NegativeTreasury {
+                group_id: settlement.group_id,
+                treasury: settlement.treasury,
+            });
+        }
+    }
+
+    // 3. Population: count living agents in contiguous bool vector
+    let population = alives.iter().filter(|&&a| a).count() as u64;
+
+    // 4. Canonical living agent indices
+    indices.clear();
+    for (i, &is_alive) in alives.iter().enumerate() {
+        if is_alive {
+            indices.push(i);
+        }
+    }
+
+    // Ensure ascending AgentId canonical order for living agents
+    let is_sorted = indices
+        .windows(2)
+        .all(|w| agent_ids[w[0]] <= agent_ids[w[1]]);
+    if !is_sorted {
+        indices.sort_unstable_by_key(|&i| agent_ids[i]);
+    }
+
+    // 5. Total food reserves: sequential f64 accumulation in ascending AgentId order
+    let mut total_food_reserves = 0.0_f64;
+    if is_sorted && population as usize == foods.len() {
+        // Fast path: all agents living and strictly sorted - contiguous streaming
+        for &f in foods {
+            total_food_reserves += f as f64;
+        }
+    } else {
+        // Canonical sorted index traversal
+        for &idx in indices.iter() {
+            total_food_reserves += foods[idx] as f64;
+        }
+    }
+    if !total_food_reserves.is_finite() {
+        return Err(Phase10Error::InvariantViolation(
+            "total food reserves non-finite".into(),
+        ));
+    }
+
+    // 6. Total treasury: ascending GroupId checked Money addition
+    let settlements_sorted = settlements
+        .windows(2)
+        .all(|w| w[0].group_id <= w[1].group_id);
+
+    let mut total_treasury: Money = 0;
+    if settlements_sorted {
+        for s in settlements {
+            total_treasury = total_treasury
+                .checked_add(s.treasury)
+                .ok_or(Phase10Error::ArithmeticOverflow)?;
+        }
+    } else {
+        settlement_indices.clear();
+        settlement_indices.extend(0..settlements.len());
+        settlement_indices.sort_unstable_by_key(|&i| settlements[i].group_id);
+        for &idx in settlement_indices.iter() {
+            total_treasury = total_treasury
+                .checked_add(settlements[idx].treasury)
+                .ok_or(Phase10Error::ArithmeticOverflow)?;
+        }
+    }
+
+    // 7. Wealth Gini via native SoA column slices
+    let wealth_gini = compute_wealth_gini_from_slices(wealths, agent_ids, indices)?;
+
+    Ok(DailyMetrics {
+        day,
+        population,
+        wealth_gini,
+        total_food_reserves,
+        total_treasury,
+    })
+}
+
 /// Compact AoS Phase 10 execution (M2-15 baseline representation) for ablation benchmarking.
 pub fn phase10_observe_compact_aos(
     world: &WorldState,
@@ -472,29 +637,22 @@ pub fn compute_wealth_gini_dynamic(
     Ok(gini)
 }
 
-/// Computes the wealth Gini coefficient for alive agents from an [`AgentDynamicSoAScratch`] buffer
+/// Computes the wealth Gini coefficient for alive agents directly from column slices and an indices buffer
 /// according to the exact M0 reference semantics.
-///
-/// Uses `scratch.indices` (or populates from `scratch.alive` if empty)
-/// and sorts indices in place by `(wealth ascending, AgentId ascending)` without heap allocations.
-pub fn compute_wealth_gini_soa(scratch: &mut AgentDynamicSoAScratch) -> Result<f64, Phase10Error> {
-    if scratch.indices.is_empty() {
-        for (i, &is_alive) in scratch.alive.iter().enumerate() {
-            if is_alive {
-                scratch.indices.push(i);
-            }
-        }
-    }
-
-    let n = scratch.indices.len() as u128;
+pub fn compute_wealth_gini_from_slices(
+    wealths: &[Money],
+    agent_ids: &[AgentId],
+    indices: &mut [usize],
+) -> Result<f64, Phase10Error> {
+    let n = indices.len() as u128;
     if n == 0 {
         return Ok(0.0);
     }
 
     let mut sum_x: u128 = 0;
-    for &idx in &scratch.indices {
+    for &idx in indices.iter() {
         sum_x = sum_x
-            .checked_add(scratch.wealth[idx] as u128)
+            .checked_add(wealths[idx] as u128)
             .ok_or(Phase10Error::ArithmeticOverflow)?;
     }
 
@@ -503,14 +661,12 @@ pub fn compute_wealth_gini_soa(scratch: &mut AgentDynamicSoAScratch) -> Result<f
     }
 
     // Sort living indices by (wealth ascending, AgentId ascending)
-    scratch
-        .indices
-        .sort_unstable_by_key(|&i| (scratch.wealth[i], scratch.agent_ids[i]));
+    indices.sort_unstable_by_key(|&i| (wealths[i], agent_ids[i]));
 
     let mut weighted_sum: u128 = 0;
-    for (idx, &i) in scratch.indices.iter().enumerate() {
+    for (idx, &i) in indices.iter().enumerate() {
         let rank = (idx as u128) + 1; // 1-indexed: 1..=n
-        let x_i = scratch.wealth[i] as u128;
+        let x_i = wealths[i] as u128;
         let term = rank
             .checked_mul(x_i)
             .ok_or(Phase10Error::ArithmeticOverflow)?;
@@ -543,4 +699,116 @@ pub fn compute_wealth_gini_soa(scratch: &mut AgentDynamicSoAScratch) -> Result<f
     }
 
     Ok(gini)
+}
+
+/// Computes the wealth Gini coefficient for alive agents from an [`AgentDynamicSoAScratch`] buffer
+/// according to the exact M0 reference semantics.
+///
+/// Uses `scratch.indices` (or populates from `scratch.alive` if empty)
+/// and sorts indices in place by `(wealth ascending, AgentId ascending)` without heap allocations.
+pub fn compute_wealth_gini_soa(scratch: &mut AgentDynamicSoAScratch) -> Result<f64, Phase10Error> {
+    if scratch.indices.is_empty() {
+        for (i, &is_alive) in scratch.alive.iter().enumerate() {
+            if is_alive {
+                scratch.indices.push(i);
+            }
+        }
+    }
+
+    compute_wealth_gini_from_slices(&scratch.wealth, &scratch.agent_ids, &mut scratch.indices)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sim_core::{DenseSlot, SimulationDay};
+
+    fn make_test_world() -> WorldState {
+        WorldState {
+            current_day: SimulationDay(10),
+            agents: vec![
+                AgentState {
+                    agent_id: AgentId(2),
+                    dense_slot: DenseSlot(0),
+                    alive: true,
+                    birth_day: SimulationDay(0),
+                    health: 0.9,
+                    food: 12.5,
+                    wealth: 250,
+                    productivity: 1.0,
+                    cooperation: 0.5,
+                    aggression: 0.2,
+                    risk_tolerance: 0.4,
+                    group_id: GroupId(1),
+                },
+                AgentState {
+                    agent_id: AgentId(1),
+                    dense_slot: DenseSlot(1),
+                    alive: true,
+                    birth_day: SimulationDay(0),
+                    health: 0.8,
+                    food: 7.5,
+                    wealth: 100,
+                    productivity: 0.9,
+                    cooperation: 0.6,
+                    aggression: 0.1,
+                    risk_tolerance: 0.3,
+                    group_id: GroupId(0),
+                },
+                AgentState {
+                    agent_id: AgentId(3),
+                    dense_slot: DenseSlot(2),
+                    alive: false,
+                    birth_day: SimulationDay(0),
+                    health: 0.0,
+                    food: 0.0,
+                    wealth: 50,
+                    productivity: 1.2,
+                    cooperation: 0.4,
+                    aggression: 0.3,
+                    risk_tolerance: 0.5,
+                    group_id: GroupId(0),
+                },
+            ],
+            settlements: vec![
+                SettlementState {
+                    group_id: GroupId(0),
+                    resource: 1000.0,
+                    treasury: 500,
+                },
+                SettlementState {
+                    group_id: GroupId(1),
+                    resource: 2000.0,
+                    treasury: 1500,
+                },
+            ],
+            initial_money_supply: 2400,
+        }
+    }
+
+    #[test]
+    fn test_phase10_observe_storage_parity() {
+        let world = make_test_world();
+        let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+
+        let m_aos = phase10_observe(&world, 10).unwrap();
+        let m_soa = phase10_observe_storage(&segmented, &world.settlements, 10).unwrap();
+
+        assert_eq!(
+            m_aos, m_soa,
+            "AoS and SoA Phase 10 metrics must match bit-for-bit"
+        );
+        assert_eq!(m_soa.population, 2);
+        assert_eq!(m_soa.total_food_reserves, 20.0);
+        assert_eq!(m_soa.total_treasury, 2000);
+    }
+
+    #[test]
+    fn test_phase10_observe_storage_errors() {
+        let mut world = make_test_world();
+        world.agents[0].food = -1.0;
+        let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+        let res = phase10_observe_storage(&segmented, &world.settlements, 10);
+        assert!(matches!(res, Err(Phase10Error::NegativeFood { .. })));
+    }
 }
