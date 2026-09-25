@@ -43,7 +43,7 @@ use sim_model::runner::{
 };
 use sim_model::snapshot::{SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot};
 use sim_model::state::{AgentDynamicSoAScratch, WorldState};
-use sim_model::storage::SegmentedAgentStorage;
+use sim_model::storage::{SegmentedAgentStorage, WorldStorage, canonical_state_hash_from_storage};
 use sim_model::{SimConfig, initialize_world};
 
 const GATE_CONFIG_TOML: &str = r#"
@@ -1269,6 +1269,234 @@ fn measure_storage_authority_comparison(base_config: &SimConfig, context: &M0Run
     println!("  - Increases architectural debt without eliminating memory disjointness");
 }
 
+fn measure_world_storage_abstraction_overhead(base_config: &SimConfig, _context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-19 WorldStorage Abstraction Layer Overhead Benchmark");
+    println!("=================================================================");
+
+    let populations = [100, 250, 500, 1000];
+    let iterations = 100;
+
+    // Part 1: Agent State Access / Retrieval (100 sweeps)
+    println!("\nPart 1: Agent State Retrieval Overhead (100 Sweeps)");
+    println!(
+        "{:<6} | {:>14} | {:>18} | {:>14} | {:>11} | {:>10}",
+        "Pop(N)", "AoS Direct", "WorldStorage View", "Segmented SoA", "View vs Dir", "SoA vs Dir"
+    );
+    println!("{:-<86}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let world = match initialize_world(&cfg) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+        let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+        let storage_view = world.storage();
+
+        let n = pop as usize;
+
+        // Warm-up
+        let mut sink = 0.0f32;
+        for i in 0..n {
+            sink += world.agents[i].health;
+        }
+
+        // 1. Direct AoS
+        let t0 = Instant::now();
+        for _ in 0..iterations {
+            for i in 0..n {
+                let a = &world.agents[i];
+                sink += a.health;
+            }
+        }
+        let t_direct = t0.elapsed();
+
+        // 2. WorldStorage AoS View
+        let t0 = Instant::now();
+        for _ in 0..iterations {
+            for i in 0..n {
+                let a = storage_view.agent_state(i);
+                sink += a.health;
+            }
+        }
+        let t_view = t0.elapsed();
+
+        // 3. WorldStorage Segmented SoA
+        let t0 = Instant::now();
+        for _ in 0..iterations {
+            for i in 0..n {
+                let a = segmented.agent_state(i);
+                sink += a.health;
+            }
+        }
+        let t_soa = t0.elapsed();
+
+        std::hint::black_box(sink);
+
+        let ns_direct = (t_direct.as_nanos() as f64) / (iterations as f64) / (pop as f64);
+        let ns_view = (t_view.as_nanos() as f64) / (iterations as f64) / (pop as f64);
+        let ns_soa = (t_soa.as_nanos() as f64) / (iterations as f64) / (pop as f64);
+
+        let ratio_view = ns_view / ns_direct.max(0.001);
+        let ratio_soa = ns_soa / ns_direct.max(0.001);
+
+        println!(
+            "{:<6} | {:>11.2} ns | {:>15.2} ns | {:>11.2} ns | {:>10.2}x | {:>9.2}x",
+            pop, ns_direct, ns_view, ns_soa, ratio_view, ratio_soa
+        );
+    }
+
+    // Part 2: Agent ID Lookup (slot_of) (100 sweeps)
+    println!("\nPart 2: Agent ID Lookup Overhead (100 Sweeps)");
+    println!(
+        "{:<6} | {:>14} | {:>18} | {:>17} | {:>11} | {:>11}",
+        "Pop(N)",
+        "AoS Linear",
+        "WorldStorage View",
+        "Segmented (O(1))",
+        "View vs Dir",
+        "SoA Speedup"
+    );
+    println!("{:-<92}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let world = match initialize_world(&cfg) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+        let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+        let storage_view = world.storage();
+
+        let target_ids: Vec<sim_core::AgentId> = world.agents.iter().map(|a| a.agent_id).collect();
+        let mut sink = 0usize;
+
+        // 1. Direct AoS Linear Search
+        let t0 = Instant::now();
+        for _ in 0..iterations {
+            for &id in &target_ids {
+                if let Some(pos) = world.agents.iter().position(|a| a.agent_id == id) {
+                    sink += pos;
+                }
+            }
+        }
+        let t_direct = t0.elapsed();
+
+        // 2. WorldStorage View Lookup
+        let t0 = Instant::now();
+        for _ in 0..iterations {
+            for &id in &target_ids {
+                if let Some(pos) = storage_view.slot_of(id) {
+                    sink += pos;
+                }
+            }
+        }
+        let t_view = t0.elapsed();
+
+        // 3. Segmented O(1) Hash Lookup
+        let t0 = Instant::now();
+        for _ in 0..iterations {
+            for &id in &target_ids {
+                if let Some(pos) = segmented.slot_of(id) {
+                    sink += pos;
+                }
+            }
+        }
+        let t_soa = t0.elapsed();
+
+        std::hint::black_box(sink);
+
+        let ns_direct = (t_direct.as_nanos() as f64) / (iterations as f64) / (pop as f64);
+        let ns_view = (t_view.as_nanos() as f64) / (iterations as f64) / (pop as f64);
+        let ns_soa = (t_soa.as_nanos() as f64) / (iterations as f64) / (pop as f64);
+
+        let ratio_view = ns_view / ns_direct.max(0.001);
+        let speedup_soa = ns_direct / ns_soa.max(0.001);
+
+        println!(
+            "{:<6} | {:>11.2} ns | {:>15.2} ns | {:>14.2} ns | {:>10.2}x | {:>10.2}x",
+            pop, ns_direct, ns_view, ns_soa, ratio_view, speedup_soa
+        );
+    }
+
+    // Part 3: Canonical State Hashing Comparison
+    println!("\nPart 3: Canonical State Hash Generation Latency");
+    println!(
+        "{:<6} | {:>14} | {:>18} | {:>16} | {:>11} | {:>10}",
+        "Pop(N)",
+        "Direct Hash",
+        "WorldStorage View",
+        "Segmented Direct",
+        "View vs Dir",
+        "Seg vs Dir"
+    );
+    println!("{:-<88}", "");
+
+    let hash_iters = 50;
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let world = match initialize_world(&cfg) {
+            Ok(w) => w,
+            Err(_) => continue,
+        };
+        let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+        let storage_view = world.storage();
+
+        // 1. Direct AoS canonical_state_hash
+        let t0 = Instant::now();
+        for _ in 0..hash_iters {
+            let _ = canonical_state_hash(&world).unwrap();
+        }
+        let t_direct = t0.elapsed();
+
+        // 2. canonical_state_hash_from_storage via WorldStorage View
+        let t0 = Instant::now();
+        for _ in 0..hash_iters {
+            let _ = canonical_state_hash_from_storage(
+                &storage_view,
+                world.current_day,
+                &world.settlements,
+            )
+            .unwrap();
+        }
+        let t_view = t0.elapsed();
+
+        // 3. segmented.canonical_state_hash
+        let t0 = Instant::now();
+        for _ in 0..hash_iters {
+            let _ = segmented
+                .canonical_state_hash(world.current_day, &world.settlements)
+                .unwrap();
+        }
+        let t_soa = t0.elapsed();
+
+        let us_direct = (t_direct.as_nanos() as f64) / (hash_iters as f64) / 1000.0;
+        let us_view = (t_view.as_nanos() as f64) / (hash_iters as f64) / 1000.0;
+        let us_soa = (t_soa.as_nanos() as f64) / (hash_iters as f64) / 1000.0;
+
+        let ratio_view = us_view / us_direct.max(0.001);
+        let ratio_soa = us_soa / us_direct.max(0.001);
+
+        println!(
+            "{:<6} | {:>11.2} us | {:>15.2} us | {:>13.2} us | {:>10.2}x | {:>9.2}x",
+            pop, us_direct, us_view, us_soa, ratio_view, ratio_soa
+        );
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -1400,6 +1628,9 @@ fn main() {
 
     // 9. M2-18.1 Segmented SoA Storage Authority Design Benchmark
     measure_storage_authority_comparison(&config, &context);
+
+    // 10. M2-19 WorldStorage Abstraction Layer Benchmark
+    measure_world_storage_abstraction_overhead(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

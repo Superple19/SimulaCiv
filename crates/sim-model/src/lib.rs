@@ -89,5 +89,8 @@ pub use snapshot::{
 pub use state::{
     AgentDynamicSoAScratch, AgentDynamicState, AgentState, SettlementState, WorldState,
 };
-pub use storage::{DemographyStorage, EconomyStorage, PersonalityStorage, SegmentedAgentStorage};
+pub use storage::{
+    AosStorageView, DemographyStorage, EconomyStorage, PersonalityStorage, SegmentedAgentStorage,
+    WorldStorage, canonical_state_bytes_from_storage, canonical_state_hash_from_storage,
+};
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};

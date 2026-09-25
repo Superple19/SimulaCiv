@@ -234,3 +234,11 @@ pub struct WorldState {
     pub settlements: Vec<SettlementState>,
     pub initial_money_supply: Money,
 }
+
+impl WorldState {
+    /// Returns a [`WorldStorage`](crate::storage::WorldStorage) adapter view over the authoritative agents.
+    #[inline]
+    pub fn storage(&self) -> crate::storage::AosStorageView<'_> {
+        crate::storage::AosStorageView::new(&self.agents)
+    }
+}

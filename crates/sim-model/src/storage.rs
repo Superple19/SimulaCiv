@@ -568,6 +568,322 @@ impl SegmentedAgentStorage {
     }
 }
 
+// =========================================================================
+// WorldStorage Abstraction Layer
+// =========================================================================
+
+/// Abstraction trait for read access to agent entity storage.
+///
+/// Provides a unified, layout-agnostic interface across both legacy AoS
+/// (`Vec<AgentState>`, `AosStorageView`) and modern columnar Segmented SoA
+/// (`SegmentedAgentStorage`), allowing simulation systems to decouple from
+/// concrete storage representations in preparation for M2 authoritative migration.
+pub trait WorldStorage {
+    /// Returns the total number of agent entities.
+    fn agent_count(&self) -> usize;
+
+    /// Returns `true` if the storage contains no agent records.
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.agent_count() == 0
+    }
+
+    /// Reconstructs or retrieves the authoritative [`AgentState`] at the given dense slot index.
+    fn agent_state(&self, slot: usize) -> AgentState;
+
+    /// Resolves the permanent [`AgentId`] at the given dense slot index.
+    fn agent_id(&self, slot: usize) -> AgentId;
+
+    /// Safely retrieves an [`AgentState`] if the slot index is in-bounds.
+    #[inline]
+    fn get_agent_state(&self, slot: usize) -> Option<AgentState> {
+        if slot < self.agent_count() {
+            Some(self.agent_state(slot))
+        } else {
+            None
+        }
+    }
+
+    /// Safely resolves the permanent [`AgentId`] if the slot index is in-bounds.
+    #[inline]
+    fn get_agent_id(&self, slot: usize) -> Option<AgentId> {
+        if slot < self.agent_count() {
+            Some(self.agent_id(slot))
+        } else {
+            None
+        }
+    }
+
+    /// Resolves the dense slot index for a given permanent [`AgentId`].
+    fn slot_of(&self, id: AgentId) -> Option<usize>;
+
+    /// Reconstructs all agents into a contiguous [`Vec<AgentState>`].
+    fn to_agents(&self) -> Vec<AgentState> {
+        let n = self.agent_count();
+        let mut out = Vec::with_capacity(n);
+        for slot in 0..n {
+            out.push(self.agent_state(slot));
+        }
+        out
+    }
+}
+
+/// Borrowed compatibility view wrapping an authoritative AoS slice of [`AgentState`].
+#[derive(Debug, Clone, Copy)]
+pub struct AosStorageView<'a> {
+    agents: &'a [AgentState],
+}
+
+impl<'a> AosStorageView<'a> {
+    /// Constructs a new [`AosStorageView`] over the provided agent slice.
+    #[inline]
+    pub const fn new(agents: &'a [AgentState]) -> Self {
+        Self { agents }
+    }
+
+    /// Returns the underlying raw slice of [`AgentState`].
+    #[inline]
+    pub const fn as_slice(&self) -> &'a [AgentState] {
+        self.agents
+    }
+}
+
+impl<'a> WorldStorage for AosStorageView<'a> {
+    #[inline]
+    fn agent_count(&self) -> usize {
+        self.agents.len()
+    }
+
+    #[inline]
+    fn agent_state(&self, slot: usize) -> AgentState {
+        self.agents[slot].clone()
+    }
+
+    #[inline]
+    fn agent_id(&self, slot: usize) -> AgentId {
+        self.agents[slot].agent_id
+    }
+
+    #[inline]
+    fn slot_of(&self, id: AgentId) -> Option<usize> {
+        self.agents.iter().position(|a| a.agent_id == id)
+    }
+
+    #[inline]
+    fn to_agents(&self) -> Vec<AgentState> {
+        self.agents.to_vec()
+    }
+}
+
+impl WorldStorage for [AgentState] {
+    #[inline]
+    fn agent_count(&self) -> usize {
+        self.len()
+    }
+
+    #[inline]
+    fn agent_state(&self, slot: usize) -> AgentState {
+        self[slot].clone()
+    }
+
+    #[inline]
+    fn agent_id(&self, slot: usize) -> AgentId {
+        self[slot].agent_id
+    }
+
+    #[inline]
+    fn slot_of(&self, id: AgentId) -> Option<usize> {
+        self.iter().position(|a| a.agent_id == id)
+    }
+
+    #[inline]
+    fn to_agents(&self) -> Vec<AgentState> {
+        self.to_vec()
+    }
+}
+
+impl WorldStorage for Vec<AgentState> {
+    #[inline]
+    fn agent_count(&self) -> usize {
+        self.len()
+    }
+
+    #[inline]
+    fn agent_state(&self, slot: usize) -> AgentState {
+        self[slot].clone()
+    }
+
+    #[inline]
+    fn agent_id(&self, slot: usize) -> AgentId {
+        self[slot].agent_id
+    }
+
+    #[inline]
+    fn slot_of(&self, id: AgentId) -> Option<usize> {
+        self.iter().position(|a| a.agent_id == id)
+    }
+
+    #[inline]
+    fn to_agents(&self) -> Vec<AgentState> {
+        self.clone()
+    }
+}
+
+impl WorldStorage for SegmentedAgentStorage {
+    #[inline]
+    fn agent_count(&self) -> usize {
+        self.len()
+    }
+
+    #[inline]
+    fn agent_state(&self, slot: usize) -> AgentState {
+        self.agent_at(slot).expect("slot out of bounds")
+    }
+
+    #[inline]
+    fn agent_id(&self, slot: usize) -> AgentId {
+        self.agent_ids[slot]
+    }
+
+    #[inline]
+    fn slot_of(&self, id: AgentId) -> Option<usize> {
+        self.slot_of(id)
+    }
+
+    #[inline]
+    fn to_agents(&self) -> Vec<AgentState> {
+        self.to_agents()
+    }
+}
+
+impl WorldStorage for WorldState {
+    #[inline]
+    fn agent_count(&self) -> usize {
+        self.agents.len()
+    }
+
+    #[inline]
+    fn agent_state(&self, slot: usize) -> AgentState {
+        self.agents[slot].clone()
+    }
+
+    #[inline]
+    fn agent_id(&self, slot: usize) -> AgentId {
+        self.agents[slot].agent_id
+    }
+
+    #[inline]
+    fn slot_of(&self, id: AgentId) -> Option<usize> {
+        self.agents.iter().position(|a| a.agent_id == id)
+    }
+
+    #[inline]
+    fn to_agents(&self) -> Vec<AgentState> {
+        self.agents.clone()
+    }
+}
+
+/// Encodes any [`WorldStorage`] representation into canonical binary preimage bytes,
+/// guaranteeing 100% bit-exact equivalence with `canonical_state_bytes(&world)`.
+pub fn canonical_state_bytes_from_storage<S: WorldStorage + ?Sized>(
+    storage: &S,
+    current_day: SimulationDay,
+    settlements: &[SettlementState],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let agent_count = storage.agent_count();
+    let agent_count_u32 =
+        u32::try_from(agent_count).map_err(|_| CanonicalHashError::LengthOverflow)?;
+    let settlement_count_u32 =
+        u32::try_from(settlements.len()).map_err(|_| CanonicalHashError::LengthOverflow)?;
+
+    let mut agents = storage.to_agents();
+    agents.sort_by_key(|a| a.agent_id);
+
+    for window in agents.windows(2) {
+        if window[0].agent_id == window[1].agent_id {
+            return Err(CanonicalHashError::DuplicateAgent(window[0].agent_id));
+        }
+    }
+
+    for a in &agents {
+        if !a.health.is_finite() {
+            return Err(CanonicalHashError::NonFiniteFloat("health"));
+        }
+        if !a.food.is_finite() {
+            return Err(CanonicalHashError::NonFiniteFloat("food"));
+        }
+        if a.food < 0.0 {
+            return Err(CanonicalHashError::NegativeValue("food"));
+        }
+        if a.wealth < 0 {
+            return Err(CanonicalHashError::NegativeMoney(a.wealth));
+        }
+    }
+
+    for s in settlements {
+        if !s.resource.is_finite() {
+            return Err(CanonicalHashError::NonFiniteFloat("settlement_resource"));
+        }
+        if s.resource < 0.0 {
+            return Err(CanonicalHashError::NegativeValue("settlement_resource"));
+        }
+        if s.treasury < 0 {
+            return Err(CanonicalHashError::NegativeMoney(s.treasury));
+        }
+    }
+
+    // Allocate exact canonical payload size
+    let expected_len = DOMAIN_STATE.len()
+        + 4 // current_day
+        + 4 // agent_count
+        + (agents.len() * 43)
+        + 4 // settlement_count
+        + (settlements.len() * 14);
+
+    let mut bytes = Vec::with_capacity(expected_len);
+    bytes.extend_from_slice(DOMAIN_STATE);
+    bytes.extend_from_slice(&current_day.0.to_le_bytes());
+    bytes.extend_from_slice(&agent_count_u32.to_le_bytes());
+
+    for a in &agents {
+        bytes.extend_from_slice(&a.agent_id.0.to_le_bytes());
+        bytes.push(if a.alive { 0x01 } else { 0x00 });
+        bytes.extend_from_slice(&a.birth_day.0.to_le_bytes());
+        bytes.extend_from_slice(&a.health.to_bits().to_le_bytes());
+        bytes.extend_from_slice(&a.food.to_bits().to_le_bytes());
+        bytes.extend_from_slice(&a.wealth.to_le_bytes());
+        bytes.extend_from_slice(&a.productivity.to_bits().to_le_bytes());
+        bytes.extend_from_slice(&a.cooperation.to_bits().to_le_bytes());
+        bytes.extend_from_slice(&a.aggression.to_bits().to_le_bytes());
+        bytes.extend_from_slice(&a.risk_tolerance.to_bits().to_le_bytes());
+        bytes.extend_from_slice(&a.group_id.0.to_le_bytes());
+    }
+
+    bytes.extend_from_slice(&settlement_count_u32.to_le_bytes());
+    let mut sorted_settlements: Vec<&SettlementState> = settlements.iter().collect();
+    sorted_settlements.sort_by_key(|s| s.group_id);
+
+    for s in sorted_settlements {
+        bytes.extend_from_slice(&s.group_id.0.to_le_bytes());
+        bytes.extend_from_slice(&s.resource.to_bits().to_le_bytes());
+        bytes.extend_from_slice(&s.treasury.to_le_bytes());
+    }
+
+    Ok(bytes)
+}
+
+/// Computes the 32-byte canonical SHA-256 state hash from any [`WorldStorage`] implementation.
+pub fn canonical_state_hash_from_storage<S: WorldStorage + ?Sized>(
+    storage: &S,
+    current_day: SimulationDay,
+    settlements: &[SettlementState],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_state_bytes_from_storage(storage, current_day, settlements)?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    Ok(CanonicalHash::from_bytes(hasher.finalize().into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -703,5 +1019,215 @@ mod tests {
         assert!(!segmented.demography.alive[0]);
         // personality untouched
         assert_eq!(segmented.personality.productivity[0], 1.1);
+    }
+
+    #[test]
+    fn test_world_storage_aos_view() {
+        let world = make_test_world();
+        let storage = world.storage();
+
+        assert_eq!(storage.agent_count(), 2);
+        assert!(!storage.is_empty());
+        assert_eq!(storage.agent_id(0), AgentId(2));
+        assert_eq!(storage.agent_id(1), AgentId(1));
+        assert_eq!(storage.agent_state(0), world.agents[0]);
+        assert_eq!(storage.agent_state(1), world.agents[1]);
+        assert_eq!(storage.slot_of(AgentId(2)), Some(0));
+        assert_eq!(storage.slot_of(AgentId(1)), Some(1));
+        assert_eq!(storage.slot_of(AgentId(999)), None);
+        assert_eq!(storage.to_agents(), world.agents);
+    }
+
+    #[test]
+    fn test_world_storage_segmented_view() {
+        let world = make_test_world();
+        let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+
+        assert_eq!(segmented.agent_count(), 2);
+        assert!(!segmented.is_empty());
+        assert_eq!(segmented.agent_id(0), AgentId(2));
+        assert_eq!(segmented.agent_id(1), AgentId(1));
+        assert_eq!(segmented.agent_state(0), world.agents[0]);
+        assert_eq!(segmented.agent_state(1), world.agents[1]);
+        assert_eq!(segmented.slot_of(AgentId(2)), Some(0));
+        assert_eq!(segmented.slot_of(AgentId(1)), Some(1));
+        assert_eq!(segmented.slot_of(AgentId(999)), None);
+        assert_eq!(segmented.to_agents(), world.agents);
+    }
+
+    #[test]
+    fn test_world_storage_canonical_hash_parity() {
+        let world = make_test_world();
+        let segmented = SegmentedAgentStorage::from_agents(&world.agents);
+
+        let h_world = canonical_state_hash(&world).unwrap();
+        let h_view = canonical_state_hash_from_storage(
+            &world.storage(),
+            world.current_day,
+            &world.settlements,
+        )
+        .unwrap();
+        let h_world_trait =
+            canonical_state_hash_from_storage(&world, world.current_day, &world.settlements)
+                .unwrap();
+        let h_seg_trait =
+            canonical_state_hash_from_storage(&segmented, world.current_day, &world.settlements)
+                .unwrap();
+        let h_seg_direct = segmented
+            .canonical_state_hash(world.current_day, &world.settlements)
+            .unwrap();
+
+        assert_eq!(
+            h_world, h_view,
+            "WorldState vs AosStorageView hash must match"
+        );
+        assert_eq!(
+            h_world, h_world_trait,
+            "WorldState vs WorldStorage trait hash must match"
+        );
+        assert_eq!(
+            h_world, h_seg_trait,
+            "WorldState vs Segmented WorldStorage hash must match"
+        );
+        assert_eq!(
+            h_world, h_seg_direct,
+            "WorldState vs Segmented direct hash must match"
+        );
+    }
+
+    #[test]
+    fn test_world_storage_simulation_hashes_parity() {
+        use crate::config::SimConfig;
+        use crate::hashing::{canonical_event_hash, canonical_metrics_hash};
+        use crate::initialization::initialize_world;
+        use crate::runner::{DayExecutionOptions, M0RunContext, run_m0_day};
+
+        let config_toml = r#"
+[world]
+master_seed = 81985529216486895
+replicate_id = 7
+initial_population = 10
+settlement_count = 2
+initial_health = 1.0
+initial_food = 25.0
+initial_wealth = 10000
+initial_settlement_resource = 2000.0
+initial_treasury = 5000
+
+[traits]
+prod_min = 0.8
+prod_max = 1.5
+coop_min = 0.2
+coop_max = 0.8
+aggr_min = 0.1
+aggr_max = 0.5
+risk_min = 0.1
+risk_max = 0.5
+
+[environment]
+carrying_capacity = 10000.0
+regrowth_rate = 0.1
+base_metabolic_cost = 1.0
+health_decay_rate = 0.05
+
+[economy]
+base_work_yield = 2.0
+food_price = 100
+target_food = 20.0
+target_reserve = 5000
+tax_rate = 0.1
+welfare_payment = 50
+
+[interaction]
+gift_amount = 2.0
+theft_amount = 3.0
+theft_success_probability = 0.5
+starvation_threshold = 5.0
+
+[decision]
+decision_temperature = 1.0
+action_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+base_weight_matrix = [
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0]
+]
+trait_weight_cooperation = 1.0
+trait_weight_aggression = 1.0
+trait_weight_risk_tolerance = 1.0
+"#;
+        let config = SimConfig::parse_and_validate(config_toml).unwrap();
+        let context = M0RunContext::new(config.world.master_seed, config.world.replicate_id);
+
+        // Path 1: AoS simulation run for 5 days
+        let mut world_aos = initialize_world(&config).unwrap();
+        let mut metrics_aos = Vec::new();
+        let mut events_aos = Vec::new();
+
+        let opts = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: false,
+        };
+
+        for _ in 0..5 {
+            let outcome = run_m0_day(&mut world_aos, &config, &context, &opts).unwrap();
+            metrics_aos.push(outcome.metrics.unwrap());
+            events_aos.extend(outcome.events);
+        }
+
+        let state_hash_aos = canonical_state_hash(&world_aos).unwrap();
+        let metrics_hash_aos = canonical_metrics_hash(&metrics_aos).unwrap();
+        let event_hash_aos = canonical_event_hash(&events_aos).unwrap();
+
+        // Path 2: Ingest into SegmentedAgentStorage, reconstruct world, advance 5 days
+        let world_init = initialize_world(&config).unwrap();
+        let segmented = SegmentedAgentStorage::from_agents(&world_init.agents);
+        let mut world_seg = segmented.to_world_state(
+            world_init.current_day,
+            world_init.settlements,
+            world_init.initial_money_supply,
+        );
+
+        let mut metrics_seg = Vec::new();
+        let mut events_seg = Vec::new();
+
+        for _ in 0..5 {
+            let outcome = run_m0_day(&mut world_seg, &config, &context, &opts).unwrap();
+            metrics_seg.push(outcome.metrics.unwrap());
+            events_seg.extend(outcome.events);
+        }
+
+        let state_hash_seg = canonical_state_hash(&world_seg).unwrap();
+        let metrics_hash_seg = canonical_metrics_hash(&metrics_seg).unwrap();
+        let event_hash_seg = canonical_event_hash(&events_seg).unwrap();
+
+        assert_eq!(
+            state_hash_aos, state_hash_seg,
+            "CanonicalStateHash must match bit-for-bit"
+        );
+        assert_eq!(
+            metrics_hash_aos, metrics_hash_seg,
+            "CanonicalMetricsHash must match bit-for-bit"
+        );
+        assert_eq!(
+            event_hash_aos, event_hash_seg,
+            "CanonicalEventHash must match bit-for-bit"
+        );
+
+        // Also verify storage hash on final world state matches
+        let state_hash_from_storage = canonical_state_hash_from_storage(
+            &world_seg.storage(),
+            world_seg.current_day,
+            &world_seg.settlements,
+        )
+        .unwrap();
+        assert_eq!(
+            state_hash_aos, state_hash_from_storage,
+            "CanonicalStateHash from WorldStorage must match bit-for-bit"
+        );
     }
 }
