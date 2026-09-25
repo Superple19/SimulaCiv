@@ -387,6 +387,17 @@ impl SegmentedAgentStorage {
         }
     }
 
+    /// Synchronizes mutable dynamic fields from an updated [`AgentState`] slice into existing segmented storage columns.
+    pub fn sync_dynamic_from_agents(&mut self, agents: &[AgentState]) {
+        for (i, agent) in agents.iter().enumerate().take(self.len()) {
+            self.demography.alive[i] = agent.alive;
+            self.demography.health[i] = agent.health;
+            self.economy.food[i] = agent.food;
+            self.economy.wealth[i] = agent.wealth;
+            self.economy.group_id[i] = agent.group_id;
+        }
+    }
+
     /// Re-populates segmented storage from updated authoritative [`AgentState`] slice in-place.
     pub fn sync_from_agents(&mut self, agents: &[AgentState]) {
         self.clear();
@@ -674,5 +685,23 @@ mod tests {
             reconstructed, world.agents,
             "segmented Phase 2 update must match AoS Phase 2 exactly"
         );
+    }
+
+    #[test]
+    fn test_sync_dynamic_from_agents() {
+        let world = make_test_world();
+        let mut segmented = SegmentedAgentStorage::from_agents(&world.agents);
+
+        let mut agents = segmented.to_agents();
+        agents[0].health = 0.55;
+        agents[0].food = 42.0;
+        agents[0].alive = false;
+
+        segmented.sync_dynamic_from_agents(&agents);
+        assert_eq!(segmented.demography.health[0], 0.55);
+        assert_eq!(segmented.economy.food[0], 42.0);
+        assert!(!segmented.demography.alive[0]);
+        // personality untouched
+        assert_eq!(segmented.personality.productivity[0], 1.1);
     }
 }
