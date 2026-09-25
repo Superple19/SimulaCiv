@@ -1,11 +1,11 @@
-use crate::commands::Command;
+use crate::commands::{BuyerMarketUpdate, Command, CommandExecutionError, SellerMarketUpdate};
 use crate::config::SimConfig;
 use crate::intents::Intent;
 use crate::partitioning::SettlementIntentPartition;
 use crate::state::WorldState;
 use crate::subsystems::Subsystem;
 use serde::{Deserialize, Serialize};
-use sim_core::{AgentId, GroupId, K_PRIME, RngCoordinate, coordinate_prng_f32, mix64};
+use sim_core::{AgentId, GroupId, K_PRIME, Money, RngCoordinate, coordinate_prng_f32, mix64};
 use std::collections::HashSet;
 
 /// Outcome of a single agent's Work intent during Phase 6A.
@@ -893,4 +893,725 @@ pub fn phase6b_targeted_resolution(
     }
 
     Ok(settlement_resolutions)
+}
+
+/// Canonical resolution record for an individual buyer participating in Phase 7 market clearance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BuyerMarketResolution {
+    pub agent_id: AgentId,
+    pub requested_units: f32,
+    pub max_affordable_units: f32,
+    pub effective_units: f32,
+    pub bought_units: f32,
+    pub debit: Money,
+}
+
+impl BuyerMarketResolution {
+    #[inline]
+    pub fn requested_demand(&self) -> f32 {
+        self.requested_units
+    }
+
+    #[inline]
+    pub fn effective_demand(&self) -> f32 {
+        self.effective_units
+    }
+
+    #[inline]
+    pub fn bought(&self) -> f32 {
+        self.bought_units
+    }
+}
+
+/// Canonical resolution record for an individual seller participating in Phase 7 market clearance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SellerMarketResolution {
+    pub agent_id: AgentId,
+    pub submitted_units: f32,
+    pub effective_units: f32,
+    pub sold_units: f32,
+    pub seller_share_f32: f32,
+    pub seller_net_base: Money,
+    pub seller_net: Money,
+}
+
+impl SellerMarketResolution {
+    #[inline]
+    pub fn submitted_supply(&self) -> f32 {
+        self.submitted_units
+    }
+
+    #[inline]
+    pub fn effective_supply(&self) -> f32 {
+        self.effective_units
+    }
+
+    #[inline]
+    pub fn sold(&self) -> f32 {
+        self.sold_units
+    }
+}
+
+/// Authoritative summary of Phase 7 market clearance for a single settlement locality.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SettlementMarketResolution {
+    pub group_id: GroupId,
+    pub food_price: Money,
+    pub tax_rate: f32,
+    pub total_effective_supply: f32,
+    pub total_effective_demand: f32,
+    pub total_sold: f32,
+    pub total_revenue: Money,
+    pub tax_withheld: Money,
+    pub net_pool_proceeds: Money,
+    pub proceeds_balance: Money,
+    pub buyers: Vec<BuyerMarketResolution>,
+    pub sellers: Vec<SellerMarketResolution>,
+}
+
+/// Explicit errors returned during Phase 7 Market Clearance.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Phase7Error {
+    MissingSettlement(GroupId),
+    DuplicatePartition(GroupId),
+    MissingAgent(AgentId),
+    PartitionGroupMismatch {
+        agent_id: AgentId,
+        intent_group_id: GroupId,
+        partition_group_id: GroupId,
+    },
+    AgentGroupMismatch {
+        agent_id: AgentId,
+        agent_group_id: GroupId,
+        partition_group_id: GroupId,
+    },
+    IneligibleParticipant(AgentId),
+    DuplicateParticipant(AgentId),
+    InvalidFoodPrice(Money),
+    InvalidTaxRate(f32),
+    InvalidRequestedDemand {
+        agent_id: AgentId,
+        requested_demand: f32,
+    },
+    InvalidSubmittedSupply {
+        agent_id: AgentId,
+        submitted_supply: f32,
+    },
+    NegativeAgentFood {
+        agent_id: AgentId,
+        food: f32,
+    },
+    NegativeAgentWealth {
+        agent_id: AgentId,
+        wealth: Money,
+    },
+    NegativeTreasury {
+        group_id: GroupId,
+        treasury: Money,
+    },
+    FinancialOverflow,
+    FinancialImbalance {
+        total_debit: Money,
+        total_payout: Money,
+        tax_withheld: Money,
+    },
+    NegativeProceedsReconciliationStall {
+        group_id: GroupId,
+        remaining_balance: Money,
+    },
+    CommandExecution(CommandExecutionError),
+    InvariantViolation(String),
+}
+
+impl std::fmt::Display for Phase7Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingSettlement(gid) => write!(f, "settlement missing: {}", gid),
+            Self::DuplicatePartition(gid) => {
+                write!(f, "duplicate partition for settlement: {}", gid)
+            }
+            Self::MissingAgent(aid) => write!(f, "market agent missing: {}", aid),
+            Self::PartitionGroupMismatch {
+                agent_id,
+                intent_group_id,
+                partition_group_id,
+            } => write!(
+                f,
+                "agent {} intent group {} does not match partition group {}",
+                agent_id, intent_group_id, partition_group_id
+            ),
+            Self::AgentGroupMismatch {
+                agent_id,
+                agent_group_id,
+                partition_group_id,
+            } => write!(
+                f,
+                "agent {} authoritative group {} does not match partition group {}",
+                agent_id, agent_group_id, partition_group_id
+            ),
+            Self::IneligibleParticipant(aid) => {
+                write!(f, "ineligible participant in market clearance: {}", aid)
+            }
+            Self::DuplicateParticipant(aid) => {
+                write!(f, "duplicate participant in market clearance: {}", aid)
+            }
+            Self::InvalidFoodPrice(price) => write!(f, "invalid market food price: {}", price),
+            Self::InvalidTaxRate(rate) => write!(f, "invalid market tax rate: {}", rate),
+            Self::InvalidRequestedDemand {
+                agent_id,
+                requested_demand,
+            } => write!(
+                f,
+                "invalid requested demand for agent {}: {}",
+                agent_id, requested_demand
+            ),
+            Self::InvalidSubmittedSupply {
+                agent_id,
+                submitted_supply,
+            } => write!(
+                f,
+                "invalid submitted supply for agent {}: {}",
+                agent_id, submitted_supply
+            ),
+            Self::NegativeAgentFood { agent_id, food } => {
+                write!(f, "agent {} has negative food: {}", agent_id, food)
+            }
+            Self::NegativeAgentWealth { agent_id, wealth } => {
+                write!(f, "agent {} has negative wealth: {}", agent_id, wealth)
+            }
+            Self::NegativeTreasury { group_id, treasury } => {
+                write!(
+                    f,
+                    "settlement {} has negative treasury: {}",
+                    group_id, treasury
+                )
+            }
+            Self::FinancialOverflow => write!(f, "financial arithmetic overflow in Phase 7"),
+            Self::FinancialImbalance {
+                total_debit,
+                total_payout,
+                tax_withheld,
+            } => write!(
+                f,
+                "financial imbalance: total_debit {} != total_payout {} + tax_withheld {}",
+                total_debit, total_payout, tax_withheld
+            ),
+            Self::NegativeProceedsReconciliationStall {
+                group_id,
+                remaining_balance,
+            } => write!(
+                f,
+                "negative proceeds reconciliation stall for group {}: remaining balance {}",
+                group_id, remaining_balance
+            ),
+            Self::CommandExecution(err) => write!(f, "command execution failed: {}", err),
+            Self::InvariantViolation(msg) => write!(f, "phase 7 invariant violation: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for Phase7Error {}
+
+impl From<CommandExecutionError> for Phase7Error {
+    fn from(err: CommandExecutionError) -> Self {
+        Self::CommandExecution(err)
+    }
+}
+
+struct PlannedSettlementMarket {
+    group_id: GroupId,
+    food_price: Money,
+    tax_rate: f32,
+    total_effective_supply: f32,
+    total_effective_demand: f32,
+    total_sold: f32,
+    total_revenue: Money,
+    tax_withheld: Money,
+    net_pool_proceeds: Money,
+    proceeds_balance: Money,
+    buyers: Vec<BuyerMarketResolution>,
+    sellers: Vec<SellerMarketResolution>,
+    buyer_updates: Vec<BuyerMarketUpdate>,
+    seller_updates: Vec<SellerMarketUpdate>,
+}
+
+/// Resolves Phase 7 Fixed-Price Pooled Settlement Market Clearance and Tax Settlement.
+///
+/// Execution order:
+/// 1. Validate parameters (`food_price > 0`, finite and non-negative `tax_rate`).
+/// 2. Canonical settlement ordering: ascending `GroupId`.
+/// 3. For each settlement independently:
+///    - Validate all `BuyFood` and `SellFood` participants and structural consistency.
+///    - Order buyers and sellers strictly by ascending stable `AgentId`.
+///    - Reconcile seller supply with live food: `effective_supply = min(submitted, food)`.
+///    - Evaluate buyer affordability: `max_affordable_units = wealth / food_price`,
+///      `effective_demand = min(requested, max_affordable_units as f32)`.
+///    - Canonical sequential `f32` summation of `total_effective_supply` and `total_effective_demand`.
+///    - Zero-volume check: if either is 0.0, clearance is a zero-op.
+///    - Otherwise, clear pool:
+///      - If `total_effective_supply >= total_effective_demand` (sufficient supply):
+///        `seller_share = effective_supply / total_effective_supply`,
+///        `sold = seller_share * total_effective_demand`, `bought = effective_demand`.
+///      - Else (supply deficit):
+///        `buyer_share = effective_demand / total_effective_demand`,
+///        `bought = buyer_share * total_effective_supply`, `sold = effective_supply`.
+///    - Buyer debit: `gross_f64 = bought as f64 * food_price as f64`, `debit = floor(gross_f64) as Money`,
+///      `TotalRevenue = sum(debit)`.
+///    - Tax withholding: `tax_f64 = TotalRevenue as f64 * tax_rate as f64`,
+///      `tax_withheld = floor(tax_f64) as Money`, `net_pool_proceeds = TotalRevenue - tax_withheld`.
+///    - Seller base proceeds: for participating sellers (`sold > 0.0`),
+///      `seller_share_f32 = sold / total_sold`,
+///      `seller_base_f64 = net_pool_proceeds as f64 * seller_share_f32 as f64`,
+///      `seller_net_base = floor(seller_base_f64) as Money`.
+///    - Signed reconciliation:
+///      `seller_base_total = sum(seller_net_base)`,
+///      `proceeds_balance = net_pool_proceeds - seller_base_total`.
+///      - If `proceeds_balance > 0`: cycle through participating sellers in ascending `AgentId` adding `+1`.
+///      - If `proceeds_balance < 0`: cycle through participating sellers with `seller_net > 0` subtracting `-1`.
+///    - Verify financial invariants: `sum(seller_net) == net_pool_proceeds` and `TotalRevenue == sum(seller_net) + tax_withheld`.
+/// 4. Atomic execution across all settlements: execute `Command::MarketClearance` only if all partitions pass Stage A.
+pub fn phase7_market_clearance(
+    world: &mut WorldState,
+    partitions: &[SettlementIntentPartition],
+    food_price: Money,
+    tax_rate: f32,
+) -> Result<Vec<SettlementMarketResolution>, Phase7Error> {
+    if food_price <= 0 {
+        return Err(Phase7Error::InvalidFoodPrice(food_price));
+    }
+    if !tax_rate.is_finite() || tax_rate < 0.0 || tax_rate > 1.0 {
+        return Err(Phase7Error::InvalidTaxRate(tax_rate));
+    }
+
+    // Canonical settlement ordering: GroupId ascending
+    let mut sorted_partitions: Vec<&SettlementIntentPartition> = partitions.iter().collect();
+    sorted_partitions.sort_by_key(|p| p.group_id);
+
+    let mut seen_groups = HashSet::new();
+    for p in &sorted_partitions {
+        if !seen_groups.insert(p.group_id) {
+            return Err(Phase7Error::DuplicatePartition(p.group_id));
+        }
+    }
+
+    let mut seen_participants = HashSet::new();
+    let mut planned_settlements = Vec::with_capacity(sorted_partitions.len());
+
+    // Stage A: Validation and Planning across all partitions
+    for partition in sorted_partitions {
+        let settlement = world
+            .settlements
+            .iter()
+            .find(|s| s.group_id == partition.group_id)
+            .ok_or(Phase7Error::MissingSettlement(partition.group_id))?;
+
+        if settlement.treasury < 0 {
+            return Err(Phase7Error::NegativeTreasury {
+                group_id: settlement.group_id,
+                treasury: settlement.treasury,
+            });
+        }
+
+        let mut raw_buyers = Vec::new();
+        let mut raw_sellers = Vec::new();
+
+        for intent in &partition.intents {
+            match intent {
+                Intent::BuyFood {
+                    agent_id,
+                    group_id,
+                    requested_demand,
+                } => {
+                    if *group_id != partition.group_id {
+                        return Err(Phase7Error::PartitionGroupMismatch {
+                            agent_id: *agent_id,
+                            intent_group_id: *group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+                    if !requested_demand.is_finite() || *requested_demand < 0.0 {
+                        return Err(Phase7Error::InvalidRequestedDemand {
+                            agent_id: *agent_id,
+                            requested_demand: *requested_demand,
+                        });
+                    }
+                    if !seen_participants.insert(*agent_id) {
+                        return Err(Phase7Error::DuplicateParticipant(*agent_id));
+                    }
+                    let agent = world
+                        .agents
+                        .iter()
+                        .find(|a| a.agent_id == *agent_id)
+                        .ok_or(Phase7Error::MissingAgent(*agent_id))?;
+                    if agent.group_id != partition.group_id {
+                        return Err(Phase7Error::AgentGroupMismatch {
+                            agent_id: *agent_id,
+                            agent_group_id: agent.group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+                    if !agent.is_behaviorally_eligible() {
+                        return Err(Phase7Error::IneligibleParticipant(*agent_id));
+                    }
+                    if agent.wealth < 0 {
+                        return Err(Phase7Error::NegativeAgentWealth {
+                            agent_id: *agent_id,
+                            wealth: agent.wealth,
+                        });
+                    }
+                    raw_buyers.push((*agent_id, *requested_demand, agent.wealth));
+                }
+                Intent::SellFood {
+                    agent_id,
+                    group_id,
+                    submitted_supply,
+                } => {
+                    if *group_id != partition.group_id {
+                        return Err(Phase7Error::PartitionGroupMismatch {
+                            agent_id: *agent_id,
+                            intent_group_id: *group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+                    if !submitted_supply.is_finite() || *submitted_supply < 0.0 {
+                        return Err(Phase7Error::InvalidSubmittedSupply {
+                            agent_id: *agent_id,
+                            submitted_supply: *submitted_supply,
+                        });
+                    }
+                    if !seen_participants.insert(*agent_id) {
+                        return Err(Phase7Error::DuplicateParticipant(*agent_id));
+                    }
+                    let agent = world
+                        .agents
+                        .iter()
+                        .find(|a| a.agent_id == *agent_id)
+                        .ok_or(Phase7Error::MissingAgent(*agent_id))?;
+                    if agent.group_id != partition.group_id {
+                        return Err(Phase7Error::AgentGroupMismatch {
+                            agent_id: *agent_id,
+                            agent_group_id: agent.group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+                    if !agent.is_behaviorally_eligible() {
+                        return Err(Phase7Error::IneligibleParticipant(*agent_id));
+                    }
+                    if !agent.food.is_finite() || agent.food < 0.0 {
+                        return Err(Phase7Error::NegativeAgentFood {
+                            agent_id: *agent_id,
+                            food: agent.food,
+                        });
+                    }
+                    if agent.wealth < 0 {
+                        return Err(Phase7Error::NegativeAgentWealth {
+                            agent_id: *agent_id,
+                            wealth: agent.wealth,
+                        });
+                    }
+                    raw_sellers.push((*agent_id, *submitted_supply, agent.food));
+                }
+                _ => {}
+            }
+        }
+
+        // Canonical participant ordering: strictly ascending AgentId
+        raw_buyers.sort_by_key(|&(agent_id, _, _)| agent_id);
+        raw_sellers.sort_by_key(|&(agent_id, _, _)| agent_id);
+
+        let mut planned_buyers: Vec<BuyerMarketResolution> = Vec::with_capacity(raw_buyers.len());
+        let mut total_effective_demand = 0.0f32;
+        for &(agent_id, requested_demand, wealth) in &raw_buyers {
+            let max_affordable_units = wealth / food_price;
+            let max_affordable_food = max_affordable_units as f32;
+            let effective_demand = requested_demand.min(max_affordable_food);
+            total_effective_demand += effective_demand;
+            planned_buyers.push(BuyerMarketResolution {
+                agent_id,
+                requested_units: requested_demand,
+                max_affordable_units: max_affordable_food,
+                effective_units: effective_demand,
+                bought_units: 0.0,
+                debit: 0,
+            });
+        }
+
+        let mut planned_sellers: Vec<SellerMarketResolution> =
+            Vec::with_capacity(raw_sellers.len());
+        let mut total_effective_supply = 0.0f32;
+        for &(agent_id, submitted_supply, live_food) in &raw_sellers {
+            let effective_supply = submitted_supply.min(live_food);
+            total_effective_supply += effective_supply;
+            planned_sellers.push(SellerMarketResolution {
+                agent_id,
+                submitted_units: submitted_supply,
+                effective_units: effective_supply,
+                sold_units: 0.0,
+                seller_share_f32: 0.0,
+                seller_net_base: 0,
+                seller_net: 0,
+            });
+        }
+
+        let (total_sold, total_revenue, tax_withheld, net_pool_proceeds, proceeds_balance) =
+            if total_effective_supply == 0.0 || total_effective_demand == 0.0 {
+                // Zero-volume deterministic zero-op
+                (0.0f32, 0, 0, 0, 0)
+            } else {
+                // Food-pool clearance
+                if total_effective_supply >= total_effective_demand {
+                    // Sufficient supply
+                    for b in &mut planned_buyers {
+                        b.bought_units = b.effective_units;
+                    }
+                    for s in &mut planned_sellers {
+                        let seller_share = s.effective_units / total_effective_supply;
+                        s.sold_units = seller_share * total_effective_demand;
+                    }
+                } else {
+                    // Supply deficit
+                    for b in &mut planned_buyers {
+                        let buyer_share = b.effective_units / total_effective_demand;
+                        b.bought_units = buyer_share * total_effective_supply;
+                    }
+                    for s in &mut planned_sellers {
+                        s.sold_units = s.effective_units;
+                    }
+                }
+
+                // Buyer debit conversion
+                let mut rev: Money = 0;
+                for b in &mut planned_buyers {
+                    let gross_f64 = (b.bought_units as f64) * (food_price as f64);
+                    if !gross_f64.is_finite() || gross_f64 < 0.0 {
+                        return Err(Phase7Error::InvariantViolation(
+                            "gross debit non-finite or negative".into(),
+                        ));
+                    }
+                    let debit = gross_f64.floor() as Money;
+                    if debit < 0 {
+                        return Err(Phase7Error::InvariantViolation(
+                            "negative buyer debit".into(),
+                        ));
+                    }
+                    b.debit = debit;
+                    rev = rev
+                        .checked_add(debit)
+                        .ok_or(Phase7Error::FinancialOverflow)?;
+                }
+
+                // Tax withholding
+                let tax_f64 = (rev as f64) * (tax_rate as f64);
+                if !tax_f64.is_finite() || tax_f64 < 0.0 {
+                    return Err(Phase7Error::InvariantViolation(
+                        "tax calculation non-finite or negative".into(),
+                    ));
+                }
+                let tax = tax_f64.floor() as Money;
+                if tax < 0 {
+                    return Err(Phase7Error::InvariantViolation(
+                        "negative tax withheld".into(),
+                    ));
+                }
+                let net = rev.checked_sub(tax).ok_or(Phase7Error::FinancialOverflow)?;
+
+                // Seller base proceeds
+                let mut total_sold = 0.0f32;
+                for s in &planned_sellers {
+                    if s.sold_units > 0.0 {
+                        total_sold += s.sold_units;
+                    }
+                }
+
+                for s in &mut planned_sellers {
+                    if s.sold_units > 0.0 {
+                        let seller_share_f32 = s.sold_units / total_sold;
+                        let seller_base_f64 = (net as f64) * (seller_share_f32 as f64);
+                        if !seller_base_f64.is_finite() || seller_base_f64 < 0.0 {
+                            return Err(Phase7Error::InvariantViolation(
+                                "seller base proceeds non-finite or negative".into(),
+                            ));
+                        }
+                        let base = seller_base_f64.floor() as Money;
+                        s.seller_share_f32 = seller_share_f32;
+                        s.seller_net_base = base;
+                        s.seller_net = base;
+                    }
+                }
+
+                // Signed seller-proceeds reconciliation
+                let mut seller_base_total: Money = 0;
+                for s in &planned_sellers {
+                    seller_base_total = seller_base_total
+                        .checked_add(s.seller_net_base)
+                        .ok_or(Phase7Error::FinancialOverflow)?;
+                }
+                let initial_balance = net
+                    .checked_sub(seller_base_total)
+                    .ok_or(Phase7Error::FinancialOverflow)?;
+                let mut balance = initial_balance;
+
+                let participating_indices: Vec<usize> = planned_sellers
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| s.sold_units > 0.0)
+                    .map(|(idx, _)| idx)
+                    .collect();
+
+                if !participating_indices.is_empty() {
+                    if balance > 0 {
+                        while balance > 0 {
+                            for &idx in &participating_indices {
+                                planned_sellers[idx].seller_net = planned_sellers[idx]
+                                    .seller_net
+                                    .checked_add(1)
+                                    .ok_or(Phase7Error::FinancialOverflow)?;
+                                balance = balance
+                                    .checked_sub(1)
+                                    .ok_or(Phase7Error::FinancialOverflow)?;
+                                if balance == 0 {
+                                    break;
+                                }
+                            }
+                        }
+                    } else if balance < 0 {
+                        while balance < 0 {
+                            let mut made_progress = false;
+                            for &idx in &participating_indices {
+                                if planned_sellers[idx].seller_net > 0 {
+                                    planned_sellers[idx].seller_net = planned_sellers[idx]
+                                        .seller_net
+                                        .checked_sub(1)
+                                        .ok_or(Phase7Error::FinancialOverflow)?;
+                                    balance = balance
+                                        .checked_add(1)
+                                        .ok_or(Phase7Error::FinancialOverflow)?;
+                                    made_progress = true;
+                                }
+                                if balance == 0 {
+                                    break;
+                                }
+                            }
+                            if balance < 0 && !made_progress {
+                                return Err(Phase7Error::NegativeProceedsReconciliationStall {
+                                    group_id: partition.group_id,
+                                    remaining_balance: balance,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                (total_sold, rev, tax, net, initial_balance)
+            };
+
+        // Validate financial conservation invariant
+        let mut total_payout: Money = 0;
+        for s in &planned_sellers {
+            total_payout = total_payout
+                .checked_add(s.seller_net)
+                .ok_or(Phase7Error::FinancialOverflow)?;
+        }
+        if total_payout != net_pool_proceeds {
+            return Err(Phase7Error::FinancialImbalance {
+                total_debit: total_revenue,
+                total_payout,
+                tax_withheld,
+            });
+        }
+        let total_credit = total_payout
+            .checked_add(tax_withheld)
+            .ok_or(Phase7Error::FinancialOverflow)?;
+        if total_revenue != total_credit {
+            return Err(Phase7Error::FinancialImbalance {
+                total_debit: total_revenue,
+                total_payout,
+                tax_withheld,
+            });
+        }
+
+        // Validate treasury credit overflow
+        settlement
+            .treasury
+            .checked_add(tax_withheld)
+            .ok_or(Phase7Error::FinancialOverflow)?;
+
+        let buyer_updates: Vec<BuyerMarketUpdate> = planned_buyers
+            .iter()
+            .map(|b| BuyerMarketUpdate {
+                agent_id: b.agent_id,
+                bought: b.bought_units,
+                debit: b.debit,
+            })
+            .collect();
+
+        let seller_updates: Vec<SellerMarketUpdate> = planned_sellers
+            .iter()
+            .map(|s| SellerMarketUpdate {
+                agent_id: s.agent_id,
+                sold: s.sold_units,
+                seller_net: s.seller_net,
+            })
+            .collect();
+
+        planned_settlements.push(PlannedSettlementMarket {
+            group_id: partition.group_id,
+            food_price,
+            tax_rate,
+            total_effective_supply,
+            total_effective_demand,
+            total_sold,
+            total_revenue,
+            tax_withheld,
+            net_pool_proceeds,
+            proceeds_balance,
+            buyers: planned_buyers,
+            sellers: planned_sellers,
+            buyer_updates,
+            seller_updates,
+        });
+    }
+
+    // Stage B: Atomic Execution across all settlements
+    for plan in &planned_settlements {
+        let cmd = Command::MarketClearance {
+            group_id: plan.group_id,
+            buyer_updates: plan.buyer_updates.clone(),
+            seller_updates: plan.seller_updates.clone(),
+            tax_withheld: plan.tax_withheld,
+        };
+        cmd.execute(world)?;
+    }
+
+    let resolutions = planned_settlements
+        .into_iter()
+        .map(|p| SettlementMarketResolution {
+            group_id: p.group_id,
+            food_price: p.food_price,
+            tax_rate: p.tax_rate,
+            total_effective_supply: p.total_effective_supply,
+            total_effective_demand: p.total_effective_demand,
+            total_sold: p.total_sold,
+            total_revenue: p.total_revenue,
+            tax_withheld: p.tax_withheld,
+            net_pool_proceeds: p.net_pool_proceeds,
+            proceeds_balance: p.proceeds_balance,
+            buyers: p.buyers,
+            sellers: p.sellers,
+        })
+        .collect();
+
+    Ok(resolutions)
+}
+
+/// Convenience alias for [`phase7_market_clearance`].
+pub use phase7_market_clearance as phase7_market_resolution;
+
+/// Convenience wrapper executing Phase 7 market clearance using parameters from [`crate::config::EconomyConfig`].
+pub fn phase7_market_clearance_with_config(
+    world: &mut WorldState,
+    partitions: &[SettlementIntentPartition],
+    config: &crate::config::EconomyConfig,
+) -> Result<Vec<SettlementMarketResolution>, Phase7Error> {
+    phase7_market_clearance(world, partitions, config.food_price, config.tax_rate)
 }
