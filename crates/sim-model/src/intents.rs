@@ -175,11 +175,21 @@ pub fn generate_intents(
     config: &SimConfig,
     choices: &[PrimaryActionChoice],
 ) -> Result<Vec<Intent>, IntentError> {
-    let mut seen_choice_agents = HashSet::with_capacity(choices.len());
-    let mut intents = Vec::with_capacity(choices.len());
+    let n = choices.len();
+    let mut seen_choice_agents = if n > 32 {
+        Some(HashSet::with_capacity(n))
+    } else {
+        None
+    };
+    let mut intents = Vec::with_capacity(n);
 
-    for choice in choices {
-        if !seen_choice_agents.insert(choice.agent_id) {
+    for (i, choice) in choices.iter().enumerate() {
+        let duplicate = if let Some(ref mut set) = seen_choice_agents {
+            !set.insert(choice.agent_id)
+        } else {
+            choices[..i].iter().any(|c| c.agent_id == choice.agent_id)
+        };
+        if duplicate {
             return Err(IntentError::DuplicateChoice(choice.agent_id));
         }
 
@@ -284,8 +294,15 @@ pub fn generate_intents(
 
     // Enforce exactly one choice for every behaviorally eligible agent in world.agents
     for agent in &world.agents {
-        if agent.is_behaviorally_eligible() && !seen_choice_agents.contains(&agent.agent_id) {
-            return Err(IntentError::MissingChoiceForEligibleAgent(agent.agent_id));
+        if agent.is_behaviorally_eligible() {
+            let choice_present = if let Some(ref set) = seen_choice_agents {
+                set.contains(&agent.agent_id)
+            } else {
+                choices.iter().any(|c| c.agent_id == agent.agent_id)
+            };
+            if !choice_present {
+                return Err(IntentError::MissingChoiceForEligibleAgent(agent.agent_id));
+            }
         }
     }
 
