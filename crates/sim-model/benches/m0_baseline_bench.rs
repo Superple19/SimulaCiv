@@ -26,7 +26,9 @@ use sim_model::events::{
 use sim_model::features::{
     AgentFeatures, FeatureVector, phase3_observation_and_features,
     phase3_observation_and_features_into, phase3_observation_and_features_soa_into,
-    phase3_observation_and_features_storage_into, phase3_observation_and_features_with_scratch,
+    phase3_observation_and_features_storage_into,
+    phase3_observation_and_features_storage_with_scratch,
+    phase3_observation_and_features_with_scratch,
 };
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::intents::{
@@ -57,9 +59,9 @@ use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext,
     run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
-    run_hybrid_authority_days, run_hybrid_authority_days_with_phase8_full_scan,
-    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
-    run_native_soa_days,
+    run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
+    run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_days, run_m0_day,
+    run_m0_days, run_native_soa_day, run_native_soa_days,
 };
 use sim_model::snapshot::{
     SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot, restore_snapshot,
@@ -68,7 +70,7 @@ use sim_model::state::SettlementState;
 use sim_model::state::{AgentDynamicSoAScratch, HybridWorldState, WorldState};
 use sim_model::storage::{SegmentedAgentStorage, WorldStorage, canonical_state_hash_from_storage};
 use sim_model::subsystems::Subsystem;
-use sim_model::{Phase8WelfareScratch, SimConfig, initialize_world};
+use sim_model::{Phase3ScarcityScratch, Phase8WelfareScratch, SimConfig, initialize_world};
 
 const GATE_CONFIG_TOML: &str = r#"
 [world]
@@ -7366,6 +7368,381 @@ fn measure_m2_32_phase8_one_pass(base_config: &SimConfig, context: &M0RunContext
     );
 }
 
+#[derive(Clone, Copy)]
+struct M233ScalingRow {
+    family: &'static str,
+    population: u64,
+    settlement_count: u32,
+    linear_phase3: M2292Median,
+    index_build: M2292Median,
+    direct_phase3: M2292Median,
+    full_tick: [M2292Median; 2],
+}
+
+fn m2_33_phase3_sample(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    config: &SimConfig,
+    output: &mut Vec<AgentFeatures>,
+    scratch: &mut Phase3ScarcityScratch,
+    direct: bool,
+) -> f64 {
+    let started = Instant::now();
+    if direct {
+        phase3_observation_and_features_storage_with_scratch(
+            storage,
+            settlements,
+            config,
+            output,
+            scratch,
+        )
+        .unwrap();
+    } else {
+        phase3_observation_and_features_storage_into(storage, settlements, config, output).unwrap();
+    }
+    std::hint::black_box(output.as_slice());
+    started.elapsed().as_nanos() as f64 / 1000.0
+}
+
+fn m2_33_index_build_sample(
+    settlements: &[SettlementState],
+    config: &SimConfig,
+    output: &mut Vec<AgentFeatures>,
+    scratch: &mut Phase3ScarcityScratch,
+) -> f64 {
+    let empty_storage = SegmentedAgentStorage::new();
+    m2_33_phase3_sample(&empty_storage, settlements, config, output, scratch, true)
+}
+
+fn m2_33_linear_lookup_counts(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+) -> (usize, usize, usize) {
+    let mut eligible_agents = 0;
+    let mut total_comparisons = 0;
+    let mut worst_comparisons = 0;
+    for slot in 0..storage.len() {
+        if !storage.alive()[slot] || storage.health()[slot] <= 0.0 {
+            continue;
+        }
+        eligible_agents += 1;
+        let group_id = storage.group_ids()[slot];
+        let mut comparisons = 0;
+        for settlement in settlements {
+            comparisons += 1;
+            if settlement.group_id == group_id {
+                break;
+            }
+        }
+        total_comparisons += comparisons;
+        worst_comparisons = worst_comparisons.max(comparisons);
+    }
+    (eligible_agents, total_comparisons, worst_comparisons)
+}
+
+fn m2_33_direct_lookup_counts(
+    storage: &SegmentedAgentStorage,
+    scratch: &Phase3ScarcityScratch,
+) -> (usize, usize, usize) {
+    let mut lookups = 0;
+    let mut total_comparisons = 0;
+    let mut worst_comparisons = 0;
+    for slot in 0..storage.len() {
+        if !storage.alive()[slot] || storage.health()[slot] <= 0.0 {
+            continue;
+        }
+        lookups += 1;
+        let comparisons = scratch.group_id_lookup_comparisons(storage.group_ids()[slot]);
+        total_comparisons += comparisons;
+        worst_comparisons = worst_comparisons.max(comparisons);
+    }
+    (lookups, total_comparisons, worst_comparisons)
+}
+
+fn m2_33_time_full_tick(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    days: u32,
+    direct: bool,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(base_world.clone());
+    let started = Instant::now();
+    let outcomes = if direct {
+        run_hybrid_authority_days(&mut world, config, context, days, options)
+    } else {
+        run_hybrid_authority_days_with_phase3_linear_scan(
+            &mut world, config, context, days, options,
+        )
+    };
+    std::hint::black_box(outcomes.unwrap());
+    started.elapsed().as_nanos() as f64 / days as f64 / 1000.0
+}
+
+fn m2_33_assert_runner_parity(base_world: &WorldState, config: &SimConfig, context: &M0RunContext) {
+    let mut linear = HybridWorldState::hybrid(base_world.clone());
+    let mut direct = HybridWorldState::hybrid(base_world.clone());
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: true,
+    };
+    let linear_outcomes = run_hybrid_authority_days_with_phase3_linear_scan(
+        &mut linear,
+        config,
+        context,
+        3,
+        &options,
+    )
+    .unwrap();
+    let direct_outcomes =
+        run_hybrid_authority_days(&mut direct, config, context, 3, &options).unwrap();
+    assert_eq!(linear_outcomes, direct_outcomes);
+    assert_eq!(
+        linear.canonical_state_hash().unwrap(),
+        direct.canonical_state_hash().unwrap()
+    );
+}
+
+fn measure_m2_33_phase3_direct_scarcity_lookup(base_config: &SimConfig, context: &M0RunContext) {
+    const POPULATIONS: [u64; 8] = [100, 250, 500, 1000, 2500, 5000, 10000, 20000];
+    const WARMUPS: usize = 2;
+    const SAMPLES: usize = 7;
+    const DAYS_PER_SAMPLE: u32 = 3;
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+    let workloads = ["Fixed settlements (2)", "Fixed group size (~200)"];
+    let mut rows = Vec::with_capacity(POPULATIONS.len() * workloads.len());
+
+    println!("\n=================================================================");
+    println!("M2-33 Phase3 Linear Search vs Direct Scarcity Lookup");
+    println!(
+        "Method: 2 warm-ups + 7 median/MAD samples; full-tick samples average 3 production days."
+    );
+    println!(
+        "Index-build probe runs the production builder with empty agent storage; runner scratch spans 3 days."
+    );
+    println!("=================================================================");
+
+    for (workload_index, family) in workloads.iter().enumerate() {
+        let mut phase3_scratch = Phase3ScarcityScratch::with_capacity(100);
+        let mut build_scratch = Phase3ScarcityScratch::with_capacity(100);
+        let mut output = Vec::new();
+        let mut build_output = Vec::new();
+
+        for &population in &POPULATIONS {
+            let mut config = base_config.clone();
+            config.world.initial_population = population;
+            config.world.settlement_count = if workload_index == 0 {
+                2
+            } else {
+                population.div_ceil(200) as u32
+            };
+            config.environment.carrying_capacity = 1000.0 * population as f32;
+            config.world.initial_settlement_resource = 200.0 * population as f32;
+            let base_world = initialize_world(&config).unwrap();
+            if population == 10000 {
+                m2_33_assert_runner_parity(&base_world, &config, context);
+            }
+            let storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+            let (eligible_agents, linear_comparisons, linear_worst) =
+                m2_33_linear_lookup_counts(&storage, &base_world.settlements);
+
+            for _ in 0..WARMUPS {
+                let _ = m2_33_phase3_sample(
+                    &storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut output,
+                    &mut phase3_scratch,
+                    false,
+                );
+                let _ = m2_33_index_build_sample(
+                    &base_world.settlements,
+                    &config,
+                    &mut build_output,
+                    &mut build_scratch,
+                );
+                let _ = m2_33_phase3_sample(
+                    &storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut output,
+                    &mut phase3_scratch,
+                    true,
+                );
+                let _ = m2_33_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    false,
+                );
+                let _ = m2_33_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    true,
+                );
+            }
+
+            let mut linear_samples = Vec::with_capacity(SAMPLES);
+            let mut build_samples = Vec::with_capacity(SAMPLES);
+            let mut direct_samples = Vec::with_capacity(SAMPLES);
+            let mut full_tick_samples: [Vec<f64>; 2] =
+                std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+            for sample in 0..SAMPLES {
+                linear_samples.push(m2_33_phase3_sample(
+                    &storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut output,
+                    &mut phase3_scratch,
+                    false,
+                ));
+                build_samples.push(m2_33_index_build_sample(
+                    &base_world.settlements,
+                    &config,
+                    &mut build_output,
+                    &mut build_scratch,
+                ));
+                direct_samples.push(m2_33_phase3_sample(
+                    &storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut output,
+                    &mut phase3_scratch,
+                    true,
+                ));
+                for offset in 0..2 {
+                    let path = (sample + offset) % 2;
+                    full_tick_samples[path].push(m2_33_time_full_tick(
+                        &base_world,
+                        &config,
+                        context,
+                        &options,
+                        DAYS_PER_SAMPLE,
+                        path == 1,
+                    ));
+                }
+            }
+
+            let row = M233ScalingRow {
+                family,
+                population,
+                settlement_count: config.world.settlement_count,
+                linear_phase3: m2_29_2_summary(linear_samples),
+                index_build: m2_29_2_summary(build_samples),
+                direct_phase3: m2_29_2_summary(direct_samples),
+                full_tick: [
+                    m2_29_2_summary(full_tick_samples[0].clone()),
+                    m2_29_2_summary(full_tick_samples[1].clone()),
+                ],
+            };
+            let (direct_lookups, direct_comparisons, direct_worst) =
+                m2_33_direct_lookup_counts(&storage, &phase3_scratch);
+            println!(
+                "{:<26} N={:<5} K={:<3} eligible={:<5} comparisons old(total/avg/max)={:>9}/{:>5.1}/{:<3} new(entries/sortcmp/lookups/cmp/max)={:>4}/{:<5}/{:>7}/{:>7}/{:<3} P3(old/index/new)={:>8.2}±{:>5.2}/{:>8.2}±{:>5.2}/{:>8.2}±{:>5.2}us full(old/new)={:>9.2}±{:>5.2}/{:>9.2}±{:>5.2}us",
+                family,
+                population,
+                row.settlement_count,
+                eligible_agents,
+                linear_comparisons,
+                if eligible_agents == 0 {
+                    0.0
+                } else {
+                    linear_comparisons as f64 / eligible_agents as f64
+                },
+                linear_worst,
+                phase3_scratch.last_index_build_entries(),
+                phase3_scratch.last_index_sort_comparisons(),
+                direct_lookups,
+                direct_comparisons,
+                direct_worst,
+                row.linear_phase3.median_us,
+                row.linear_phase3.mad_us,
+                row.index_build.median_us,
+                row.index_build.mad_us,
+                row.direct_phase3.median_us,
+                row.direct_phase3.mad_us,
+                row.full_tick[0].median_us,
+                row.full_tick[0].mad_us,
+                row.full_tick[1].median_us,
+                row.full_tick[1].mad_us,
+            );
+            rows.push(row);
+        }
+    }
+
+    for family in workloads {
+        for (from_n, to_n, divisor) in [(1000, 10000, 10.0f64), (10000, 20000, 2.0f64)] {
+            let before = rows
+                .iter()
+                .find(|row| row.family == family && row.population == from_n)
+                .unwrap();
+            let after = rows
+                .iter()
+                .find(|row| row.family == family && row.population == to_n)
+                .unwrap();
+            for (name, small, large) in [
+                (
+                    "Phase3 linear",
+                    before.linear_phase3.median_us,
+                    after.linear_phase3.median_us,
+                ),
+                (
+                    "Phase3 direct",
+                    before.direct_phase3.median_us,
+                    after.direct_phase3.median_us,
+                ),
+                (
+                    "Full tick linear",
+                    before.full_tick[0].median_us,
+                    after.full_tick[0].median_us,
+                ),
+                (
+                    "Full tick direct",
+                    before.full_tick[1].median_us,
+                    after.full_tick[1].median_us,
+                ),
+            ] {
+                let ratio = large / small.max(0.001);
+                println!(
+                    "{family:<26} {name:<18} N={from_n}->{to_n}: {small:.2}->{large:.2}us ratio={ratio:.2}x alpha={:.3}",
+                    ratio.ln() / divisor.ln(),
+                );
+            }
+        }
+        for population in [10000, 20000] {
+            let row = rows
+                .iter()
+                .find(|row| row.family == family && row.population == population)
+                .unwrap();
+            println!(
+                "{family:<26} N={population:<5} P3 old/new={:.2}/{:.2}us speedup={:.3}x full-tick old/new={:.2}/{:.2}us speedup={:.3}x P3 share old/new={:.2}/{:.2}%",
+                row.linear_phase3.median_us,
+                row.direct_phase3.median_us,
+                row.linear_phase3.median_us / row.direct_phase3.median_us,
+                row.full_tick[0].median_us,
+                row.full_tick[1].median_us,
+                row.full_tick[0].median_us / row.full_tick[1].median_us,
+                row.linear_phase3.median_us / row.full_tick[0].median_us * 100.0,
+                row.direct_phase3.median_us / row.full_tick[1].median_us * 100.0,
+            );
+        }
+    }
+    println!(
+        "Allocation attribution: no global allocator instrumentation; 8 or fewer settlements use inline entries, larger index Vec capacity is owned by and reused through Phase3ScarcityScratch."
+    );
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -7539,6 +7916,9 @@ fn main() {
 
     // 23. M2-32 Phase8 Group-Aware One-Pass Welfare Eligibility Gate
     measure_m2_32_phase8_one_pass(&config, &context);
+
+    // 24. M2-33 Phase3 Direct Scarcity Lookup Gate
+    measure_m2_33_phase3_direct_scarcity_lookup(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

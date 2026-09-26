@@ -39,9 +39,11 @@ pub use events::{
     partition_key_from_group, phase11_flush_events,
 };
 pub use features::{
-    AgentFeatures, FeatureBuffer, FeatureVector, Phase3Error, phase3_observation_and_features,
-    phase3_observation_and_features_into, phase3_observation_and_features_soa_into,
-    phase3_observation_and_features_storage, phase3_observation_and_features_storage_into,
+    AgentFeatures, FeatureBuffer, FeatureVector, Phase3Error, Phase3ScarcityScratch,
+    phase3_observation_and_features, phase3_observation_and_features_into,
+    phase3_observation_and_features_soa_into, phase3_observation_and_features_storage,
+    phase3_observation_and_features_storage_into,
+    phase3_observation_and_features_storage_with_scratch,
     phase3_observation_and_features_with_scratch,
 };
 pub use hashing::{
@@ -96,10 +98,10 @@ pub use runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, DayOutcome, M0RunContext,
     M0RunError, run_hybrid_authority_day, run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
-    run_hybrid_authority_days, run_hybrid_authority_days_with_phase8_full_scan,
-    run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_day_with_scratch,
-    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
-    run_native_soa_day_with_storage, run_native_soa_days,
+    run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
+    run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_day,
+    run_hybrid_scope_isolated_day_with_scratch, run_hybrid_scope_isolated_days, run_m0_day,
+    run_m0_days, run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,

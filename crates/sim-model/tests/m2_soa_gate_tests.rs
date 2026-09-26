@@ -12,6 +12,7 @@ use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical
 use sim_model::runner::{
     DayExecutionOptions, M0RunContext, run_hybrid_authority_day,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_days,
+    run_hybrid_authority_days_with_phase3_linear_scan,
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_day,
     run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
     run_native_soa_days,
@@ -20,11 +21,13 @@ use sim_model::snapshot::{decode_snapshot, restore_snapshot};
 use sim_model::state::{HybridWorldState, SettlementState};
 use sim_model::storage::SegmentedAgentStorage;
 use sim_model::{
-    Action, AgentState, Intent, Phase4CandidateIndexScratch, Phase8WelfareScratch,
-    PrimaryActionChoice, SimConfig, generate_intents_storage_into_baseline,
+    Action, AgentState, Intent, Phase3ScarcityScratch, Phase4CandidateIndexScratch,
+    Phase8WelfareScratch, PrimaryActionChoice, SimConfig, generate_intents_storage_into_baseline,
     generate_intents_storage_into_variant_c, generate_intents_storage_into_variant_d,
     generate_intents_storage_with_candidate_index, generate_intents_storage_with_scratch,
-    initialize_world, phase3_observation_and_features, phase4_generate_intents_into,
+    initialize_world, phase3_observation_and_features,
+    phase3_observation_and_features_storage_into,
+    phase3_observation_and_features_storage_with_scratch, phase4_generate_intents_into,
     phase4_generate_intents_storage_into, phase4_primary_action_selection_into,
     phase4_primary_action_selection_storage_into,
     phase4_primary_action_selection_storage_into_baseline,
@@ -1377,5 +1380,274 @@ fn phase8_one_pass_preserves_three_day_runner_outputs_and_state() {
     assert_eq!(
         full_scan.canonical_state_hash().unwrap(),
         one_pass.canonical_state_hash().unwrap()
+    );
+}
+
+fn phase3_random_input(
+    population: u64,
+    settlement_count: u32,
+    reverse_storage: bool,
+    seed: u64,
+) -> (SegmentedAgentStorage, Vec<SettlementState>, SimConfig) {
+    let mut config = make_config();
+    config.world.initial_population = population;
+    config.world.settlement_count = settlement_count;
+    config.environment.carrying_capacity = 1000.0 * population as f32;
+    let mut world = initialize_world(&config).expect("Phase3 test world initializes");
+    let mut random = seed;
+
+    for (index, agent) in world.agents.iter_mut().enumerate() {
+        random = random
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let value = (random >> 32) as u32;
+        agent.group_id = GroupId((value % settlement_count) as u16);
+        agent.alive = !value.is_multiple_of(11);
+        agent.health = match value % 17 {
+            0 => 0.0,
+            1 => 0.25,
+            _ => 1.0,
+        };
+        agent.food = match value % 5 {
+            0 => 0.0,
+            1 => config.interaction.starvation_threshold,
+            2 => 4.999,
+            _ => 8.0,
+        };
+        agent.wealth = (index % 997) as i64;
+    }
+    for (index, settlement) in world.settlements.iter_mut().enumerate() {
+        settlement.resource = index as f32 * 250.0;
+    }
+    if reverse_storage {
+        world.agents.reverse();
+    }
+    (
+        SegmentedAgentStorage::from_agents(&world.agents),
+        world.settlements,
+        config,
+    )
+}
+
+fn assert_phase3_feature_bits_equal(
+    left: &[sim_model::AgentFeatures],
+    right: &[sim_model::AgentFeatures],
+) {
+    assert_eq!(left.len(), right.len());
+    for (left, right) in left.iter().zip(right) {
+        assert_eq!(left.agent_id, right.agent_id);
+        for (left_value, right_value) in left.features.values.iter().zip(right.features.values) {
+            assert_eq!(left_value.to_bits(), right_value.to_bits());
+        }
+    }
+}
+
+fn assert_phase3_linear_matches_direct(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    config: &SimConfig,
+    scratch: &mut Phase3ScarcityScratch,
+) -> Result<usize, sim_model::Phase3Error> {
+    let mut linear_output = Vec::new();
+    let linear_result = phase3_observation_and_features_storage_into(
+        storage,
+        settlements,
+        config,
+        &mut linear_output,
+    );
+
+    let mut direct_output = Vec::new();
+    let direct_result = phase3_observation_and_features_storage_with_scratch(
+        storage,
+        settlements,
+        config,
+        &mut direct_output,
+        scratch,
+    );
+
+    assert_eq!(linear_result, direct_result);
+    assert_phase3_feature_bits_equal(&linear_output, &direct_output);
+    assert!(
+        direct_output
+            .windows(2)
+            .all(|pair| pair[0].agent_id < pair[1].agent_id)
+    );
+    if direct_result.is_ok() {
+        assert_eq!(scratch.last_index_build_entries(), settlements.len());
+    }
+    direct_result.map(|()| direct_output.len())
+}
+
+#[test]
+fn phase3_direct_lookup_matches_linear_edge_cases() {
+    let mut scratch = Phase3ScarcityScratch::with_capacity(5);
+    let config = make_config();
+    let empty = SegmentedAgentStorage::new();
+    assert_eq!(
+        assert_phase3_linear_matches_direct(&empty, &[], &config, &mut scratch),
+        Ok(0)
+    );
+
+    // One settlement, every agent in it, boundary-valued food/wealth, and zero scarcity.
+    let (mut one_group, mut settlements, config) = phase3_random_input(5, 1, true, 0x3301);
+    one_group.alive_mut().fill(true);
+    one_group.health_mut().fill(1.0);
+    one_group.group_ids_mut().fill(GroupId(0));
+    one_group.food_mut()[0] = config.interaction.starvation_threshold;
+    one_group.wealth_mut()[0] = config.economy.target_reserve;
+    settlements[0].resource = config.environment.carrying_capacity;
+    assert_eq!(
+        assert_phase3_linear_matches_direct(&one_group, &settlements, &config, &mut scratch),
+        Ok(5)
+    );
+    let mut boundary_output = Vec::new();
+    phase3_observation_and_features_storage_with_scratch(
+        &one_group,
+        &settlements,
+        &config,
+        &mut boundary_output,
+        &mut scratch,
+    )
+    .unwrap();
+    assert!(
+        boundary_output
+            .iter()
+            .all(|features| features.features.local_scarcity().to_bits() == 0.0f32.to_bits())
+    );
+
+    // No agents with settlements, an empty settlement bucket, and one agent per settlement.
+    let (no_agents, settlements, config) = phase3_random_input(0, 3, false, 0x3304);
+    assert_eq!(
+        assert_phase3_linear_matches_direct(&no_agents, &settlements, &config, &mut scratch),
+        Ok(0)
+    );
+    let (mut empty_bucket, settlements, config) = phase3_random_input(10, 3, true, 0x3305);
+    empty_bucket.group_ids_mut().fill(settlements[0].group_id);
+    empty_bucket.alive_mut().fill(true);
+    empty_bucket.health_mut().fill(1.0);
+    assert_eq!(
+        assert_phase3_linear_matches_direct(&empty_bucket, &settlements, &config, &mut scratch),
+        Ok(10)
+    );
+    let (mut own_settlement, settlements, config) = phase3_random_input(5, 5, true, 0x3306);
+    own_settlement.alive_mut().fill(true);
+    own_settlement.health_mut().fill(1.0);
+    for (slot, group_id) in own_settlement.group_ids_mut().iter_mut().enumerate() {
+        *group_id = GroupId(slot as u16);
+    }
+    assert_eq!(
+        assert_phase3_linear_matches_direct(&own_settlement, &settlements, &config, &mut scratch,),
+        Ok(5)
+    );
+
+    // Multiple sparse GroupIds, non-GroupId settlement order, duplicate first-match behavior,
+    // and an empty settlement bucket.
+    let (mut sparse, mut settlements, config) = phase3_random_input(250, 3, true, 0x3302);
+    let remap = [GroupId(60_000), GroupId(17), GroupId(4_096)];
+    for group_id in sparse.group_ids_mut() {
+        *group_id = remap[group_id.0 as usize];
+    }
+    for settlement in &mut settlements {
+        settlement.group_id = remap[settlement.group_id.0 as usize];
+    }
+    settlements.reverse();
+    let duplicate = SettlementState {
+        group_id: settlements[0].group_id,
+        resource: settlements[0].resource + 123.0,
+        treasury: settlements[0].treasury,
+    };
+    settlements.push(duplicate);
+    assert!(
+        assert_phase3_linear_matches_direct(&sparse, &settlements, &config, &mut scratch).is_ok()
+    );
+
+    let (mut reordered, mut settlements, config) = phase3_random_input(250, 12, true, 0x3307);
+    for group_id in reordered.group_ids_mut() {
+        *group_id = GroupId(group_id.0 + 100);
+    }
+    for settlement in &mut settlements {
+        settlement.group_id.0 += 100;
+    }
+    settlements.reverse();
+    settlements.push(SettlementState {
+        group_id: settlements[0].group_id,
+        resource: settlements[0].resource + 123.0,
+        treasury: settlements[0].treasury,
+    });
+    assert!(
+        assert_phase3_linear_matches_direct(&reordered, &settlements, &config, &mut scratch)
+            .is_ok()
+    );
+    assert_eq!(scratch.last_index_build_entries(), settlements.len());
+
+    // Missing GroupId keeps the existing error and partial-output behavior.
+    let (mut missing, settlements, config) = phase3_random_input(2, 1, false, 0x3303);
+    missing.alive_mut().fill(true);
+    missing.health_mut().fill(1.0);
+    missing.group_ids_mut()[1] = GroupId(u16::MAX);
+    assert_eq!(
+        assert_phase3_linear_matches_direct(&missing, &settlements, &config, &mut scratch),
+        Err(sim_model::Phase3Error::MissingSettlement(GroupId(u16::MAX)))
+    );
+}
+
+#[test]
+fn phase3_direct_lookup_randomized_population_and_layout_parity() {
+    let mut scratch = Phase3ScarcityScratch::with_capacity(50);
+    for population in [100, 250, 1000, 5000] {
+        for settlement_count in [1, 2, 5, 20, 50] {
+            for reverse_storage in [false, true] {
+                let (storage, settlements, config) = phase3_random_input(
+                    population,
+                    settlement_count,
+                    reverse_storage,
+                    0x3300_0000 + population + settlement_count as u64,
+                );
+                assert!(
+                    assert_phase3_linear_matches_direct(
+                        &storage,
+                        &settlements,
+                        &config,
+                        &mut scratch,
+                    )
+                    .is_ok()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn phase3_direct_lookup_preserves_three_day_runner_results() {
+    let mut config = make_config();
+    config.world.initial_population = 250;
+    config.world.settlement_count = 5;
+    config.environment.carrying_capacity = 250_000.0;
+    let context = make_context();
+    let initial = initialize_world(&config).expect("world initializes");
+    let mut linear = HybridWorldState::hybrid(initial.clone());
+    let mut indexed = HybridWorldState::hybrid(initial);
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: true,
+    };
+    let linear_outcomes = run_hybrid_authority_days_with_phase3_linear_scan(
+        &mut linear,
+        &config,
+        &context,
+        3,
+        &options,
+    )
+    .expect("linear Phase3 runner succeeds");
+    let indexed_outcomes = run_hybrid_authority_days(&mut indexed, &config, &context, 3, &options)
+        .expect("indexed Phase3 runner succeeds");
+
+    assert_eq!(linear_outcomes, indexed_outcomes);
+    assert_eq!(linear.world, indexed.world);
+    assert_eq!(linear.segmented_storage, indexed.segmented_storage);
+    assert_eq!(
+        linear.canonical_state_hash().unwrap(),
+        indexed.canonical_state_hash().unwrap()
     );
 }

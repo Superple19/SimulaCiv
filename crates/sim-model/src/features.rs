@@ -81,6 +81,154 @@ impl std::fmt::Display for Phase3Error {
 
 impl std::error::Error for Phase3Error {}
 
+const INLINE_PHASE3_SETTLEMENTS: usize = 8;
+
+#[derive(Debug, Clone, Copy)]
+struct Phase3ScarcityEntry {
+    group_id: GroupId,
+    source_index: usize,
+    scarcity: f32,
+}
+
+/// Reusable transient lookup scratch for Phase 3 settlement scarcity values.
+///
+/// Settlements are evaluated in source order. Large lookup indexes use source position as the tie-break,
+/// preserving the existing first-match behavior for duplicate GroupIds.
+#[derive(Debug)]
+pub struct Phase3ScarcityScratch {
+    inline_entries: [(GroupId, f32); INLINE_PHASE3_SETTLEMENTS],
+    heap_entries: Vec<Phase3ScarcityEntry>,
+    len: usize,
+    uses_heap: bool,
+    last_index_build_entries: usize,
+    last_index_sort_comparisons: usize,
+}
+
+impl Default for Phase3ScarcityScratch {
+    fn default() -> Self {
+        Self {
+            inline_entries: [(GroupId(0), 0.0); INLINE_PHASE3_SETTLEMENTS],
+            heap_entries: Vec::new(),
+            len: 0,
+            uses_heap: false,
+            last_index_build_entries: 0,
+            last_index_sort_comparisons: 0,
+        }
+    }
+}
+
+impl Phase3ScarcityScratch {
+    /// Creates scratch sized for the expected settlement count.
+    pub fn with_capacity(settlement_count: usize) -> Self {
+        Self {
+            heap_entries: Vec::with_capacity(if settlement_count > INLINE_PHASE3_SETTLEMENTS {
+                settlement_count
+            } else {
+                0
+            }),
+            ..Self::default()
+        }
+    }
+
+    /// Number of scarcity entries built by the most recent Phase 3 call.
+    pub fn last_index_build_entries(&self) -> usize {
+        self.last_index_build_entries
+    }
+
+    /// GroupId comparisons used to sort the lookup index on the most recent call.
+    pub fn last_index_sort_comparisons(&self) -> usize {
+        self.last_index_sort_comparisons
+    }
+
+    /// Returns the exact GroupId comparison count for the current lookup index.
+    ///
+    /// This is intended for benchmark work-count reporting and does not affect production lookup.
+    pub fn group_id_lookup_comparisons(&self, group_id: GroupId) -> usize {
+        self.lookup::<true>(group_id).1
+    }
+
+    fn prepare(&mut self, settlements: &[SettlementState], carrying_capacity: f32) {
+        self.len = settlements.len();
+        self.uses_heap = self.len > INLINE_PHASE3_SETTLEMENTS;
+        self.last_index_build_entries = self.len;
+        self.last_index_sort_comparisons = 0;
+
+        if self.uses_heap {
+            self.heap_entries.clear();
+            if self.heap_entries.capacity() < self.len {
+                self.heap_entries.reserve(self.len);
+            }
+            for (source_index, settlement) in settlements.iter().enumerate() {
+                self.heap_entries.push(Phase3ScarcityEntry {
+                    group_id: settlement.group_id,
+                    source_index,
+                    scarcity: 1.0 - (settlement.resource / carrying_capacity).clamp(0.0, 1.0),
+                });
+            }
+            if !self
+                .heap_entries
+                .windows(2)
+                .all(|w| w[0].group_id <= w[1].group_id)
+            {
+                self.heap_entries.sort_unstable_by(|left, right| {
+                    self.last_index_sort_comparisons += 1;
+                    left.group_id
+                        .cmp(&right.group_id)
+                        .then_with(|| left.source_index.cmp(&right.source_index))
+                });
+            }
+        } else {
+            for (index, settlement) in settlements.iter().enumerate() {
+                self.inline_entries[index] = (
+                    settlement.group_id,
+                    1.0 - (settlement.resource / carrying_capacity).clamp(0.0, 1.0),
+                );
+            }
+        }
+    }
+
+    fn lookup<const COUNT_COMPARISONS: bool>(&self, group_id: GroupId) -> (Option<f32>, usize) {
+        if !self.uses_heap {
+            let mut comparisons = 0;
+            for &(candidate_group, scarcity) in &self.inline_entries[..self.len] {
+                if COUNT_COMPARISONS {
+                    comparisons += 1;
+                }
+                if candidate_group == group_id {
+                    return (Some(scarcity), comparisons);
+                }
+            }
+            return (None, comparisons);
+        }
+
+        let entries = &self.heap_entries[..self.len];
+        let mut low = 0;
+        let mut high = entries.len();
+        let mut comparisons = 0;
+        while low < high {
+            let middle = low + (high - low) / 2;
+            if COUNT_COMPARISONS {
+                comparisons += 1;
+            }
+            if entries[middle].group_id < group_id {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+
+        if low < entries.len() {
+            if COUNT_COMPARISONS {
+                comparisons += 1;
+            }
+            if entries[low].group_id == group_id {
+                return (Some(entries[low].scarcity), comparisons);
+            }
+        }
+        (None, comparisons)
+    }
+}
+
 /// Executes Phase 3: Observation & Normalized Feature Extraction into a reusable buffer.
 ///
 /// For each behaviorally eligible agent (`alive == true && health > 0.0`), computes the canonical 5-element
@@ -328,6 +476,67 @@ pub fn phase3_observation_and_features_storage_into(
 
     // Canonical output order: strictly ascending AgentId
     out.sort_by_key(|af| af.agent_id);
+    Ok(())
+}
+
+/// Executes Phase 3 directly from segmented storage using reusable GroupId scarcity lookup scratch.
+///
+/// Scarcity values are calculated in settlement input order. The lookup index is sorted by GroupId
+/// and source position, so duplicate GroupIds retain the existing first-settlement match behavior.
+pub fn phase3_observation_and_features_storage_with_scratch(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    config: &SimConfig,
+    out: &mut Vec<AgentFeatures>,
+    scratch: &mut Phase3ScarcityScratch,
+) -> Result<(), Phase3Error> {
+    out.clear();
+    let n = storage.len();
+    if out.capacity() < n {
+        out.reserve(n - out.capacity());
+    }
+
+    let k = config.environment.carrying_capacity;
+    let starvation_threshold = config.interaction.starvation_threshold;
+    let target_reserve = config.economy.target_reserve as f32;
+    let target_food = config.economy.target_food;
+    scratch.prepare(settlements, k);
+
+    let alives = storage.alive();
+    let healths = storage.health();
+    let foods = storage.food();
+    let wealths = storage.wealth();
+    let group_ids = storage.group_ids();
+    let agent_ids = storage.agent_ids();
+    for i in 0..n {
+        if !alives[i] || healths[i] <= 0.0 {
+            continue;
+        }
+
+        let group_id = group_ids[i];
+        let local_scarcity = scratch
+            .lookup::<false>(group_id)
+            .0
+            .ok_or(Phase3Error::MissingSettlement(group_id))?;
+
+        let hunger_ratio = (1.0 - foods[i] / starvation_threshold).clamp(0.0, 1.0);
+        let wealth_pressure = (1.0 - (wealths[i] as f32) / target_reserve).clamp(0.0, 1.0);
+        let health_deficit = (1.0 - healths[i]).clamp(0.0, 1.0);
+        let food_surplus = ((foods[i] - starvation_threshold) / target_food).clamp(0.0, 1.0);
+
+        out.push(AgentFeatures {
+            agent_id: agent_ids[i],
+            features: FeatureVector::new([
+                hunger_ratio,
+                wealth_pressure,
+                health_deficit,
+                local_scarcity,
+                food_surplus,
+            ]),
+        });
+    }
+
+    out.sort_by_key(|features| features.agent_id);
     Ok(())
 }
 

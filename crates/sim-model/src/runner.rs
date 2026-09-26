@@ -25,7 +25,10 @@ use crate::events::{
     events_from_targeted_resolution, events_from_welfare_resolution, events_from_work_resolution,
     phase11_flush_events,
 };
-use crate::features::{AgentFeatures, Phase3Error, phase3_observation_and_features_into};
+use crate::features::{
+    AgentFeatures, Phase3Error, Phase3ScarcityScratch, phase3_observation_and_features_into,
+    phase3_observation_and_features_storage_with_scratch,
+};
 use crate::intents::{
     Intent, IntentError, Phase4CandidateIndexScratch,
     generate_intents_storage_with_candidate_index, generate_intents_storage_with_scratch,
@@ -504,8 +507,9 @@ pub fn run_native_soa_day_with_storage(
     choices_scratch: &mut Vec<PrimaryActionChoice>,
     intents_scratch: &mut Vec<Intent>,
 ) -> Result<DayOutcome, M0RunError> {
+    let mut phase3_scratch = Phase3ScarcityScratch::with_capacity(world.settlements.len());
     let mut phase8_scratch = Phase8WelfareScratch::with_capacity(world.settlements.len());
-    run_native_soa_day_with_storage_and_phase8_scratch(
+    run_native_soa_day_with_storage_and_phase_scratch(
         world,
         config,
         context,
@@ -514,12 +518,13 @@ pub fn run_native_soa_day_with_storage(
         features_scratch,
         choices_scratch,
         intents_scratch,
+        &mut phase3_scratch,
         &mut phase8_scratch,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_native_soa_day_with_storage_and_phase8_scratch(
+fn run_native_soa_day_with_storage_and_phase_scratch(
     world: &mut WorldState,
     config: &SimConfig,
     context: &M0RunContext,
@@ -528,6 +533,7 @@ fn run_native_soa_day_with_storage_and_phase8_scratch(
     features_scratch: &mut Vec<AgentFeatures>,
     choices_scratch: &mut Vec<PrimaryActionChoice>,
     intents_scratch: &mut Vec<Intent>,
+    phase3_scratch: &mut Phase3ScarcityScratch,
     phase8_scratch: &mut Phase8WelfareScratch,
 ) -> Result<DayOutcome, M0RunError> {
     // 1. Capture logical day coordinate
@@ -548,7 +554,13 @@ fn run_native_soa_day_with_storage_and_phase8_scratch(
 
     // 5. Phase 3: Observation & Normalized Feature Extraction (Native Segmented SoA)
     features_scratch.clear();
-    storage.phase3_features_into(&world.settlements, &effective_config, features_scratch)?;
+    phase3_observation_and_features_storage_with_scratch(
+        storage,
+        &world.settlements,
+        &effective_config,
+        features_scratch,
+        phase3_scratch,
+    )?;
 
     // 6. Phase 4: Intent Generation (Primary Action Selection & Intent Formulation)
     choices_scratch.clear();
@@ -716,9 +728,10 @@ pub fn run_native_soa_days(
     let mut features_scratch = Vec::with_capacity(world.agents.len());
     let mut choices_scratch = Vec::with_capacity(world.agents.len());
     let mut intents_scratch = Vec::with_capacity(world.agents.len());
+    let mut phase3_scratch = Phase3ScarcityScratch::with_capacity(world.settlements.len());
     let mut phase8_scratch = Phase8WelfareScratch::with_capacity(world.settlements.len());
     for _ in 0..days {
-        let outcome = run_native_soa_day_with_storage_and_phase8_scratch(
+        let outcome = run_native_soa_day_with_storage_and_phase_scratch(
             world,
             config,
             context,
@@ -727,6 +740,7 @@ pub fn run_native_soa_days(
             &mut features_scratch,
             &mut choices_scratch,
             &mut intents_scratch,
+            &mut phase3_scratch,
             &mut phase8_scratch,
         )?;
         outcomes.push(outcome);
@@ -793,6 +807,8 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
     let mut choices_scratch = Vec::with_capacity(agent_count);
     let mut intents_scratch = Vec::with_capacity(agent_count);
     let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    let mut phase3_scratch =
+        Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_authority_day_with_all_scratch(
@@ -806,6 +822,7 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
         &mut metrics_scratch,
         Phase4RuntimeScratch::PreIndexed(candidate_index),
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
+        Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
     )
 }
 
@@ -827,6 +844,8 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
     let mut choices_scratch = Vec::with_capacity(agent_count);
     let mut intents_scratch = Vec::with_capacity(agent_count);
     let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    let mut phase3_scratch =
+        Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_authority_day_with_all_scratch(
@@ -840,6 +859,7 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
         &mut metrics_scratch,
         Phase4RuntimeScratch::FullScan(candidate_scratch),
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
+        Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
     )
 }
 
@@ -873,6 +893,8 @@ pub fn run_hybrid_authority_day_with_scratch(
         None => hybrid_world.world.agents.len(),
     };
     let mut candidate_scratch = Vec::with_capacity(agent_count);
+    let mut phase3_scratch =
+        Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_authority_day_with_all_scratch(
@@ -886,6 +908,7 @@ pub fn run_hybrid_authority_day_with_scratch(
         metrics_scratch,
         Phase4RuntimeScratch::FullScan(&mut candidate_scratch),
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
+        Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
     )
 }
 
@@ -897,6 +920,11 @@ enum Phase4RuntimeScratch<'a> {
 enum Phase8RuntimeScratch<'a> {
     FullScan,
     OnePass(&'a mut Phase8WelfareScratch),
+}
+
+enum Phase3RuntimeScratch<'a> {
+    LinearScan,
+    Indexed(&'a mut Phase3ScarcityScratch),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -911,6 +939,7 @@ fn run_hybrid_authority_day_with_all_scratch(
     metrics_scratch: &mut AgentDynamicSoAScratch,
     phase4_scratch: Phase4RuntimeScratch<'_>,
     phase8_scratch: Phase8RuntimeScratch<'_>,
+    phase3_scratch: Phase3RuntimeScratch<'_>,
 ) -> Result<DayOutcome, M0RunError> {
     if !hybrid_world.is_hybrid() {
         return run_m0_day_with_scratch(
@@ -952,7 +981,24 @@ fn run_hybrid_authority_day_with_all_scratch(
 
     // 5. Phase 3: Observation & Normalized Feature Extraction (Native Segmented SoA)
     features_scratch.clear();
-    storage.phase3_features_into(&world.settlements, &effective_config, features_scratch)?;
+    match phase3_scratch {
+        Phase3RuntimeScratch::LinearScan => {
+            storage.phase3_features_into(
+                &world.settlements,
+                &effective_config,
+                features_scratch,
+            )?;
+        }
+        Phase3RuntimeScratch::Indexed(scratch) => {
+            phase3_observation_and_features_storage_with_scratch(
+                storage,
+                &world.settlements,
+                &effective_config,
+                features_scratch,
+                scratch,
+            )?;
+        }
+    }
 
     // 6. Phase 4: Intent Generation (Primary Action Selection & Intent Formulation directly on storage)
     choices_scratch.clear();
@@ -1163,7 +1209,15 @@ pub fn run_hybrid_authority_days(
     days: u32,
     options: &DayExecutionOptions,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
-    run_hybrid_authority_days_with_phase8_mode(hybrid_world, config, context, days, options, true)
+    run_hybrid_authority_days_with_phase_modes(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        true,
+        true,
+    )
 }
 
 /// Executes multiple days using the reference repeated full-storage Phase 8 scan.
@@ -1176,15 +1230,45 @@ pub fn run_hybrid_authority_days_with_phase8_full_scan(
     days: u32,
     options: &DayExecutionOptions,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
-    run_hybrid_authority_days_with_phase8_mode(hybrid_world, config, context, days, options, false)
+    run_hybrid_authority_days_with_phase_modes(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        true,
+        false,
+    )
 }
 
-fn run_hybrid_authority_days_with_phase8_mode(
+/// Executes multiple days using the reference per-agent linear Phase 3 scarcity search.
+///
+/// This path is retained for differential and benchmark comparisons with production execution.
+pub fn run_hybrid_authority_days_with_phase3_linear_scan(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &M0RunContext,
     days: u32,
     options: &DayExecutionOptions,
+) -> Result<Vec<DayOutcome>, M0RunError> {
+    run_hybrid_authority_days_with_phase_modes(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        false,
+        true,
+    )
+}
+
+fn run_hybrid_authority_days_with_phase_modes(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+    use_direct_phase3: bool,
     use_one_pass_phase8: bool,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
     let agent_count = match &hybrid_world.segmented_storage {
@@ -1201,6 +1285,8 @@ fn run_hybrid_authority_days_with_phase8_mode(
     } else {
         Phase4CandidateIndexScratch::default()
     };
+    let mut phase3_scratch = use_direct_phase3
+        .then(|| Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len()));
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
 
@@ -1219,6 +1305,10 @@ fn run_hybrid_authority_days_with_phase8_mode(
                 Phase8RuntimeScratch::OnePass(&mut phase8_scratch)
             } else {
                 Phase8RuntimeScratch::FullScan
+            },
+            match phase3_scratch.as_mut() {
+                Some(scratch) => Phase3RuntimeScratch::Indexed(scratch),
+                None => Phase3RuntimeScratch::LinearScan,
             },
         )?;
         outcomes.push(outcome);
@@ -1275,6 +1365,8 @@ pub fn run_hybrid_scope_isolated_day_with_scratch(
     intents_scratch: &mut Vec<Intent>,
     metrics_scratch: &mut AgentDynamicSoAScratch,
 ) -> Result<DayOutcome, M0RunError> {
+    let mut phase3_scratch =
+        Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_scope_isolated_day_with_phase8_scratch(
@@ -1286,6 +1378,7 @@ pub fn run_hybrid_scope_isolated_day_with_scratch(
         choices_scratch,
         intents_scratch,
         metrics_scratch,
+        &mut phase3_scratch,
         &mut phase8_scratch,
     )
 }
@@ -1300,6 +1393,7 @@ fn run_hybrid_scope_isolated_day_with_phase8_scratch(
     choices_scratch: &mut Vec<PrimaryActionChoice>,
     intents_scratch: &mut Vec<Intent>,
     metrics_scratch: &mut AgentDynamicSoAScratch,
+    phase3_scratch: &mut Phase3ScarcityScratch,
     phase8_scratch: &mut Phase8WelfareScratch,
 ) -> Result<DayOutcome, M0RunError> {
     if !hybrid_world.is_hybrid() {
@@ -1342,7 +1436,13 @@ fn run_hybrid_scope_isolated_day_with_phase8_scratch(
 
     // 5. Phase 3: Observation & Normalized Feature Extraction (Native Segmented SoA)
     features_scratch.clear();
-    storage.phase3_features_into(&world.settlements, &effective_config, features_scratch)?;
+    phase3_observation_and_features_storage_with_scratch(
+        storage,
+        &world.settlements,
+        &effective_config,
+        features_scratch,
+        phase3_scratch,
+    )?;
 
     // --- Compatibility Boundary 1: SoA authority -> AoS materialization ---
     storage.write_back_to_agents(&mut world.agents);
@@ -1522,6 +1622,8 @@ pub fn run_hybrid_scope_isolated_days(
     let mut choices_scratch = Vec::with_capacity(agent_count);
     let mut intents_scratch = Vec::with_capacity(agent_count);
     let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    let mut phase3_scratch =
+        Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
 
@@ -1535,6 +1637,7 @@ pub fn run_hybrid_scope_isolated_days(
             &mut choices_scratch,
             &mut intents_scratch,
             &mut metrics_scratch,
+            &mut phase3_scratch,
             &mut phase8_scratch,
         )?;
         outcomes.push(outcome);
