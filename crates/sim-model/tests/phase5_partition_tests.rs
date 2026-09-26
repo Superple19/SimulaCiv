@@ -1,7 +1,9 @@
 use sim_core::{AgentId, GroupId};
 use sim_model::{
-    Intent, Phase5Error, SimConfig, execute_phases_1_and_2, generate_intents, initialize_world,
-    phase3_observation_and_features, phase4_primary_action_selection, phase5_partition_intents,
+    Intent, Phase5Error, Phase5PartitionScratch, SimConfig, execute_phases_1_and_2,
+    generate_intents, initialize_world, phase3_observation_and_features,
+    phase4_primary_action_selection, phase5_partition_intents, phase5_partition_intents_baseline,
+    phase5_partition_intents_from_vec, phase5_partition_intents_from_vec_with_scratch,
 };
 
 const BASE_TOML: &str = r#"
@@ -456,6 +458,7 @@ fn test_duplicate_initiator_fails_explicitly() {
 #[test]
 fn test_empty_input() {
     let empty: Vec<Intent> = vec![];
+    phase5_inputs_match_baseline(&empty);
     let partitions = phase5_partition_intents(&empty).unwrap();
     assert!(partitions.is_empty());
 }
@@ -467,6 +470,7 @@ fn test_no_state_dependency_pure_function() {
         agent_id: AgentId(1),
         group_id: GroupId(0),
     }];
+    phase5_inputs_match_baseline(&intents);
     let partitions = phase5_partition_intents(&intents).unwrap();
     assert_eq!(partitions.len(), 1);
 }
@@ -546,4 +550,274 @@ fn test_integration_phases_1_to_5() {
     // 4. WorldState remains unchanged
     assert_eq!(world, world_before_decisions);
     assert_eq!(world.current_day, initial_day);
+}
+
+fn phase5_inputs_match_baseline(intents: &[Intent]) {
+    let baseline = phase5_partition_intents_baseline(intents);
+    assert_eq!(phase5_partition_intents(intents), baseline);
+
+    let mut owned = intents.to_vec();
+    let original = owned.clone();
+    let original_capacity = owned.capacity();
+    assert_eq!(phase5_partition_intents_from_vec(&mut owned), baseline);
+
+    let strictly_ordered = intents
+        .windows(2)
+        .all(|pair| pair[0].agent_id() < pair[1].agent_id());
+    if strictly_ordered && baseline.is_ok() {
+        assert!(owned.is_empty());
+        assert_eq!(owned.capacity(), original_capacity);
+    } else {
+        assert_eq!(owned, original, "fallback/error must leave input unchanged");
+        assert_eq!(owned.capacity(), original_capacity);
+    }
+}
+
+#[test]
+fn test_ordered_stable_bucketing_preserves_all_intents_and_sparse_group_order() {
+    // AgentId order is strict while GroupIds are interleaved and non-dense.
+    // The GroupId values also demonstrate that the fast path makes no dense-ID assumption.
+    let intents = vec![
+        Intent::Work {
+            agent_id: AgentId(1),
+            group_id: GroupId(u16::MAX),
+            requested_harvest: 1.25,
+        },
+        Intent::BuyFood {
+            agent_id: AgentId(2),
+            group_id: GroupId(7),
+            requested_demand: 2.5,
+        },
+        Intent::SellFood {
+            agent_id: AgentId(3),
+            group_id: GroupId(u16::MAX),
+            submitted_supply: 3.75,
+        },
+        Intent::GiveFood {
+            agent_id: AgentId(4),
+            group_id: GroupId(1009),
+            target_agent_id: None,
+            requested_amount: 4.0,
+        },
+        Intent::StealFood {
+            agent_id: AgentId(5),
+            group_id: GroupId(7),
+            target_agent_id: Some(AgentId(99)),
+            requested_amount: 5.0,
+        },
+        Intent::Idle {
+            agent_id: AgentId(6),
+            group_id: GroupId(u16::MAX),
+        },
+    ];
+
+    phase5_inputs_match_baseline(&intents);
+    let unbalanced: Vec<_> = (1..=20)
+        .map(|agent| Intent::Idle {
+            agent_id: AgentId(agent),
+            group_id: match agent {
+                19 => GroupId(7),
+                20 => GroupId(u16::MAX),
+                _ => GroupId(1009),
+            },
+        })
+        .collect();
+    phase5_inputs_match_baseline(&unbalanced);
+    let many_groups: Vec<_> = (0..50u32)
+        .map(|index| Intent::Idle {
+            agent_id: AgentId(index + 1),
+            group_id: GroupId((index as u16).wrapping_mul(257).wrapping_add(3)),
+        })
+        .collect();
+    phase5_inputs_match_baseline(&many_groups);
+    let mut owned_intents = intents.clone();
+    let partitions = phase5_partition_intents_from_vec(&mut owned_intents).unwrap();
+    assert_eq!(
+        partitions.iter().map(|p| p.group_id).collect::<Vec<_>>(),
+        vec![GroupId(7), GroupId(1009), GroupId(u16::MAX)]
+    );
+    assert_eq!(
+        partitions
+            .iter()
+            .map(|p| p.intents.iter().map(Intent::agent_id).collect::<Vec<_>>())
+            .collect::<Vec<_>>(),
+        vec![
+            vec![AgentId(2), AgentId(5)],
+            vec![AgentId(4)],
+            vec![AgentId(1), AgentId(3), AgentId(6)]
+        ]
+    );
+}
+
+#[test]
+fn test_phase5_fast_path_duplicate_errors_match_baseline_and_preserve_input() {
+    let ordered_duplicate = vec![
+        Intent::Idle {
+            agent_id: AgentId(1),
+            group_id: GroupId(0),
+        },
+        Intent::Idle {
+            agent_id: AgentId(2),
+            group_id: GroupId(1),
+        },
+        Intent::Work {
+            agent_id: AgentId(2),
+            group_id: GroupId(7),
+            requested_harvest: 2.0,
+        },
+    ];
+    phase5_inputs_match_baseline(&ordered_duplicate);
+    assert_eq!(
+        phase5_partition_intents(&ordered_duplicate).unwrap_err(),
+        Phase5Error::DuplicateInitiator(AgentId(2))
+    );
+
+    // A descending pair forces fallback before the duplicate. The fallback must report the
+    // earliest duplicate in source order, not a later duplicate discovered by the fast scan.
+    let arbitrary_duplicates = vec![
+        Intent::Idle {
+            agent_id: AgentId(8),
+            group_id: GroupId(0),
+        },
+        Intent::Idle {
+            agent_id: AgentId(3),
+            group_id: GroupId(1),
+        },
+        Intent::Idle {
+            agent_id: AgentId(3),
+            group_id: GroupId(2),
+        },
+        Intent::Idle {
+            agent_id: AgentId(8),
+            group_id: GroupId(3),
+        },
+    ];
+    phase5_inputs_match_baseline(&arbitrary_duplicates);
+    assert_eq!(
+        phase5_partition_intents(&arbitrary_duplicates).unwrap_err(),
+        Phase5Error::DuplicateInitiator(AgentId(3))
+    );
+}
+
+#[test]
+fn test_phase5_ordered_reversed_and_tuple_sorted_inputs_match_baseline() {
+    let ordered = vec![
+        Intent::Idle {
+            agent_id: AgentId(1),
+            group_id: GroupId(9),
+        },
+        Intent::Idle {
+            agent_id: AgentId(2),
+            group_id: GroupId(3),
+        },
+        Intent::Idle {
+            agent_id: AgentId(3),
+            group_id: GroupId(9),
+        },
+        Intent::Idle {
+            agent_id: AgentId(4),
+            group_id: GroupId(3),
+        },
+    ];
+    phase5_inputs_match_baseline(&ordered);
+
+    let mut reversed = ordered.clone();
+    reversed.reverse();
+    phase5_inputs_match_baseline(&reversed);
+
+    // This is already canonical (GroupId, AgentId) order, but is not globally AgentId-sorted,
+    // so the arbitrary-order fallback remains necessary.
+    let tuple_sorted = vec![
+        Intent::Idle {
+            agent_id: AgentId(2),
+            group_id: GroupId(3),
+        },
+        Intent::Idle {
+            agent_id: AgentId(4),
+            group_id: GroupId(3),
+        },
+        Intent::Idle {
+            agent_id: AgentId(1),
+            group_id: GroupId(9),
+        },
+        Intent::Idle {
+            agent_id: AgentId(3),
+            group_id: GroupId(9),
+        },
+    ];
+    phase5_inputs_match_baseline(&tuple_sorted);
+}
+
+#[test]
+fn test_phase5_randomized_ordered_reverse_and_shuffle_parity() {
+    fn shuffled<T>(items: &mut [T], mut state: u64) {
+        for index in (1..items.len()).rev() {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let other = (state as usize) % (index + 1);
+            items.swap(index, other);
+        }
+    }
+
+    for population in [100u32, 250, 1000, 5000] {
+        for group_count in [1u32, 2, 5, 20, 50] {
+            let ordered: Vec<_> = (0..population)
+                .map(|index| Intent::Idle {
+                    agent_id: AgentId(index + 1),
+                    group_id: GroupId(
+                        (((index as u64 * 37 + 11) % group_count as u64) as u16)
+                            .wrapping_mul(257)
+                            .wrapping_add(3),
+                    ),
+                })
+                .collect();
+            let mut reversed = ordered.clone();
+            reversed.reverse();
+            let mut random = ordered.clone();
+            shuffled(
+                &mut random,
+                ((population as u64) << 32) | group_count as u64,
+            );
+            assert!(
+                random
+                    .windows(2)
+                    .any(|pair| pair[0].agent_id() > pair[1].agent_id())
+            );
+
+            for dataset in [&ordered, &reversed, &random] {
+                phase5_inputs_match_baseline(dataset);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_phase5_reusable_scratch_matches_baseline_across_ticks() {
+    let ordered: Vec<_> = (1..=30u32)
+        .map(|agent| Intent::Idle {
+            agent_id: AgentId(agent),
+            group_id: GroupId((agent % 5) as u16),
+        })
+        .collect();
+    let mut reversed = ordered.clone();
+    reversed.reverse();
+    let mut scratch = Phase5PartitionScratch::with_capacity(5);
+
+    for intents in [&ordered, &reversed, &ordered] {
+        let expected = phase5_partition_intents_baseline(intents).unwrap();
+        let mut owned = intents.clone();
+        assert_eq!(
+            phase5_partition_intents_from_vec_with_scratch(&mut owned, &mut scratch).unwrap(),
+            expected
+        );
+        if intents
+            .windows(2)
+            .all(|pair| pair[0].agent_id() < pair[1].agent_id())
+        {
+            assert!(owned.is_empty());
+        } else {
+            assert_eq!(&owned, intents);
+        }
+    }
 }

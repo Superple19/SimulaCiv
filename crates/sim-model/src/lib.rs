@@ -70,7 +70,11 @@ pub use metrics::{
     phase10_observe_storage, phase10_observe_storage_with_scratch, phase10_observe_with_config,
     phase10_observe_with_scratch,
 };
-pub use partitioning::{Phase5Error, SettlementIntentPartition, phase5_partition_intents};
+pub use partitioning::{
+    Phase5Error, Phase5PartitionScratch, SettlementIntentPartition, phase5_partition_intents,
+    phase5_partition_intents_baseline, phase5_partition_intents_from_vec,
+    phase5_partition_intents_from_vec_with_scratch,
+};
 pub use phases::{
     MortalityResolution, Phase9Error, Phase9MortalityResolution, execute_phases_1_and_2,
     phase1_resource_regrowth, phase2_biological_degradation, phase2_biological_degradation_dynamic,
@@ -99,6 +103,7 @@ pub use runner::{
     M0RunError, run_hybrid_authority_day, run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
+    run_hybrid_authority_days_with_phase5_baseline,
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_day,
     run_hybrid_scope_isolated_day_with_scratch, run_hybrid_scope_isolated_days, run_m0_day,
     run_m0_days, run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,

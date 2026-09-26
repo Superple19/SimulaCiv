@@ -41,7 +41,11 @@ use sim_model::metrics::{
     DailyMetrics, phase10_observe, phase10_observe_compact_aos, phase10_observe_soa_fresh,
     phase10_observe_storage, phase10_observe_storage_with_scratch, phase10_observe_with_scratch,
 };
-use sim_model::partitioning::{SettlementIntentPartition, phase5_partition_intents};
+use sim_model::partitioning::{
+    Phase5PartitionScratch, SettlementIntentPartition, phase5_partition_intents,
+    phase5_partition_intents_baseline, phase5_partition_intents_from_vec,
+    phase5_partition_intents_from_vec_with_scratch,
+};
 use sim_model::phases::{
     phase1_resource_regrowth, phase2_biological_degradation, phase2_biological_degradation_soa,
     phase2_biological_degradation_storage, phase2_biological_degradation_with_scratch,
@@ -60,6 +64,7 @@ use sim_model::runner::{
     run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
+    run_hybrid_authority_days_with_phase5_baseline,
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_days, run_m0_day,
     run_m0_days, run_native_soa_day, run_native_soa_days,
 };
@@ -210,7 +215,7 @@ fn run_instrumented_500_days(
 
         // Phase 5
         let t5 = Instant::now();
-        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+        let partitions = phase5_partition_intents_baseline(&intents).expect("phase5 succeeds");
         timing.phase5_partition += t5.elapsed();
 
         // Phase 6A
@@ -678,7 +683,7 @@ fn measure_hot_path_soa_expansion(base_config: &SimConfig, context: &M0RunContex
             .expect("phase4 intent succeeds");
 
         // Phase 5
-        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+        let partitions = phase5_partition_intents_baseline(&intents).expect("phase5 succeeds");
 
         // Phase 6A
         let work_res = phase6a_work_resolution(&mut world, &partitions).expect("phase6a succeeds");
@@ -1562,7 +1567,7 @@ fn measure_phase10_native_soa(base_config: &SimConfig, context: &M0RunContext) {
             .expect("phase4 intent succeeds");
 
         // Phase 5
-        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+        let partitions = phase5_partition_intents_baseline(&intents).expect("phase5 succeeds");
 
         // Phase 6A
         let work_res = phase6a_work_resolution(&mut world, &partitions).expect("phase6a succeeds");
@@ -1874,7 +1879,7 @@ fn measure_phase2_native_soa(base_config: &SimConfig, context: &M0RunContext) {
             .expect("phase4 intent succeeds");
 
         // Phase 5
-        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+        let partitions = phase5_partition_intents_baseline(&intents).expect("phase5 succeeds");
 
         // Phase 6A
         let work_res = phase6a_work_resolution(&mut world, &partitions).expect("phase6a succeeds");
@@ -2164,7 +2169,7 @@ fn measure_phase3_native_soa(base_config: &SimConfig, context: &M0RunContext) {
             .expect("phase4 intent succeeds");
 
         // Phase 5
-        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+        let partitions = phase5_partition_intents_baseline(&intents).expect("phase5 succeeds");
 
         // Phase 6A
         let work_res = phase6a_work_resolution(&mut world, &partitions).expect("phase6a succeeds");
@@ -2472,7 +2477,7 @@ fn measure_phase9_native_soa(base_config: &SimConfig, context: &M0RunContext) {
             .expect("phase4 intent generation succeeds");
 
         // Phase 5
-        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+        let partitions = phase5_partition_intents_baseline(&intents).expect("phase5 succeeds");
 
         // Phase 6A
         let work_res = phase6a_work_resolution(&mut world, &partitions).expect("phase6a succeeds");
@@ -2760,7 +2765,7 @@ fn measure_phase8_native_soa(base_config: &SimConfig, context: &M0RunContext) {
             .expect("phase4 intent generation succeeds");
 
         // Phase 5
-        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+        let partitions = phase5_partition_intents_baseline(&intents).expect("phase5 succeeds");
 
         // Phase 6A
         let work_res = phase6a_work_resolution(&mut world, &partitions).expect("phase6a succeeds");
@@ -3206,7 +3211,7 @@ fn measure_m2_native_soa_multi_phase_gate(base_config: &SimConfig, context: &M0R
             phase4_primary_action_selection_into(&w_b, &cfg, &feats_b, &mut choices_b).unwrap();
             intents_b.clear();
             phase4_generate_intents_into(&w_b, &cfg, &choices_b, &mut intents_b).unwrap();
-            let p = phase5_partition_intents(&intents_b).unwrap();
+            let p = phase5_partition_intents_baseline(&intents_b).unwrap();
             let _ = phase6a_work_resolution(&mut w_b, &p).unwrap();
             let _ = phase6b_targeted_resolution(&mut w_b, &cfg, &p).unwrap();
             let _ = phase7_market_clearance_with_config(&mut w_b, &p, &cfg.economy).unwrap();
@@ -3663,7 +3668,7 @@ fn measure_candidate_phases_profiling(base_config: &SimConfig, _context: &M0RunC
         }
         let mut intents = Vec::with_capacity(pop as usize);
         phase4_generate_intents_into(&base_world, &cfg, &choices, &mut intents).unwrap();
-        let partitions = phase5_partition_intents(&intents).unwrap();
+        let partitions = phase5_partition_intents_baseline(&intents).unwrap();
 
         // A: AoS Baseline
         let mut t_aos = Duration::ZERO;
@@ -3793,7 +3798,7 @@ fn run_toggle_benchmark_days(
             )?;
         }
 
-        let partitions = phase5_partition_intents(&intents_scratch)?;
+        let partitions = phase5_partition_intents_baseline(&intents_scratch)?;
 
         if native_p6a {
             let _ = phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)?;
@@ -4043,7 +4048,7 @@ fn measure_m2_27_1_scope_isolation_benchmark(base_config: &SimConfig, context: &
         }
         let p4_nat_us = t1.elapsed().as_nanos() as f64 / (sweeps as f64) / 1000.0;
 
-        let partitions = phase5_partition_intents(&intents_a).unwrap();
+        let partitions = phase5_partition_intents_baseline(&intents_a).unwrap();
 
         // Phase 6A
         let t2 = Instant::now();
@@ -4261,7 +4266,7 @@ fn run_hybrid_p4_bench_days(
             )?;
         }
 
-        let partitions = phase5_partition_intents(&intents_scratch)?;
+        let partitions = phase5_partition_intents_baseline(&intents_scratch)?;
         let _ = phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)?;
         let _ = phase6b_targeted_resolution_storage(
             storage,
@@ -4813,7 +4818,7 @@ fn measure_m2_29_post_soa_profiling(base_config: &SimConfig, context: &M0RunCont
 
             // Phase 5
             let t5 = Instant::now();
-            let partitions = phase5_partition_intents(&intents_scratch).unwrap();
+            let partitions = phase5_partition_intents_baseline(&intents_scratch).unwrap();
             d_p5 += t5.elapsed();
 
             // Phase 6A
@@ -6723,7 +6728,7 @@ fn m2_30_profile_indexed_day(
     times[4] = started.elapsed();
 
     let started = Instant::now();
-    let partitions = phase5_partition_intents(&intents).unwrap();
+    let partitions = phase5_partition_intents_baseline(&intents).unwrap();
     times[5] = started.elapsed();
 
     let started = Instant::now();
@@ -7743,6 +7748,522 @@ fn measure_m2_33_phase3_direct_scarcity_lookup(base_config: &SimConfig, context:
     );
 }
 
+#[derive(Clone, Copy)]
+struct M235ScalingRow {
+    family: &'static str,
+    population: u64,
+    settlement_count: u32,
+    baseline_phase5: M2292Median,
+    owned_phase5: M2292Median,
+    dispatcher_phase5: M2292Median,
+    full_tick: [M2292Median; 2],
+}
+
+fn m2_35_production_intents(
+    base_config: &SimConfig,
+    context: &M0RunContext,
+    population: u64,
+    settlement_count: u32,
+) -> (SimConfig, WorldState, Vec<Intent>) {
+    let mut config = base_config.clone();
+    config.world.initial_population = population;
+    config.world.settlement_count = settlement_count;
+    config.environment.carrying_capacity = 1000.0 * population as f32;
+    config.world.initial_settlement_resource = 200.0 * population as f32;
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+
+    let mut world = initialize_world(&config).unwrap();
+    let initial_world = world.clone();
+    phase1_resource_regrowth(&mut world, &effective_config);
+    let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+    storage.phase2_degradation_with_config(&effective_config);
+
+    let mut features = Vec::with_capacity(storage.len());
+    let mut phase3_scratch = Phase3ScarcityScratch::with_capacity(world.settlements.len());
+    phase3_observation_and_features_storage_with_scratch(
+        &storage,
+        &world.settlements,
+        &effective_config,
+        &mut features,
+        &mut phase3_scratch,
+    )
+    .unwrap();
+    let mut choices = Vec::with_capacity(storage.len());
+    phase4_primary_action_selection_storage_into(
+        &storage,
+        world.current_day,
+        &effective_config,
+        &features,
+        &mut choices,
+    )
+    .unwrap();
+    let mut candidate_index = Phase4CandidateIndexScratch::with_capacity(world.settlements.len());
+    let mut intents = Vec::with_capacity(storage.len());
+    generate_intents_storage_with_candidate_index(
+        &storage,
+        world.current_day,
+        &effective_config,
+        &choices,
+        &mut candidate_index,
+        &mut intents,
+    )
+    .unwrap();
+    assert!(
+        intents
+            .windows(2)
+            .all(|pair| pair[0].agent_id() < pair[1].agent_id())
+    );
+    if settlement_count > 1 {
+        assert!(
+            intents
+                .windows(2)
+                .any(|pair| pair[0].group_id() > pair[1].group_id())
+        );
+    }
+    (config, initial_world, intents)
+}
+
+fn m2_35_phase5_baseline_sample(intents: &[Intent]) -> f64 {
+    let started = Instant::now();
+    std::hint::black_box(phase5_partition_intents_baseline(intents).unwrap());
+    started.elapsed().as_nanos() as f64 / 1000.0
+}
+
+fn m2_35_phase5_owned_sample(
+    intents: &[Intent],
+    intent_scratch: &mut Vec<Intent>,
+    phase5_scratch: &mut Phase5PartitionScratch,
+) -> f64 {
+    debug_assert!(intent_scratch.is_empty());
+    intent_scratch.extend_from_slice(intents);
+    let started = Instant::now();
+    let partitions =
+        phase5_partition_intents_from_vec_with_scratch(intent_scratch, phase5_scratch).unwrap();
+    std::hint::black_box(partitions);
+    assert!(intent_scratch.is_empty());
+    started.elapsed().as_nanos() as f64 / 1000.0
+}
+
+fn m2_35_phase5_dispatcher_sample(intents: &[Intent]) -> f64 {
+    let started = Instant::now();
+    std::hint::black_box(phase5_partition_intents(intents).unwrap());
+    started.elapsed().as_nanos() as f64 / 1000.0
+}
+
+fn m2_35_time_full_tick(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    days: u32,
+    baseline: bool,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(base_world.clone());
+    let started = Instant::now();
+    let outcomes = if baseline {
+        run_hybrid_authority_days_with_phase5_baseline(&mut world, config, context, days, options)
+    } else {
+        run_hybrid_authority_days(&mut world, config, context, days, options)
+    };
+    std::hint::black_box(outcomes.unwrap());
+    started.elapsed().as_nanos() as f64 / days as f64 / 1000.0
+}
+
+fn m2_35_assert_runner_parity(base_world: &WorldState, config: &SimConfig, context: &M0RunContext) {
+    let mut baseline = HybridWorldState::hybrid(base_world.clone());
+    let mut optimized = HybridWorldState::hybrid(base_world.clone());
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: true,
+    };
+    let baseline_outcomes =
+        run_hybrid_authority_days_with_phase5_baseline(&mut baseline, config, context, 3, &options)
+            .unwrap();
+    let optimized_outcomes =
+        run_hybrid_authority_days(&mut optimized, config, context, 3, &options).unwrap();
+    assert_eq!(baseline_outcomes, optimized_outcomes);
+    assert_eq!(
+        baseline.canonical_state_hash().unwrap(),
+        optimized.canonical_state_hash().unwrap()
+    );
+}
+
+fn m2_35_work_counts(intents: &[Intent]) -> (usize, usize, usize) {
+    let mut ordered = intents.to_vec();
+    let mut baseline_sort_comparisons = 0;
+    ordered.sort_by(|left, right| {
+        baseline_sort_comparisons += 1;
+        left.group_id()
+            .cmp(&right.group_id())
+            .then_with(|| left.agent_id().cmp(&right.agent_id()))
+    });
+
+    let groups: std::collections::HashMap<_, ()> = intents
+        .iter()
+        .map(|intent| (intent.group_id(), ()))
+        .collect();
+    let mut groups: Vec<_> = groups.into_keys().collect();
+    let group_count = groups.len();
+    let mut group_sort_comparisons = 0;
+    groups.sort_unstable_by(|left, right| {
+        group_sort_comparisons += 1;
+        left.cmp(right)
+    });
+    (
+        baseline_sort_comparisons,
+        group_sort_comparisons,
+        group_count,
+    )
+}
+
+fn measure_m2_35_phase5_stable_group_bucketing(base_config: &SimConfig, context: &M0RunContext) {
+    const POPULATIONS: [u64; 9] = [100, 250, 500, 1000, 2500, 5000, 10000, 20000, 50000];
+    const WARMUPS: usize = 2;
+    const SAMPLES: usize = 7;
+    const DAYS_PER_SAMPLE: u32 = 3;
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+    let workloads = ["Fixed settlements (2)", "Fixed group size (~200)"];
+    let mut rows = Vec::with_capacity(POPULATIONS.len() * workloads.len());
+
+    println!("\n=================================================================");
+    println!("M2-35 Phase5 Canonical Sort vs Stable Group Bucketing");
+    println!(
+        "Method: 2 warm-ups + 7 median/MAD samples; production Phase4 inputs; full-tick samples average 3 days."
+    );
+    println!(
+        "Owned fast path retains caller intent and lookup-map capacity; partitions remain owned outputs."
+    );
+    println!("=================================================================");
+
+    for (family_index, family) in workloads.iter().enumerate() {
+        for &population in &POPULATIONS {
+            let settlement_count = if family_index == 0 {
+                2
+            } else {
+                population.div_ceil(200) as u32
+            };
+            let (config, base_world, intents) =
+                m2_35_production_intents(base_config, context, population, settlement_count);
+            let baseline_partitions = phase5_partition_intents_baseline(&intents).unwrap();
+            assert_eq!(
+                phase5_partition_intents(&intents).unwrap(),
+                baseline_partitions
+            );
+            let mut owned = intents.clone();
+            assert_eq!(
+                phase5_partition_intents_from_vec(&mut owned).unwrap(),
+                baseline_partitions
+            );
+            assert!(owned.is_empty());
+            let mut intent_scratch = Vec::with_capacity(intents.len());
+            let mut phase5_scratch =
+                Phase5PartitionScratch::with_capacity(settlement_count as usize);
+            if population == 10000 {
+                m2_35_assert_runner_parity(&base_world, &config, context);
+            }
+
+            for _ in 0..WARMUPS {
+                let _ = m2_35_phase5_baseline_sample(&intents);
+                let _ =
+                    m2_35_phase5_owned_sample(&intents, &mut intent_scratch, &mut phase5_scratch);
+                let _ = m2_35_phase5_dispatcher_sample(&intents);
+                let _ = m2_35_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    true,
+                );
+                let _ = m2_35_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    false,
+                );
+            }
+
+            let mut baseline_samples = Vec::with_capacity(SAMPLES);
+            let mut owned_samples = Vec::with_capacity(SAMPLES);
+            let mut dispatcher_samples = Vec::with_capacity(SAMPLES);
+            let mut full_tick_samples: [Vec<f64>; 2] =
+                std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+            for sample in 0..SAMPLES {
+                baseline_samples.push(m2_35_phase5_baseline_sample(&intents));
+                owned_samples.push(m2_35_phase5_owned_sample(
+                    &intents,
+                    &mut intent_scratch,
+                    &mut phase5_scratch,
+                ));
+                dispatcher_samples.push(m2_35_phase5_dispatcher_sample(&intents));
+                for offset in 0..2 {
+                    let path = (sample + offset) % 2;
+                    full_tick_samples[path].push(m2_35_time_full_tick(
+                        &base_world,
+                        &config,
+                        context,
+                        &options,
+                        DAYS_PER_SAMPLE,
+                        path == 0,
+                    ));
+                }
+            }
+
+            let row = M235ScalingRow {
+                family,
+                population,
+                settlement_count,
+                baseline_phase5: m2_29_2_summary(baseline_samples),
+                owned_phase5: m2_29_2_summary(owned_samples),
+                dispatcher_phase5: m2_29_2_summary(dispatcher_samples),
+                full_tick: [
+                    m2_29_2_summary(full_tick_samples[0].clone()),
+                    m2_29_2_summary(full_tick_samples[1].clone()),
+                ],
+            };
+            let (baseline_sort_comparisons, group_sort_comparisons, group_count) =
+                m2_35_work_counts(&intents);
+            println!(
+                "{family:<26} N={population:<5} K={settlement_count:<3} intents={} baseline(work: hash/clone/sort/bucket={}/{}/{}/{}) fast(work: order/lookups/bucket/group-sort/clone={}/{}/{}/{}/{}) P5(base/owned/public)={:.2}±{:.2}/{:.2}±{:.2}/{:.2}±{:.2}us full(base/fast)={:.2}±{:.2}/{:.2}±{:.2}us",
+                intents.len(),
+                intents.len(),
+                intents.len(),
+                baseline_sort_comparisons,
+                intents.len(),
+                intents.len().saturating_sub(1),
+                intents.len(),
+                intents.len(),
+                group_sort_comparisons,
+                0,
+                row.baseline_phase5.median_us,
+                row.baseline_phase5.mad_us,
+                row.owned_phase5.median_us,
+                row.owned_phase5.mad_us,
+                row.dispatcher_phase5.median_us,
+                row.dispatcher_phase5.mad_us,
+                row.full_tick[0].median_us,
+                row.full_tick[0].mad_us,
+                row.full_tick[1].median_us,
+                row.full_tick[1].mad_us,
+            );
+            println!(
+                "  work detail: baseline HashSet inserts/lookups={}, copied Intents={}, stable sort comparisons={baseline_sort_comparisons}, bucket writes={}; owned fast ordered comparisons={}, HashMap group lookups={}, bucket writes={}, final GroupId sort comparisons={group_sort_comparisons}, copied Intents=0; groups={group_count}. Borrowed dispatcher copies {} Intents to preserve returned ownership.",
+                intents.len(),
+                intents.len(),
+                intents.len(),
+                intents.len().saturating_sub(1),
+                intents.len(),
+                intents.len(),
+                intents.len(),
+            );
+            rows.push(row);
+        }
+    }
+
+    for family in workloads {
+        for (from_n, to_n) in [(1000, 10000), (10000, 20000), (20000, 50000)] {
+            let before = rows
+                .iter()
+                .find(|row| row.family == family && row.population == from_n)
+                .unwrap();
+            let after = rows
+                .iter()
+                .find(|row| row.family == family && row.population == to_n)
+                .unwrap();
+            let divisor = (to_n as f64 / from_n as f64).ln();
+            for (name, small, large) in [
+                (
+                    "Phase5 baseline",
+                    before.baseline_phase5.median_us,
+                    after.baseline_phase5.median_us,
+                ),
+                (
+                    "Phase5 owned fast",
+                    before.owned_phase5.median_us,
+                    after.owned_phase5.median_us,
+                ),
+                (
+                    "Full tick baseline",
+                    before.full_tick[0].median_us,
+                    after.full_tick[0].median_us,
+                ),
+                (
+                    "Full tick fast",
+                    before.full_tick[1].median_us,
+                    after.full_tick[1].median_us,
+                ),
+            ] {
+                let ratio = large / small.max(0.001);
+                println!(
+                    "{family:<26} {name:<19} N={from_n}->{to_n}: {small:.2}->{large:.2}us ratio={ratio:.2}x alpha={:.3}",
+                    ratio.ln() / divisor,
+                );
+            }
+        }
+        for population in [10000, 20000, 50000] {
+            let row = rows
+                .iter()
+                .find(|row| row.family == family && row.population == population)
+                .unwrap();
+            println!(
+                "{family:<26} N={population:<5} K={} P5 base/fast={:.2}/{:.2}us speedup={:.3}x full-tick base/fast={:.2}/{:.2}us speedup={:.3}x P5 share base/fast={:.2}/{:.2}%",
+                row.settlement_count,
+                row.baseline_phase5.median_us,
+                row.owned_phase5.median_us,
+                row.baseline_phase5.median_us / row.owned_phase5.median_us,
+                row.full_tick[0].median_us,
+                row.full_tick[1].median_us,
+                row.full_tick[0].median_us / row.full_tick[1].median_us,
+                row.baseline_phase5.median_us / row.full_tick[0].median_us * 100.0,
+                row.owned_phase5.median_us / row.full_tick[1].median_us * 100.0,
+            );
+        }
+    }
+
+    for population in [1000u64, 10000] {
+        let settlement_count = (population / 200).max(1) as u32;
+        let (_, _, mut shuffled) =
+            m2_35_production_intents(base_config, context, population, settlement_count);
+        for index in (1..shuffled.len()).rev() {
+            let mut state = (population << 16) ^ index as u64 ^ 0x9e3779b97f4a7c15;
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            shuffled.swap(index, state as usize % (index + 1));
+        }
+        let baseline = phase5_partition_intents_baseline(&shuffled).unwrap();
+        assert_eq!(phase5_partition_intents(&shuffled).unwrap(), baseline);
+        let mut baseline_samples = Vec::with_capacity(SAMPLES);
+        let mut fallback_samples = Vec::with_capacity(SAMPLES);
+        for _ in 0..WARMUPS {
+            let _ = m2_35_phase5_baseline_sample(&shuffled);
+            let _ = m2_35_phase5_dispatcher_sample(&shuffled);
+        }
+        for _ in 0..SAMPLES {
+            baseline_samples.push(m2_35_phase5_baseline_sample(&shuffled));
+            fallback_samples.push(m2_35_phase5_dispatcher_sample(&shuffled));
+        }
+        let baseline = m2_29_2_summary(baseline_samples);
+        let fallback = m2_29_2_summary(fallback_samples);
+        println!(
+            "Arbitrary-order shuffled fallback N={population}: baseline={:.2}±{:.2}us dispatcher={:.2}±{:.2}us overhead={:.2}% (order probe exits at first descending pair)",
+            baseline.median_us,
+            baseline.mad_us,
+            fallback.median_us,
+            fallback.mad_us,
+            (fallback.median_us / baseline.median_us - 1.0) * 100.0,
+        );
+    }
+
+    let (config, base_world, intents) = m2_35_production_intents(base_config, context, 10000, 50);
+    let mut intent_scratch = Vec::with_capacity(intents.len());
+    let mut phase5_scratch = Phase5PartitionScratch::with_capacity(50);
+    let mut p5_samples: [Vec<f64>; 2] = std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+    let mut tick_samples: [Vec<f64>; 2] = std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+    let mut paired_p5_savings = Vec::with_capacity(SAMPLES);
+    let mut paired_tick_savings = Vec::with_capacity(SAMPLES);
+    for warmup in 0..WARMUPS {
+        let fast_first = warmup % 2 == 1;
+        for fast in [fast_first, !fast_first] {
+            if fast {
+                let _ =
+                    m2_35_phase5_owned_sample(&intents, &mut intent_scratch, &mut phase5_scratch);
+                let _ = m2_35_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    false,
+                );
+            } else {
+                let _ = m2_35_phase5_baseline_sample(&intents);
+                let _ = m2_35_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    true,
+                );
+            }
+        }
+    }
+    for sample in 0..SAMPLES {
+        let fast_first = sample % 2 == 1;
+        let mut current_p5 = [0.0; 2];
+        let mut current_tick = [0.0; 2];
+        for fast in [fast_first, !fast_first] {
+            let index = if fast { 1 } else { 0 };
+            if fast {
+                current_p5[index] =
+                    m2_35_phase5_owned_sample(&intents, &mut intent_scratch, &mut phase5_scratch);
+                current_tick[index] = m2_35_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    false,
+                );
+            } else {
+                current_p5[index] = m2_35_phase5_baseline_sample(&intents);
+                current_tick[index] = m2_35_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    true,
+                );
+            }
+        }
+        paired_p5_savings.push(current_p5[0] - current_p5[1]);
+        paired_tick_savings.push(current_tick[0] - current_tick[1]);
+        p5_samples[0].push(current_p5[0]);
+        p5_samples[1].push(current_p5[1]);
+        tick_samples[0].push(current_tick[0]);
+        tick_samples[1].push(current_tick[1]);
+    }
+    let paired_p5_savings = m2_29_2_summary(paired_p5_savings);
+    let paired_tick_savings = m2_29_2_summary(paired_tick_savings);
+    let p5_baseline = m2_29_2_summary(p5_samples[0].clone());
+    let p5_fast = m2_29_2_summary(p5_samples[1].clone());
+    let tick_baseline = m2_29_2_summary(tick_samples[0].clone());
+    let tick_fast = m2_29_2_summary(tick_samples[1].clone());
+    println!(
+        "Paired same-process sanity N=10000 K=50, 2 warm-ups + 7 alternating pairs, 3-day tick: P5 baseline/fast={:.2}±{:.2}/{:.2}±{:.2}us, paired saving={:.2}±{:.2}us; full tick baseline/fast={:.2}±{:.2}/{:.2}±{:.2}us, paired saving={:.2}±{:.2}us.",
+        p5_baseline.median_us,
+        p5_baseline.mad_us,
+        p5_fast.median_us,
+        p5_fast.mad_us,
+        paired_p5_savings.median_us,
+        paired_p5_savings.mad_us,
+        tick_baseline.median_us,
+        tick_baseline.mad_us,
+        tick_fast.median_us,
+        tick_fast.mad_us,
+        paired_tick_savings.median_us,
+        paired_tick_savings.mad_us,
+    );
+
+    println!(
+        "Production proof: benchmark inputs come from the Full Hybrid Phase2/Phase3/Phase4 candidate-index path; each stream is strictly AgentId ascending and non-monotonic by GroupId for K>1."
+    );
+    println!(
+        "Allocation attribution: baseline uses a HashSet, N-intent sorted clone, sort, and owned output buckets; owned fast path reuses lookup-only HashMap capacity, sorts only final GroupIds, and moves N intents out of caller scratch. Public borrowed dispatcher retains its N-intent output ownership copy. No allocation-counting allocator is installed."
+    );
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -7919,6 +8440,9 @@ fn main() {
 
     // 24. M2-33 Phase3 Direct Scarcity Lookup Gate
     measure_m2_33_phase3_direct_scarcity_lookup(&config, &context);
+
+    // 25. M2-35 Phase5 Stable Group Bucketing Gate
+    measure_m2_35_phase5_stable_group_bucketing(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

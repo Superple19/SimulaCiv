@@ -35,7 +35,10 @@ use crate::intents::{
     phase4_generate_intents_into,
 };
 use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe_with_scratch};
-use crate::partitioning::{Phase5Error, phase5_partition_intents};
+use crate::partitioning::{
+    Phase5Error, Phase5PartitionScratch, phase5_partition_intents_baseline,
+    phase5_partition_intents_from_vec_with_scratch,
+};
 use crate::phases::{
     Phase9Error, phase1_resource_regrowth, phase2_biological_degradation,
     phase9_mortality_commitment,
@@ -302,7 +305,7 @@ pub fn run_m0_day_with_scratch(
     phase4_generate_intents_into(world, &effective_config, choices_scratch, intents_scratch)?;
 
     // 7. Phase 5: Locality Partitioning
-    let partitions = phase5_partition_intents(intents_scratch)?;
+    let partitions = phase5_partition_intents_baseline(intents_scratch)?;
 
     // 8. Phase 6A: Work Resolution
     let work_resolutions = phase6a_work_resolution(world, &partitions)?;
@@ -574,7 +577,7 @@ fn run_native_soa_day_with_storage_and_phase_scratch(
     phase4_generate_intents_into(world, &effective_config, choices_scratch, intents_scratch)?;
 
     // 7. Phase 5: Locality Partitioning
-    let partitions = phase5_partition_intents(intents_scratch)?;
+    let partitions = phase5_partition_intents_baseline(intents_scratch)?;
 
     // 8. Phase 6A: Work Resolution
     let work_resolutions = phase6a_work_resolution(world, &partitions)?;
@@ -811,6 +814,8 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
         Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
+    let mut phase5_scratch =
+        Phase5PartitionScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
@@ -823,6 +828,8 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
         Phase4RuntimeScratch::PreIndexed(candidate_index),
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
+        Phase5RuntimeMode::OwnedFast,
+        Some(&mut phase5_scratch),
     )
 }
 
@@ -848,6 +855,8 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
         Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
+    let mut phase5_scratch =
+        Phase5PartitionScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
@@ -860,6 +869,8 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
         Phase4RuntimeScratch::FullScan(candidate_scratch),
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
+        Phase5RuntimeMode::OwnedFast,
+        Some(&mut phase5_scratch),
     )
 }
 
@@ -897,6 +908,8 @@ pub fn run_hybrid_authority_day_with_scratch(
         Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
+    let mut phase5_scratch =
+        Phase5PartitionScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
@@ -909,6 +922,8 @@ pub fn run_hybrid_authority_day_with_scratch(
         Phase4RuntimeScratch::FullScan(&mut candidate_scratch),
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
+        Phase5RuntimeMode::OwnedFast,
+        Some(&mut phase5_scratch),
     )
 }
 
@@ -927,6 +942,12 @@ enum Phase3RuntimeScratch<'a> {
     Indexed(&'a mut Phase3ScarcityScratch),
 }
 
+#[derive(Clone, Copy)]
+enum Phase5RuntimeMode {
+    CanonicalBaseline,
+    OwnedFast,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_hybrid_authority_day_with_all_scratch(
     hybrid_world: &mut HybridWorldState,
@@ -940,6 +961,8 @@ fn run_hybrid_authority_day_with_all_scratch(
     phase4_scratch: Phase4RuntimeScratch<'_>,
     phase8_scratch: Phase8RuntimeScratch<'_>,
     phase3_scratch: Phase3RuntimeScratch<'_>,
+    phase5_mode: Phase5RuntimeMode,
+    phase5_scratch: Option<&mut Phase5PartitionScratch>,
 ) -> Result<DayOutcome, M0RunError> {
     if !hybrid_world.is_hybrid() {
         return run_m0_day_with_scratch(
@@ -1035,7 +1058,17 @@ fn run_hybrid_authority_day_with_all_scratch(
     }
 
     // 7. Phase 5: Locality Partitioning
-    let partitions = phase5_partition_intents(intents_scratch)?;
+    let partitions = match phase5_mode {
+        Phase5RuntimeMode::CanonicalBaseline => phase5_partition_intents_baseline(intents_scratch)?,
+        Phase5RuntimeMode::OwnedFast => {
+            let scratch = phase5_scratch.ok_or_else(|| {
+                M0RunError::InvariantViolation(
+                    "owned Phase5 path requires its transient scratch".to_string(),
+                )
+            })?;
+            phase5_partition_intents_from_vec_with_scratch(intents_scratch, scratch)?
+        }
+    };
 
     // 8. Phase 6A: Work Resolution (Directly on storage and settlements)
     let work_resolutions =
@@ -1217,6 +1250,28 @@ pub fn run_hybrid_authority_days(
         options,
         true,
         true,
+        Phase5RuntimeMode::OwnedFast,
+    )
+}
+
+/// Executes Hybrid days using the canonical Phase5 sort path for before/after benchmarks and
+/// differential parity checks. Normal production execution uses the ordered owned fast path.
+pub fn run_hybrid_authority_days_with_phase5_baseline(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<DayOutcome>, M0RunError> {
+    run_hybrid_authority_days_with_phase_modes(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        true,
+        true,
+        Phase5RuntimeMode::CanonicalBaseline,
     )
 }
 
@@ -1238,6 +1293,7 @@ pub fn run_hybrid_authority_days_with_phase8_full_scan(
         options,
         true,
         false,
+        Phase5RuntimeMode::OwnedFast,
     )
 }
 
@@ -1259,9 +1315,11 @@ pub fn run_hybrid_authority_days_with_phase3_linear_scan(
         options,
         false,
         true,
+        Phase5RuntimeMode::OwnedFast,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_hybrid_authority_days_with_phase_modes(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
@@ -1270,6 +1328,7 @@ fn run_hybrid_authority_days_with_phase_modes(
     options: &DayExecutionOptions,
     use_direct_phase3: bool,
     use_one_pass_phase8: bool,
+    phase5_mode: Phase5RuntimeMode,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
     let agent_count = match &hybrid_world.segmented_storage {
         Some(s) => s.len(),
@@ -1289,6 +1348,12 @@ fn run_hybrid_authority_days_with_phase_modes(
         .then(|| Phase3ScarcityScratch::with_capacity(hybrid_world.world.settlements.len()));
     let mut phase8_scratch =
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
+    let mut phase5_scratch = match phase5_mode {
+        Phase5RuntimeMode::CanonicalBaseline => None,
+        Phase5RuntimeMode::OwnedFast => Some(Phase5PartitionScratch::with_capacity(
+            hybrid_world.world.settlements.len(),
+        )),
+    };
 
     for _ in 0..days {
         let outcome = run_hybrid_authority_day_with_all_scratch(
@@ -1310,6 +1375,8 @@ fn run_hybrid_authority_days_with_phase_modes(
                 Some(scratch) => Phase3RuntimeScratch::Indexed(scratch),
                 None => Phase3RuntimeScratch::LinearScan,
             },
+            phase5_mode,
+            phase5_scratch.as_mut(),
         )?;
         outcomes.push(outcome);
     }
@@ -1460,7 +1527,7 @@ fn run_hybrid_scope_isolated_day_with_phase8_scratch(
     phase4_generate_intents_into(world, &effective_config, choices_scratch, intents_scratch)?;
 
     // 7. Phase 5: Locality Partitioning
-    let partitions = phase5_partition_intents(intents_scratch)?;
+    let partitions = phase5_partition_intents_baseline(intents_scratch)?;
 
     // 8. Phase 6A: Work Resolution (Legacy AoS on world)
     let work_resolutions = phase6a_work_resolution(world, &partitions)?;

@@ -13,6 +13,7 @@ use sim_model::runner::{
     DayExecutionOptions, M0RunContext, run_hybrid_authority_day,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_days,
     run_hybrid_authority_days_with_phase3_linear_scan,
+    run_hybrid_authority_days_with_phase5_baseline,
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_day,
     run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
     run_native_soa_days,
@@ -30,8 +31,8 @@ use sim_model::{
     phase3_observation_and_features_storage_with_scratch, phase4_generate_intents_into,
     phase4_generate_intents_storage_into, phase4_primary_action_selection_into,
     phase4_primary_action_selection_storage_into,
-    phase4_primary_action_selection_storage_into_baseline,
-    phase8_welfare_distribution_storage_full_scan,
+    phase4_primary_action_selection_storage_into_baseline, phase5_partition_intents_baseline,
+    phase5_partition_intents_from_vec, phase8_welfare_distribution_storage_full_scan,
     phase8_welfare_distribution_storage_with_scratch,
 };
 
@@ -1649,5 +1650,98 @@ fn phase3_direct_lookup_preserves_three_day_runner_results() {
     assert_eq!(
         linear.canonical_state_hash().unwrap(),
         indexed.canonical_state_hash().unwrap()
+    );
+}
+
+#[test]
+fn phase5_production_phase4_stream_uses_owned_ordered_bucketing() {
+    let mut config = make_config();
+    config.world.initial_population = 1000;
+    config.world.settlement_count = 5;
+    config.environment.carrying_capacity = 1_000_000.0;
+    let world = initialize_world(&config).expect("world initializes");
+    let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+    storage.phase2_degradation_with_config(&config);
+
+    let mut features = Vec::with_capacity(storage.len());
+    let mut phase3_scratch =
+        Phase3ScarcityScratch::with_capacity(config.world.settlement_count as usize);
+    phase3_observation_and_features_storage_with_scratch(
+        &storage,
+        &world.settlements,
+        &config,
+        &mut features,
+        &mut phase3_scratch,
+    )
+    .expect("Phase3 succeeds");
+
+    let mut choices = Vec::with_capacity(storage.len());
+    phase4_primary_action_selection_storage_into(
+        &storage,
+        world.current_day,
+        &config,
+        &features,
+        &mut choices,
+    )
+    .expect("production Phase4 selection succeeds");
+    let mut phase4_scratch = Phase4CandidateIndexScratch::with_capacity(5);
+    let mut intents = Vec::with_capacity(storage.len());
+    generate_intents_storage_with_candidate_index(
+        &storage,
+        world.current_day,
+        &config,
+        &choices,
+        &mut phase4_scratch,
+        &mut intents,
+    )
+    .expect("production Phase4 intent generation succeeds");
+
+    assert!(
+        intents
+            .windows(2)
+            .all(|pair| pair[0].agent_id() < pair[1].agent_id())
+    );
+    let baseline = phase5_partition_intents_baseline(&intents).unwrap();
+    let original_capacity = intents.capacity();
+    let partitions = phase5_partition_intents_from_vec(&mut intents).unwrap();
+    assert_eq!(partitions, baseline);
+    assert!(intents.is_empty());
+    assert_eq!(intents.capacity(), original_capacity);
+}
+
+#[test]
+fn phase5_owned_production_runner_matches_canonical_runner() {
+    let mut config = make_config();
+    config.world.initial_population = 250;
+    config.world.settlement_count = 5;
+    config.environment.carrying_capacity = 250_000.0;
+    let context = make_context();
+    let initial = initialize_world(&config).expect("world initializes");
+    let mut optimized = HybridWorldState::hybrid(initial.clone());
+    let mut canonical = HybridWorldState::hybrid(initial);
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: true,
+    };
+
+    let optimized_outcomes =
+        run_hybrid_authority_days(&mut optimized, &config, &context, 3, &options)
+            .expect("ordered Phase5 runner succeeds");
+    let canonical_outcomes = run_hybrid_authority_days_with_phase5_baseline(
+        &mut canonical,
+        &config,
+        &context,
+        3,
+        &options,
+    )
+    .expect("canonical Phase5 runner succeeds");
+
+    assert_eq!(optimized_outcomes, canonical_outcomes);
+    assert_eq!(optimized.world, canonical.world);
+    assert_eq!(optimized.segmented_storage, canonical.segmented_storage);
+    assert_eq!(
+        optimized.canonical_state_hash().unwrap(),
+        canonical.canonical_state_hash().unwrap()
     );
 }
