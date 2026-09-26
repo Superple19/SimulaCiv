@@ -241,4 +241,127 @@ impl WorldState {
     pub fn storage(&self) -> crate::storage::AosStorageView<'_> {
         crate::storage::AosStorageView::new(&self.agents)
     }
+
+    /// Wraps this [`WorldState`] into a [`HybridWorldState`] with the chosen authority mode.
+    #[inline]
+    pub fn into_hybrid(self, mode: AuthorityMode) -> HybridWorldState {
+        HybridWorldState::new(self, mode)
+    }
+}
+
+/// Simulation runtime authority mode determining the single source of truth for agent state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum AuthorityMode {
+    /// Legacy mode: `WorldState.agents` (AoS) is the authoritative storage layer.
+    #[default]
+    Legacy,
+    /// Hybrid mode: `SegmentedAgentStorage` (Native SoA) is the runtime authoritative storage layer.
+    /// AoS views are reconstructed lazily or on-demand only.
+    Hybrid,
+}
+
+/// Hybrid world state container supporting runtime authority selection between
+/// legacy AoS (`Vec<AgentState>`) and Native Segmented SoA (`SegmentedAgentStorage`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HybridWorldState {
+    pub world: WorldState,
+    pub segmented_storage: Option<crate::storage::SegmentedAgentStorage>,
+    pub authority_mode: AuthorityMode,
+}
+
+impl HybridWorldState {
+    /// Constructs a new [`HybridWorldState`] from an existing [`WorldState`] and authority mode.
+    pub fn new(world: WorldState, authority_mode: AuthorityMode) -> Self {
+        let segmented_storage = match authority_mode {
+            AuthorityMode::Hybrid => Some(crate::storage::SegmentedAgentStorage::from_agents(
+                &world.agents,
+            )),
+            AuthorityMode::Legacy => None,
+        };
+        Self {
+            world,
+            segmented_storage,
+            authority_mode,
+        }
+    }
+
+    /// Constructs a [`HybridWorldState`] in Legacy AoS authority mode.
+    #[inline]
+    pub fn legacy(world: WorldState) -> Self {
+        Self::new(world, AuthorityMode::Legacy)
+    }
+
+    /// Constructs a [`HybridWorldState`] in Hybrid SoA authority mode.
+    #[inline]
+    pub fn hybrid(world: WorldState) -> Self {
+        Self::new(world, AuthorityMode::Hybrid)
+    }
+
+    /// Returns the active authority mode.
+    #[inline]
+    pub const fn authority_mode(&self) -> AuthorityMode {
+        self.authority_mode
+    }
+
+    /// Returns true if hybrid segmented SoA authority is active.
+    #[inline]
+    pub const fn is_hybrid(&self) -> bool {
+        matches!(self.authority_mode, AuthorityMode::Hybrid)
+    }
+
+    /// Returns a reference to the segmented storage, if initialized.
+    #[inline]
+    pub fn storage(&self) -> Option<&crate::storage::SegmentedAgentStorage> {
+        self.segmented_storage.as_ref()
+    }
+
+    /// Returns a mutable reference to the segmented storage, if initialized.
+    #[inline]
+    pub fn storage_mut(&mut self) -> Option<&mut crate::storage::SegmentedAgentStorage> {
+        self.segmented_storage.as_mut()
+    }
+
+    /// Reconstructs or extracts an AoS compatibility view of all agents.
+    ///
+    /// In Hybrid mode, this reconstructs `Vec<AgentState>` on-demand from the authoritative
+    /// segmented column storage. In Legacy mode, it clones `world.agents`.
+    pub fn agents_view(&self) -> Vec<AgentState> {
+        match &self.segmented_storage {
+            Some(storage) => storage.to_agents(),
+            None => self.world.agents.clone(),
+        }
+    }
+
+    /// Synchronizes the authoritative segmented column storage back into `world.agents`.
+    ///
+    /// This adapter operation is intended exclusively for snapshot boundaries or legacy
+    /// external export and is NOT executed during standard simulation ticks.
+    pub fn sync_to_world_agents(&mut self) {
+        if let Some(storage) = &self.segmented_storage {
+            storage.write_back_to_agents(&mut self.world.agents);
+        }
+    }
+
+    /// Computes the canonical state hash for this world state, delegating to native
+    /// column storage in Hybrid mode or AoS preimage in Legacy mode.
+    pub fn canonical_state_hash(
+        &self,
+    ) -> Result<crate::hashing::CanonicalHash, crate::hashing::CanonicalHashError> {
+        match &self.segmented_storage {
+            Some(storage) => {
+                storage.canonical_state_hash(self.world.current_day, &self.world.settlements)
+            }
+            None => crate::hashing::canonical_state_hash(&self.world),
+        }
+    }
+
+    /// Produces the canonical state bytes for this world state.
+    pub fn canonical_state_bytes(&self) -> Result<Vec<u8>, crate::hashing::CanonicalHashError> {
+        match &self.segmented_storage {
+            Some(storage) => {
+                storage.canonical_state_bytes(self.world.current_day, &self.world.settlements)
+            }
+            None => crate::hashing::canonical_state_bytes(&self.world),
+        }
+    }
 }

@@ -14,7 +14,8 @@ use sim_core::prng::{RngCoordinate, coordinate_prng_f32};
 use sim_core::{AgentId, Money, SimulationDay};
 use sim_model::decision::{
     Action, PrimaryActionChoice, phase4_primary_action_selection,
-    phase4_primary_action_selection_into, select_action, stable_softmax,
+    phase4_primary_action_selection_into, phase4_primary_action_selection_storage_into,
+    select_action, stable_softmax,
 };
 use sim_model::events::{
     Event, EventBuffer, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
@@ -28,7 +29,10 @@ use sim_model::features::{
     phase3_observation_and_features_with_scratch,
 };
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
-use sim_model::intents::{Intent, phase4_generate_intents, phase4_generate_intents_into};
+use sim_model::intents::{
+    Intent, phase4_generate_intents, phase4_generate_intents_into,
+    phase4_generate_intents_storage_into,
+};
 use sim_model::metrics::{
     DailyMetrics, phase10_observe, phase10_observe_compact_aos, phase10_observe_soa_fresh,
     phase10_observe_storage, phase10_observe_storage_with_scratch, phase10_observe_with_scratch,
@@ -41,18 +45,21 @@ use sim_model::phases::{
     update_biological_degradation,
 };
 use sim_model::resolution::{
-    phase6a_work_resolution, phase6b_targeted_resolution, phase7_market_clearance_with_config,
-    phase8_welfare_distribution_storage_with_config, phase8_welfare_distribution_with_config,
+    phase6a_work_resolution, phase6a_work_resolution_storage, phase6b_targeted_resolution,
+    phase6b_targeted_resolution_storage, phase7_market_clearance_storage_with_config,
+    phase7_market_clearance_with_config, phase8_welfare_distribution_storage_with_config,
+    phase8_welfare_distribution_with_config,
 };
 use sim_model::runner::{
-    DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext, run_m0_day,
-    run_m0_days, run_native_soa_day, run_native_soa_days,
+    DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext,
+    run_hybrid_authority_days, run_hybrid_scope_isolated_days, run_m0_day, run_m0_days,
+    run_native_soa_day, run_native_soa_days,
 };
 use sim_model::snapshot::{
     SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot, restore_snapshot,
 };
 use sim_model::state::SettlementState;
-use sim_model::state::{AgentDynamicSoAScratch, WorldState};
+use sim_model::state::{AgentDynamicSoAScratch, HybridWorldState, WorldState};
 use sim_model::storage::{SegmentedAgentStorage, WorldStorage, canonical_state_hash_from_storage};
 use sim_model::subsystems::Subsystem;
 use sim_model::{SimConfig, initialize_world};
@@ -3695,6 +3702,485 @@ fn measure_candidate_phases_profiling(base_config: &SimConfig, _context: &M0RunC
     }
 }
 
+// =========================================================================
+// M2-27.1 Hybrid Authority Scope Isolation Benchmark
+// =========================================================================
+
+#[allow(clippy::too_many_arguments)]
+fn run_toggle_benchmark_days(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    native_p4: bool,
+    native_p6a: bool,
+    native_p6b: bool,
+    native_p7: bool,
+) -> Result<Duration, sim_model::runner::M0RunError> {
+    let agent_count = hybrid_world.segmented_storage.as_ref().unwrap().len();
+    let mut features_scratch = Vec::with_capacity(agent_count);
+    let mut choices_scratch = Vec::with_capacity(agent_count);
+    let mut intents_scratch = Vec::with_capacity(agent_count);
+
+    let start = Instant::now();
+    for _ in 0..days {
+        let HybridWorldState {
+            world,
+            segmented_storage,
+            ..
+        } = hybrid_world;
+        let storage = segmented_storage.as_mut().unwrap();
+
+        let executed_day = world.current_day.as_u32();
+        let next_day = executed_day + 1;
+
+        let mut effective_config = config.clone();
+        effective_config.world.master_seed = context.master_seed;
+        effective_config.world.replicate_id = context.replicate_id;
+
+        phase1_resource_regrowth(world, &effective_config);
+        storage.phase2_degradation_with_config(&effective_config);
+
+        features_scratch.clear();
+        storage.phase3_features_into(
+            &world.settlements,
+            &effective_config,
+            &mut features_scratch,
+        )?;
+
+        // Materialize AoS if any phase requires it
+        if !native_p4 || !native_p6a || !native_p6b || !native_p7 {
+            storage.write_back_to_agents(&mut world.agents);
+        }
+
+        choices_scratch.clear();
+        intents_scratch.clear();
+        if native_p4 {
+            phase4_primary_action_selection_storage_into(
+                storage,
+                world.current_day,
+                &effective_config,
+                &features_scratch,
+                &mut choices_scratch,
+            )?;
+            phase4_generate_intents_storage_into(
+                storage,
+                world.current_day,
+                &effective_config,
+                &choices_scratch,
+                &mut intents_scratch,
+            )?;
+        } else {
+            phase4_primary_action_selection_into(
+                world,
+                &effective_config,
+                &features_scratch,
+                &mut choices_scratch,
+            )?;
+            phase4_generate_intents_into(
+                world,
+                &effective_config,
+                &choices_scratch,
+                &mut intents_scratch,
+            )?;
+        }
+
+        let partitions = phase5_partition_intents(&intents_scratch)?;
+
+        if native_p6a {
+            let _ = phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)?;
+        } else {
+            let _ = phase6a_work_resolution(world, &partitions)?;
+        }
+
+        if native_p6b {
+            let _ = phase6b_targeted_resolution_storage(
+                storage,
+                &world.settlements,
+                world.current_day,
+                &effective_config,
+                &partitions,
+            )?;
+        } else {
+            let _ = phase6b_targeted_resolution(world, &effective_config, &partitions)?;
+        }
+
+        if native_p7 {
+            let _ = phase7_market_clearance_storage_with_config(
+                storage,
+                &mut world.settlements,
+                &partitions,
+                &effective_config.economy,
+            )?;
+        } else {
+            let _ =
+                phase7_market_clearance_with_config(world, &partitions, &effective_config.economy)?;
+        }
+
+        // Resync AoS mutations back to storage if any legacy phase mutated AoS
+        if !native_p6a || !native_p6b || !native_p7 {
+            storage.sync_from_agents(&world.agents);
+        }
+
+        let _ = storage
+            .phase8_welfare_distribution_with_config(&mut world.settlements, &effective_config)?;
+        let _ = storage.phase9_mortality_commitment()?;
+        let _ = storage.phase10_metrics(&world.settlements, executed_day)?;
+
+        world.current_day = SimulationDay(next_day);
+    }
+    Ok(start.elapsed())
+}
+
+fn measure_m2_27_1_scope_isolation_benchmark(base_config: &SimConfig, context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-27.1 Hybrid Authority Scope Isolation Benchmark");
+    println!(
+        "Comparing: A: Legacy AoS, B: M2-26 Mixed, C: Hybrid Scope-Isolated, D: Current Full Hybrid"
+    );
+    println!("=================================================================");
+
+    let populations = [100u64, 250, 500, 1000];
+    let days = 50u32;
+    let opt_bench = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+
+    println!(
+        "\n{:<8} | {:>11} | {:>11} | {:>11} | {:>11} | {:>7} | {:>7} | {:>7} | {:>9} | {:>9} | {:>9} | {:>9}",
+        "Pop (N)",
+        "A: AoS(ms)",
+        "B: M26(ms)",
+        "C: Iso(ms)",
+        "D: Hyb(ms)",
+        "C vs B",
+        "D vs C",
+        "D vs A",
+        "A (d/s)",
+        "B (d/s)",
+        "C (d/s)",
+        "D (d/s)"
+    );
+    println!("{:-<128}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let base_world = initialize_world(&cfg).unwrap();
+
+        // Pipeline A: Legacy AoS
+        let mut w_a = base_world.clone();
+        let start_a = Instant::now();
+        let _ = run_m0_days(&mut w_a, &cfg, context, days, &opt_bench).unwrap();
+        let el_a = start_a.elapsed();
+
+        // Pipeline B: M2-26 Native SoA Gate (multi-phase native with per-tick sync/write-back)
+        let mut w_b = base_world.clone();
+        let start_b = Instant::now();
+        let _ = run_native_soa_days(&mut w_b, &cfg, context, days, &opt_bench).unwrap();
+        let el_b = start_b.elapsed();
+
+        // Pipeline C: Hybrid Authority Scope-Isolated (Native 2/3/8/9/10, Legacy 4/5/6A/6B/7, 2 sync passes)
+        let mut w_c = HybridWorldState::hybrid(base_world.clone());
+        let start_c = Instant::now();
+        let _ = run_hybrid_scope_isolated_days(&mut w_c, &cfg, context, days, &opt_bench).unwrap();
+        let el_c = start_c.elapsed();
+
+        // Pipeline D: Current Full Hybrid (Native 2/3/4/6A/6B/7/8/9/10, 0 sync passes)
+        let mut w_d = HybridWorldState::hybrid(base_world.clone());
+        let start_d = Instant::now();
+        let _ = run_hybrid_authority_days(&mut w_d, &cfg, context, days, &opt_bench).unwrap();
+        let el_d = start_d.elapsed();
+
+        let ms_a = el_a.as_secs_f64() * 1000.0;
+        let ms_b = el_b.as_secs_f64() * 1000.0;
+        let ms_c = el_c.as_secs_f64() * 1000.0;
+        let ms_d = el_d.as_secs_f64() * 1000.0;
+
+        let speedup_c_b = ms_b / ms_c.max(0.001);
+        let speedup_d_c = ms_c / ms_d.max(0.001);
+        let speedup_d_a = ms_a / ms_d.max(0.001);
+
+        let dps_a = (days as f64) / el_a.as_secs_f64();
+        let dps_b = (days as f64) / el_b.as_secs_f64();
+        let dps_c = (days as f64) / el_c.as_secs_f64();
+        let dps_d = (days as f64) / el_d.as_secs_f64();
+
+        println!(
+            "{:<8} | {:>11.2} | {:>11.2} | {:>11.2} | {:>11.2} | {:>7.2}x | {:>7.2}x | {:>7.2}x | {:>9.1} | {:>9.1} | {:>9.1} | {:>9.1}",
+            pop,
+            ms_a,
+            ms_b,
+            ms_c,
+            ms_d,
+            speedup_c_b,
+            speedup_d_c,
+            speedup_d_a,
+            dps_a,
+            dps_b,
+            dps_c,
+            dps_d
+        );
+    }
+
+    // Daily Sync Cost & Latency Analysis
+    println!("\n--- Daily Synchronization Cost & Latency Breakdown (Non-Snapshot Ticks) ---");
+    println!(
+        "{:<8} | {:>16} | {:>16} | {:>16} | {:>16} | {:>16}",
+        "Pop (N)",
+        "B Passes/Day",
+        "B Sync (us/d)",
+        "C Passes/Day",
+        "C Sync (us/d)",
+        "D Passes & Sync"
+    );
+    println!("{:-<96}", "");
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        let mut base_world = initialize_world(&cfg).unwrap();
+        let mut seg = SegmentedAgentStorage::from_agents(&base_world.agents);
+
+        // Measure single write_back and single sync
+        let iters = 100;
+        let t0 = Instant::now();
+        for _ in 0..iters {
+            seg.write_back_to_agents(&mut base_world.agents);
+        }
+        let wb_us = t0.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        let t1 = Instant::now();
+        for _ in 0..iters {
+            seg.sync_from_agents(&base_world.agents);
+        }
+        let sync_us = t1.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        let b_total_sync_us = 3.0 * wb_us + 1.0 * sync_us;
+        let c_total_sync_us = 1.0 * wb_us + 1.0 * sync_us;
+
+        println!(
+            "{:<8} | {:>16} | {:>16.2} | {:>16} | {:>16.2} | {:>16}",
+            pop,
+            "4 (1s + 3wb)",
+            b_total_sync_us,
+            "2 (1s + 1wb)",
+            c_total_sync_us,
+            "0 passes (0.00 us)"
+        );
+    }
+
+    // Phase-by-Phase Latency Comparison for Remaining Native Candidates
+    println!(
+        "\n--- Phase-by-Phase Latency Breakdown: AoS vs Native (Single-Tick Latency, 50 Sweeps) ---"
+    );
+    println!(
+        "{:<8} | {:>9} | {:>9} | {:>9} | {:>9} | {:>9} | {:>9} | {:>9} | {:>9}",
+        "Pop (N)",
+        "P4 AoS(u)",
+        "P4 Nat(u)",
+        "P6A AoS",
+        "P6A Nat",
+        "P6B AoS",
+        "P6B Nat",
+        "P7 AoS",
+        "P7 Nat"
+    );
+    println!("{:-<96}", "");
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let features = phase3_observation_and_features(&base_world, &cfg).unwrap();
+        let seg = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let day = base_world.current_day;
+
+        let sweeps = 50;
+
+        // Phase 4
+        let mut choices_a = Vec::with_capacity(pop as usize);
+        let mut intents_a = Vec::with_capacity(pop as usize);
+        let t0 = Instant::now();
+        for _ in 0..sweeps {
+            choices_a.clear();
+            phase4_primary_action_selection_into(&base_world, &cfg, &features, &mut choices_a)
+                .unwrap();
+            intents_a.clear();
+            phase4_generate_intents_into(&base_world, &cfg, &choices_a, &mut intents_a).unwrap();
+        }
+        let p4_aos_us = t0.elapsed().as_nanos() as f64 / (sweeps as f64) / 1000.0;
+
+        let mut choices_n = Vec::with_capacity(pop as usize);
+        let mut intents_n = Vec::with_capacity(pop as usize);
+        let t1 = Instant::now();
+        for _ in 0..sweeps {
+            choices_n.clear();
+            phase4_primary_action_selection_storage_into(
+                &seg,
+                day,
+                &cfg,
+                &features,
+                &mut choices_n,
+            )
+            .unwrap();
+            intents_n.clear();
+            phase4_generate_intents_storage_into(&seg, day, &cfg, &choices_n, &mut intents_n)
+                .unwrap();
+        }
+        let p4_nat_us = t1.elapsed().as_nanos() as f64 / (sweeps as f64) / 1000.0;
+
+        let partitions = phase5_partition_intents(&intents_a).unwrap();
+
+        // Phase 6A
+        let t2 = Instant::now();
+        for _ in 0..sweeps {
+            let mut w = base_world.clone();
+            let _ = phase6a_work_resolution(&mut w, &partitions).unwrap();
+        }
+        let p6a_aos_us = t2.elapsed().as_nanos() as f64 / (sweeps as f64) / 1000.0;
+
+        let t3 = Instant::now();
+        for _ in 0..sweeps {
+            let mut s = seg.clone();
+            let mut settlements = base_world.settlements.clone();
+            let _ = phase6a_work_resolution_storage(&mut s, &mut settlements, &partitions).unwrap();
+        }
+        let p6a_nat_us = t3.elapsed().as_nanos() as f64 / (sweeps as f64) / 1000.0;
+
+        // Phase 6B
+        let t4 = Instant::now();
+        for _ in 0..sweeps {
+            let mut w = base_world.clone();
+            let _ = phase6b_targeted_resolution(&mut w, &cfg, &partitions).unwrap();
+        }
+        let p6b_aos_us = t4.elapsed().as_nanos() as f64 / (sweeps as f64) / 1000.0;
+
+        let t5 = Instant::now();
+        for _ in 0..sweeps {
+            let mut s = seg.clone();
+            let _ = phase6b_targeted_resolution_storage(
+                &mut s,
+                &base_world.settlements,
+                day,
+                &cfg,
+                &partitions,
+            )
+            .unwrap();
+        }
+        let p6b_nat_us = t5.elapsed().as_nanos() as f64 / (sweeps as f64) / 1000.0;
+
+        // Phase 7
+        let t6 = Instant::now();
+        for _ in 0..sweeps {
+            let mut w = base_world.clone();
+            let _ = phase7_market_clearance_with_config(&mut w, &partitions, &cfg.economy).unwrap();
+        }
+        let p7_aos_us = t6.elapsed().as_nanos() as f64 / (sweeps as f64) / 1000.0;
+
+        let t7 = Instant::now();
+        for _ in 0..sweeps {
+            let mut s = seg.clone();
+            let mut settlements = base_world.settlements.clone();
+            let _ = phase7_market_clearance_storage_with_config(
+                &mut s,
+                &mut settlements,
+                &partitions,
+                &cfg.economy,
+            )
+            .unwrap();
+        }
+        let p7_nat_us = t7.elapsed().as_nanos() as f64 / (sweeps as f64) / 1000.0;
+
+        println!(
+            "{:<8} | {:>9.2} | {:>9.2} | {:>9.2} | {:>9.2} | {:>9.2} | {:>9.2} | {:>9.2} | {:>9.2}",
+            pop,
+            p4_aos_us,
+            p4_nat_us,
+            p6a_aos_us,
+            p6a_nat_us,
+            p6b_aos_us,
+            p6b_nat_us,
+            p7_aos_us,
+            p7_nat_us
+        );
+    }
+
+    // Secondary Decomposition: Toggle Benchmark (C vs C+P4, C+P6A, C+P6B, C+P7, D)
+    println!(
+        "\n--- Secondary Decomposition: Isolated Phase Toggles on top of Pipeline C (50 Days) ---"
+    );
+    println!(
+        "{:<8} | {:>12} | {:>12} | {:>12} | {:>12} | {:>12} | {:>12}",
+        "Pop (N)",
+        "C: Base (ms)",
+        "+P4 Nat (ms)",
+        "+P6A Nat(ms)",
+        "+P6B Nat(ms)",
+        "+P7 Nat (ms)",
+        "D: Full (ms)"
+    );
+    println!("{:-<88}", "");
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+
+        // C Base (all false)
+        let mut w_c = HybridWorldState::hybrid(base_world.clone());
+        let el_c =
+            run_toggle_benchmark_days(&mut w_c, &cfg, context, days, false, false, false, false)
+                .unwrap();
+
+        // +P4
+        let mut w_p4 = HybridWorldState::hybrid(base_world.clone());
+        let el_p4 =
+            run_toggle_benchmark_days(&mut w_p4, &cfg, context, days, true, false, false, false)
+                .unwrap();
+
+        // +P6A
+        let mut w_p6a = HybridWorldState::hybrid(base_world.clone());
+        let el_p6a =
+            run_toggle_benchmark_days(&mut w_p6a, &cfg, context, days, false, true, false, false)
+                .unwrap();
+
+        // +P6B
+        let mut w_p6b = HybridWorldState::hybrid(base_world.clone());
+        let el_p6b =
+            run_toggle_benchmark_days(&mut w_p6b, &cfg, context, days, false, false, true, false)
+                .unwrap();
+
+        // +P7
+        let mut w_p7 = HybridWorldState::hybrid(base_world.clone());
+        let el_p7 =
+            run_toggle_benchmark_days(&mut w_p7, &cfg, context, days, false, false, false, true)
+                .unwrap();
+
+        // D Full (all true)
+        let mut w_d = HybridWorldState::hybrid(base_world.clone());
+        let el_d = run_toggle_benchmark_days(&mut w_d, &cfg, context, days, true, true, true, true)
+            .unwrap();
+
+        println!(
+            "{:<8} | {:>12.2} | {:>12.2} | {:>12.2} | {:>12.2} | {:>12.2} | {:>12.2}",
+            pop,
+            el_c.as_secs_f64() * 1000.0,
+            el_p4.as_secs_f64() * 1000.0,
+            el_p6a.as_secs_f64() * 1000.0,
+            el_p6b.as_secs_f64() * 1000.0,
+            el_p7.as_secs_f64() * 1000.0,
+            el_d.as_secs_f64() * 1000.0,
+        );
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -3850,6 +4336,9 @@ fn main() {
 
     // 17. M2-23 Hot Phase Profiling & Candidate Migration Synthetic Benchmark
     measure_candidate_phases_profiling(&config, &context);
+
+    // 18. M2-27.1 Hybrid Authority Scope Isolation Benchmark
+    measure_m2_27_1_scope_isolation_benchmark(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

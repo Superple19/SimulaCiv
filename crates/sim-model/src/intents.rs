@@ -331,3 +331,185 @@ pub fn generate_intents(
 
 pub use generate_intents as phase4_generate_intents;
 pub use generate_intents_into as phase4_generate_intents_into;
+
+/// Generates immutable Intent records for all primary action choices directly against [`SegmentedAgentStorage`](crate::storage::SegmentedAgentStorage).
+pub fn generate_intents_storage_into(
+    storage: &crate::storage::SegmentedAgentStorage,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    out: &mut Vec<Intent>,
+) -> Result<(), IntentError> {
+    out.clear();
+    let n = choices.len();
+    if out.capacity() < n {
+        out.reserve(n - out.capacity());
+    }
+
+    let mut seen_choice_agents = if n > 64 {
+        Some(HashSet::with_capacity(n))
+    } else {
+        None
+    };
+
+    let alives = &storage.demography.alive;
+    let healths = &storage.demography.health;
+    let foods = &storage.economy.food;
+    let group_ids = &storage.economy.group_id;
+    let agent_ids = &storage.agent_ids;
+
+    for choice in choices {
+        let slot = storage
+            .slot_of(choice.agent_id)
+            .ok_or(IntentError::MissingAgent(choice.agent_id))?;
+
+        if !alives[slot] || healths[slot] <= 0.0 {
+            return Err(IntentError::IneligibleAgent(choice.agent_id));
+        }
+
+        if let Some(ref mut set) = seen_choice_agents {
+            if !set.insert(choice.agent_id) {
+                return Err(IntentError::DuplicateChoice(choice.agent_id));
+            }
+        } else {
+            let count = choices
+                .iter()
+                .filter(|c| c.agent_id == choice.agent_id)
+                .count();
+            if count > 1 {
+                return Err(IntentError::DuplicateChoice(choice.agent_id));
+            }
+        }
+
+        let agent_id = agent_ids[slot];
+        let group_id = group_ids[slot];
+        let food = foods[slot];
+
+        let intent = match choice.action {
+            Action::Work => {
+                let requested_harvest = (config.economy.base_work_yield
+                    * storage.personality.productivity[slot])
+                    * healths[slot];
+                Intent::Work {
+                    agent_id,
+                    group_id,
+                    requested_harvest,
+                }
+            }
+            Action::BuyFood => {
+                let requested_demand = (config.economy.target_food - food).max(0.0);
+                Intent::BuyFood {
+                    agent_id,
+                    group_id,
+                    requested_demand,
+                }
+            }
+            Action::SellFood => {
+                let submitted_supply = (food - config.economy.target_food).max(0.0);
+                Intent::SellFood {
+                    agent_id,
+                    group_id,
+                    submitted_supply,
+                }
+            }
+            Action::GiveFood => {
+                let mut candidates: Vec<sim_core::AgentId> = (0..storage.len())
+                    .filter(|&s| {
+                        group_ids[s] == group_id
+                            && alives[s]
+                            && healths[s] > 0.0
+                            && agent_ids[s] != agent_id
+                            && foods[s] < config.interaction.starvation_threshold
+                    })
+                    .map(|s| agent_ids[s])
+                    .collect();
+                candidates.sort();
+
+                let target_agent_id = if candidates.is_empty() {
+                    None
+                } else {
+                    let coord = RngCoordinate::new(
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        current_day.as_u32(),
+                        4,
+                        Subsystem::MutualAidTarget.id(),
+                        agent_id.as_u32(),
+                        1,
+                    );
+                    let u = coordinate_prng_f32(&coord);
+                    let c = candidates.len();
+                    let index = ((u * (c as f32)).floor() as usize).min(c - 1);
+                    Some(candidates[index])
+                };
+                let requested_amount = config.interaction.gift_amount.min(food);
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                }
+            }
+            Action::StealFood => {
+                let mut candidates: Vec<sim_core::AgentId> = (0..storage.len())
+                    .filter(|&s| {
+                        group_ids[s] == group_id
+                            && alives[s]
+                            && healths[s] > 0.0
+                            && agent_ids[s] != agent_id
+                            && foods[s] > 0.0
+                    })
+                    .map(|s| agent_ids[s])
+                    .collect();
+                candidates.sort();
+
+                let target_agent_id = if candidates.is_empty() {
+                    None
+                } else {
+                    let coord = RngCoordinate::new(
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        current_day.as_u32(),
+                        4,
+                        Subsystem::TheftTarget.id(),
+                        agent_id.as_u32(),
+                        1,
+                    );
+                    let u = coordinate_prng_f32(&coord);
+                    let c = candidates.len();
+                    let index = ((u * (c as f32)).floor() as usize).min(c - 1);
+                    Some(candidates[index])
+                };
+                let requested_amount = config.interaction.theft_amount;
+                Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                }
+            }
+            Action::Idle => Intent::Idle { agent_id, group_id },
+        };
+
+        out.push(intent);
+    }
+
+    for s in 0..storage.len() {
+        if alives[s] && healths[s] > 0.0 {
+            let aid = agent_ids[s];
+            let choice_present = if let Some(ref set) = seen_choice_agents {
+                set.contains(&aid)
+            } else {
+                choices.iter().any(|c| c.agent_id == aid)
+            };
+            if !choice_present {
+                return Err(IntentError::MissingChoiceForEligibleAgent(aid));
+            }
+        }
+    }
+
+    out.sort_by_key(|i| i.agent_id());
+    Ok(())
+}
+
+pub use generate_intents_storage_into as phase4_generate_intents_storage_into;

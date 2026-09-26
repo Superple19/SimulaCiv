@@ -9,10 +9,12 @@
 
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::runner::{
-    DayExecutionOptions, M0RunContext, run_m0_day, run_m0_days, run_native_soa_day,
-    run_native_soa_days,
+    DayExecutionOptions, M0RunContext, run_hybrid_authority_day, run_hybrid_authority_days,
+    run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_days, run_m0_day, run_m0_days,
+    run_native_soa_day, run_native_soa_days,
 };
 use sim_model::snapshot::{decode_snapshot, restore_snapshot};
+use sim_model::state::HybridWorldState;
 use sim_model::{SimConfig, initialize_world};
 
 const GATE_CONFIG_TOML: &str = r#"
@@ -246,6 +248,393 @@ fn test_02_snapshot_parity_at_day_100_250_500() {
         assert_eq!(
             canonical_state_hash(&resume_world).unwrap(),
             canonical_state_hash(&world_soa).unwrap()
+        );
+        assert_eq!(outcomes_resumed, outcomes_continuous);
+    }
+}
+
+#[test]
+fn test_03_hybrid_authority_500_day_trajectory_parity() {
+    let config = make_config();
+    let context = make_context();
+
+    let mut world_aos = initialize_world(&config).expect("world initializes");
+    let mut hybrid_world = HybridWorldState::hybrid(world_aos.clone());
+
+    let mut metrics_aos = Vec::with_capacity(500);
+    let mut events_aos = Vec::new();
+
+    let mut metrics_hybrid = Vec::with_capacity(500);
+    let mut events_hybrid = Vec::new();
+
+    // Run 500 days with both pipelines, snapshot on day 199 (canonical graduation trajectory)
+    for d in 0..500 {
+        let options = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: d == 199,
+        };
+
+        let outcome_aos = run_m0_day(&mut world_aos, &config, &context, &options)
+            .expect("AoS day execution succeeds");
+        if let Some(m) = outcome_aos.metrics {
+            metrics_aos.push(m);
+        }
+        events_aos.extend(outcome_aos.events);
+
+        let outcome_hybrid =
+            run_hybrid_authority_day(&mut hybrid_world, &config, &context, &options)
+                .expect("Hybrid authority day execution succeeds");
+        if let Some(m) = outcome_hybrid.metrics {
+            metrics_hybrid.push(m);
+        }
+        events_hybrid.extend(outcome_hybrid.events);
+    }
+
+    // 1. Bit-exact state equivalence
+    let reconstructed_agents = hybrid_world.agents_view();
+    assert_eq!(
+        world_aos.agents, reconstructed_agents,
+        "Agent state mismatch between AoS and Hybrid Authority!"
+    );
+    assert_eq!(
+        world_aos.settlements, hybrid_world.world.settlements,
+        "Settlement state mismatch between AoS and Hybrid Authority!"
+    );
+
+    let hash_state_aos = canonical_state_hash(&world_aos).unwrap().to_hex();
+    let hash_state_hybrid = hybrid_world.canonical_state_hash().unwrap().to_hex();
+    assert_eq!(hash_state_aos, hash_state_hybrid);
+    assert_eq!(hash_state_hybrid, EXPECTED_STATE_HASH);
+
+    // 2. Bit-exact metrics equivalence
+    assert_eq!(
+        metrics_aos, metrics_hybrid,
+        "DailyMetrics mismatch between AoS and Hybrid Authority!"
+    );
+    let hash_metrics_aos = canonical_metrics_hash(&metrics_aos).unwrap().to_hex();
+    let hash_metrics_hybrid = canonical_metrics_hash(&metrics_hybrid).unwrap().to_hex();
+    assert_eq!(hash_metrics_aos, hash_metrics_hybrid);
+    assert_eq!(hash_metrics_hybrid, EXPECTED_METRICS_HASH);
+
+    // 3. Bit-exact events equivalence
+    assert_eq!(
+        events_aos.len(),
+        events_hybrid.len(),
+        "Event count mismatch!"
+    );
+    assert_eq!(
+        events_aos, events_hybrid,
+        "Events mismatch between AoS and Hybrid Authority!"
+    );
+    let hash_events_aos = canonical_event_hash(&events_aos).unwrap().to_hex();
+    let hash_events_hybrid = canonical_event_hash(&events_hybrid).unwrap().to_hex();
+    assert_eq!(hash_events_aos, hash_events_hybrid);
+    assert_eq!(hash_events_hybrid, EXPECTED_EVENT_HASH);
+}
+
+#[test]
+fn test_04_hybrid_authority_snapshot_parity_at_day_100_250_500() {
+    let config = make_config();
+    let context = make_context();
+
+    let snapshot_days = [100u32, 250, 500];
+
+    for &target_day in &snapshot_days {
+        let mut world_aos = initialize_world(&config).unwrap();
+        let mut hybrid_world = HybridWorldState::hybrid(world_aos.clone());
+
+        let prior_days = target_day - 1;
+        let options_normal = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: false,
+        };
+
+        if prior_days > 0 {
+            let _ = run_m0_days(
+                &mut world_aos,
+                &config,
+                &context,
+                prior_days,
+                &options_normal,
+            )
+            .expect("AoS prior days succeeds");
+            let _ = run_hybrid_authority_days(
+                &mut hybrid_world,
+                &config,
+                &context,
+                prior_days,
+                &options_normal,
+            )
+            .expect("Hybrid Authority prior days succeeds");
+        }
+
+        // Execute snapshot emission boundary day
+        let options_boundary = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: true,
+        };
+
+        let outcome_aos = run_m0_day(&mut world_aos, &config, &context, &options_boundary)
+            .expect("AoS boundary day succeeds");
+        let outcome_hybrid =
+            run_hybrid_authority_day(&mut hybrid_world, &config, &context, &options_boundary)
+                .expect("Hybrid Authority boundary day succeeds");
+
+        // Verify snapshot binary payload match
+        let snap_bytes_aos = outcome_aos.snapshot.expect("AoS emitted snapshot");
+        let snap_bytes_hybrid = outcome_hybrid
+            .snapshot
+            .expect("Hybrid Authority emitted snapshot");
+        assert_eq!(
+            snap_bytes_aos, snap_bytes_hybrid,
+            "Snapshot byte mismatch at day {}",
+            target_day
+        );
+
+        // Decode and restore from both
+        let decoded_aos = decode_snapshot(&snap_bytes_aos).expect("decode AoS snapshot");
+        let decoded_hybrid = decode_snapshot(&snap_bytes_hybrid).expect("decode Hybrid snapshot");
+        assert_eq!(decoded_aos, decoded_hybrid);
+
+        let restored_aos = restore_snapshot(&snap_bytes_aos).expect("restore AoS snapshot");
+        let restored_hybrid =
+            restore_snapshot(&snap_bytes_hybrid).expect("restore Hybrid snapshot");
+
+        // Compare restored world states
+        assert_eq!(restored_aos.world, restored_hybrid.world);
+        let hash_restored_aos = canonical_state_hash(&restored_aos.world).unwrap();
+        let hash_restored_hybrid = canonical_state_hash(&restored_hybrid.world).unwrap();
+        assert_eq!(hash_restored_aos, hash_restored_hybrid);
+
+        // Resume execution from restored state for 25 days using Hybrid Authority
+        let mut resume_hybrid = HybridWorldState::hybrid(restored_hybrid.world);
+        let outcomes_resumed =
+            run_hybrid_authority_days(&mut resume_hybrid, &config, &context, 25, &options_normal)
+                .expect("resume 25 days succeeds");
+
+        // Continue continuous execution for 25 days
+        let outcomes_continuous =
+            run_hybrid_authority_days(&mut hybrid_world, &config, &context, 25, &options_normal)
+                .expect("continuous 25 days succeeds");
+
+        // Verify resumed trajectory matches continuous trajectory
+        assert_eq!(
+            resume_hybrid.canonical_state_hash().unwrap(),
+            hybrid_world.canonical_state_hash().unwrap()
+        );
+        assert_eq!(outcomes_resumed, outcomes_continuous);
+    }
+}
+
+#[test]
+fn test_05_hybrid_scope_isolated_500_day_trajectory_parity() {
+    let config = make_config();
+    let context = make_context();
+
+    let mut world_aos = initialize_world(&config).expect("world initializes");
+    let mut world_soa = world_aos.clone();
+    let mut hybrid_isolated = HybridWorldState::hybrid(world_aos.clone());
+    let mut hybrid_full = HybridWorldState::hybrid(world_aos.clone());
+
+    let mut metrics_aos = Vec::with_capacity(500);
+    let mut events_aos = Vec::new();
+
+    let mut metrics_soa = Vec::with_capacity(500);
+    let mut events_soa = Vec::new();
+
+    let mut metrics_isolated = Vec::with_capacity(500);
+    let mut events_isolated = Vec::new();
+
+    let mut metrics_full = Vec::with_capacity(500);
+    let mut events_full = Vec::new();
+
+    for d in 0..500 {
+        let options = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: d == 199,
+        };
+
+        // Pipeline A: Legacy AoS
+        let outcome_a = run_m0_day(&mut world_aos, &config, &context, &options)
+            .expect("Pipeline A (AoS) day execution succeeds");
+        if let Some(m) = outcome_a.metrics {
+            metrics_aos.push(m);
+        }
+        events_aos.extend(outcome_a.events);
+
+        // Pipeline B: M2-26 Native SoA Gate
+        let outcome_b = run_native_soa_day(&mut world_soa, &config, &context, &options)
+            .expect("Pipeline B (M2-26) day execution succeeds");
+        if let Some(m) = outcome_b.metrics {
+            metrics_soa.push(m);
+        }
+        events_soa.extend(outcome_b.events);
+
+        // Pipeline C: Hybrid Authority Scope-Isolated
+        let outcome_c =
+            run_hybrid_scope_isolated_day(&mut hybrid_isolated, &config, &context, &options)
+                .expect("Pipeline C (Scope-Isolated) day execution succeeds");
+        if let Some(m) = outcome_c.metrics {
+            metrics_isolated.push(m);
+        }
+        events_isolated.extend(outcome_c.events);
+
+        // Pipeline D: Current Full Hybrid
+        let outcome_d = run_hybrid_authority_day(&mut hybrid_full, &config, &context, &options)
+            .expect("Pipeline D (Full Hybrid) day execution succeeds");
+        if let Some(m) = outcome_d.metrics {
+            metrics_full.push(m);
+        }
+        events_full.extend(outcome_d.events);
+    }
+
+    // 1. Bit-exact CanonicalStateHash across A, B, C, D
+    let hash_a = canonical_state_hash(&world_aos).unwrap().to_hex();
+    let hash_b = canonical_state_hash(&world_soa).unwrap().to_hex();
+    let hash_c = hybrid_isolated.canonical_state_hash().unwrap().to_hex();
+    let hash_d = hybrid_full.canonical_state_hash().unwrap().to_hex();
+
+    assert_eq!(hash_a, EXPECTED_STATE_HASH);
+    assert_eq!(hash_b, EXPECTED_STATE_HASH);
+    assert_eq!(hash_c, EXPECTED_STATE_HASH);
+    assert_eq!(hash_d, EXPECTED_STATE_HASH);
+
+    // 2. Bit-exact CanonicalMetricsHash across A, B, C, D
+    let mhash_a = canonical_metrics_hash(&metrics_aos).unwrap().to_hex();
+    let mhash_b = canonical_metrics_hash(&metrics_soa).unwrap().to_hex();
+    let mhash_c = canonical_metrics_hash(&metrics_isolated).unwrap().to_hex();
+    let mhash_d = canonical_metrics_hash(&metrics_full).unwrap().to_hex();
+
+    assert_eq!(mhash_a, EXPECTED_METRICS_HASH);
+    assert_eq!(mhash_b, EXPECTED_METRICS_HASH);
+    assert_eq!(mhash_c, EXPECTED_METRICS_HASH);
+    assert_eq!(mhash_d, EXPECTED_METRICS_HASH);
+
+    // 3. Bit-exact CanonicalEventHash across A, B, C, D
+    let ehash_a = canonical_event_hash(&events_aos).unwrap().to_hex();
+    let ehash_b = canonical_event_hash(&events_soa).unwrap().to_hex();
+    let ehash_c = canonical_event_hash(&events_isolated).unwrap().to_hex();
+    let ehash_d = canonical_event_hash(&events_full).unwrap().to_hex();
+
+    assert_eq!(ehash_a, EXPECTED_EVENT_HASH);
+    assert_eq!(ehash_b, EXPECTED_EVENT_HASH);
+    assert_eq!(ehash_c, EXPECTED_EVENT_HASH);
+    assert_eq!(ehash_d, EXPECTED_EVENT_HASH);
+}
+
+#[test]
+fn test_06_hybrid_scope_isolated_snapshot_parity_at_day_100_250_500() {
+    let config = make_config();
+    let context = make_context();
+
+    let snapshot_days = [100u32, 250, 500];
+
+    for &target_day in &snapshot_days {
+        let mut world_aos = initialize_world(&config).unwrap();
+        let mut hybrid_isolated = HybridWorldState::hybrid(world_aos.clone());
+        let mut hybrid_full = HybridWorldState::hybrid(world_aos.clone());
+
+        let prior_days = target_day - 1;
+        let options_normal = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: false,
+        };
+
+        if prior_days > 0 {
+            let _ = run_m0_days(
+                &mut world_aos,
+                &config,
+                &context,
+                prior_days,
+                &options_normal,
+            )
+            .expect("AoS prior days succeeds");
+            let _ = run_hybrid_scope_isolated_days(
+                &mut hybrid_isolated,
+                &config,
+                &context,
+                prior_days,
+                &options_normal,
+            )
+            .expect("Scope-Isolated prior days succeeds");
+            let _ = run_hybrid_authority_days(
+                &mut hybrid_full,
+                &config,
+                &context,
+                prior_days,
+                &options_normal,
+            )
+            .expect("Full Hybrid prior days succeeds");
+        }
+
+        let options_boundary = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: true,
+        };
+
+        let outcome_a = run_m0_day(&mut world_aos, &config, &context, &options_boundary)
+            .expect("AoS boundary day succeeds");
+        let outcome_c = run_hybrid_scope_isolated_day(
+            &mut hybrid_isolated,
+            &config,
+            &context,
+            &options_boundary,
+        )
+        .expect("Scope-Isolated boundary day succeeds");
+        let outcome_d =
+            run_hybrid_authority_day(&mut hybrid_full, &config, &context, &options_boundary)
+                .expect("Full Hybrid boundary day succeeds");
+
+        // Verify snapshot binary payload match (A == C == D)
+        let snap_bytes_a = outcome_a.snapshot.expect("A emitted snapshot");
+        let snap_bytes_c = outcome_c.snapshot.expect("C emitted snapshot");
+        let snap_bytes_d = outcome_d.snapshot.expect("D emitted snapshot");
+
+        assert_eq!(
+            snap_bytes_a, snap_bytes_c,
+            "Snapshot mismatch A vs C at day {}",
+            target_day
+        );
+        assert_eq!(
+            snap_bytes_a, snap_bytes_d,
+            "Snapshot mismatch A vs D at day {}",
+            target_day
+        );
+
+        // Decode and restore from C
+        let _decoded_c = decode_snapshot(&snap_bytes_c).expect("decode C snapshot");
+        let restored_c = restore_snapshot(&snap_bytes_c).expect("restore C snapshot");
+        assert_eq!(restored_c.world, world_aos);
+        let hash_restored_c = canonical_state_hash(&restored_c.world).unwrap();
+        let hash_restored_a = canonical_state_hash(&world_aos).unwrap();
+        assert_eq!(hash_restored_a, hash_restored_c);
+
+        // Resume execution from restored state for 25 days using Scope-Isolated pipeline
+        let mut resume_c = HybridWorldState::hybrid(restored_c.world);
+        let outcomes_resumed =
+            run_hybrid_scope_isolated_days(&mut resume_c, &config, &context, 25, &options_normal)
+                .expect("resume 25 days succeeds");
+
+        // Continue continuous execution for 25 days
+        let outcomes_continuous = run_hybrid_scope_isolated_days(
+            &mut hybrid_isolated,
+            &config,
+            &context,
+            25,
+            &options_normal,
+        )
+        .expect("continuous 25 days succeeds");
+
+        // Verify resumed trajectory matches continuous trajectory
+        assert_eq!(
+            resume_c.canonical_state_hash().unwrap(),
+            hybrid_isolated.canonical_state_hash().unwrap()
         );
         assert_eq!(outcomes_resumed, outcomes_continuous);
     }

@@ -296,3 +296,77 @@ pub fn phase4_primary_action_selection(
 
 pub use phase4_primary_action_selection as phase4_action_selection;
 pub use phase4_primary_action_selection_into as phase4_action_selection_into;
+
+/// Executes Phase 4 primary action selection directly against [`SegmentedAgentStorage`](crate::storage::SegmentedAgentStorage).
+pub fn phase4_primary_action_selection_storage_into(
+    storage: &crate::storage::SegmentedAgentStorage,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    agent_features: &[AgentFeatures],
+    out: &mut Vec<PrimaryActionChoice>,
+) -> Result<(), DecisionError> {
+    out.clear();
+    let needed = agent_features.len();
+    if out.capacity() < needed {
+        out.reserve(needed - out.capacity());
+    }
+
+    let coops = &storage.personality.cooperation;
+    let aggrs = &storage.personality.aggression;
+    let risks = &storage.personality.risk_tolerance;
+    let alives = &storage.demography.alive;
+    let healths = &storage.demography.health;
+
+    for af in agent_features {
+        let slot = storage
+            .slot_of(af.agent_id)
+            .ok_or(DecisionError::MissingAgent(af.agent_id))?;
+
+        if !alives[slot] || healths[slot] <= 0.0 {
+            return Err(DecisionError::IneligibleAgent(af.agent_id));
+        }
+
+        let mut utilities = [0.0f32; 6];
+        for (m, action) in Action::ALL.iter().enumerate() {
+            let mut u_base = config.decision.action_biases[m];
+            for k in 0..5 {
+                let term = config.decision.base_weight_matrix[m][k] * af.features.values[k];
+                u_base += term;
+            }
+
+            let trait_mod = match action {
+                Action::Work | Action::BuyFood | Action::SellFood | Action::Idle => 0.0f32,
+                Action::GiveFood => config.decision.trait_weight_cooperation * coops[slot],
+                Action::StealFood => {
+                    let aggression_term = config.decision.trait_weight_aggression * aggrs[slot];
+                    let risk_term = config.decision.trait_weight_risk_tolerance * risks[slot];
+                    aggression_term + risk_term
+                }
+            };
+
+            utilities[m] = u_base + trait_mod;
+        }
+
+        let probabilities = stable_softmax(&utilities, config.decision.decision_temperature);
+
+        let coord = RngCoordinate::new(
+            config.world.master_seed,
+            config.world.replicate_id,
+            current_day.as_u32(),
+            4,
+            Subsystem::Decision.id(),
+            af.agent_id.as_u32(),
+            0,
+        );
+        let u = coordinate_prng_f32(&coord);
+        let action = select_action(&probabilities, u);
+
+        out.push(PrimaryActionChoice {
+            agent_id: af.agent_id,
+            action,
+        });
+    }
+
+    out.sort_by_key(|c| c.agent_id);
+    Ok(())
+}

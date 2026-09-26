@@ -333,6 +333,182 @@ pub fn phase6a_work_resolution(
     Ok(resolutions)
 }
 
+/// Executes Phase 6A: Work Resolution directly against authoritative [`SegmentedAgentStorage`].
+pub fn phase6a_work_resolution_storage(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    partitions: &[SettlementIntentPartition],
+) -> Result<Vec<SettlementWorkResolution>, Phase6AError> {
+    let mut plans = Vec::with_capacity(partitions.len());
+    let mut seen_workers = HashSet::new();
+
+    // Stage A: Validation and Planning across all partitions
+    for partition in partitions {
+        let settlement = settlements
+            .iter()
+            .find(|s| s.group_id == partition.group_id)
+            .ok_or(Phase6AError::MissingSettlement(partition.group_id))?;
+
+        if !settlement.resource.is_finite() || settlement.resource < 0.0 {
+            return Err(Phase6AError::InvalidSettlementResource {
+                group_id: settlement.group_id,
+                resource: settlement.resource,
+            });
+        }
+
+        // Collect and validate all Work intents in this partition
+        let mut work_intents = Vec::new();
+        for intent in &partition.intents {
+            if let Intent::Work {
+                agent_id,
+                group_id,
+                requested_harvest,
+            } = *intent
+            {
+                if group_id != partition.group_id {
+                    return Err(Phase6AError::PartitionGroupMismatch {
+                        agent_id,
+                        intent_group_id: group_id,
+                        partition_group_id: partition.group_id,
+                    });
+                }
+
+                if !requested_harvest.is_finite() || requested_harvest < 0.0 {
+                    return Err(Phase6AError::InvalidRequestedHarvest {
+                        agent_id,
+                        requested_harvest,
+                    });
+                }
+
+                if !seen_workers.insert(agent_id) {
+                    return Err(Phase6AError::DuplicateWorker(agent_id));
+                }
+
+                let slot = storage
+                    .slot_of(agent_id)
+                    .ok_or(Phase6AError::MissingAgent(agent_id))?;
+
+                let agent_group_id = storage.economy.group_id[slot];
+                if agent_group_id != group_id {
+                    return Err(Phase6AError::GroupMismatch {
+                        agent_id,
+                        agent_group_id,
+                        intent_group_id: group_id,
+                    });
+                }
+
+                let alive = storage.demography.alive[slot];
+                let health = storage.demography.health[slot];
+                if !alive || health <= 0.0 {
+                    return Err(Phase6AError::IneligibleWorker(agent_id));
+                }
+
+                work_intents.push((agent_id, requested_harvest));
+            }
+        }
+
+        // Canonical aggregation order: strictly ascending initiator AgentId
+        work_intents.sort_by_key(|&(agent_id, _)| agent_id);
+
+        let mut total_requested = 0.0f32;
+        for &(_, requested) in &work_intents {
+            total_requested += requested;
+        }
+
+        let resource = settlement.resource;
+        let mut total_allocated = 0.0f32;
+        let mut planned_workers = Vec::with_capacity(work_intents.len());
+
+        if total_requested == 0.0 {
+            for &(agent_id, requested_harvest) in &work_intents {
+                planned_workers.push(PlannedWorkerAllocation {
+                    agent_id,
+                    requested_harvest,
+                    allocated_harvest: 0.0,
+                });
+            }
+        } else if resource >= total_requested {
+            for &(agent_id, requested_harvest) in &work_intents {
+                planned_workers.push(PlannedWorkerAllocation {
+                    agent_id,
+                    requested_harvest,
+                    allocated_harvest: requested_harvest,
+                });
+                total_allocated += requested_harvest;
+            }
+        } else {
+            for &(agent_id, requested_harvest) in &work_intents {
+                let share = requested_harvest / total_requested;
+                let allocation = resource * share;
+                planned_workers.push(PlannedWorkerAllocation {
+                    agent_id,
+                    requested_harvest,
+                    allocated_harvest: allocation,
+                });
+                total_allocated += allocation;
+            }
+        }
+
+        if total_allocated > resource {
+            return Err(Phase6AError::TotalAllocatedExceedsResource {
+                group_id: partition.group_id,
+                total_allocated,
+                resource,
+            });
+        }
+
+        let resource_after = resource - total_allocated;
+
+        plans.push(PlannedSettlementResolution {
+            group_id: partition.group_id,
+            resource_before: resource,
+            resource_after,
+            total_requested,
+            total_allocated,
+            workers: planned_workers,
+        });
+    }
+
+    // Stage B: Atomic Commit directly to SegmentedAgentStorage and settlements
+    let mut resolutions = Vec::with_capacity(plans.len());
+
+    for plan in plans {
+        let mut allocations = Vec::with_capacity(plan.workers.len());
+        for worker_plan in plan.workers {
+            let slot = storage
+                .slot_of(worker_plan.agent_id)
+                .expect("worker already validated in Stage A");
+
+            storage.economy.food[slot] += worker_plan.allocated_harvest;
+
+            allocations.push(WorkAllocation {
+                agent_id: worker_plan.agent_id,
+                group_id: plan.group_id,
+                requested_harvest: worker_plan.requested_harvest,
+                allocated_harvest: worker_plan.allocated_harvest,
+            });
+        }
+
+        let settlement = settlements
+            .iter_mut()
+            .find(|s| s.group_id == plan.group_id)
+            .expect("settlement already validated in Stage A");
+
+        settlement.resource = plan.resource_after;
+
+        resolutions.push(SettlementWorkResolution {
+            group_id: plan.group_id,
+            resource_before: plan.resource_before,
+            resource_after: plan.resource_after,
+            total_requested: plan.total_requested,
+            total_allocated: plan.total_allocated,
+            allocations,
+        });
+    }
+
+    Ok(resolutions)
+}
+
 /// Canonical targeted action kinds for Phase 6B.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(u8)]
@@ -868,6 +1044,376 @@ pub fn phase6b_targeted_resolution(
                     };
                     cmd.execute(world)
                         .expect("command execution must succeed on validated state");
+
+                    keyed_resolutions.push(TargetedResolution {
+                        group_id,
+                        initiator_agent_id: initiator_id,
+                        target_agent_id: Some(target_id),
+                        action_kind: TargetedActionKind::StealFood,
+                        resolution_key: Some(key),
+                        theft_success_draw: Some(u),
+                        outcome: TargetedOutcome::Applied {
+                            amount: actual_stolen,
+                        },
+                    });
+                }
+            }
+        }
+
+        let mut all_resolutions = zero_target_records.clone();
+        all_resolutions.extend(keyed_resolutions.clone());
+
+        settlement_resolutions.push(SettlementTargetedResolution {
+            group_id,
+            zero_target: zero_target_records,
+            keyed_stream: keyed_resolutions,
+            resolutions: all_resolutions,
+        });
+    }
+
+    Ok(settlement_resolutions)
+}
+
+/// Executes Phase 6B: Targeted Interaction Resolution directly against authoritative [`SegmentedAgentStorage`].
+pub fn phase6b_targeted_resolution_storage(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    // 1. Structural validation pass
+    if !config.interaction.theft_success_probability.is_finite()
+        || config.interaction.theft_success_probability < 0.0
+        || config.interaction.theft_success_probability > 1.0
+    {
+        return Err(Phase6BError::InvalidTheftSuccessProbability(
+            config.interaction.theft_success_probability,
+        ));
+    }
+
+    let mut seen_groups = HashSet::new();
+    for partition in partitions {
+        if !seen_groups.insert(partition.group_id) {
+            return Err(Phase6BError::DuplicatePartition(partition.group_id));
+        }
+
+        if !settlements.iter().any(|s| s.group_id == partition.group_id) {
+            return Err(Phase6BError::MissingSettlement(partition.group_id));
+        }
+
+        for intent in &partition.intents {
+            match *intent {
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                }
+                | Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                } => {
+                    if group_id != partition.group_id {
+                        return Err(Phase6BError::PartitionGroupMismatch {
+                            agent_id,
+                            intent_group_id: group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+
+                    if !requested_amount.is_finite() || requested_amount < 0.0 {
+                        return Err(Phase6BError::InvalidRequestedAmount {
+                            agent_id,
+                            requested_amount,
+                        });
+                    }
+
+                    if storage.slot_of(agent_id).is_none() {
+                        return Err(Phase6BError::MissingInitiator(agent_id));
+                    }
+
+                    if let Some(target_id) = target_agent_id
+                        && storage.slot_of(target_id).is_none()
+                    {
+                        return Err(Phase6BError::MissingTarget(target_id));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // 2. Canonical settlement ordering: GroupId ascending
+    let mut sorted_partitions: Vec<&SettlementIntentPartition> = partitions.iter().collect();
+    sorted_partitions.sort_by_key(|p| p.group_id);
+
+    let mut settlement_resolutions = Vec::with_capacity(sorted_partitions.len());
+
+    for partition in sorted_partitions {
+        let group_id = partition.group_id;
+
+        let mut zero_target_records = Vec::new();
+        let mut keyed_items = Vec::new();
+
+        for intent in &partition.intents {
+            match *intent {
+                Intent::GiveFood {
+                    agent_id,
+                    group_id: intent_group,
+                    target_agent_id,
+                    requested_amount,
+                } => match target_agent_id {
+                    None => {
+                        zero_target_records.push(TargetedResolution {
+                            group_id: intent_group,
+                            initiator_agent_id: agent_id,
+                            target_agent_id: None,
+                            action_kind: TargetedActionKind::GiveFood,
+                            resolution_key: None,
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::ZeroTarget,
+                        });
+                    }
+                    Some(target) => {
+                        let key = compute_resolution_key(
+                            config.world.master_seed,
+                            config.world.replicate_id,
+                            current_day.as_u32(),
+                            intent_group.as_u16(),
+                            target.as_u32(),
+                            agent_id.as_u32(),
+                            TargetedActionKind::GiveFood.action_kind(),
+                        );
+                        keyed_items.push(PlannedKeyedItem {
+                            key,
+                            initiator_agent_id: agent_id,
+                            target_agent_id: target,
+                            action_kind: TargetedActionKind::GiveFood,
+                            requested_amount,
+                        });
+                    }
+                },
+                Intent::StealFood {
+                    agent_id,
+                    group_id: intent_group,
+                    target_agent_id,
+                    requested_amount,
+                } => match target_agent_id {
+                    None => {
+                        zero_target_records.push(TargetedResolution {
+                            group_id: intent_group,
+                            initiator_agent_id: agent_id,
+                            target_agent_id: None,
+                            action_kind: TargetedActionKind::StealFood,
+                            resolution_key: None,
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::ZeroTarget,
+                        });
+                    }
+                    Some(target) => {
+                        let key = compute_resolution_key(
+                            config.world.master_seed,
+                            config.world.replicate_id,
+                            current_day.as_u32(),
+                            intent_group.as_u16(),
+                            target.as_u32(),
+                            agent_id.as_u32(),
+                            TargetedActionKind::StealFood.action_kind(),
+                        );
+                        keyed_items.push(PlannedKeyedItem {
+                            key,
+                            initiator_agent_id: agent_id,
+                            target_agent_id: target,
+                            action_kind: TargetedActionKind::StealFood,
+                            requested_amount,
+                        });
+                    }
+                },
+                _ => {}
+            }
+        }
+
+        // Canonical zero-target ordering: ascending initiator AgentId, then action_kind
+        zero_target_records.sort_by_key(|r| (r.initiator_agent_id, r.action_kind));
+
+        // Keyed stream ordering: ascending ResolutionKey, then tie-break (target, initiator, action_kind)
+        keyed_items.sort_by(|a, b| {
+            compare_keyed_interactions(
+                a.key,
+                a.target_agent_id,
+                a.initiator_agent_id,
+                a.action_kind,
+                b.key,
+                b.target_agent_id,
+                b.initiator_agent_id,
+                b.action_kind,
+            )
+        });
+
+        // Sequential resolution with immediate authoritative commit
+        let mut keyed_resolutions = Vec::with_capacity(keyed_items.len());
+
+        for item in keyed_items {
+            let key = item.key;
+            let initiator_id = item.initiator_agent_id;
+            let target_id = item.target_agent_id;
+
+            // Live-state initiator validation
+            let initiator_idx = storage
+                .slot_of(initiator_id)
+                .expect("initiator verified in structural validation");
+            let initiator_alive = storage.demography.alive[initiator_idx];
+            let initiator_health = storage.demography.health[initiator_idx];
+            let initiator_group = storage.economy.group_id[initiator_idx];
+
+            if !initiator_alive || initiator_health <= 0.0 || initiator_group != group_id {
+                keyed_resolutions.push(TargetedResolution {
+                    group_id,
+                    initiator_agent_id: initiator_id,
+                    target_agent_id: Some(target_id),
+                    action_kind: item.action_kind,
+                    resolution_key: Some(key),
+                    theft_success_draw: None,
+                    outcome: TargetedOutcome::InitiatorIneligible,
+                });
+                continue;
+            }
+
+            match item.action_kind {
+                TargetedActionKind::GiveFood => {
+                    let target_idx = storage
+                        .slot_of(target_id)
+                        .expect("target verified in structural validation");
+                    let target_group = storage.economy.group_id[target_idx];
+                    let target_alive = storage.demography.alive[target_idx];
+                    let target_health = storage.demography.health[target_idx];
+                    let target_food = storage.economy.food[target_idx];
+                    let giver_food = storage.economy.food[initiator_idx];
+
+                    let target_valid = target_group == initiator_group
+                        && target_alive
+                        && target_health > 0.0
+                        && target_id != initiator_id
+                        && target_food < config.interaction.starvation_threshold
+                        && giver_food > 0.0;
+
+                    if !target_valid {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::GiveFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::TargetIneligible,
+                        });
+                        continue;
+                    }
+
+                    let actual_given = item.requested_amount.min(giver_food);
+                    if actual_given <= 0.0 {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::GiveFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::Applied { amount: 0.0 },
+                        });
+                        continue;
+                    }
+
+                    storage.economy.food[initiator_idx] -= actual_given;
+                    storage.economy.food[target_idx] += actual_given;
+
+                    keyed_resolutions.push(TargetedResolution {
+                        group_id,
+                        initiator_agent_id: initiator_id,
+                        target_agent_id: Some(target_id),
+                        action_kind: TargetedActionKind::GiveFood,
+                        resolution_key: Some(key),
+                        theft_success_draw: None,
+                        outcome: TargetedOutcome::Applied {
+                            amount: actual_given,
+                        },
+                    });
+                }
+                TargetedActionKind::StealFood => {
+                    let target_idx = storage
+                        .slot_of(target_id)
+                        .expect("target verified in structural validation");
+                    let target_group = storage.economy.group_id[target_idx];
+                    let target_alive = storage.demography.alive[target_idx];
+                    let target_health = storage.demography.health[target_idx];
+                    let victim_food = storage.economy.food[target_idx];
+
+                    let target_valid = target_group == initiator_group
+                        && target_alive
+                        && target_health > 0.0
+                        && target_id != initiator_id
+                        && victim_food > 0.0;
+
+                    if !target_valid {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::StealFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::TargetIneligible,
+                        });
+                        continue;
+                    }
+
+                    // TheftSuccess RNG draw
+                    let coord = RngCoordinate::new(
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        current_day.as_u32(),
+                        6,
+                        Subsystem::TheftSuccess.id(),
+                        initiator_id.as_u32(),
+                        0,
+                    );
+                    let u = coordinate_prng_f32(&coord);
+                    let p = config.interaction.theft_success_probability;
+
+                    // Theft Success Threshold Rule: u < p
+                    let theft_succeeded = u < p;
+                    if !theft_succeeded {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::StealFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: Some(u),
+                            outcome: TargetedOutcome::TheftFailed,
+                        });
+                        continue;
+                    }
+
+                    let actual_stolen = item.requested_amount.min(storage.economy.food[target_idx]);
+                    if actual_stolen <= 0.0 {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::StealFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: Some(u),
+                            outcome: TargetedOutcome::Applied { amount: 0.0 },
+                        });
+                        continue;
+                    }
+
+                    storage.economy.food[target_idx] -= actual_stolen;
+                    storage.economy.food[initiator_idx] += actual_stolen;
 
                     keyed_resolutions.push(TargetedResolution {
                         group_id,
@@ -1617,6 +2163,449 @@ pub fn phase7_market_clearance_with_config(
     config: &crate::config::EconomyConfig,
 ) -> Result<Vec<SettlementMarketResolution>, Phase7Error> {
     phase7_market_clearance(world, partitions, config.food_price, config.tax_rate)
+}
+
+/// Executes Phase 7: Settlement Market Clearance directly against authoritative [`SegmentedAgentStorage`].
+pub fn phase7_market_clearance_storage(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    partitions: &[SettlementIntentPartition],
+    food_price: Money,
+    tax_rate: f32,
+) -> Result<Vec<SettlementMarketResolution>, Phase7Error> {
+    if food_price <= 0 {
+        return Err(Phase7Error::InvalidFoodPrice(food_price));
+    }
+    if !tax_rate.is_finite() || tax_rate < 0.0 || tax_rate > 1.0 {
+        return Err(Phase7Error::InvalidTaxRate(tax_rate));
+    }
+
+    // Canonical settlement ordering: GroupId ascending
+    let mut sorted_partitions: Vec<&SettlementIntentPartition> = partitions.iter().collect();
+    sorted_partitions.sort_by_key(|p| p.group_id);
+
+    let mut seen_groups = HashSet::new();
+    for p in &sorted_partitions {
+        if !seen_groups.insert(p.group_id) {
+            return Err(Phase7Error::DuplicatePartition(p.group_id));
+        }
+    }
+
+    let mut seen_participants = HashSet::new();
+    let mut planned_settlements = Vec::with_capacity(sorted_partitions.len());
+
+    // Stage A: Validation and Planning across all partitions
+    for partition in sorted_partitions {
+        let settlement = settlements
+            .iter()
+            .find(|s| s.group_id == partition.group_id)
+            .ok_or(Phase7Error::MissingSettlement(partition.group_id))?;
+
+        if settlement.treasury < 0 {
+            return Err(Phase7Error::NegativeTreasury {
+                group_id: settlement.group_id,
+                treasury: settlement.treasury,
+            });
+        }
+
+        let mut raw_buyers = Vec::new();
+        let mut raw_sellers = Vec::new();
+
+        for intent in &partition.intents {
+            match intent {
+                Intent::BuyFood {
+                    agent_id,
+                    group_id,
+                    requested_demand,
+                } => {
+                    if *group_id != partition.group_id {
+                        return Err(Phase7Error::PartitionGroupMismatch {
+                            agent_id: *agent_id,
+                            intent_group_id: *group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+                    if !requested_demand.is_finite() || *requested_demand < 0.0 {
+                        return Err(Phase7Error::InvalidRequestedDemand {
+                            agent_id: *agent_id,
+                            requested_demand: *requested_demand,
+                        });
+                    }
+                    if !seen_participants.insert(*agent_id) {
+                        return Err(Phase7Error::DuplicateParticipant(*agent_id));
+                    }
+                    let slot = storage
+                        .slot_of(*agent_id)
+                        .ok_or(Phase7Error::MissingAgent(*agent_id))?;
+                    let agent_group_id = storage.economy.group_id[slot];
+                    if agent_group_id != partition.group_id {
+                        return Err(Phase7Error::AgentGroupMismatch {
+                            agent_id: *agent_id,
+                            agent_group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+                    let alive = storage.demography.alive[slot];
+                    let health = storage.demography.health[slot];
+                    if !alive || health <= 0.0 {
+                        return Err(Phase7Error::IneligibleParticipant(*agent_id));
+                    }
+                    let wealth = storage.economy.wealth[slot];
+                    if wealth < 0 {
+                        return Err(Phase7Error::NegativeAgentWealth {
+                            agent_id: *agent_id,
+                            wealth,
+                        });
+                    }
+                    raw_buyers.push((*agent_id, *requested_demand, wealth));
+                }
+                Intent::SellFood {
+                    agent_id,
+                    group_id,
+                    submitted_supply,
+                } => {
+                    if *group_id != partition.group_id {
+                        return Err(Phase7Error::PartitionGroupMismatch {
+                            agent_id: *agent_id,
+                            intent_group_id: *group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+                    if !submitted_supply.is_finite() || *submitted_supply < 0.0 {
+                        return Err(Phase7Error::InvalidSubmittedSupply {
+                            agent_id: *agent_id,
+                            submitted_supply: *submitted_supply,
+                        });
+                    }
+                    if !seen_participants.insert(*agent_id) {
+                        return Err(Phase7Error::DuplicateParticipant(*agent_id));
+                    }
+                    let slot = storage
+                        .slot_of(*agent_id)
+                        .ok_or(Phase7Error::MissingAgent(*agent_id))?;
+                    let agent_group_id = storage.economy.group_id[slot];
+                    if agent_group_id != partition.group_id {
+                        return Err(Phase7Error::AgentGroupMismatch {
+                            agent_id: *agent_id,
+                            agent_group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+                    let alive = storage.demography.alive[slot];
+                    let health = storage.demography.health[slot];
+                    if !alive || health <= 0.0 {
+                        return Err(Phase7Error::IneligibleParticipant(*agent_id));
+                    }
+                    let food = storage.economy.food[slot];
+                    if !food.is_finite() || food < 0.0 {
+                        return Err(Phase7Error::NegativeAgentFood {
+                            agent_id: *agent_id,
+                            food,
+                        });
+                    }
+                    let wealth = storage.economy.wealth[slot];
+                    if wealth < 0 {
+                        return Err(Phase7Error::NegativeAgentWealth {
+                            agent_id: *agent_id,
+                            wealth,
+                        });
+                    }
+                    raw_sellers.push((*agent_id, *submitted_supply, food));
+                }
+                _ => {}
+            }
+        }
+
+        // Canonical participant ordering: strictly ascending AgentId
+        raw_buyers.sort_by_key(|&(agent_id, _, _)| agent_id);
+        raw_sellers.sort_by_key(|&(agent_id, _, _)| agent_id);
+
+        let mut planned_buyers: Vec<BuyerMarketResolution> = Vec::with_capacity(raw_buyers.len());
+        let mut total_effective_demand = 0.0f32;
+        for &(agent_id, requested_demand, wealth) in &raw_buyers {
+            let max_affordable_units = wealth / food_price;
+            let max_affordable_food = max_affordable_units as f32;
+            let effective_demand = requested_demand.min(max_affordable_food);
+            total_effective_demand += effective_demand;
+            planned_buyers.push(BuyerMarketResolution {
+                agent_id,
+                requested_units: requested_demand,
+                max_affordable_units: max_affordable_food,
+                effective_units: effective_demand,
+                bought_units: 0.0,
+                debit: 0,
+            });
+        }
+
+        let mut planned_sellers: Vec<SellerMarketResolution> =
+            Vec::with_capacity(raw_sellers.len());
+        let mut total_effective_supply = 0.0f32;
+        for &(agent_id, submitted_supply, live_food) in &raw_sellers {
+            let effective_supply = submitted_supply.min(live_food);
+            total_effective_supply += effective_supply;
+            planned_sellers.push(SellerMarketResolution {
+                agent_id,
+                submitted_units: submitted_supply,
+                effective_units: effective_supply,
+                sold_units: 0.0,
+                seller_share_f32: 0.0,
+                seller_net_base: 0,
+                seller_net: 0,
+            });
+        }
+
+        let (total_sold, total_revenue, tax_withheld, net_pool_proceeds, proceeds_balance) =
+            if total_effective_supply == 0.0 || total_effective_demand == 0.0 {
+                (0.0f32, 0, 0, 0, 0)
+            } else {
+                if total_effective_supply >= total_effective_demand {
+                    // Demand fully satisfied; sellers pro-rated
+                    for b in &mut planned_buyers {
+                        b.bought_units = b.effective_units;
+                    }
+                    for s in &mut planned_sellers {
+                        let seller_share = s.effective_units / total_effective_supply;
+                        s.sold_units = seller_share * total_effective_demand;
+                    }
+                } else {
+                    // Supply deficit
+                    for b in &mut planned_buyers {
+                        let buyer_share = b.effective_units / total_effective_demand;
+                        b.bought_units = buyer_share * total_effective_supply;
+                    }
+                    for s in &mut planned_sellers {
+                        s.sold_units = s.effective_units;
+                    }
+                }
+
+                let mut rev: Money = 0;
+                for b in &mut planned_buyers {
+                    let cost_f64 = (b.bought_units as f64) * (food_price as f64);
+                    let debit = cost_f64.floor() as Money;
+                    b.debit = debit;
+                    rev = rev
+                        .checked_add(debit)
+                        .ok_or(Phase7Error::FinancialOverflow)?;
+                }
+
+                let tax_f64 = (rev as f64) * (tax_rate as f64);
+                let tax = tax_f64.floor() as Money;
+                let net = rev.checked_sub(tax).ok_or(Phase7Error::FinancialOverflow)?;
+
+                let mut total_sold = 0.0f32;
+                for s in &planned_sellers {
+                    if s.sold_units > 0.0 {
+                        total_sold += s.sold_units;
+                    }
+                }
+
+                for s in &mut planned_sellers {
+                    if s.sold_units > 0.0 {
+                        let seller_share_f32 = s.sold_units / total_sold;
+                        let seller_base_f64 = (net as f64) * (seller_share_f32 as f64);
+                        let base = seller_base_f64.floor() as Money;
+                        s.seller_share_f32 = seller_share_f32;
+                        s.seller_net_base = base;
+                        s.seller_net = base;
+                    }
+                }
+
+                let mut seller_base_total: Money = 0;
+                for s in &planned_sellers {
+                    seller_base_total = seller_base_total
+                        .checked_add(s.seller_net_base)
+                        .ok_or(Phase7Error::FinancialOverflow)?;
+                }
+                let initial_balance = net
+                    .checked_sub(seller_base_total)
+                    .ok_or(Phase7Error::FinancialOverflow)?;
+                let mut balance = initial_balance;
+
+                let participating_indices: Vec<usize> = planned_sellers
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| s.sold_units > 0.0)
+                    .map(|(idx, _)| idx)
+                    .collect();
+
+                if !participating_indices.is_empty() {
+                    if balance > 0 {
+                        while balance > 0 {
+                            for &idx in &participating_indices {
+                                planned_sellers[idx].seller_net = planned_sellers[idx]
+                                    .seller_net
+                                    .checked_add(1)
+                                    .ok_or(Phase7Error::FinancialOverflow)?;
+                                balance = balance
+                                    .checked_sub(1)
+                                    .ok_or(Phase7Error::FinancialOverflow)?;
+                                if balance == 0 {
+                                    break;
+                                }
+                            }
+                        }
+                    } else if balance < 0 {
+                        while balance < 0 {
+                            let mut made_progress = false;
+                            for &idx in &participating_indices {
+                                if planned_sellers[idx].seller_net > 0 {
+                                    planned_sellers[idx].seller_net = planned_sellers[idx]
+                                        .seller_net
+                                        .checked_sub(1)
+                                        .ok_or(Phase7Error::FinancialOverflow)?;
+                                    balance = balance
+                                        .checked_add(1)
+                                        .ok_or(Phase7Error::FinancialOverflow)?;
+                                    made_progress = true;
+                                }
+                                if balance == 0 {
+                                    break;
+                                }
+                            }
+                            if balance < 0 && !made_progress {
+                                return Err(Phase7Error::NegativeProceedsReconciliationStall {
+                                    group_id: partition.group_id,
+                                    remaining_balance: balance,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                (total_sold, rev, tax, net, initial_balance)
+            };
+
+        let mut total_payout: Money = 0;
+        for s in &planned_sellers {
+            total_payout = total_payout
+                .checked_add(s.seller_net)
+                .ok_or(Phase7Error::FinancialOverflow)?;
+        }
+        if total_payout != net_pool_proceeds {
+            return Err(Phase7Error::FinancialImbalance {
+                total_debit: total_revenue,
+                total_payout,
+                tax_withheld,
+            });
+        }
+        let total_credit = total_payout
+            .checked_add(tax_withheld)
+            .ok_or(Phase7Error::FinancialOverflow)?;
+        if total_revenue != total_credit {
+            return Err(Phase7Error::FinancialImbalance {
+                total_debit: total_revenue,
+                total_payout,
+                tax_withheld,
+            });
+        }
+
+        let settlement_mut = settlements
+            .iter_mut()
+            .find(|s| s.group_id == partition.group_id)
+            .expect("settlement already validated");
+
+        settlement_mut
+            .treasury
+            .checked_add(tax_withheld)
+            .ok_or(Phase7Error::FinancialOverflow)?;
+
+        let buyer_updates: Vec<BuyerMarketUpdate> = planned_buyers
+            .iter()
+            .map(|b| BuyerMarketUpdate {
+                agent_id: b.agent_id,
+                bought: b.bought_units,
+                debit: b.debit,
+            })
+            .collect();
+
+        let seller_updates: Vec<SellerMarketUpdate> = planned_sellers
+            .iter()
+            .map(|s| SellerMarketUpdate {
+                agent_id: s.agent_id,
+                sold: s.sold_units,
+                seller_net: s.seller_net,
+            })
+            .collect();
+
+        planned_settlements.push(PlannedSettlementMarket {
+            group_id: partition.group_id,
+            food_price,
+            tax_rate,
+            total_effective_supply,
+            total_effective_demand,
+            total_sold,
+            total_revenue,
+            tax_withheld,
+            net_pool_proceeds,
+            proceeds_balance,
+            buyers: planned_buyers,
+            sellers: planned_sellers,
+            buyer_updates,
+            seller_updates,
+        });
+    }
+
+    // Stage B: Atomic Execution across all settlements directly to SegmentedAgentStorage
+    for plan in &planned_settlements {
+        for b in &plan.buyer_updates {
+            let slot = storage
+                .slot_of(b.agent_id)
+                .expect("buyer verified in Stage A");
+            storage.economy.food[slot] += b.bought;
+            storage.economy.wealth[slot] -= b.debit;
+        }
+
+        for s in &plan.seller_updates {
+            let slot = storage
+                .slot_of(s.agent_id)
+                .expect("seller verified in Stage A");
+            storage.economy.food[slot] -= s.sold;
+            storage.economy.wealth[slot] += s.seller_net;
+        }
+
+        let settlement = settlements
+            .iter_mut()
+            .find(|s| s.group_id == plan.group_id)
+            .expect("settlement verified in Stage A");
+
+        settlement.treasury += plan.tax_withheld;
+    }
+
+    let resolutions = planned_settlements
+        .into_iter()
+        .map(|p| SettlementMarketResolution {
+            group_id: p.group_id,
+            food_price: p.food_price,
+            tax_rate: p.tax_rate,
+            total_effective_supply: p.total_effective_supply,
+            total_effective_demand: p.total_effective_demand,
+            total_sold: p.total_sold,
+            total_revenue: p.total_revenue,
+            tax_withheld: p.tax_withheld,
+            net_pool_proceeds: p.net_pool_proceeds,
+            proceeds_balance: p.proceeds_balance,
+            buyers: p.buyers,
+            sellers: p.sellers,
+        })
+        .collect();
+
+    Ok(resolutions)
+}
+
+/// Convenience wrapper executing Phase 7 market clearance on [`SegmentedAgentStorage`] using parameters from [`crate::config::EconomyConfig`].
+pub fn phase7_market_clearance_storage_with_config(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    partitions: &[SettlementIntentPartition],
+    config: &crate::config::EconomyConfig,
+) -> Result<Vec<SettlementMarketResolution>, Phase7Error> {
+    phase7_market_clearance_storage(
+        storage,
+        settlements,
+        partitions,
+        config.food_price,
+        config.tax_rate,
+    )
 }
 
 /// Canonical resolution record for an individual welfare recipient in Phase 8.

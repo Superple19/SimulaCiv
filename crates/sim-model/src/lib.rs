@@ -27,7 +27,8 @@ pub use config::{
 };
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,
-    phase4_primary_action_selection, select_action, stable_softmax,
+    phase4_primary_action_selection, phase4_primary_action_selection_storage_into, select_action,
+    stable_softmax,
 };
 pub use events::{
     Event, EventBuffer, EventError, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
@@ -53,7 +54,7 @@ pub use hashing::{
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
     Intent, IntentError, generate_intents, get_give_food_candidates, get_steal_food_candidates,
-    phase4_generate_intents,
+    phase4_generate_intents, phase4_generate_intents_storage_into,
 };
 pub use metrics::{
     DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, compute_wealth_gini_from_slices,
@@ -76,16 +77,20 @@ pub use resolution::{
     SellerMarketResolution, SettlementMarketResolution, SettlementTargetedResolution,
     SettlementWelfareResolution, SettlementWorkResolution, TargetedActionKind, TargetedOutcome,
     TargetedResolution, WelfareRecipientResolution, WorkAllocation, compare_keyed_interactions,
-    compute_resolution_key, phase6a_work_resolution, phase6b_targeted_resolution,
-    phase7_market_clearance, phase7_market_clearance_with_config, phase7_market_resolution,
-    phase8_welfare_distribution, phase8_welfare_distribution_storage,
-    phase8_welfare_distribution_storage_with_config, phase8_welfare_distribution_with_config,
-    phase8_welfare_distribution_with_subconfigs, phase8_welfare_resolution,
+    compute_resolution_key, phase6a_work_resolution, phase6a_work_resolution_storage,
+    phase6b_targeted_resolution, phase6b_targeted_resolution_storage, phase7_market_clearance,
+    phase7_market_clearance_storage, phase7_market_clearance_storage_with_config,
+    phase7_market_clearance_with_config, phase7_market_resolution, phase8_welfare_distribution,
+    phase8_welfare_distribution_storage, phase8_welfare_distribution_storage_with_config,
+    phase8_welfare_distribution_with_config, phase8_welfare_distribution_with_subconfigs,
+    phase8_welfare_resolution,
 };
 pub use runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, DayOutcome, M0RunContext,
-    M0RunError, run_m0_day, run_m0_days, run_native_soa_day, run_native_soa_day_with_storage,
-    run_native_soa_days,
+    M0RunError, run_hybrid_authority_day, run_hybrid_authority_day_with_scratch,
+    run_hybrid_authority_days, run_hybrid_scope_isolated_day,
+    run_hybrid_scope_isolated_day_with_scratch, run_hybrid_scope_isolated_days, run_m0_day,
+    run_m0_days, run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,
@@ -93,7 +98,8 @@ pub use snapshot::{
     restore_snapshot,
 };
 pub use state::{
-    AgentDynamicSoAScratch, AgentDynamicState, AgentState, SettlementState, WorldState,
+    AgentDynamicSoAScratch, AgentDynamicState, AgentState, AuthorityMode, HybridWorldState,
+    SettlementState, WorldState,
 };
 pub use storage::{
     AosStorageView, DemographyStorage, EconomyStorage, PersonalityStorage, SegmentedAgentStorage,

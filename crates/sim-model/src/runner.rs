@@ -15,7 +15,10 @@
 //! - Phase 11: Canonical Snapshot & Event Stream Flush
 
 use crate::config::SimConfig;
-use crate::decision::{DecisionError, PrimaryActionChoice, phase4_primary_action_selection_into};
+use crate::decision::{
+    DecisionError, PrimaryActionChoice, phase4_primary_action_selection_into,
+    phase4_primary_action_selection_storage_into,
+};
 use crate::events::{
     Event, EventBuffer, EventError, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
     event_from_daily_metrics, events_from_market_resolution, events_from_mortality_resolution,
@@ -23,7 +26,9 @@ use crate::events::{
     phase11_flush_events,
 };
 use crate::features::{AgentFeatures, Phase3Error, phase3_observation_and_features_into};
-use crate::intents::{Intent, IntentError, phase4_generate_intents_into};
+use crate::intents::{
+    Intent, IntentError, phase4_generate_intents_into, phase4_generate_intents_storage_into,
+};
 use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe_with_scratch};
 use crate::partitioning::{Phase5Error, phase5_partition_intents};
 use crate::phases::{
@@ -32,13 +37,14 @@ use crate::phases::{
 };
 use crate::resolution::{
     Phase6AError, Phase6BError, Phase7Error, Phase8Error, phase6a_work_resolution,
-    phase6b_targeted_resolution, phase7_market_clearance_with_config,
-    phase8_welfare_distribution_with_config,
+    phase6a_work_resolution_storage, phase6b_targeted_resolution,
+    phase6b_targeted_resolution_storage, phase7_market_clearance_storage_with_config,
+    phase7_market_clearance_with_config, phase8_welfare_distribution_with_config,
 };
 use crate::snapshot::{
     CanonicalSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotError, SnapshotMetadata, encode_snapshot,
 };
-use crate::state::{AgentDynamicSoAScratch, WorldState};
+use crate::state::{AgentDynamicSoAScratch, HybridWorldState, WorldState};
 use crate::storage::SegmentedAgentStorage;
 use serde::{Deserialize, Serialize};
 use sim_core::SimulationDay;
@@ -686,6 +692,583 @@ pub fn run_native_soa_days(
             &mut features_scratch,
             &mut choices_scratch,
             &mut intents_scratch,
+        )?;
+        outcomes.push(outcome);
+    }
+    Ok(outcomes)
+}
+
+/// Executes exactly one full deterministic simulation day under Hybrid Storage Authority.
+///
+/// In [`AuthorityMode::Hybrid`], [`SegmentedAgentStorage`] is the authoritative runtime state.
+/// Native SoA kernels are invoked directly across Phase 2, Phase 3, Phase 4, Phase 6A, Phase 6B,
+/// Phase 7, Phase 8, Phase 9, and Phase 10 without any per-phase AoS synchronization or intermediate
+/// write-backs.
+///
+/// In [`AuthorityMode::Legacy`], execution delegates to standard AoS reference logic.
+pub fn run_hybrid_authority_day(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+) -> Result<DayOutcome, M0RunError> {
+    let agent_count = match &hybrid_world.segmented_storage {
+        Some(s) => s.len(),
+        None => hybrid_world.world.agents.len(),
+    };
+    let mut features_scratch = Vec::with_capacity(agent_count);
+    let mut choices_scratch = Vec::with_capacity(agent_count);
+    let mut intents_scratch = Vec::with_capacity(agent_count);
+    let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    run_hybrid_authority_day_with_scratch(
+        hybrid_world,
+        config,
+        context,
+        options,
+        &mut features_scratch,
+        &mut choices_scratch,
+        &mut intents_scratch,
+        &mut metrics_scratch,
+    )
+}
+
+/// Executes exactly one full deterministic simulation day under Hybrid Storage Authority
+/// reusing caller-provided scratch buffers.
+#[allow(clippy::too_many_arguments)]
+pub fn run_hybrid_authority_day_with_scratch(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    features_scratch: &mut Vec<AgentFeatures>,
+    choices_scratch: &mut Vec<PrimaryActionChoice>,
+    intents_scratch: &mut Vec<Intent>,
+    metrics_scratch: &mut AgentDynamicSoAScratch,
+) -> Result<DayOutcome, M0RunError> {
+    if !hybrid_world.is_hybrid() {
+        return run_m0_day_with_scratch(
+            &mut hybrid_world.world,
+            config,
+            context,
+            options,
+            features_scratch,
+            choices_scratch,
+            intents_scratch,
+            metrics_scratch,
+        );
+    }
+
+    let HybridWorldState {
+        world,
+        segmented_storage,
+        authority_mode: _,
+    } = hybrid_world;
+
+    let storage = segmented_storage
+        .as_mut()
+        .ok_or_else(|| M0RunError::InvariantViolation("hybrid mode without storage".to_string()))?;
+
+    // 1. Capture logical day coordinate
+    let executed_day = world.current_day.as_u32();
+    let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
+
+    // 2. Prepare effective config with deterministic context coordinates
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+
+    // 3. Phase 1: Environment Regrowth (operates on settlement resources)
+    phase1_resource_regrowth(world, &effective_config);
+
+    // 4. Phase 2: Biological Degradation (Native Segmented SoA directly on storage)
+    storage.phase2_degradation_with_config(&effective_config);
+
+    // 5. Phase 3: Observation & Normalized Feature Extraction (Native Segmented SoA)
+    features_scratch.clear();
+    storage.phase3_features_into(&world.settlements, &effective_config, features_scratch)?;
+
+    // 6. Phase 4: Intent Generation (Primary Action Selection & Intent Formulation directly on storage)
+    choices_scratch.clear();
+    phase4_primary_action_selection_storage_into(
+        storage,
+        world.current_day,
+        &effective_config,
+        features_scratch,
+        choices_scratch,
+    )?;
+
+    intents_scratch.clear();
+    phase4_generate_intents_storage_into(
+        storage,
+        world.current_day,
+        &effective_config,
+        choices_scratch,
+        intents_scratch,
+    )?;
+
+    // 7. Phase 5: Locality Partitioning
+    let partitions = phase5_partition_intents(intents_scratch)?;
+
+    // 8. Phase 6A: Work Resolution (Directly on storage and settlements)
+    let work_resolutions =
+        phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)?;
+
+    // 9. Phase 6B: Targeted Interaction Resolution (Directly on storage and settlements)
+    let targeted_resolutions = phase6b_targeted_resolution_storage(
+        storage,
+        &world.settlements,
+        world.current_day,
+        &effective_config,
+        &partitions,
+    )?;
+
+    // 10. Phase 7: Settlement Market Clearance (Directly on storage and settlements)
+    let market_resolutions = phase7_market_clearance_storage_with_config(
+        storage,
+        &mut world.settlements,
+        &partitions,
+        &effective_config.economy,
+    )?;
+
+    // ZERO SYNC: storage holds authoritative state mutated directly by phases 6A, 6B, 7.
+
+    // 11. Phase 8: Institutional Welfare Distribution (Native Segmented SoA directly on storage)
+    let welfare_resolutions = storage
+        .phase8_welfare_distribution_with_config(&mut world.settlements, &effective_config)?;
+
+    // ZERO WRITE-BACK: storage remains the authority.
+
+    // 12. Phase 9: Mortality Status Commitment (Native Segmented SoA directly on storage)
+    let mortality_resolution = storage.phase9_mortality_commitment()?;
+
+    // ZERO WRITE-BACK: storage remains the authority.
+
+    // 13. Staged Event Buffer Assembly
+    let mut event_buffer = if options.events_enabled {
+        let estimated_cap = storage.len().saturating_mul(2) + world.settlements.len() + 4;
+        EventBuffer::with_capacity(estimated_cap)
+    } else {
+        EventBuffer::new()
+    };
+    if options.events_enabled {
+        let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+
+        for w in &work_resolutions {
+            let work_events = events_from_work_resolution(executed_day, w);
+            let count = work_events.len() as u64;
+            if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == w.group_id.0)
+            {
+                entry.1 += count;
+            } else {
+                phase6_counts.push((w.group_id.0, count));
+            }
+            event_buffer.push_all(work_events);
+        }
+        for t in &targeted_resolutions {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, t);
+            let offset = if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == t.group_id.0)
+            {
+                let prev = entry.1;
+                entry.1 += targeted_events.len() as u64;
+                prev
+            } else {
+                phase6_counts.push((t.group_id.0, targeted_events.len() as u64));
+                0
+            };
+            if offset > 0 {
+                for te in &mut targeted_events {
+                    te.key.local_sequence += offset;
+                }
+            }
+            event_buffer.push_all(targeted_events);
+        }
+        for m in &market_resolutions {
+            event_buffer.push_all(events_from_market_resolution(executed_day, m));
+        }
+        for wel in &welfare_resolutions {
+            event_buffer.push_all(events_from_welfare_resolution(executed_day, wel));
+        }
+        event_buffer.push_all(events_from_mortality_resolution(
+            executed_day,
+            &mortality_resolution,
+        ));
+    }
+
+    // 14. Phase 10: Macroscopic Metrics Observation (Native Segmented SoA directly on storage)
+    let metrics_opt = if options.metrics_enabled {
+        let metrics = storage.phase10_metrics(&world.settlements, executed_day)?;
+        if options.events_enabled {
+            event_buffer.push(event_from_daily_metrics(&metrics));
+        }
+        Some(metrics)
+    } else {
+        None
+    };
+
+    // 15. Phase 11: Canonical Snapshot
+    let snapshot_opt = if options.snapshot_boundary {
+        // Synchronizes authoritative storage back to world.agents ONLY when snapshotting
+        storage.write_back_to_agents(&mut world.agents);
+
+        let snapshot_metadata = SnapshotMetadata::new(
+            next_day,
+            context.master_seed,
+            context.replicate_id,
+            DEFAULT_MODEL_VERSION,
+            DEFAULT_CONFIG_VERSION,
+        );
+        let snapshot = encode_snapshot(world, &snapshot_metadata)?;
+
+        if options.events_enabled {
+            let snapshot_event = EventRecord::new(
+                EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: snapshot_metadata.day,
+                    master_seed: snapshot_metadata.master_seed,
+                    replicate_id: snapshot_metadata.replicate_id,
+                    schema_version: SNAPSHOT_SCHEMA_VERSION,
+                }),
+            );
+            event_buffer.push(snapshot_event);
+        }
+
+        Some(snapshot)
+    } else {
+        None
+    };
+
+    // 16. Phase 11: Canonical Event Flush
+    let flushed_events = if options.events_enabled {
+        phase11_flush_events(&mut event_buffer)?
+    } else {
+        Vec::new()
+    };
+
+    // 17. Day Complete: advance authoritative scheduler day cursor
+    world.current_day = SimulationDay(next_day);
+
+    Ok(DayOutcome {
+        executed_day,
+        metrics: metrics_opt,
+        events: flushed_events,
+        snapshot: snapshot_opt,
+    })
+}
+
+/// Executes multiple consecutive simulation days sequentially under Hybrid Storage Authority.
+pub fn run_hybrid_authority_days(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<DayOutcome>, M0RunError> {
+    let agent_count = match &hybrid_world.segmented_storage {
+        Some(s) => s.len(),
+        None => hybrid_world.world.agents.len(),
+    };
+    let mut outcomes = Vec::with_capacity(days as usize);
+    let mut features_scratch = Vec::with_capacity(agent_count);
+    let mut choices_scratch = Vec::with_capacity(agent_count);
+    let mut intents_scratch = Vec::with_capacity(agent_count);
+    let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+
+    for _ in 0..days {
+        let outcome = run_hybrid_authority_day_with_scratch(
+            hybrid_world,
+            config,
+            context,
+            options,
+            &mut features_scratch,
+            &mut choices_scratch,
+            &mut intents_scratch,
+            &mut metrics_scratch,
+        )?;
+        outcomes.push(outcome);
+    }
+    Ok(outcomes)
+}
+
+/// Executes exactly one full deterministic simulation day under Scope-Isolated Hybrid Storage Authority (Pipeline C).
+///
+/// In this pipeline:
+/// - [`HybridWorldState`] with [`SegmentedAgentStorage`] is authoritative.
+/// - Phase 2, Phase 3, Phase 8, Phase 9, Phase 10 execute natively on `SegmentedAgentStorage`.
+/// - Phase 4, Phase 5, Phase 6A, Phase 6B, Phase 7 execute via legacy AoS implementations on `world.agents`.
+/// - Compatibility synchronization occurs strictly at two boundaries:
+///   1. Before Phase 4: `storage.write_back_to_agents(&mut world.agents)` (SoA authority -> AoS materialization)
+///   2. After Phase 7: `storage.sync_from_agents(&world.agents)` (AoS mutations -> SoA authority resync)
+/// - Zero write-backs after Phase 8 or Phase 9.
+pub fn run_hybrid_scope_isolated_day(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+) -> Result<DayOutcome, M0RunError> {
+    let agent_count = match &hybrid_world.segmented_storage {
+        Some(s) => s.len(),
+        None => hybrid_world.world.agents.len(),
+    };
+    let mut features_scratch = Vec::with_capacity(agent_count);
+    let mut choices_scratch = Vec::with_capacity(agent_count);
+    let mut intents_scratch = Vec::with_capacity(agent_count);
+    let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    run_hybrid_scope_isolated_day_with_scratch(
+        hybrid_world,
+        config,
+        context,
+        options,
+        &mut features_scratch,
+        &mut choices_scratch,
+        &mut intents_scratch,
+        &mut metrics_scratch,
+    )
+}
+
+/// Executes exactly one full deterministic simulation day under Scope-Isolated Hybrid Storage Authority (Pipeline C)
+/// reusing caller-provided scratch buffers.
+#[allow(clippy::too_many_arguments)]
+pub fn run_hybrid_scope_isolated_day_with_scratch(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    features_scratch: &mut Vec<AgentFeatures>,
+    choices_scratch: &mut Vec<PrimaryActionChoice>,
+    intents_scratch: &mut Vec<Intent>,
+    metrics_scratch: &mut AgentDynamicSoAScratch,
+) -> Result<DayOutcome, M0RunError> {
+    if !hybrid_world.is_hybrid() {
+        return run_m0_day_with_scratch(
+            &mut hybrid_world.world,
+            config,
+            context,
+            options,
+            features_scratch,
+            choices_scratch,
+            intents_scratch,
+            metrics_scratch,
+        );
+    }
+
+    let HybridWorldState {
+        world,
+        segmented_storage,
+        authority_mode: _,
+    } = hybrid_world;
+
+    let storage = segmented_storage
+        .as_mut()
+        .ok_or_else(|| M0RunError::InvariantViolation("hybrid mode without storage".to_string()))?;
+
+    // 1. Capture logical day coordinate
+    let executed_day = world.current_day.as_u32();
+    let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
+
+    // 2. Prepare effective config with deterministic context coordinates
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+
+    // 3. Phase 1: Environment Regrowth (operates on settlement resources)
+    phase1_resource_regrowth(world, &effective_config);
+
+    // 4. Phase 2: Biological Degradation (Native Segmented SoA directly on storage)
+    storage.phase2_degradation_with_config(&effective_config);
+
+    // 5. Phase 3: Observation & Normalized Feature Extraction (Native Segmented SoA)
+    features_scratch.clear();
+    storage.phase3_features_into(&world.settlements, &effective_config, features_scratch)?;
+
+    // --- Compatibility Boundary 1: SoA authority -> AoS materialization ---
+    storage.write_back_to_agents(&mut world.agents);
+
+    // 6. Phase 4: Intent Generation (Legacy AoS on world)
+    choices_scratch.clear();
+    phase4_primary_action_selection_into(
+        world,
+        &effective_config,
+        features_scratch,
+        choices_scratch,
+    )?;
+
+    intents_scratch.clear();
+    phase4_generate_intents_into(world, &effective_config, choices_scratch, intents_scratch)?;
+
+    // 7. Phase 5: Locality Partitioning
+    let partitions = phase5_partition_intents(intents_scratch)?;
+
+    // 8. Phase 6A: Work Resolution (Legacy AoS on world)
+    let work_resolutions = phase6a_work_resolution(world, &partitions)?;
+
+    // 9. Phase 6B: Targeted Interaction Resolution (Legacy AoS on world)
+    let targeted_resolutions = phase6b_targeted_resolution(world, &effective_config, &partitions)?;
+
+    // 10. Phase 7: Settlement Market Clearance (Legacy AoS on world)
+    let market_resolutions =
+        phase7_market_clearance_with_config(world, &partitions, &effective_config.economy)?;
+
+    // --- Compatibility Boundary 2: AoS mutations -> SoA authority resync ---
+    storage.sync_from_agents(&world.agents);
+
+    // 11. Phase 8: Institutional Welfare Distribution (Native Segmented SoA directly on storage)
+    let welfare_resolutions = storage
+        .phase8_welfare_distribution_with_config(&mut world.settlements, &effective_config)?;
+
+    // ZERO WRITE-BACK: storage is authority!
+
+    // 12. Phase 9: Mortality Status Commitment (Native Segmented SoA directly on storage)
+    let mortality_resolution = storage.phase9_mortality_commitment()?;
+
+    // ZERO WRITE-BACK: storage is authority!
+
+    // 13. Staged Event Buffer Assembly
+    let mut event_buffer = if options.events_enabled {
+        let estimated_cap = storage.len().saturating_mul(2) + world.settlements.len() + 4;
+        EventBuffer::with_capacity(estimated_cap)
+    } else {
+        EventBuffer::new()
+    };
+    if options.events_enabled {
+        let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+
+        for w in &work_resolutions {
+            let work_events = events_from_work_resolution(executed_day, w);
+            let count = work_events.len() as u64;
+            if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == w.group_id.0)
+            {
+                entry.1 += count;
+            } else {
+                phase6_counts.push((w.group_id.0, count));
+            }
+            event_buffer.push_all(work_events);
+        }
+        for t in &targeted_resolutions {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, t);
+            let offset = if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == t.group_id.0)
+            {
+                let prev = entry.1;
+                entry.1 += targeted_events.len() as u64;
+                prev
+            } else {
+                phase6_counts.push((t.group_id.0, targeted_events.len() as u64));
+                0
+            };
+            if offset > 0 {
+                for te in &mut targeted_events {
+                    te.key.local_sequence += offset;
+                }
+            }
+            event_buffer.push_all(targeted_events);
+        }
+        for m in &market_resolutions {
+            event_buffer.push_all(events_from_market_resolution(executed_day, m));
+        }
+        for wel in &welfare_resolutions {
+            event_buffer.push_all(events_from_welfare_resolution(executed_day, wel));
+        }
+        event_buffer.push_all(events_from_mortality_resolution(
+            executed_day,
+            &mortality_resolution,
+        ));
+    }
+
+    // 14. Phase 10: Macroscopic Metrics Observation (Native Segmented SoA directly on storage)
+    let metrics_opt = if options.metrics_enabled {
+        let metrics = storage.phase10_metrics(&world.settlements, executed_day)?;
+        if options.events_enabled {
+            event_buffer.push(event_from_daily_metrics(&metrics));
+        }
+        Some(metrics)
+    } else {
+        None
+    };
+
+    // 15. Phase 11: Canonical Snapshot
+    let snapshot_opt = if options.snapshot_boundary {
+        storage.write_back_to_agents(&mut world.agents);
+
+        let snapshot_metadata = SnapshotMetadata::new(
+            next_day,
+            context.master_seed,
+            context.replicate_id,
+            DEFAULT_MODEL_VERSION,
+            DEFAULT_CONFIG_VERSION,
+        );
+        let snapshot = encode_snapshot(world, &snapshot_metadata)?;
+
+        if options.events_enabled {
+            let snapshot_event = EventRecord::new(
+                EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: snapshot_metadata.day,
+                    master_seed: snapshot_metadata.master_seed,
+                    replicate_id: snapshot_metadata.replicate_id,
+                    schema_version: SNAPSHOT_SCHEMA_VERSION,
+                }),
+            );
+            event_buffer.push(snapshot_event);
+        }
+
+        Some(snapshot)
+    } else {
+        None
+    };
+
+    // 16. Phase 11: Canonical Event Flush
+    let flushed_events = if options.events_enabled {
+        phase11_flush_events(&mut event_buffer)?
+    } else {
+        Vec::new()
+    };
+
+    // 17. Day Complete: advance authoritative scheduler day cursor
+    world.current_day = SimulationDay(next_day);
+
+    Ok(DayOutcome {
+        executed_day,
+        metrics: metrics_opt,
+        events: flushed_events,
+        snapshot: snapshot_opt,
+    })
+}
+
+/// Executes multiple consecutive simulation days sequentially under Scope-Isolated Hybrid Storage Authority (Pipeline C).
+pub fn run_hybrid_scope_isolated_days(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<DayOutcome>, M0RunError> {
+    let agent_count = match &hybrid_world.segmented_storage {
+        Some(s) => s.len(),
+        None => hybrid_world.world.agents.len(),
+    };
+    let mut outcomes = Vec::with_capacity(days as usize);
+    let mut features_scratch = Vec::with_capacity(agent_count);
+    let mut choices_scratch = Vec::with_capacity(agent_count);
+    let mut intents_scratch = Vec::with_capacity(agent_count);
+    let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+
+    for _ in 0..days {
+        let outcome = run_hybrid_scope_isolated_day_with_scratch(
+            hybrid_world,
+            config,
+            context,
+            options,
+            &mut features_scratch,
+            &mut choices_scratch,
+            &mut intents_scratch,
+            &mut metrics_scratch,
         )?;
         outcomes.push(outcome);
     }
