@@ -4,7 +4,7 @@ use crate::state::{AgentState, WorldState};
 use crate::subsystems::Subsystem;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, RngCoordinate, coordinate_prng_f32};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Immutable decision-time Intent record generated during Phase 4.
 ///
@@ -922,9 +922,248 @@ pub fn generate_intents_storage_into_variant_d(
     Ok(())
 }
 
+/// Reusable Phase4-local GroupId/action candidate buckets; not part of simulation state.
+#[derive(Default)]
+pub struct Phase4CandidateIndexScratch {
+    groups: Vec<Phase4CandidateGroup>,
+    group_to_index: HashMap<sim_core::GroupId, usize>,
+    active_groups: usize,
+    storage_is_sorted: bool,
+}
+
+#[derive(Default)]
+struct Phase4CandidateGroup {
+    give_food: Vec<sim_core::AgentId>,
+    steal_food: Vec<sim_core::AgentId>,
+}
+
+impl Phase4CandidateIndexScratch {
+    /// Creates reusable candidate buckets sized for the expected number of groups.
+    pub fn with_capacity(group_capacity: usize) -> Self {
+        Self {
+            groups: Vec::with_capacity(group_capacity),
+            group_to_index: HashMap::with_capacity(group_capacity),
+            active_groups: 0,
+            storage_is_sorted: true,
+        }
+    }
+
+    /// Rebuilds all action buckets from one immutable Phase4 storage state.
+    pub fn build(&mut self, storage: &crate::storage::SegmentedAgentStorage, config: &SimConfig) {
+        self.group_to_index.clear();
+        self.active_groups = 0;
+
+        let alive = storage.alive();
+        let health = storage.health();
+        let food = storage.food();
+        let groups = storage.group_ids();
+        let agent_ids = storage.agent_ids();
+        let mut storage_is_sorted = true;
+
+        for slot in 0..storage.len() {
+            if slot > 0 && agent_ids[slot - 1] > agent_ids[slot] {
+                storage_is_sorted = false;
+            }
+            if !alive[slot] || health[slot] <= 0.0 {
+                continue;
+            }
+
+            let give_food_candidate = food[slot] < config.interaction.starvation_threshold;
+            let steal_food_candidate = food[slot] > 0.0;
+            if !give_food_candidate && !steal_food_candidate {
+                continue;
+            }
+
+            let bucket = self.group_bucket_mut(groups[slot]);
+            if give_food_candidate {
+                bucket.give_food.push(agent_ids[slot]);
+            }
+            if steal_food_candidate {
+                bucket.steal_food.push(agent_ids[slot]);
+            }
+        }
+
+        if !storage_is_sorted {
+            for bucket in &mut self.groups[..self.active_groups] {
+                bucket.give_food.sort_unstable();
+                bucket.steal_food.sort_unstable();
+            }
+        }
+        self.storage_is_sorted = storage_is_sorted;
+    }
+
+    fn group_bucket_mut(&mut self, group_id: sim_core::GroupId) -> &mut Phase4CandidateGroup {
+        let index = if let Some(&index) = self.group_to_index.get(&group_id) {
+            index
+        } else {
+            let index = self.active_groups;
+            if index == self.groups.len() {
+                self.groups.push(Phase4CandidateGroup::default());
+            }
+            let bucket = &mut self.groups[index];
+            bucket.give_food.clear();
+            bucket.steal_food.clear();
+            self.active_groups += 1;
+            self.group_to_index.insert(group_id, index);
+            index
+        };
+        &mut self.groups[index]
+    }
+
+    fn candidates(&self, group_id: sim_core::GroupId, action: Action) -> &[sim_core::AgentId] {
+        let Some(&index) = self.group_to_index.get(&group_id) else {
+            return &[];
+        };
+        match action {
+            Action::GiveFood => &self.groups[index].give_food,
+            Action::StealFood => &self.groups[index].steal_food,
+            _ => &[],
+        }
+    }
+
+    fn storage_is_sorted(&self) -> bool {
+        self.storage_is_sorted
+    }
+}
+
+enum Phase4CandidateSource<'a> {
+    FullScan(&'a mut Vec<sim_core::AgentId>, bool),
+    PreIndexed(&'a Phase4CandidateIndexScratch),
+}
+
+impl Phase4CandidateSource<'_> {
+    fn target_agent(
+        &mut self,
+        storage: &crate::storage::SegmentedAgentStorage,
+        action: Action,
+        initiator: sim_core::AgentId,
+        group_id: sim_core::GroupId,
+        current_day: sim_core::SimulationDay,
+        config: &SimConfig,
+    ) -> Option<sim_core::AgentId> {
+        let (candidate_ids, exclude_start, exclude_end) = match self {
+            Self::FullScan(candidate_scratch, storage_is_sorted) => {
+                candidate_scratch.clear();
+                let alive = storage.alive();
+                let health = storage.health();
+                let food = storage.food();
+                let groups = storage.group_ids();
+                let agent_ids = storage.agent_ids();
+
+                match action {
+                    Action::GiveFood => {
+                        for slot in 0..storage.len() {
+                            if groups[slot] == group_id
+                                && alive[slot]
+                                && health[slot] > 0.0
+                                && agent_ids[slot] != initiator
+                                && food[slot] < config.interaction.starvation_threshold
+                            {
+                                candidate_scratch.push(agent_ids[slot]);
+                            }
+                        }
+                    }
+                    Action::StealFood => {
+                        for slot in 0..storage.len() {
+                            if groups[slot] == group_id
+                                && alive[slot]
+                                && health[slot] > 0.0
+                                && agent_ids[slot] != initiator
+                                && food[slot] > 0.0
+                            {
+                                candidate_scratch.push(agent_ids[slot]);
+                            }
+                        }
+                    }
+                    _ => unreachable!("candidate targets only apply to GiveFood or StealFood"),
+                }
+
+                if !*storage_is_sorted {
+                    candidate_scratch.sort_unstable();
+                }
+                (candidate_scratch.as_slice(), 0, 0)
+            }
+            Self::PreIndexed(index) => {
+                let candidates = index.candidates(group_id, action);
+                let exclude_start = candidates.partition_point(|id| *id < initiator);
+                let exclude_end = candidates.partition_point(|id| *id <= initiator);
+                (candidates, exclude_start, exclude_end)
+            }
+        };
+
+        phase4_select_candidate(
+            candidate_ids,
+            exclude_start,
+            exclude_end,
+            initiator,
+            action,
+            current_day,
+            config,
+        )
+    }
+}
+
+fn phase4_select_candidate(
+    candidate_ids: &[sim_core::AgentId],
+    exclude_start: usize,
+    exclude_end: usize,
+    initiator: sim_core::AgentId,
+    action: Action,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+) -> Option<sim_core::AgentId> {
+    let excluded = exclude_end - exclude_start;
+    let candidate_count = candidate_ids.len() - excluded;
+    if candidate_count == 0 {
+        return None;
+    }
+
+    let subsystem = match action {
+        Action::GiveFood => Subsystem::MutualAidTarget,
+        Action::StealFood => Subsystem::TheftTarget,
+        _ => unreachable!("candidate targets only apply to GiveFood or StealFood"),
+    };
+    let coord = RngCoordinate::new(
+        config.world.master_seed,
+        config.world.replicate_id,
+        current_day.as_u32(),
+        4,
+        subsystem.id(),
+        initiator.as_u32(),
+        1,
+    );
+    let u = coordinate_prng_f32(&coord);
+    let logical_index = ((u * (candidate_count as f32)).floor() as usize).min(candidate_count - 1);
+    let index = if logical_index < exclude_start {
+        logical_index
+    } else {
+        logical_index + excluded
+    };
+    Some(candidate_ids[index])
+}
+
+/// Generates immutable Intent records with a tick-built reusable Phase4 candidate index.
+pub fn generate_intents_storage_with_candidate_index(
+    storage: &crate::storage::SegmentedAgentStorage,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    candidate_index: &mut Phase4CandidateIndexScratch,
+    out: &mut Vec<Intent>,
+) -> Result<(), IntentError> {
+    candidate_index.build(storage, config);
+    generate_intents_storage_impl(
+        storage,
+        current_day,
+        config,
+        choices,
+        Phase4CandidateSource::PreIndexed(candidate_index),
+        out,
+    )
+}
+
 /// Executes Phase 4 Intent generation directly against [`SegmentedAgentStorage`](crate::storage::SegmentedAgentStorage)
-/// using DenseSlot direct sequential cursor access, reusable candidate scratch storage, and zero-allocation
-/// duplicate validation.
+/// using the reference full-storage candidate scan.
 pub fn generate_intents_storage_with_scratch(
     storage: &crate::storage::SegmentedAgentStorage,
     current_day: sim_core::SimulationDay,
@@ -933,8 +1172,34 @@ pub fn generate_intents_storage_with_scratch(
     candidate_scratch: &mut Vec<sim_core::AgentId>,
     out: &mut Vec<Intent>,
 ) -> Result<(), IntentError> {
+    generate_intents_storage_impl(
+        storage,
+        current_day,
+        config,
+        choices,
+        Phase4CandidateSource::FullScan(
+            candidate_scratch,
+            storage
+                .agent_ids()
+                .windows(2)
+                .all(|window| window[0] <= window[1]),
+        ),
+        out,
+    )
+}
+
+fn generate_intents_storage_impl(
+    storage: &crate::storage::SegmentedAgentStorage,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    mut candidate_source: Phase4CandidateSource<'_>,
+    out: &mut Vec<Intent>,
+) -> Result<(), IntentError> {
     out.clear();
-    candidate_scratch.clear();
+    if let Phase4CandidateSource::FullScan(candidate_scratch, _) = &mut candidate_source {
+        candidate_scratch.clear();
+    }
     let n = choices.len();
     if out.capacity() < n {
         out.reserve(n - out.capacity());
@@ -961,7 +1226,10 @@ pub fn generate_intents_storage_with_scratch(
     let group_ids = &storage.economy.group_id;
     let agent_ids = &storage.agent_ids;
     let num_agents = storage.len();
-    let is_storage_sorted = agent_ids.windows(2).all(|w| w[0] <= w[1]);
+    let is_storage_sorted = match &candidate_source {
+        Phase4CandidateSource::FullScan(_, is_sorted) => *is_sorted,
+        Phase4CandidateSource::PreIndexed(index) => index.storage_is_sorted(),
+    };
     let mut cursor = 0;
 
     for (i, choice) in choices.iter().enumerate() {
@@ -1037,38 +1305,14 @@ pub fn generate_intents_storage_with_scratch(
                 }
             }
             Action::GiveFood => {
-                candidate_scratch.clear();
-                for s in 0..num_agents {
-                    if group_ids[s] == group_id
-                        && alives[s]
-                        && healths[s] > 0.0
-                        && agent_ids[s] != agent_id
-                        && foods[s] < config.interaction.starvation_threshold
-                    {
-                        candidate_scratch.push(agent_ids[s]);
-                    }
-                }
-                if !is_storage_sorted {
-                    candidate_scratch.sort_unstable();
-                }
-
-                let target_agent_id = if candidate_scratch.is_empty() {
-                    None
-                } else {
-                    let coord = RngCoordinate::new(
-                        config.world.master_seed,
-                        config.world.replicate_id,
-                        current_day.as_u32(),
-                        4,
-                        Subsystem::MutualAidTarget.id(),
-                        agent_id.as_u32(),
-                        1,
-                    );
-                    let u = coordinate_prng_f32(&coord);
-                    let c = candidate_scratch.len();
-                    let index = ((u * (c as f32)).floor() as usize).min(c - 1);
-                    Some(candidate_scratch[index])
-                };
+                let target_agent_id = candidate_source.target_agent(
+                    storage,
+                    Action::GiveFood,
+                    agent_id,
+                    group_id,
+                    current_day,
+                    config,
+                );
                 let requested_amount = config.interaction.gift_amount.min(food);
                 Intent::GiveFood {
                     agent_id,
@@ -1078,38 +1322,14 @@ pub fn generate_intents_storage_with_scratch(
                 }
             }
             Action::StealFood => {
-                candidate_scratch.clear();
-                for s in 0..num_agents {
-                    if group_ids[s] == group_id
-                        && alives[s]
-                        && healths[s] > 0.0
-                        && agent_ids[s] != agent_id
-                        && foods[s] > 0.0
-                    {
-                        candidate_scratch.push(agent_ids[s]);
-                    }
-                }
-                if !is_storage_sorted {
-                    candidate_scratch.sort_unstable();
-                }
-
-                let target_agent_id = if candidate_scratch.is_empty() {
-                    None
-                } else {
-                    let coord = RngCoordinate::new(
-                        config.world.master_seed,
-                        config.world.replicate_id,
-                        current_day.as_u32(),
-                        4,
-                        Subsystem::TheftTarget.id(),
-                        agent_id.as_u32(),
-                        1,
-                    );
-                    let u = coordinate_prng_f32(&coord);
-                    let c = candidate_scratch.len();
-                    let index = ((u * (c as f32)).floor() as usize).min(c - 1);
-                    Some(candidate_scratch[index])
-                };
+                let target_agent_id = candidate_source.target_agent(
+                    storage,
+                    Action::StealFood,
+                    agent_id,
+                    group_id,
+                    current_day,
+                    config,
+                );
                 let requested_amount = config.interaction.theft_amount;
                 Intent::StealFood {
                     agent_id,
@@ -1134,6 +1354,17 @@ pub fn generate_intents_storage_with_scratch(
                 } else {
                     return Err(IntentError::MissingChoiceForEligibleAgent(aid));
                 }
+            }
+        }
+    } else if is_choices_sorted {
+        for s in 0..num_agents {
+            if alives[s]
+                && healths[s] > 0.0
+                && choices
+                    .binary_search_by_key(&agent_ids[s], |choice| choice.agent_id)
+                    .is_err()
+            {
+                return Err(IntentError::MissingChoiceForEligibleAgent(agent_ids[s]));
             }
         }
     } else {

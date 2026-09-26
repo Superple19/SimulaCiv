@@ -54,9 +54,10 @@ pub use hashing::{
 };
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
-    Intent, IntentError, generate_intents, generate_intents_storage_into,
-    generate_intents_storage_into_baseline, generate_intents_storage_into_variant_c,
-    generate_intents_storage_into_variant_d, generate_intents_storage_with_scratch,
+    Intent, IntentError, Phase4CandidateIndexScratch, generate_intents,
+    generate_intents_storage_into, generate_intents_storage_into_baseline,
+    generate_intents_storage_into_variant_c, generate_intents_storage_into_variant_d,
+    generate_intents_storage_with_candidate_index, generate_intents_storage_with_scratch,
     get_give_food_candidates, get_steal_food_candidates, phase4_generate_intents,
     phase4_generate_intents_into, phase4_generate_intents_storage_into,
 };
@@ -91,11 +92,11 @@ pub use resolution::{
 };
 pub use runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, DayOutcome, M0RunContext,
-    M0RunError, run_hybrid_authority_day, run_hybrid_authority_day_with_candidate_scratch,
-    run_hybrid_authority_day_with_scratch, run_hybrid_authority_days,
-    run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_day_with_scratch,
-    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
-    run_native_soa_day_with_storage, run_native_soa_days,
+    M0RunError, run_hybrid_authority_day, run_hybrid_authority_day_with_candidate_index_scratch,
+    run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
+    run_hybrid_authority_days, run_hybrid_scope_isolated_day,
+    run_hybrid_scope_isolated_day_with_scratch, run_hybrid_scope_isolated_days, run_m0_day,
+    run_m0_days, run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,

@@ -30,8 +30,9 @@ use sim_model::features::{
 };
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::intents::{
-    Intent, generate_intents_storage_into_baseline, generate_intents_storage_into_variant_c,
-    generate_intents_storage_into_variant_d, generate_intents_storage_with_scratch,
+    Intent, Phase4CandidateIndexScratch, generate_intents_storage_into_baseline,
+    generate_intents_storage_into_variant_c, generate_intents_storage_into_variant_d,
+    generate_intents_storage_with_candidate_index, generate_intents_storage_with_scratch,
     phase4_generate_intents, phase4_generate_intents_into, phase4_generate_intents_storage_into,
 };
 use sim_model::metrics::{
@@ -53,10 +54,10 @@ use sim_model::resolution::{
 };
 use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext,
-    run_hybrid_authority_day, run_hybrid_authority_day_with_candidate_scratch,
-    run_hybrid_authority_day_with_scratch, run_hybrid_authority_days,
-    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
-    run_native_soa_days,
+    run_hybrid_authority_day_with_candidate_index_scratch,
+    run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
+    run_hybrid_authority_days, run_hybrid_scope_isolated_days, run_m0_day, run_m0_days,
+    run_native_soa_day, run_native_soa_days,
 };
 use sim_model::snapshot::{
     SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot, restore_snapshot,
@@ -4715,11 +4716,13 @@ fn measure_m2_29_post_soa_profiling(base_config: &SimConfig, context: &M0RunCont
                 events_enabled: true,
                 snapshot_boundary: false,
             };
-            let _ = sim_model::runner::run_hybrid_authority_day(
+            let mut candidate_scratch = Vec::with_capacity(pop as usize);
+            let _ = run_hybrid_authority_day_with_candidate_scratch(
                 &mut hybrid_world,
                 &cfg,
                 context,
                 &opts,
+                &mut candidate_scratch,
             )
             .unwrap();
         }
@@ -6035,8 +6038,17 @@ fn m2_29_2_assert_path_parity(base_world: &WorldState, config: &SimConfig, conte
             events_enabled: true,
             snapshot_boundary: day == 1,
         };
-        outcomes_production
-            .push(run_hybrid_authority_day(&mut production, config, context, &options).unwrap());
+        let mut production_candidate_scratch = Vec::with_capacity(count);
+        outcomes_production.push(
+            run_hybrid_authority_day_with_candidate_scratch(
+                &mut production,
+                config,
+                context,
+                &options,
+                &mut production_candidate_scratch,
+            )
+            .unwrap(),
+        );
         outcomes_benchmark.push(
             run_hybrid_authority_day_with_scratch(
                 &mut benchmark,
@@ -6079,8 +6091,16 @@ fn m2_29_2_time_production_ticks(
     let mut world = HybridWorldState::hybrid(base_world.clone());
     let started = Instant::now();
     for _ in 0..ticks {
+        let mut candidate_scratch = Vec::with_capacity(base_world.agents.len());
         std::hint::black_box(
-            run_hybrid_authority_day(&mut world, config, context, options).unwrap(),
+            run_hybrid_authority_day_with_candidate_scratch(
+                &mut world,
+                config,
+                context,
+                options,
+                &mut candidate_scratch,
+            )
+            .unwrap(),
         );
     }
     started.elapsed().as_nanos() as f64 / ticks as f64 / 1000.0
@@ -6356,6 +6376,654 @@ fn measure_m2_29_2_scratch_fidelity(base_config: &SimConfig, context: &M0RunCont
     }
 }
 
+#[derive(Clone, Copy)]
+struct M230ScalingRow {
+    family: &'static str,
+    population: u64,
+    group_count: u32,
+    full_scan_intent: M2292Median,
+    indexed_intent: M2292Median,
+    full_tick: [M2292Median; 2],
+}
+
+fn m2_30_measure_phase4(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+) -> (M2292Median, M2292Median, M2292Median, M2292Median, usize) {
+    const SAMPLES: usize = 7;
+    const REPEATS: usize = 3;
+
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+    let mut phase2_world = base_world.clone();
+    phase1_resource_regrowth(&mut phase2_world, &effective_config);
+    let mut storage = SegmentedAgentStorage::from_agents(&phase2_world.agents);
+    storage.phase2_degradation_with_config(&effective_config);
+    let mut features = Vec::with_capacity(storage.len());
+    storage
+        .phase3_features_into(&phase2_world.settlements, &effective_config, &mut features)
+        .unwrap();
+    let mut choices = Vec::with_capacity(storage.len());
+    phase4_primary_action_selection_storage_into(
+        &storage,
+        phase2_world.current_day,
+        &effective_config,
+        &features,
+        &mut choices,
+    )
+    .unwrap();
+    let targeted_initiators = choices
+        .iter()
+        .filter(|choice| matches!(choice.action, Action::GiveFood | Action::StealFood))
+        .count();
+
+    let mut selected = Vec::with_capacity(storage.len());
+    for _ in 0..2 {
+        phase4_primary_action_selection_storage_into(
+            &storage,
+            phase2_world.current_day,
+            &effective_config,
+            &features,
+            &mut selected,
+        )
+        .unwrap();
+    }
+    assert_eq!(selected, choices);
+    let mut selection_samples = Vec::with_capacity(SAMPLES);
+    for _ in 0..SAMPLES {
+        let started = Instant::now();
+        for _ in 0..REPEATS {
+            phase4_primary_action_selection_storage_into(
+                &storage,
+                phase2_world.current_day,
+                &effective_config,
+                &features,
+                &mut selected,
+            )
+            .unwrap();
+        }
+        selection_samples.push(started.elapsed().as_nanos() as f64 / REPEATS as f64 / 1000.0);
+    }
+    assert_eq!(selected, choices);
+
+    let mut full_scan_candidates = Vec::with_capacity(storage.len());
+    let mut candidate_index =
+        Phase4CandidateIndexScratch::with_capacity(config.world.settlement_count as usize);
+    let mut full_scan_intents = Vec::with_capacity(storage.len());
+    let mut indexed_intents = Vec::with_capacity(storage.len());
+    generate_intents_storage_with_scratch(
+        &storage,
+        phase2_world.current_day,
+        &effective_config,
+        &choices,
+        &mut full_scan_candidates,
+        &mut full_scan_intents,
+    )
+    .unwrap();
+    generate_intents_storage_with_candidate_index(
+        &storage,
+        phase2_world.current_day,
+        &effective_config,
+        &choices,
+        &mut candidate_index,
+        &mut indexed_intents,
+    )
+    .unwrap();
+    assert_eq!(full_scan_intents, indexed_intents);
+
+    for _ in 0..2 {
+        candidate_index.build(&storage, &effective_config);
+    }
+    let mut build_samples = Vec::with_capacity(SAMPLES);
+    for _ in 0..SAMPLES {
+        let started = Instant::now();
+        for _ in 0..REPEATS {
+            candidate_index.build(&storage, &effective_config);
+        }
+        build_samples.push(started.elapsed().as_nanos() as f64 / REPEATS as f64 / 1000.0);
+    }
+
+    for _ in 0..2 {
+        generate_intents_storage_with_scratch(
+            &storage,
+            phase2_world.current_day,
+            &effective_config,
+            &choices,
+            &mut full_scan_candidates,
+            &mut full_scan_intents,
+        )
+        .unwrap();
+        generate_intents_storage_with_candidate_index(
+            &storage,
+            phase2_world.current_day,
+            &effective_config,
+            &choices,
+            &mut candidate_index,
+            &mut indexed_intents,
+        )
+        .unwrap();
+    }
+
+    let mut full_scan_samples = Vec::with_capacity(SAMPLES);
+    let mut indexed_samples = Vec::with_capacity(SAMPLES);
+    for sample in 0..SAMPLES {
+        for order in 0..2 {
+            let indexed_first = sample % 2 == 1;
+            let measure_indexed = (order == 0) == indexed_first;
+            let started = Instant::now();
+            for _ in 0..REPEATS {
+                if measure_indexed {
+                    generate_intents_storage_with_candidate_index(
+                        &storage,
+                        phase2_world.current_day,
+                        &effective_config,
+                        &choices,
+                        &mut candidate_index,
+                        &mut indexed_intents,
+                    )
+                    .unwrap();
+                    std::hint::black_box(indexed_intents.as_slice());
+                } else {
+                    generate_intents_storage_with_scratch(
+                        &storage,
+                        phase2_world.current_day,
+                        &effective_config,
+                        &choices,
+                        &mut full_scan_candidates,
+                        &mut full_scan_intents,
+                    )
+                    .unwrap();
+                    std::hint::black_box(full_scan_intents.as_slice());
+                }
+            }
+            let time_us = started.elapsed().as_nanos() as f64 / REPEATS as f64 / 1000.0;
+            if measure_indexed {
+                indexed_samples.push(time_us);
+            } else {
+                full_scan_samples.push(time_us);
+            }
+        }
+    }
+
+    (
+        m2_29_2_summary(selection_samples),
+        m2_29_2_summary(build_samples),
+        m2_29_2_summary(full_scan_samples),
+        m2_29_2_summary(indexed_samples),
+        targeted_initiators,
+    )
+}
+
+fn m2_30_assert_runner_parity(base_world: &WorldState, config: &SimConfig, context: &M0RunContext) {
+    let mut full_scan = HybridWorldState::hybrid(base_world.clone());
+    let mut indexed = HybridWorldState::hybrid(base_world.clone());
+    let mut full_scan_candidates = Vec::with_capacity(base_world.agents.len());
+    let mut candidate_index =
+        Phase4CandidateIndexScratch::with_capacity(config.world.settlement_count as usize);
+    let mut full_scan_outcomes = Vec::new();
+    let mut indexed_outcomes = Vec::new();
+
+    for day in 0..3 {
+        let options = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: day == 1,
+        };
+        full_scan_outcomes.push(
+            run_hybrid_authority_day_with_candidate_scratch(
+                &mut full_scan,
+                config,
+                context,
+                &options,
+                &mut full_scan_candidates,
+            )
+            .unwrap(),
+        );
+        indexed_outcomes.push(
+            run_hybrid_authority_day_with_candidate_index_scratch(
+                &mut indexed,
+                config,
+                context,
+                &options,
+                &mut candidate_index,
+            )
+            .unwrap(),
+        );
+    }
+
+    assert_eq!(full_scan_outcomes, indexed_outcomes);
+    assert_eq!(
+        full_scan.canonical_state_hash().unwrap(),
+        indexed.canonical_state_hash().unwrap()
+    );
+}
+
+fn m2_30_time_full_scan_ticks(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    ticks: usize,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(base_world.clone());
+    let started = Instant::now();
+    for _ in 0..ticks {
+        let mut candidate_scratch = Vec::with_capacity(base_world.agents.len());
+        std::hint::black_box(
+            run_hybrid_authority_day_with_candidate_scratch(
+                &mut world,
+                config,
+                context,
+                options,
+                &mut candidate_scratch,
+            )
+            .unwrap(),
+        );
+    }
+    started.elapsed().as_nanos() as f64 / ticks as f64 / 1000.0
+}
+
+fn m2_30_time_indexed_ticks(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    ticks: usize,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(base_world.clone());
+    let mut candidate_index =
+        Phase4CandidateIndexScratch::with_capacity(config.world.settlement_count as usize);
+    let started = Instant::now();
+    for _ in 0..ticks {
+        std::hint::black_box(
+            run_hybrid_authority_day_with_candidate_index_scratch(
+                &mut world,
+                config,
+                context,
+                options,
+                &mut candidate_index,
+            )
+            .unwrap(),
+        );
+    }
+    started.elapsed().as_nanos() as f64 / ticks as f64 / 1000.0
+}
+
+const M230_PROFILE_PHASES: [&str; 14] = [
+    "Phase 1 Regrowth",
+    "Phase 2 Degradation",
+    "Phase 3 Features",
+    "Phase 4 Selection",
+    "Phase 4 Indexed Intent",
+    "Phase 5 Partition",
+    "Phase 6A Work",
+    "Phase 6B Targeted",
+    "Phase 7 Market",
+    "Phase 8 Welfare",
+    "Phase 9 Mortality",
+    "Event Staging",
+    "Phase 10 Metrics",
+    "Phase 11 Event Flush",
+];
+
+fn m2_30_profile_indexed_day(
+    base_world: &WorldState,
+    effective_config: &SimConfig,
+    candidate_index: &mut Phase4CandidateIndexScratch,
+) -> [Duration; 14] {
+    let mut times = [Duration::ZERO; 14];
+    let mut world = base_world.clone();
+    let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+    let executed_day = world.current_day.as_u32();
+
+    let started = Instant::now();
+    phase1_resource_regrowth(&mut world, effective_config);
+    times[0] = started.elapsed();
+
+    let started = Instant::now();
+    storage.phase2_degradation_with_config(effective_config);
+    times[1] = started.elapsed();
+
+    let mut features = Vec::with_capacity(storage.len());
+    let started = Instant::now();
+    storage
+        .phase3_features_into(&world.settlements, effective_config, &mut features)
+        .unwrap();
+    times[2] = started.elapsed();
+
+    let mut choices = Vec::with_capacity(storage.len());
+    let started = Instant::now();
+    phase4_primary_action_selection_storage_into(
+        &storage,
+        world.current_day,
+        effective_config,
+        &features,
+        &mut choices,
+    )
+    .unwrap();
+    times[3] = started.elapsed();
+
+    let mut intents = Vec::with_capacity(storage.len());
+    let started = Instant::now();
+    generate_intents_storage_with_candidate_index(
+        &storage,
+        world.current_day,
+        effective_config,
+        &choices,
+        candidate_index,
+        &mut intents,
+    )
+    .unwrap();
+    times[4] = started.elapsed();
+
+    let started = Instant::now();
+    let partitions = phase5_partition_intents(&intents).unwrap();
+    times[5] = started.elapsed();
+
+    let started = Instant::now();
+    let work_resolutions =
+        phase6a_work_resolution_storage(&mut storage, &mut world.settlements, &partitions).unwrap();
+    times[6] = started.elapsed();
+
+    let started = Instant::now();
+    let targeted_resolutions = phase6b_targeted_resolution_storage(
+        &mut storage,
+        &world.settlements,
+        world.current_day,
+        effective_config,
+        &partitions,
+    )
+    .unwrap();
+    times[7] = started.elapsed();
+
+    let started = Instant::now();
+    let market_resolutions = phase7_market_clearance_storage_with_config(
+        &mut storage,
+        &mut world.settlements,
+        &partitions,
+        &effective_config.economy,
+    )
+    .unwrap();
+    times[8] = started.elapsed();
+
+    let started = Instant::now();
+    let welfare_resolutions = storage
+        .phase8_welfare_distribution_with_config(&mut world.settlements, effective_config)
+        .unwrap();
+    times[9] = started.elapsed();
+
+    let started = Instant::now();
+    let mortality_resolution = storage.phase9_mortality_commitment().unwrap();
+    times[10] = started.elapsed();
+
+    let started = Instant::now();
+    let estimated_cap = storage.len().saturating_mul(2) + world.settlements.len() + 4;
+    let mut event_buffer = EventBuffer::with_capacity(estimated_cap);
+    let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+    for work in &work_resolutions {
+        let events = events_from_work_resolution(executed_day, work);
+        let count = events.len() as u64;
+        if let Some(entry) = phase6_counts
+            .iter_mut()
+            .find(|(group_id, _)| *group_id == work.group_id.0)
+        {
+            entry.1 += count;
+        } else {
+            phase6_counts.push((work.group_id.0, count));
+        }
+        event_buffer.push_all(events);
+    }
+    for targeted in &targeted_resolutions {
+        let mut events = events_from_targeted_resolution(executed_day, targeted);
+        let offset = if let Some(entry) = phase6_counts
+            .iter_mut()
+            .find(|(group_id, _)| *group_id == targeted.group_id.0)
+        {
+            let previous = entry.1;
+            entry.1 += events.len() as u64;
+            previous
+        } else {
+            phase6_counts.push((targeted.group_id.0, events.len() as u64));
+            0
+        };
+        if offset > 0 {
+            for event in &mut events {
+                event.key.local_sequence += offset;
+            }
+        }
+        event_buffer.push_all(events);
+    }
+    for market in &market_resolutions {
+        event_buffer.push_all(events_from_market_resolution(executed_day, market));
+    }
+    for welfare in &welfare_resolutions {
+        event_buffer.push_all(events_from_welfare_resolution(executed_day, welfare));
+    }
+    event_buffer.push_all(events_from_mortality_resolution(
+        executed_day,
+        &mortality_resolution,
+    ));
+    times[11] = started.elapsed();
+
+    let started = Instant::now();
+    let metrics = storage
+        .phase10_metrics(&world.settlements, executed_day)
+        .unwrap();
+    event_buffer.push(event_from_daily_metrics(&metrics));
+    times[12] = started.elapsed();
+
+    let started = Instant::now();
+    std::hint::black_box(phase11_flush_events(&mut event_buffer).unwrap());
+    times[13] = started.elapsed();
+    times
+}
+
+fn measure_m2_30_post_index_top_phases(
+    base_config: &SimConfig,
+    context: &M0RunContext,
+    family: &'static str,
+    settlement_count: u32,
+) {
+    const POPULATION: u64 = 10000;
+    const SAMPLES: usize = 7;
+    let mut config = base_config.clone();
+    config.world.initial_population = POPULATION;
+    config.world.settlement_count = settlement_count;
+    config.environment.carrying_capacity = 1000.0 * POPULATION as f32;
+    config.world.initial_settlement_resource = 200.0 * POPULATION as f32;
+    let base_world = initialize_world(&config).unwrap();
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+    let mut candidate_index = Phase4CandidateIndexScratch::with_capacity(settlement_count as usize);
+
+    for _ in 0..2 {
+        let _ = m2_30_profile_indexed_day(&base_world, &effective_config, &mut candidate_index);
+    }
+    let mut samples: [Vec<f64>; 14] = std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+    for _ in 0..SAMPLES {
+        for (phase_samples, elapsed) in samples.iter_mut().zip(m2_30_profile_indexed_day(
+            &base_world,
+            &effective_config,
+            &mut candidate_index,
+        )) {
+            phase_samples.push(elapsed.as_nanos() as f64 / 1000.0);
+        }
+    }
+    let mut phases: Vec<_> = M230_PROFILE_PHASES
+        .into_iter()
+        .zip(samples.into_iter().map(m2_29_2_summary))
+        .collect();
+    phases.sort_by(|left, right| right.1.median_us.total_cmp(&left.1.median_us));
+    println!("\nPost-index N=10000 top phases: {family} (median ± MAD, µs)");
+    for (name, timing) in phases.iter().take(6) {
+        println!(
+            "{name:<28} {:>9.2} ± {:>7.2}",
+            timing.median_us, timing.mad_us
+        );
+    }
+}
+
+fn measure_m2_30_phase4_candidate_index(base_config: &SimConfig, context: &M0RunContext) {
+    const POPULATIONS: [u64; 7] = [100, 250, 500, 1000, 2500, 5000, 10000];
+    const SAMPLES: usize = 7;
+    const TICKS_PER_SAMPLE: usize = 3;
+    const WARMUP_TICKS: usize = 2;
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+    let workload_families = ["Fixed settlements (2)", "Fixed group size (~200)"];
+
+    println!("\n=================================================================");
+    println!("M2-30 Phase4 Full Scan vs Group/Action Candidate Pre-Index");
+    println!("Method: 2 warm-up ticks + 7 median/MAD samples; full-tick samples average 3 days.");
+    println!("Both paths use identical initialized worlds, config, seed, and Phase4 choices.");
+    println!("=================================================================");
+
+    let mut rows = Vec::with_capacity(POPULATIONS.len() * workload_families.len());
+    for (family_index, family) in workload_families.iter().enumerate() {
+        for &population in &POPULATIONS {
+            let mut config = base_config.clone();
+            config.world.initial_population = population;
+            config.world.settlement_count = if family_index == 0 {
+                2
+            } else {
+                population.div_ceil(200) as u32
+            };
+            config.environment.carrying_capacity = 1000.0 * population as f32;
+            config.world.initial_settlement_resource = 200.0 * population as f32;
+            let base_world = initialize_world(&config).unwrap();
+            m2_30_assert_runner_parity(&base_world, &config, context);
+
+            for _ in 0..WARMUP_TICKS {
+                let _ = m2_30_time_full_scan_ticks(&base_world, &config, context, &options, 1);
+                let _ = m2_30_time_indexed_ticks(&base_world, &config, context, &options, 1);
+            }
+
+            let (selection, index_build, full_scan_intent, indexed_intent, targeted_initiators) =
+                m2_30_measure_phase4(&base_world, &config, context);
+            let mut full_tick_samples: [Vec<f64>; 2] =
+                std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+            for sample in 0..SAMPLES {
+                for offset in 0..2 {
+                    let path = (sample + offset) % 2;
+                    let time_us = if path == 0 {
+                        m2_30_time_full_scan_ticks(
+                            &base_world,
+                            &config,
+                            context,
+                            &options,
+                            TICKS_PER_SAMPLE,
+                        )
+                    } else {
+                        m2_30_time_indexed_ticks(
+                            &base_world,
+                            &config,
+                            context,
+                            &options,
+                            TICKS_PER_SAMPLE,
+                        )
+                    };
+                    full_tick_samples[path].push(time_us);
+                }
+            }
+
+            let row = M230ScalingRow {
+                family,
+                population,
+                group_count: config.world.settlement_count,
+                full_scan_intent,
+                indexed_intent,
+                full_tick: [
+                    m2_29_2_summary(full_tick_samples[0].clone()),
+                    m2_29_2_summary(full_tick_samples[1].clone()),
+                ],
+            };
+            rows.push(row);
+
+            let index_visits = population;
+            let full_scan_visits = targeted_initiators as u64 * population;
+            let full_ticks_per_second = 1_000_000.0 / row.full_tick[0].median_us;
+            let indexed_ticks_per_second = 1_000_000.0 / row.full_tick[1].median_us;
+            println!(
+                "{:<26} N={:<5} groups={:<3} avg/group={:>6.1} targeted={:<5} candidate slots(scan/index)={:>12}/{:<7} lookups={:<5} select={:>8.2}us build={:>8.2}us intent(scan/index)={:>9.2}/{:>9.2}us full(scan/index)={:>9.2}/{:>9.2}us speedup={:>5.2}x ticks/s={:>7.1}/{:>7.1}",
+                family,
+                population,
+                row.group_count,
+                population as f64 / row.group_count as f64,
+                targeted_initiators,
+                full_scan_visits,
+                index_visits,
+                targeted_initiators,
+                selection.median_us,
+                index_build.median_us,
+                row.full_scan_intent.median_us,
+                row.indexed_intent.median_us,
+                row.full_tick[0].median_us,
+                row.full_tick[1].median_us,
+                row.full_tick[0].median_us / row.full_tick[1].median_us,
+                full_ticks_per_second,
+                indexed_ticks_per_second,
+            );
+        }
+    }
+
+    println!("\nScaling from N=1000 to N=10000: Phase4 Intent and full-tick median alpha.");
+    println!(
+        "Candidate-slot counts are Full Scan T*N versus Pre-Index N. Both retain one N-slot choice-coverage pass; Full Scan also checks storage ordering once, while Pre-Index fuses that check into its build scan."
+    );
+    for family in workload_families {
+        let at_1k = rows
+            .iter()
+            .find(|row| row.family == family && row.population == 1000)
+            .unwrap();
+        let at_10k = rows
+            .iter()
+            .find(|row| row.family == family && row.population == 10000)
+            .unwrap();
+        for (name, small, large) in [
+            (
+                "Full Scan Intent",
+                at_1k.full_scan_intent.median_us,
+                at_10k.full_scan_intent.median_us,
+            ),
+            (
+                "Pre-Indexed Intent",
+                at_1k.indexed_intent.median_us,
+                at_10k.indexed_intent.median_us,
+            ),
+            (
+                "Full Scan tick",
+                at_1k.full_tick[0].median_us,
+                at_10k.full_tick[0].median_us,
+            ),
+            (
+                "Pre-Indexed tick",
+                at_1k.full_tick[1].median_us,
+                at_10k.full_tick[1].median_us,
+            ),
+        ] {
+            let ratio = large / small.max(0.001);
+            let alpha = ratio.ln() / 10.0f64.ln();
+            println!(
+                "{family:<26} {name:<22} {small:>9.2} -> {large:>9.2}us ratio={ratio:>7.2}x alpha={alpha:>5.3}"
+            );
+        }
+        println!(
+            "{family:<26} N=10000 Phase4 share: Full Scan {:>5.1}%, Pre-Indexed {:>5.1}%",
+            at_10k.full_scan_intent.median_us / at_10k.full_tick[0].median_us * 100.0,
+            at_10k.indexed_intent.median_us / at_10k.full_tick[1].median_us * 100.0,
+        );
+    }
+
+    measure_m2_30_post_index_top_phases(base_config, context, workload_families[0], 2);
+    measure_m2_30_post_index_top_phases(base_config, context, workload_families[1], 50);
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -6523,6 +7191,9 @@ fn main() {
 
     // 21. M2-29.2 Scratch Lifetime Fidelity & Workload Scaling Benchmark
     measure_m2_29_2_scratch_fidelity(&config, &context);
+
+    // 22. M2-30 Phase4 Group/Action Candidate Pre-Index Gate
+    measure_m2_30_phase4_candidate_index(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

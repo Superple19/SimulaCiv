@@ -27,7 +27,9 @@ use crate::events::{
 };
 use crate::features::{AgentFeatures, Phase3Error, phase3_observation_and_features_into};
 use crate::intents::{
-    Intent, IntentError, generate_intents_storage_with_scratch, phase4_generate_intents_into,
+    Intent, IntentError, Phase4CandidateIndexScratch,
+    generate_intents_storage_with_candidate_index, generate_intents_storage_with_scratch,
+    phase4_generate_intents_into,
 };
 use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe_with_scratch};
 use crate::partitioning::{Phase5Error, phase5_partition_intents};
@@ -712,6 +714,43 @@ pub fn run_hybrid_authority_day(
     context: &M0RunContext,
     options: &DayExecutionOptions,
 ) -> Result<DayOutcome, M0RunError> {
+    if !hybrid_world.is_hybrid() {
+        let agent_count = hybrid_world.world.agents.len();
+        let mut features_scratch = Vec::with_capacity(agent_count);
+        let mut choices_scratch = Vec::with_capacity(agent_count);
+        let mut intents_scratch = Vec::with_capacity(agent_count);
+        let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+        return run_hybrid_authority_day_with_scratch(
+            hybrid_world,
+            config,
+            context,
+            options,
+            &mut features_scratch,
+            &mut choices_scratch,
+            &mut intents_scratch,
+            &mut metrics_scratch,
+        );
+    }
+
+    let mut candidate_index =
+        Phase4CandidateIndexScratch::with_capacity(hybrid_world.world.settlements.len());
+    run_hybrid_authority_day_with_candidate_index_scratch(
+        hybrid_world,
+        config,
+        context,
+        options,
+        &mut candidate_index,
+    )
+}
+
+/// Executes one Hybrid Authority day while reusing a caller-owned Phase 4 candidate index.
+pub fn run_hybrid_authority_day_with_candidate_index_scratch(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    candidate_index: &mut Phase4CandidateIndexScratch,
+) -> Result<DayOutcome, M0RunError> {
     let agent_count = match &hybrid_world.segmented_storage {
         Some(s) => s.len(),
         None => hybrid_world.world.agents.len(),
@@ -720,7 +759,7 @@ pub fn run_hybrid_authority_day(
     let mut choices_scratch = Vec::with_capacity(agent_count);
     let mut intents_scratch = Vec::with_capacity(agent_count);
     let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
-    run_hybrid_authority_day_with_scratch(
+    run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
         context,
@@ -729,12 +768,13 @@ pub fn run_hybrid_authority_day(
         &mut choices_scratch,
         &mut intents_scratch,
         &mut metrics_scratch,
+        Phase4RuntimeScratch::PreIndexed(candidate_index),
     )
 }
 
-/// Executes one Hybrid Authority day while reusing caller-owned Phase 4 candidate storage.
+/// Executes one Hybrid Authority day with the reference full-storage candidate scan.
 ///
-/// In Hybrid mode, Phase 4 clears the candidate buffer before use and retains its capacity.
+/// The caller-owned candidate buffer is cleared before each Phase 4 generation and retains capacity.
 pub fn run_hybrid_authority_day_with_candidate_scratch(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
@@ -759,7 +799,7 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
         &mut choices_scratch,
         &mut intents_scratch,
         &mut metrics_scratch,
-        candidate_scratch,
+        Phase4RuntimeScratch::FullScan(candidate_scratch),
     )
 }
 
@@ -802,8 +842,13 @@ pub fn run_hybrid_authority_day_with_scratch(
         choices_scratch,
         intents_scratch,
         metrics_scratch,
-        &mut candidate_scratch,
+        Phase4RuntimeScratch::FullScan(&mut candidate_scratch),
     )
+}
+
+enum Phase4RuntimeScratch<'a> {
+    FullScan(&'a mut Vec<AgentId>),
+    PreIndexed(&'a mut Phase4CandidateIndexScratch),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -816,7 +861,7 @@ fn run_hybrid_authority_day_with_all_scratch(
     choices_scratch: &mut Vec<PrimaryActionChoice>,
     intents_scratch: &mut Vec<Intent>,
     metrics_scratch: &mut AgentDynamicSoAScratch,
-    candidate_scratch: &mut Vec<AgentId>,
+    phase4_scratch: Phase4RuntimeScratch<'_>,
 ) -> Result<DayOutcome, M0RunError> {
     if !hybrid_world.is_hybrid() {
         return run_m0_day_with_scratch(
@@ -871,14 +916,28 @@ fn run_hybrid_authority_day_with_all_scratch(
     )?;
 
     intents_scratch.clear();
-    generate_intents_storage_with_scratch(
-        storage,
-        world.current_day,
-        &effective_config,
-        choices_scratch,
-        candidate_scratch,
-        intents_scratch,
-    )?;
+    match phase4_scratch {
+        Phase4RuntimeScratch::FullScan(candidate_scratch) => {
+            generate_intents_storage_with_scratch(
+                storage,
+                world.current_day,
+                &effective_config,
+                choices_scratch,
+                candidate_scratch,
+                intents_scratch,
+            )?;
+        }
+        Phase4RuntimeScratch::PreIndexed(candidate_index) => {
+            generate_intents_storage_with_candidate_index(
+                storage,
+                world.current_day,
+                &effective_config,
+                choices_scratch,
+                candidate_index,
+                intents_scratch,
+            )?;
+        }
+    }
 
     // 7. Phase 5: Locality Partitioning
     let partitions = phase5_partition_intents(intents_scratch)?;
@@ -1050,10 +1109,10 @@ pub fn run_hybrid_authority_days(
     let mut choices_scratch = Vec::with_capacity(agent_count);
     let mut intents_scratch = Vec::with_capacity(agent_count);
     let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
-    let mut candidate_scratch = if hybrid_world.is_hybrid() {
-        Vec::with_capacity(agent_count)
+    let mut candidate_index = if hybrid_world.is_hybrid() {
+        Phase4CandidateIndexScratch::with_capacity(hybrid_world.world.settlements.len())
     } else {
-        Vec::new()
+        Phase4CandidateIndexScratch::default()
     };
 
     for _ in 0..days {
@@ -1066,7 +1125,7 @@ pub fn run_hybrid_authority_days(
             &mut choices_scratch,
             &mut intents_scratch,
             &mut metrics_scratch,
-            &mut candidate_scratch,
+            Phase4RuntimeScratch::PreIndexed(&mut candidate_index),
         )?;
         outcomes.push(outcome);
     }

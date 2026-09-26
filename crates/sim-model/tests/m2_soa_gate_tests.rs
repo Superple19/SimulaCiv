@@ -7,6 +7,7 @@
 //! 2. Snapshot Parity: Snapshots emitted at days 100, 250, 500 by both pipelines
 //!    are bit-exact identical and restore to identical state hashes with full event continuity.
 
+use sim_core::{AgentId, DenseSlot, GroupId, SimulationDay};
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::runner::{
     DayExecutionOptions, M0RunContext, run_hybrid_authority_day,
@@ -18,8 +19,10 @@ use sim_model::snapshot::{decode_snapshot, restore_snapshot};
 use sim_model::state::HybridWorldState;
 use sim_model::storage::SegmentedAgentStorage;
 use sim_model::{
-    SimConfig, generate_intents_storage_into_baseline, generate_intents_storage_into_variant_c,
-    generate_intents_storage_into_variant_d, initialize_world, phase3_observation_and_features,
+    Action, AgentState, Intent, Phase4CandidateIndexScratch, PrimaryActionChoice, SimConfig,
+    generate_intents_storage_into_baseline, generate_intents_storage_into_variant_c,
+    generate_intents_storage_into_variant_d, generate_intents_storage_with_candidate_index,
+    generate_intents_storage_with_scratch, initialize_world, phase3_observation_and_features,
     phase4_generate_intents_into, phase4_generate_intents_storage_into,
     phase4_primary_action_selection_into, phase4_primary_action_selection_storage_into,
     phase4_primary_action_selection_storage_into_baseline,
@@ -879,5 +882,207 @@ fn test_08_phase4_candidate_scratch_reuse_preserves_runner_outputs() {
             production_path.canonical_state_hash().unwrap(),
             persistent_path.canonical_state_hash().unwrap()
         );
+    }
+}
+
+#[test]
+fn test_09_phase4_candidate_index_edge_case_parity() {
+    let config = make_config();
+    let make_agent = |id: u32, group_id: u16, alive: bool, health: f32, food: f32| AgentState {
+        agent_id: AgentId(id),
+        dense_slot: DenseSlot(id),
+        alive,
+        birth_day: SimulationDay(0),
+        health,
+        food,
+        wealth: 1000,
+        productivity: 1.0,
+        cooperation: 0.5,
+        aggression: 0.5,
+        risk_tolerance: 0.5,
+        group_id: GroupId(group_id),
+    };
+    let agents = vec![
+        make_agent(81, 2, true, 1.0, 1.0),
+        make_agent(20, 0, true, 1.0, 4.0),
+        make_agent(90, 3, true, 1.0, 0.0),
+        make_agent(10, 0, true, 1.0, 1.0),
+        make_agent(30, 0, true, 1.0, config.interaction.starvation_threshold),
+        make_agent(50, 1, true, 1.0, 0.0),
+        make_agent(40, 0, true, 1.0, 6.0),
+        make_agent(80, 2, true, 1.0, 5.0),
+        make_agent(16, 0, true, 0.0, 1.0),
+        make_agent(15, 0, false, 1.0, 1.0),
+        make_agent(82, 2, false, 1.0, 2.0),
+        make_agent(51, 1, false, 1.0, 2.0),
+        make_agent(52, 1, true, 0.0, 2.0),
+        make_agent(91, 3, false, 1.0, 5.0),
+        make_agent(92, 3, true, 0.0, 3.0),
+    ];
+    let mut choices: Vec<_> = agents
+        .iter()
+        .filter(|agent| agent.alive && agent.health > 0.0)
+        .map(|agent| PrimaryActionChoice {
+            agent_id: agent.agent_id,
+            action: match agent.agent_id {
+                AgentId(20) | AgentId(40) | AgentId(50) => Action::GiveFood,
+                AgentId(30) | AgentId(80) | AgentId(90) => Action::StealFood,
+                _ => Action::Idle,
+            },
+        })
+        .collect();
+    choices.sort_by_key(|choice| choice.agent_id);
+
+    // This storage order differs from AgentId order; the index must restore semantic order.
+    let storage = SegmentedAgentStorage::from_agents(&agents);
+    let mut full_scan_scratch = Vec::new();
+    let mut index_scratch = Phase4CandidateIndexScratch::with_capacity(4);
+    let mut full_scan = Vec::new();
+    let mut indexed = Vec::new();
+    generate_intents_storage_with_scratch(
+        &storage,
+        SimulationDay(0),
+        &config,
+        &choices,
+        &mut full_scan_scratch,
+        &mut full_scan,
+    )
+    .unwrap();
+    generate_intents_storage_with_candidate_index(
+        &storage,
+        SimulationDay(0),
+        &config,
+        &choices,
+        &mut index_scratch,
+        &mut indexed,
+    )
+    .unwrap();
+    assert_eq!(full_scan, indexed);
+    assert!(
+        indexed
+            .windows(2)
+            .all(|pair| pair[0].agent_id() < pair[1].agent_id())
+    );
+
+    let target = |agent_id| {
+        indexed
+            .iter()
+            .find(|intent| intent.agent_id() == AgentId(agent_id))
+            .and_then(|intent| match intent {
+                Intent::GiveFood {
+                    target_agent_id, ..
+                }
+                | Intent::StealFood {
+                    target_agent_id, ..
+                } => *target_agent_id,
+                _ => None,
+            })
+    };
+    assert_eq!(target(20), Some(AgentId(10))); // self was the other GiveFood candidate
+    assert_eq!(target(80), Some(AgentId(81))); // self excluded from a two-agent steal bucket
+    assert_eq!(target(50), None); // only self qualifies for GiveFood
+    assert_eq!(target(90), None); // no living, healthy, positive-food steal target
+    assert!(matches!(
+        indexed
+            .iter()
+            .find(|intent| intent.agent_id() == AgentId(40)),
+        Some(Intent::GiveFood {
+            target_agent_id: Some(AgentId(10) | AgentId(20)),
+            ..
+        })
+    ));
+}
+
+#[test]
+fn test_10_phase4_candidate_index_randomized_storage_parity() {
+    let mut full_scan_scratch = Vec::new();
+    let mut index_scratch = Phase4CandidateIndexScratch::with_capacity(13);
+    let mut full_scan = Vec::new();
+    let mut indexed = Vec::new();
+
+    for &(population, group_count) in &[
+        (100, 1),
+        (100, 2),
+        (250, 2),
+        (500, 3),
+        (1000, 2),
+        (1000, 5),
+        (1000, 13),
+    ] {
+        for seed in [7_u64, 23, 91] {
+            let mut config = make_config();
+            config.world.initial_population = population;
+            config.world.settlement_count = group_count;
+            config.world.master_seed = seed;
+            config.world.replicate_id = seed as u32;
+            config.interaction.starvation_threshold = 5.0;
+            let mut world = initialize_world(&config).unwrap();
+            for (slot, agent) in world.agents.iter_mut().enumerate() {
+                let pattern = (slot as u64 * 37 + seed) % 11;
+                agent.food = match pattern {
+                    0 => 0.0,
+                    1 => 5.0,
+                    2 => 4.999,
+                    3 => 6.0,
+                    _ => pattern as f32,
+                };
+                if pattern == 9 {
+                    agent.alive = false;
+                } else if pattern == 10 {
+                    agent.health = 0.0;
+                }
+            }
+
+            let mut choices: Vec<_> = world
+                .agents
+                .iter()
+                .filter(|agent| agent.alive && agent.health > 0.0)
+                .map(|agent| {
+                    let action_index = (agent.agent_id.as_u32() * 7 + seed as u32) % 6;
+                    PrimaryActionChoice {
+                        agent_id: agent.agent_id,
+                        action: match action_index {
+                            0 => Action::Work,
+                            1 => Action::BuyFood,
+                            2 => Action::SellFood,
+                            3 => Action::GiveFood,
+                            4 => Action::StealFood,
+                            _ => Action::Idle,
+                        },
+                    }
+                })
+                .collect();
+            choices.sort_by_key(|choice| choice.agent_id);
+
+            for shuffled in [false, true] {
+                let mut agents = world.agents.clone();
+                if shuffled {
+                    agents.reverse();
+                }
+                let storage = SegmentedAgentStorage::from_agents(&agents);
+                generate_intents_storage_with_scratch(
+                    &storage,
+                    world.current_day,
+                    &config,
+                    &choices,
+                    &mut full_scan_scratch,
+                    &mut full_scan,
+                )
+                .unwrap();
+                generate_intents_storage_with_candidate_index(
+                    &storage,
+                    world.current_day,
+                    &config,
+                    &choices,
+                    &mut index_scratch,
+                    &mut indexed,
+                )
+                .unwrap();
+                assert_eq!(
+                    full_scan, indexed,
+                    "N={population}, groups={group_count}, seed={seed}, shuffled={shuffled}"
+                );
+            }
+        }
     }
 }
