@@ -15,7 +15,14 @@ use sim_model::runner::{
 };
 use sim_model::snapshot::{decode_snapshot, restore_snapshot};
 use sim_model::state::HybridWorldState;
-use sim_model::{SimConfig, initialize_world};
+use sim_model::storage::SegmentedAgentStorage;
+use sim_model::{
+    SimConfig, generate_intents_storage_into_baseline, generate_intents_storage_into_variant_c,
+    generate_intents_storage_into_variant_d, initialize_world, phase3_observation_and_features,
+    phase4_generate_intents_into, phase4_generate_intents_storage_into,
+    phase4_primary_action_selection_into, phase4_primary_action_selection_storage_into,
+    phase4_primary_action_selection_storage_into_baseline,
+};
 
 const GATE_CONFIG_TOML: &str = r#"
 [world]
@@ -637,5 +644,193 @@ fn test_06_hybrid_scope_isolated_snapshot_parity_at_day_100_250_500() {
             hybrid_isolated.canonical_state_hash().unwrap()
         );
         assert_eq!(outcomes_resumed, outcomes_continuous);
+    }
+}
+
+#[test]
+fn test_07_phase4_variants_semantic_parity() {
+    let populations = [10, 25, 50, 100];
+    for &pop in &populations {
+        let toml = format!(
+            r#"
+[world]
+master_seed = 81985529216486895
+replicate_id = 7
+initial_population = {}
+settlement_count = 2
+initial_health = 1.0
+initial_food = 25.0
+initial_wealth = 10000
+initial_settlement_resource = 2000.0
+initial_treasury = 5000
+
+[traits]
+prod_min = 0.8
+prod_max = 1.5
+coop_min = 0.2
+coop_max = 0.8
+aggr_min = 0.1
+aggr_max = 0.5
+risk_min = 0.1
+risk_max = 0.5
+
+[environment]
+carrying_capacity = 10000.0
+regrowth_rate = 0.1
+base_metabolic_cost = 1.0
+health_decay_rate = 0.05
+
+[economy]
+base_work_yield = 2.0
+food_price = 100
+target_food = 20.0
+target_reserve = 5000
+tax_rate = 0.1
+welfare_payment = 50
+
+[interaction]
+gift_amount = 2.0
+theft_amount = 3.0
+theft_success_probability = 0.5
+starvation_threshold = 5.0
+
+[decision]
+decision_temperature = 1.0
+action_biases = [0.1, 0.2, 0.15, 0.3, 0.25, 0.05]
+base_weight_matrix = [
+  [0.1, 0.2, -0.1, 0.0, 0.1],
+  [0.3, -0.2, 0.1, 0.2, -0.1],
+  [-0.1, 0.3, 0.0, -0.1, 0.2],
+  [0.2, 0.1, -0.3, 0.1, 0.0],
+  [-0.2, 0.0, 0.3, -0.2, 0.1],
+  [0.0, 0.0, 0.0, 0.0, 0.0]
+]
+trait_weight_cooperation = 1.0
+trait_weight_aggression = 1.0
+trait_weight_risk_tolerance = 1.0
+"#,
+            pop
+        );
+
+        let config = SimConfig::parse_and_validate(&toml).unwrap();
+        let _context = M0RunContext {
+            master_seed: config.world.master_seed,
+            replicate_id: config.world.replicate_id,
+        };
+
+        let mut world = initialize_world(&config).unwrap();
+        // Mutate some agent values across settlements to induce diverse actions
+        for (i, agent) in world.agents.iter_mut().enumerate() {
+            if i % 7 == 0 {
+                agent.food = 2.0; // below starvation threshold -> candidate for GiveFood
+            } else if i % 5 == 0 {
+                agent.food = 35.0; // surplus food -> potential seller / giver
+            } else if i % 11 == 0 {
+                agent.health = 0.3; // low health
+            }
+        }
+
+        let features = phase3_observation_and_features(&world, &config).unwrap();
+        let storage = SegmentedAgentStorage::from_agents(&world.agents);
+        let current_day = world.current_day;
+
+        // Variant A: AoS
+        let mut choices_a = Vec::new();
+        phase4_primary_action_selection_into(&world, &config, &features, &mut choices_a).unwrap();
+        let mut intents_a = Vec::new();
+        phase4_generate_intents_into(&world, &config, &choices_a, &mut intents_a).unwrap();
+
+        // Variant B: Current Native (Baseline)
+        let mut choices_b = Vec::new();
+        phase4_primary_action_selection_storage_into_baseline(
+            &storage,
+            current_day,
+            &config,
+            &features,
+            &mut choices_b,
+        )
+        .unwrap();
+        let mut intents_b = Vec::new();
+        generate_intents_storage_into_baseline(
+            &storage,
+            current_day,
+            &config,
+            &choices_b,
+            &mut intents_b,
+        )
+        .unwrap();
+
+        // Variant C: Native + DenseSlot Direct
+        let mut choices_c = Vec::new();
+        phase4_primary_action_selection_storage_into(
+            &storage,
+            current_day,
+            &config,
+            &features,
+            &mut choices_c,
+        )
+        .unwrap();
+        let mut intents_c = Vec::new();
+        generate_intents_storage_into_variant_c(
+            &storage,
+            current_day,
+            &config,
+            &choices_c,
+            &mut intents_c,
+        )
+        .unwrap();
+
+        // Variant D: Native + DenseSlot Direct + Candidate Scratch Reuse
+        let mut choices_d = Vec::new();
+        phase4_primary_action_selection_storage_into(
+            &storage,
+            current_day,
+            &config,
+            &features,
+            &mut choices_d,
+        )
+        .unwrap();
+        let mut candidate_scratch = Vec::with_capacity(storage.len());
+        let mut intents_d = Vec::new();
+        generate_intents_storage_into_variant_d(
+            &storage,
+            current_day,
+            &config,
+            &choices_d,
+            &mut candidate_scratch,
+            &mut intents_d,
+        )
+        .unwrap();
+
+        // Variant E: Final Optimized Native Phase 4
+        let mut choices_e = Vec::new();
+        phase4_primary_action_selection_storage_into(
+            &storage,
+            current_day,
+            &config,
+            &features,
+            &mut choices_e,
+        )
+        .unwrap();
+        let mut intents_e = Vec::new();
+        phase4_generate_intents_storage_into(
+            &storage,
+            current_day,
+            &config,
+            &choices_e,
+            &mut intents_e,
+        )
+        .unwrap();
+
+        // Verify 100% bit-exact parity across all variants
+        assert_eq!(choices_a, choices_b, "Pop {}: Choices A != B", pop);
+        assert_eq!(choices_a, choices_c, "Pop {}: Choices A != C", pop);
+        assert_eq!(choices_a, choices_d, "Pop {}: Choices A != D", pop);
+        assert_eq!(choices_a, choices_e, "Pop {}: Choices A != E", pop);
+
+        assert_eq!(intents_a, intents_b, "Pop {}: Intents A != B", pop);
+        assert_eq!(intents_a, intents_c, "Pop {}: Intents A != C", pop);
+        assert_eq!(intents_a, intents_d, "Pop {}: Intents A != D", pop);
+        assert_eq!(intents_a, intents_e, "Pop {}: Intents A != E", pop);
     }
 }

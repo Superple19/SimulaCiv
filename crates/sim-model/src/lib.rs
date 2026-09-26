@@ -27,8 +27,9 @@ pub use config::{
 };
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,
-    phase4_primary_action_selection, phase4_primary_action_selection_storage_into, select_action,
-    stable_softmax,
+    phase4_primary_action_selection, phase4_primary_action_selection_into,
+    phase4_primary_action_selection_storage_into,
+    phase4_primary_action_selection_storage_into_baseline, select_action, stable_softmax,
 };
 pub use events::{
     Event, EventBuffer, EventError, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
@@ -53,8 +54,11 @@ pub use hashing::{
 };
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
-    Intent, IntentError, generate_intents, get_give_food_candidates, get_steal_food_candidates,
-    phase4_generate_intents, phase4_generate_intents_storage_into,
+    Intent, IntentError, generate_intents, generate_intents_storage_into,
+    generate_intents_storage_into_baseline, generate_intents_storage_into_variant_c,
+    generate_intents_storage_into_variant_d, generate_intents_storage_with_scratch,
+    get_give_food_candidates, get_steal_food_candidates, phase4_generate_intents,
+    phase4_generate_intents_into, phase4_generate_intents_storage_into,
 };
 pub use metrics::{
     DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, compute_wealth_gini_from_slices,

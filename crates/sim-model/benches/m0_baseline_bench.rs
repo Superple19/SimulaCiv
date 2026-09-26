@@ -15,7 +15,7 @@ use sim_core::{AgentId, Money, SimulationDay};
 use sim_model::decision::{
     Action, PrimaryActionChoice, phase4_primary_action_selection,
     phase4_primary_action_selection_into, phase4_primary_action_selection_storage_into,
-    select_action, stable_softmax,
+    phase4_primary_action_selection_storage_into_baseline, select_action, stable_softmax,
 };
 use sim_model::events::{
     Event, EventBuffer, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
@@ -30,8 +30,9 @@ use sim_model::features::{
 };
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::intents::{
-    Intent, phase4_generate_intents, phase4_generate_intents_into,
-    phase4_generate_intents_storage_into,
+    Intent, generate_intents_storage_into_baseline, generate_intents_storage_into_variant_c,
+    generate_intents_storage_into_variant_d, generate_intents_storage_with_scratch,
+    phase4_generate_intents, phase4_generate_intents_into, phase4_generate_intents_storage_into,
 };
 use sim_model::metrics::{
     DailyMetrics, phase10_observe, phase10_observe_compact_aos, phase10_observe_soa_fresh,
@@ -4181,6 +4182,457 @@ fn measure_m2_27_1_scope_isolation_benchmark(base_config: &SimConfig, context: &
     }
 }
 
+fn run_hybrid_p4_bench_days(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    use_baseline_p4: bool,
+) -> Result<Duration, sim_model::runner::M0RunError> {
+    let agent_count = hybrid_world.segmented_storage.as_ref().unwrap().len();
+    let mut features_scratch = Vec::with_capacity(agent_count);
+    let mut choices_scratch = Vec::with_capacity(agent_count);
+    let mut intents_scratch = Vec::with_capacity(agent_count);
+
+    let start = Instant::now();
+    for _ in 0..days {
+        let HybridWorldState {
+            world,
+            segmented_storage,
+            ..
+        } = hybrid_world;
+        let storage = segmented_storage.as_mut().unwrap();
+
+        let executed_day = world.current_day.as_u32();
+        let next_day = executed_day + 1;
+
+        let mut effective_config = config.clone();
+        effective_config.world.master_seed = context.master_seed;
+        effective_config.world.replicate_id = context.replicate_id;
+
+        phase1_resource_regrowth(world, &effective_config);
+        storage.phase2_degradation_with_config(&effective_config);
+
+        features_scratch.clear();
+        storage.phase3_features_into(
+            &world.settlements,
+            &effective_config,
+            &mut features_scratch,
+        )?;
+
+        choices_scratch.clear();
+        intents_scratch.clear();
+        if use_baseline_p4 {
+            phase4_primary_action_selection_storage_into_baseline(
+                storage,
+                world.current_day,
+                &effective_config,
+                &features_scratch,
+                &mut choices_scratch,
+            )?;
+            generate_intents_storage_into_baseline(
+                storage,
+                world.current_day,
+                &effective_config,
+                &choices_scratch,
+                &mut intents_scratch,
+            )?;
+        } else {
+            phase4_primary_action_selection_storage_into(
+                storage,
+                world.current_day,
+                &effective_config,
+                &features_scratch,
+                &mut choices_scratch,
+            )?;
+            phase4_generate_intents_storage_into(
+                storage,
+                world.current_day,
+                &effective_config,
+                &choices_scratch,
+                &mut intents_scratch,
+            )?;
+        }
+
+        let partitions = phase5_partition_intents(&intents_scratch)?;
+        let _ = phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)?;
+        let _ = phase6b_targeted_resolution_storage(
+            storage,
+            &world.settlements,
+            world.current_day,
+            &effective_config,
+            &partitions,
+        )?;
+        let _ = phase7_market_clearance_storage_with_config(
+            storage,
+            &mut world.settlements,
+            &partitions,
+            &effective_config.economy,
+        )?;
+        let _ = storage
+            .phase8_welfare_distribution_with_config(&mut world.settlements, &effective_config)?;
+        let _ = storage.phase9_mortality_commitment()?;
+        world.current_day = SimulationDay(next_day);
+    }
+    Ok(start.elapsed())
+}
+
+fn measure_m2_28_phase4_optimization(base_config: &SimConfig, context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-28 Phase 4 Native SoA Regression Removal Benchmark");
+    println!("=================================================================");
+
+    let populations = [100, 250, 500, 1000];
+    let iters = 50;
+
+    // --- Part 1: Phase 4 Baseline Sub-component Breakdown ---
+    println!(
+        "\n--- Part 1: Baseline Native Phase 4 Sub-component Breakdown ({} Sweeps) ---",
+        iters
+    );
+    println!(
+        "{:<8} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10} | {:>10}",
+        "Pop (N)", "P4 Base(u)", "P4 Sel(u)", "P4 Int(u)", "slot_of(u)", "cand_disc", "cand_alloc"
+    );
+    println!("{:-<76}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let features = phase3_observation_and_features(&base_world, &cfg).unwrap();
+        let seg = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let day = base_world.current_day;
+
+        let mut choices_b = Vec::with_capacity(pop as usize);
+        let mut intents_b = Vec::with_capacity(pop as usize);
+
+        // Warm up and get choices
+        phase4_primary_action_selection_storage_into_baseline(
+            &seg,
+            day,
+            &cfg,
+            &features,
+            &mut choices_b,
+        )
+        .unwrap();
+        generate_intents_storage_into_baseline(&seg, day, &cfg, &choices_b, &mut intents_b)
+            .unwrap();
+
+        // 1. Measure full selection baseline
+        let t_sel_start = Instant::now();
+        for _ in 0..iters {
+            choices_b.clear();
+            phase4_primary_action_selection_storage_into_baseline(
+                &seg,
+                day,
+                &cfg,
+                &features,
+                &mut choices_b,
+            )
+            .unwrap();
+        }
+        let sel_us = t_sel_start.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        // 2. Measure full intent generation baseline
+        let t_int_start = Instant::now();
+        for _ in 0..iters {
+            intents_b.clear();
+            generate_intents_storage_into_baseline(&seg, day, &cfg, &choices_b, &mut intents_b)
+                .unwrap();
+        }
+        let int_us = t_int_start.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        // 3. Measure slot_of alone
+        let t_slot_start = Instant::now();
+        let mut slot_sum = 0;
+        for _ in 0..iters {
+            for af in &features {
+                if let Some(s) = seg.slot_of(af.agent_id) {
+                    slot_sum += s;
+                }
+            }
+        }
+        let slot_us = t_slot_start.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+        std::hint::black_box(slot_sum);
+
+        // 4. Measure candidate discovery & candidate allocation
+        let group_ids = &seg.economy.group_id;
+        let alives = &seg.demography.alive;
+        let healths = &seg.demography.health;
+        let foods = &seg.economy.food;
+        let agent_ids = &seg.agent_ids;
+        let num_agents = seg.len();
+
+        let t_cand_alloc = Instant::now();
+        for _ in 0..iters {
+            for c in &choices_b {
+                if c.action == Action::GiveFood {
+                    let mut candidates: Vec<sim_core::AgentId> = (0..num_agents)
+                        .filter(|&s| {
+                            group_ids[s] == group_ids[0]
+                                && alives[s]
+                                && healths[s] > 0.0
+                                && agent_ids[s] != c.agent_id
+                                && foods[s] < cfg.interaction.starvation_threshold
+                        })
+                        .map(|s| agent_ids[s])
+                        .collect();
+                    candidates.sort();
+                    std::hint::black_box(&candidates);
+                } else if c.action == Action::StealFood {
+                    let mut candidates: Vec<sim_core::AgentId> = (0..num_agents)
+                        .filter(|&s| {
+                            group_ids[s] == group_ids[0]
+                                && alives[s]
+                                && healths[s] > 0.0
+                                && agent_ids[s] != c.agent_id
+                                && foods[s] > 0.0
+                        })
+                        .map(|s| agent_ids[s])
+                        .collect();
+                    candidates.sort();
+                    std::hint::black_box(&candidates);
+                }
+            }
+        }
+        let cand_alloc_us = t_cand_alloc.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        // Measure candidate discovery with reusable scratch (no allocation)
+        let mut scratch = Vec::with_capacity(num_agents);
+        let t_cand_disc = Instant::now();
+        for _ in 0..iters {
+            for c in &choices_b {
+                if c.action == Action::GiveFood {
+                    scratch.clear();
+                    for s in 0..num_agents {
+                        if group_ids[s] == group_ids[0]
+                            && alives[s]
+                            && healths[s] > 0.0
+                            && agent_ids[s] != c.agent_id
+                            && foods[s] < cfg.interaction.starvation_threshold
+                        {
+                            scratch.push(agent_ids[s]);
+                        }
+                    }
+                    scratch.sort_unstable();
+                    std::hint::black_box(&scratch);
+                } else if c.action == Action::StealFood {
+                    scratch.clear();
+                    for s in 0..num_agents {
+                        if group_ids[s] == group_ids[0]
+                            && alives[s]
+                            && healths[s] > 0.0
+                            && agent_ids[s] != c.agent_id
+                            && foods[s] > 0.0
+                        {
+                            scratch.push(agent_ids[s]);
+                        }
+                    }
+                    scratch.sort_unstable();
+                    std::hint::black_box(&scratch);
+                }
+            }
+        }
+        let cand_disc_us = t_cand_disc.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        let total_base_us = sel_us + int_us;
+        println!(
+            "{:<8} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2}",
+            pop, total_base_us, sel_us, int_us, slot_us, cand_disc_us, cand_alloc_us
+        );
+    }
+
+    // --- Part 2: Isolated Variant Attribution (A, B, C, D, E) ---
+    println!(
+        "\n--- Part 2: Phase 4 Isolated Variant Attribution (Single-Tick, {} Sweeps) ---",
+        iters
+    );
+    println!(
+        "{:<8} | {:>9} | {:>9} | {:>9} | {:>9} | {:>9} | {:>7} | {:>7} | {:>9} | {:>9}",
+        "Pop (N)",
+        "A: AoS(u)",
+        "B: Base(u)",
+        "C: Dir(u)",
+        "D: Scrt(u)",
+        "E: Opt(u)",
+        "E vs A",
+        "E vs B",
+        "slot_gain",
+        "scrt_gain"
+    );
+    println!("{:-<110}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let features = phase3_observation_and_features(&base_world, &cfg).unwrap();
+        let seg = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let day = base_world.current_day;
+
+        // A: AoS
+        let mut choices_a = Vec::with_capacity(pop as usize);
+        let mut intents_a = Vec::with_capacity(pop as usize);
+        let t_a = Instant::now();
+        for _ in 0..iters {
+            choices_a.clear();
+            phase4_primary_action_selection_into(&base_world, &cfg, &features, &mut choices_a)
+                .unwrap();
+            intents_a.clear();
+            phase4_generate_intents_into(&base_world, &cfg, &choices_a, &mut intents_a).unwrap();
+        }
+        let a_us = t_a.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        // B: Baseline Native
+        let mut choices_b = Vec::with_capacity(pop as usize);
+        let mut intents_b = Vec::with_capacity(pop as usize);
+        let t_b = Instant::now();
+        for _ in 0..iters {
+            choices_b.clear();
+            phase4_primary_action_selection_storage_into_baseline(
+                &seg,
+                day,
+                &cfg,
+                &features,
+                &mut choices_b,
+            )
+            .unwrap();
+            intents_b.clear();
+            generate_intents_storage_into_baseline(&seg, day, &cfg, &choices_b, &mut intents_b)
+                .unwrap();
+        }
+        let b_us = t_b.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        // C: Native + DenseSlot Direct
+        let mut choices_c = Vec::with_capacity(pop as usize);
+        let mut intents_c = Vec::with_capacity(pop as usize);
+        let t_c = Instant::now();
+        for _ in 0..iters {
+            choices_c.clear();
+            phase4_primary_action_selection_storage_into(
+                &seg,
+                day,
+                &cfg,
+                &features,
+                &mut choices_c,
+            )
+            .unwrap();
+            intents_c.clear();
+            generate_intents_storage_into_variant_c(&seg, day, &cfg, &choices_c, &mut intents_c)
+                .unwrap();
+        }
+        let c_us = t_c.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        // D: Native + DenseSlot Direct + Scratch Reuse
+        let mut choices_d = Vec::with_capacity(pop as usize);
+        let mut intents_d = Vec::with_capacity(pop as usize);
+        let mut cand_scratch = Vec::with_capacity(pop as usize);
+        let t_d = Instant::now();
+        for _ in 0..iters {
+            choices_d.clear();
+            phase4_primary_action_selection_storage_into(
+                &seg,
+                day,
+                &cfg,
+                &features,
+                &mut choices_d,
+            )
+            .unwrap();
+            intents_d.clear();
+            generate_intents_storage_into_variant_d(
+                &seg,
+                day,
+                &cfg,
+                &choices_d,
+                &mut cand_scratch,
+                &mut intents_d,
+            )
+            .unwrap();
+        }
+        let d_us = t_d.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        // E: Final Optimized
+        let mut choices_e = Vec::with_capacity(pop as usize);
+        let mut intents_e = Vec::with_capacity(pop as usize);
+        let t_e = Instant::now();
+        for _ in 0..iters {
+            choices_e.clear();
+            phase4_primary_action_selection_storage_into(
+                &seg,
+                day,
+                &cfg,
+                &features,
+                &mut choices_e,
+            )
+            .unwrap();
+            intents_e.clear();
+            generate_intents_storage_with_scratch(
+                &seg,
+                day,
+                &cfg,
+                &choices_e,
+                &mut cand_scratch,
+                &mut intents_e,
+            )
+            .unwrap();
+        }
+        let e_us = t_e.elapsed().as_nanos() as f64 / (iters as f64) / 1000.0;
+
+        let e_vs_a = a_us / e_us;
+        let e_vs_b = b_us / e_us;
+        let slot_gain = b_us / c_us;
+        let scrt_gain = c_us / d_us;
+
+        println!(
+            "{:<8} | {:>9.2} | {:>9.2} | {:>9.2} | {:>9.2} | {:>9.2} | {:>6.2}x | {:>6.2}x | {:>8.2}x | {:>8.2}x",
+            pop, a_us, b_us, c_us, d_us, e_us, e_vs_a, e_vs_b, slot_gain, scrt_gain
+        );
+    }
+
+    // --- Part 3: Full Hybrid Pipeline 50-Day Comparison (Before vs After) ---
+    println!(
+        "\n--- Part 3: Full Hybrid 50-Day Pipeline Comparison (M2-27 Baseline vs M2-28 Optimized) ---"
+    );
+    println!(
+        "{:<8} | {:>14} | {:>14} | {:>10} | {:>14} | {:>14}",
+        "Pop (N)", "M2-27 Base(ms)", "M2-28 Opt(ms)", "Speedup", "Base (day/s)", "Opt (day/s)"
+    );
+    println!("{:-<86}", "");
+
+    let days = 50;
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+
+        // M2-27 Baseline Full Hybrid
+        let mut w_before = HybridWorldState::hybrid(base_world.clone());
+        let el_before = run_hybrid_p4_bench_days(&mut w_before, &cfg, context, days, true).unwrap();
+
+        // M2-28 Optimized Full Hybrid
+        let mut w_after = HybridWorldState::hybrid(base_world.clone());
+        let el_after = run_hybrid_p4_bench_days(&mut w_after, &cfg, context, days, false).unwrap();
+
+        let ms_before = el_before.as_secs_f64() * 1000.0;
+        let ms_after = el_after.as_secs_f64() * 1000.0;
+        let speedup = ms_before / ms_after;
+        let dps_before = days as f64 / el_before.as_secs_f64();
+        let dps_after = days as f64 / el_after.as_secs_f64();
+
+        println!(
+            "{:<8} | {:>14.2} | {:>14.2} | {:>9.2}x | {:>14.1} | {:>14.1}",
+            pop, ms_before, ms_after, speedup, dps_before, dps_after
+        );
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -4339,6 +4791,9 @@ fn main() {
 
     // 18. M2-27.1 Hybrid Authority Scope Isolation Benchmark
     measure_m2_27_1_scope_isolation_benchmark(&config, &context);
+
+    // 19. M2-28 Phase 4 Native SoA Regression Removal Benchmark
+    measure_m2_28_phase4_optimization(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");
