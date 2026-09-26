@@ -78,7 +78,8 @@ pub use resolution::{
     TargetedResolution, WelfareRecipientResolution, WorkAllocation, compare_keyed_interactions,
     compute_resolution_key, phase6a_work_resolution, phase6b_targeted_resolution,
     phase7_market_clearance, phase7_market_clearance_with_config, phase7_market_resolution,
-    phase8_welfare_distribution, phase8_welfare_distribution_with_config,
+    phase8_welfare_distribution, phase8_welfare_distribution_storage,
+    phase8_welfare_distribution_storage_with_config, phase8_welfare_distribution_with_config,
     phase8_welfare_distribution_with_subconfigs, phase8_welfare_resolution,
 };
 pub use runner::{

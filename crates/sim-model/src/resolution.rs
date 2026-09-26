@@ -4,7 +4,8 @@ use crate::commands::{
 use crate::config::SimConfig;
 use crate::intents::Intent;
 use crate::partitioning::SettlementIntentPartition;
-use crate::state::{AgentState, WorldState};
+use crate::state::{AgentState, SettlementState, WorldState};
+use crate::storage::SegmentedAgentStorage;
 use crate::subsystems::Subsystem;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, K_PRIME, Money, RngCoordinate, coordinate_prng_f32, mix64};
@@ -2051,7 +2052,398 @@ pub fn phase8_welfare_distribution_with_subconfigs(
     )
 }
 
+/// Executes Phase 8: Institutional Welfare Distribution natively on authoritative [`SegmentedAgentStorage`].
+///
+/// Directly filters eligible agents using contiguous `economy.group_id`, `demography.alive`,
+/// `demography.health`, and `economy.food` columns, canonicalizes recipient ordering by ascending
+/// `AgentId`, applies integer division and remainder distribution, and updates `settlements` and
+/// `economy.wealth` in-place without heap allocations or command lookup overhead.
+pub fn phase8_welfare_distribution_storage(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    starvation_threshold: f32,
+    welfare_payment: Money,
+) -> Result<Vec<SettlementWelfareResolution>, Phase8Error> {
+    if !starvation_threshold.is_finite() || starvation_threshold <= 0.0 {
+        return Err(Phase8Error::InvalidStarvationThreshold(
+            starvation_threshold,
+        ));
+    }
+    if welfare_payment < 0 {
+        return Err(Phase8Error::NegativeWelfarePayment(welfare_payment));
+    }
+
+    // Canonical settlement ordering: GroupId ascending
+    let mut group_ids: Vec<GroupId> = settlements.iter().map(|s| s.group_id).collect();
+    group_ids.sort();
+
+    for w in group_ids.windows(2) {
+        if w[0] == w[1] {
+            return Err(Phase8Error::DuplicateSettlement(w[0]));
+        }
+    }
+
+    let n = storage.len();
+    let mut seen_agents = HashSet::with_capacity(n);
+    for i in 0..n {
+        let aid = storage.agent_ids[i];
+        if !seen_agents.insert(aid) {
+            return Err(Phase8Error::DuplicateAgent(aid));
+        }
+        let h = storage.demography.health[i];
+        if !h.is_finite() {
+            return Err(Phase8Error::InvalidAgentState {
+                agent_id: aid,
+                msg: format!("non-finite health: {}", h),
+            });
+        }
+        let f = storage.economy.food[i];
+        if !f.is_finite() || f < 0.0 {
+            return Err(Phase8Error::InvalidAgentState {
+                agent_id: aid,
+                msg: format!("invalid food: {}", f),
+            });
+        }
+        let w = storage.economy.wealth[i];
+        if w < 0 {
+            return Err(Phase8Error::NegativeAgentWealth {
+                agent_id: aid,
+                wealth: w,
+            });
+        }
+    }
+
+    struct PlannedSoAWelfare {
+        group_id: GroupId,
+        treasury_before: Money,
+        treasury_after: Money,
+        eligible_count: usize,
+        payment_per_agent: Money,
+        remainder: Money,
+        total_distributed: Money,
+        recipients: Vec<WelfareRecipientResolution>,
+        slot_payouts: Vec<(usize, Money)>,
+    }
+
+    let mut planned_settlements = Vec::with_capacity(group_ids.len());
+
+    // Stage A: Planning and validation across all settlements
+    for gid in group_ids {
+        let settlement = settlements
+            .iter()
+            .find(|s| s.group_id == gid)
+            .ok_or(Phase8Error::MissingSettlement(gid))?;
+
+        if settlement.treasury < 0 {
+            return Err(Phase8Error::NegativeTreasury {
+                group_id: gid,
+                treasury: settlement.treasury,
+            });
+        }
+
+        let treasury_before = settlement.treasury;
+
+        // Collect eligible agents for this settlement:
+        // living, health > 0, food < starvation_threshold, group_id == settlement.group_id
+        let mut eligible: Vec<(AgentId, usize)> = Vec::new();
+        for i in 0..n {
+            if storage.economy.group_id[i] == gid
+                && storage.demography.alive[i]
+                && storage.demography.health[i] > 0.0
+                && storage.economy.food[i] < starvation_threshold
+            {
+                eligible.push((storage.agent_ids[i], i));
+            }
+        }
+
+        // Canonical ordering: strictly ascending AgentId
+        eligible.sort_by_key(|&(aid, _slot)| aid);
+
+        let eligible_count = eligible.len();
+
+        let (
+            payment_per_agent,
+            remainder,
+            total_distributed,
+            treasury_after,
+            recipients,
+            slot_payouts,
+        ) = if eligible_count == 0 || welfare_payment == 0 {
+            let mut recs = Vec::with_capacity(eligible_count);
+            let mut payouts = Vec::with_capacity(eligible_count);
+            if welfare_payment == 0 && eligible_count > 0 {
+                for &(aid, slot) in &eligible {
+                    recs.push(WelfareRecipientResolution {
+                        agent_id: aid,
+                        payout: 0,
+                    });
+                    payouts.push((slot, 0));
+                }
+            }
+            (0, 0, 0, treasury_before, recs, payouts)
+        } else {
+            let required = (eligible_count as Money)
+                .checked_mul(welfare_payment)
+                .ok_or(Phase8Error::FinancialOverflow)?;
+
+            if treasury_before >= required {
+                // Fully funded
+                let payment_per_agent = welfare_payment;
+                let remainder = 0;
+                let total_distributed = required;
+                let treasury_after = treasury_before
+                    .checked_sub(total_distributed)
+                    .ok_or(Phase8Error::FinancialOverflow)?;
+
+                let mut recs = Vec::with_capacity(eligible_count);
+                let mut payouts = Vec::with_capacity(eligible_count);
+
+                for &(aid, slot) in &eligible {
+                    storage.economy.wealth[slot]
+                        .checked_add(welfare_payment)
+                        .ok_or(Phase8Error::WealthOverflow(aid))?;
+
+                    recs.push(WelfareRecipientResolution {
+                        agent_id: aid,
+                        payout: welfare_payment,
+                    });
+                    payouts.push((slot, welfare_payment));
+                }
+
+                (
+                    payment_per_agent,
+                    remainder,
+                    total_distributed,
+                    treasury_after,
+                    recs,
+                    payouts,
+                )
+            } else {
+                // Underfunded
+                let count_money = eligible_count as Money;
+                let payment_per_agent = treasury_before / count_money;
+                let remainder = treasury_before % count_money;
+                let total_distributed = treasury_before;
+                let treasury_after = 0;
+
+                let mut recs = Vec::with_capacity(eligible_count);
+                let mut payouts = Vec::with_capacity(eligible_count);
+
+                for (idx, &(aid, slot)) in eligible.iter().enumerate() {
+                    let extra = if (idx as Money) < remainder { 1 } else { 0 };
+                    let payout = payment_per_agent
+                        .checked_add(extra)
+                        .ok_or(Phase8Error::FinancialOverflow)?;
+
+                    storage.economy.wealth[slot]
+                        .checked_add(payout)
+                        .ok_or(Phase8Error::WealthOverflow(aid))?;
+
+                    recs.push(WelfareRecipientResolution {
+                        agent_id: aid,
+                        payout,
+                    });
+                    payouts.push((slot, payout));
+                }
+
+                (
+                    payment_per_agent,
+                    remainder,
+                    total_distributed,
+                    treasury_after,
+                    recs,
+                    payouts,
+                )
+            }
+        };
+
+        // Invariant check: conservation of treasury
+        if treasury_before != treasury_after + total_distributed {
+            return Err(Phase8Error::FinancialImbalance {
+                treasury_before,
+                treasury_after,
+                total_distributed,
+            });
+        }
+
+        // Invariant check: sum of payouts == total_distributed
+        let mut sum_payouts: Money = 0;
+        for r in &recipients {
+            sum_payouts = sum_payouts
+                .checked_add(r.payout)
+                .ok_or(Phase8Error::FinancialOverflow)?;
+        }
+        if sum_payouts != total_distributed {
+            return Err(Phase8Error::FinancialImbalance {
+                treasury_before,
+                treasury_after,
+                total_distributed,
+            });
+        }
+
+        planned_settlements.push(PlannedSoAWelfare {
+            group_id: gid,
+            treasury_before,
+            treasury_after,
+            eligible_count,
+            payment_per_agent,
+            remainder,
+            total_distributed,
+            recipients,
+            slot_payouts,
+        });
+    }
+
+    // Stage B: Atomic commit across all settlements
+    let mut resolutions = Vec::with_capacity(planned_settlements.len());
+    for plan in planned_settlements {
+        if plan.total_distributed > 0 || !plan.slot_payouts.is_empty() {
+            let settlement = settlements
+                .iter_mut()
+                .find(|s| s.group_id == plan.group_id)
+                .expect("settlement existence checked during planning");
+            settlement.treasury -= plan.total_distributed;
+
+            for (slot, payout) in plan.slot_payouts {
+                storage.economy.wealth[slot] += payout;
+            }
+        }
+
+        resolutions.push(SettlementWelfareResolution {
+            group_id: plan.group_id,
+            treasury_before: plan.treasury_before,
+            treasury_after: plan.treasury_after,
+            eligible_count: plan.eligible_count,
+            payment_per_agent: plan.payment_per_agent,
+            remainder: plan.remainder,
+            total_distributed: plan.total_distributed,
+            recipients: plan.recipients,
+        });
+    }
+
+    Ok(resolutions)
+}
+
+/// Convenience wrapper executing Phase 8 institutional welfare distribution natively using parameters from [`crate::config::SimConfig`].
+pub fn phase8_welfare_distribution_storage_with_config(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    config: &crate::config::SimConfig,
+) -> Result<Vec<SettlementWelfareResolution>, Phase8Error> {
+    phase8_welfare_distribution_storage(
+        storage,
+        settlements,
+        config.interaction.starvation_threshold,
+        config.economy.welfare_payment,
+    )
+}
+
 pub use crate::phases::{
     MortalityResolution, Phase9Error, Phase9MortalityResolution, phase9_mortality_commitment,
     phase9_mortality_commitment_with_config, phase9_mortality_resolution,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::initialize_world;
+
+    const TEST_CONFIG_TOML: &str = r#"
+[world]
+master_seed = 81985529216486895
+replicate_id = 7
+initial_population = 10
+settlement_count = 2
+initial_health = 0.8
+initial_food = 5.0
+initial_wealth = 1000
+initial_settlement_resource = 500.0
+initial_treasury = 1000
+
+[traits]
+prod_min = 0.8
+prod_max = 1.2
+coop_min = 0.3
+coop_max = 0.7
+aggr_min = 0.1
+aggr_max = 0.5
+risk_min = 0.2
+risk_max = 0.6
+
+[environment]
+carrying_capacity = 1000.0
+regrowth_rate = 0.1
+base_metabolic_cost = 2.0
+health_decay_rate = 0.05
+
+[economy]
+base_work_yield = 2.0
+food_price = 100
+target_food = 10.0
+target_reserve = 1000
+tax_rate = 0.1
+welfare_payment = 50
+
+[interaction]
+gift_amount = 2.0
+theft_amount = 3.0
+theft_success_probability = 0.5
+starvation_threshold = 5.0
+
+[decision]
+decision_temperature = 1.0
+action_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+base_weight_matrix = [
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0]
+]
+trait_weight_cooperation = 1.0
+trait_weight_aggression = 1.0
+trait_weight_risk_tolerance = 1.0
+"#;
+
+    #[test]
+    fn test_phase8_storage_parity() {
+        let config = SimConfig::parse_and_validate(TEST_CONFIG_TOML).unwrap();
+        let mut world = initialize_world(&config).unwrap();
+
+        // Mutate agent states: some eligible, some not
+        world.agents[0].alive = false; // dead -> ineligible
+        world.agents[1].health = 0.0; // health 0 -> ineligible
+        world.agents[2].food = 2.0; // food < 5.0 -> eligible
+        world.agents[3].food = 6.0; // food >= 5.0 -> ineligible
+        world.agents[4].food = 1.0; // food < 5.0 -> eligible
+        world.settlements[0].treasury = 75; // underfunded: 2 eligible, required 100, gives 37 + 38
+
+        let mut world_aos = world.clone();
+        let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+        let mut settlements_soa = world.settlements.clone();
+
+        let res_aos = phase8_welfare_distribution_with_config(&mut world_aos, &config).unwrap();
+        let res_soa = phase8_welfare_distribution_storage_with_config(
+            &mut storage,
+            &mut settlements_soa,
+            &config,
+        )
+        .unwrap();
+
+        assert_eq!(res_aos, res_soa);
+        assert_eq!(world_aos.settlements, settlements_soa);
+
+        for (i, agent) in world_aos.agents.iter().enumerate() {
+            assert_eq!(
+                agent.wealth,
+                storage.wealth()[i],
+                "agent {} wealth mismatch",
+                i
+            );
+        }
+
+        let reconstructed = storage.to_agents();
+        assert_eq!(world_aos.agents, reconstructed);
+    }
+}

@@ -605,6 +605,38 @@ impl SegmentedAgentStorage {
         Ok(out)
     }
 
+    /// Executes Phase 8: Institutional Welfare Distribution natively on segmented storage columns.
+    #[inline]
+    pub fn phase8_welfare_distribution(
+        &mut self,
+        settlements: &mut [SettlementState],
+        starvation_threshold: f32,
+        welfare_payment: Money,
+    ) -> Result<Vec<crate::resolution::SettlementWelfareResolution>, crate::resolution::Phase8Error>
+    {
+        crate::resolution::phase8_welfare_distribution_storage(
+            self,
+            settlements,
+            starvation_threshold,
+            welfare_payment,
+        )
+    }
+
+    /// Executes Phase 8: Institutional Welfare Distribution natively given [`SimConfig`](crate::SimConfig).
+    #[inline]
+    pub fn phase8_welfare_distribution_with_config(
+        &mut self,
+        settlements: &mut [SettlementState],
+        config: &crate::SimConfig,
+    ) -> Result<Vec<crate::resolution::SettlementWelfareResolution>, crate::resolution::Phase8Error>
+    {
+        self.phase8_welfare_distribution(
+            settlements,
+            config.interaction.starvation_threshold,
+            config.economy.welfare_payment,
+        )
+    }
+
     /// Executes Phase 9: Mortality Status Commitment natively on segmented storage columns.
     #[inline]
     pub fn phase9_mortality_commitment(
