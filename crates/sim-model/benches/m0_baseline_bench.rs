@@ -11,7 +11,7 @@
 use std::time::{Duration, Instant};
 
 use sim_core::prng::{RngCoordinate, coordinate_prng_f32};
-use sim_core::{AgentId, Money, SimulationDay};
+use sim_core::{AgentId, GroupId, Money, SimulationDay};
 use sim_model::decision::{
     Action, PrimaryActionChoice, phase4_primary_action_selection,
     phase4_primary_action_selection_into, phase4_primary_action_selection_storage_into,
@@ -24,9 +24,9 @@ use sim_model::events::{
     phase11_flush_events,
 };
 use sim_model::features::{
-    AgentFeatures, phase3_observation_and_features, phase3_observation_and_features_into,
-    phase3_observation_and_features_soa_into, phase3_observation_and_features_storage_into,
-    phase3_observation_and_features_with_scratch,
+    AgentFeatures, FeatureVector, phase3_observation_and_features,
+    phase3_observation_and_features_into, phase3_observation_and_features_soa_into,
+    phase3_observation_and_features_storage_into, phase3_observation_and_features_with_scratch,
 };
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::intents::{
@@ -4633,6 +4633,1112 @@ fn measure_m2_28_phase4_optimization(base_config: &SimConfig, context: &M0RunCon
     }
 }
 
+#[allow(clippy::needless_range_loop)]
+fn measure_m2_29_post_soa_profiling(base_config: &SimConfig, context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-29 Post-SoA Hot-Path Profiling & SIMD Target Selection Benchmark");
+    println!("Baseline: Full Hybrid Native SoA Pipeline (Post M2-28 Optimization)");
+    println!("=================================================================");
+
+    let populations = [100u64, 250, 500, 1000, 2500, 5000, 10000];
+
+    #[derive(Debug, Default, Clone, Copy)]
+    struct PhaseDurations {
+        p1: f64,
+        p2: f64,
+        p3: f64,
+        p4_sel: f64,
+        p4_int: f64,
+        p5: f64,
+        p6a: f64,
+        p6b: f64,
+        p7: f64,
+        p8: f64,
+        p9: f64,
+        stg: f64,
+        p10: f64,
+        p11_norm: f64,
+        p11_snap: f64,
+        total_norm: f64,
+    }
+
+    let mut results: Vec<(u64, PhaseDurations, f64, f64)> = Vec::new();
+
+    println!(
+        "\n--- Part 1A: Full Hybrid Phase-by-Phase Latency Breakdown (Normal Non-Snapshot Ticks) ---"
+    );
+    println!(
+        "{:<6} | {:>6} | {:>6} | {:>6} | {:>7} | {:>7} | {:>6} | {:>6} | {:>6} | {:>6} | {:>6} | {:>6} | {:>6} | {:>6} | {:>6} | {:>8} | {:>9} | {:>10}",
+        "Pop(N)",
+        "P1(u)",
+        "P2(u)",
+        "P3(u)",
+        "P4S(u)",
+        "P4I(u)",
+        "P5(u)",
+        "P6A(u)",
+        "P6B(u)",
+        "P7(u)",
+        "P8(u)",
+        "P9(u)",
+        "Stg(u)",
+        "P10(u)",
+        "P11(u)",
+        "Tot(us)",
+        "Ticks/sec",
+        "Steps/sec"
+    );
+    println!("{:-<156}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let base_world = initialize_world(&cfg).unwrap();
+        let mut hybrid_world = HybridWorldState::hybrid(base_world);
+
+        let sweeps = match pop {
+            100..=1000 => 40,
+            2500 => 25,
+            5000 => 15,
+            _ => 10,
+        };
+
+        // Warm up 3 ticks
+        for _ in 0..3 {
+            let opts = DayExecutionOptions {
+                metrics_enabled: true,
+                events_enabled: true,
+                snapshot_boundary: false,
+            };
+            let _ = sim_model::runner::run_hybrid_authority_day(
+                &mut hybrid_world,
+                &cfg,
+                context,
+                &opts,
+            )
+            .unwrap();
+        }
+
+        let mut d_p1 = Duration::ZERO;
+        let mut d_p2 = Duration::ZERO;
+        let mut d_p3 = Duration::ZERO;
+        let mut d_p4_sel = Duration::ZERO;
+        let mut d_p4_int = Duration::ZERO;
+        let mut d_p5 = Duration::ZERO;
+        let mut d_p6a = Duration::ZERO;
+        let mut d_p6b = Duration::ZERO;
+        let mut d_p7 = Duration::ZERO;
+        let mut d_p8 = Duration::ZERO;
+        let mut d_p9 = Duration::ZERO;
+        let mut d_stg = Duration::ZERO;
+        let mut d_p10 = Duration::ZERO;
+        let mut d_p11_norm = Duration::ZERO;
+        let mut d_p11_snap = Duration::ZERO;
+
+        let mut features_scratch = Vec::with_capacity(pop as usize);
+        let mut choices_scratch = Vec::with_capacity(pop as usize);
+        let mut intents_scratch = Vec::with_capacity(pop as usize);
+        let mut cand_scratch = Vec::with_capacity(pop as usize);
+
+        let mut effective_config = cfg.clone();
+        effective_config.world.master_seed = context.master_seed;
+        effective_config.world.replicate_id = context.replicate_id;
+
+        for _ in 0..sweeps {
+            let HybridWorldState {
+                world,
+                segmented_storage,
+                authority_mode: _,
+            } = &mut hybrid_world;
+            let storage = segmented_storage.as_mut().unwrap();
+            let executed_day = world.current_day.as_u32();
+            let next_day = executed_day + 1;
+
+            // Phase 1
+            let t1 = Instant::now();
+            phase1_resource_regrowth(world, &effective_config);
+            d_p1 += t1.elapsed();
+
+            // Phase 2
+            let t2 = Instant::now();
+            storage.phase2_degradation_with_config(&effective_config);
+            d_p2 += t2.elapsed();
+
+            // Phase 3
+            let t3 = Instant::now();
+            features_scratch.clear();
+            storage
+                .phase3_features_into(&world.settlements, &effective_config, &mut features_scratch)
+                .unwrap();
+            d_p3 += t3.elapsed();
+
+            // Phase 4 - Selection
+            let t4_sel = Instant::now();
+            choices_scratch.clear();
+            phase4_primary_action_selection_storage_into(
+                storage,
+                world.current_day,
+                &effective_config,
+                &features_scratch,
+                &mut choices_scratch,
+            )
+            .unwrap();
+            d_p4_sel += t4_sel.elapsed();
+
+            // Phase 4 - Intent
+            let t4_int = Instant::now();
+            intents_scratch.clear();
+            generate_intents_storage_with_scratch(
+                storage,
+                world.current_day,
+                &effective_config,
+                &choices_scratch,
+                &mut cand_scratch,
+                &mut intents_scratch,
+            )
+            .unwrap();
+            d_p4_int += t4_int.elapsed();
+
+            // Phase 5
+            let t5 = Instant::now();
+            let partitions = phase5_partition_intents(&intents_scratch).unwrap();
+            d_p5 += t5.elapsed();
+
+            // Phase 6A
+            let t6a = Instant::now();
+            let work_resolutions =
+                phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)
+                    .unwrap();
+            d_p6a += t6a.elapsed();
+
+            // Phase 6B
+            let t6b = Instant::now();
+            let targeted_resolutions = phase6b_targeted_resolution_storage(
+                storage,
+                &world.settlements,
+                world.current_day,
+                &effective_config,
+                &partitions,
+            )
+            .unwrap();
+            d_p6b += t6b.elapsed();
+
+            // Phase 7
+            let t7 = Instant::now();
+            let market_resolutions = phase7_market_clearance_storage_with_config(
+                storage,
+                &mut world.settlements,
+                &partitions,
+                &effective_config.economy,
+            )
+            .unwrap();
+            d_p7 += t7.elapsed();
+
+            // Phase 8
+            let t8 = Instant::now();
+            let welfare_resolutions = storage
+                .phase8_welfare_distribution_with_config(&mut world.settlements, &effective_config)
+                .unwrap();
+            d_p8 += t8.elapsed();
+
+            // Phase 9
+            let t9 = Instant::now();
+            let mortality_resolution = storage.phase9_mortality_commitment().unwrap();
+            d_p9 += t9.elapsed();
+
+            // Staged Event Buffer Assembly
+            let t_stg = Instant::now();
+            let estimated_cap = storage.len().saturating_mul(2) + world.settlements.len() + 4;
+            let mut event_buffer = EventBuffer::with_capacity(estimated_cap);
+            let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+            for w in &work_resolutions {
+                let work_events = events_from_work_resolution(executed_day, w);
+                let count = work_events.len() as u64;
+                if let Some(entry) = phase6_counts
+                    .iter_mut()
+                    .find(|(gid, _)| *gid == w.group_id.0)
+                {
+                    entry.1 += count;
+                } else {
+                    phase6_counts.push((w.group_id.0, count));
+                }
+                event_buffer.push_all(work_events);
+            }
+            for t in &targeted_resolutions {
+                let mut targeted_events = events_from_targeted_resolution(executed_day, t);
+                let offset = if let Some(entry) = phase6_counts
+                    .iter_mut()
+                    .find(|(gid, _)| *gid == t.group_id.0)
+                {
+                    let prev = entry.1;
+                    entry.1 += targeted_events.len() as u64;
+                    prev
+                } else {
+                    phase6_counts.push((t.group_id.0, targeted_events.len() as u64));
+                    0
+                };
+                if offset > 0 {
+                    for te in &mut targeted_events {
+                        te.key.local_sequence += offset;
+                    }
+                }
+                event_buffer.push_all(targeted_events);
+            }
+            for m in &market_resolutions {
+                event_buffer.push_all(events_from_market_resolution(executed_day, m));
+            }
+            for wel in &welfare_resolutions {
+                event_buffer.push_all(events_from_welfare_resolution(executed_day, wel));
+            }
+            event_buffer.push_all(events_from_mortality_resolution(
+                executed_day,
+                &mortality_resolution,
+            ));
+            d_stg += t_stg.elapsed();
+
+            // Phase 10
+            let t10 = Instant::now();
+            let metrics = storage
+                .phase10_metrics(&world.settlements, executed_day)
+                .unwrap();
+            event_buffer.push(event_from_daily_metrics(&metrics));
+            d_p10 += t10.elapsed();
+
+            // Phase 11 Normal
+            let t11_flush = Instant::now();
+            let _ = phase11_flush_events(&mut event_buffer).unwrap();
+            d_p11_norm += t11_flush.elapsed();
+
+            // Snapshot Boundary Measurement (Isolated)
+            let t_snap = Instant::now();
+            storage.write_back_to_agents(&mut world.agents);
+            let snapshot_metadata = SnapshotMetadata::new(
+                next_day,
+                context.master_seed,
+                context.replicate_id,
+                DEFAULT_MODEL_VERSION,
+                DEFAULT_CONFIG_VERSION,
+            );
+            let _ = encode_snapshot(world, &snapshot_metadata).unwrap();
+            d_p11_snap += t_snap.elapsed();
+
+            world.current_day = SimulationDay(next_day);
+        }
+
+        let to_us = |d: Duration| d.as_nanos() as f64 / (sweeps as f64) / 1000.0;
+        let p1 = to_us(d_p1);
+        let p2 = to_us(d_p2);
+        let p3 = to_us(d_p3);
+        let p4_sel = to_us(d_p4_sel);
+        let p4_int = to_us(d_p4_int);
+        let p5 = to_us(d_p5);
+        let p6a = to_us(d_p6a);
+        let p6b = to_us(d_p6b);
+        let p7 = to_us(d_p7);
+        let p8 = to_us(d_p8);
+        let p9 = to_us(d_p9);
+        let stg = to_us(d_stg);
+        let p10 = to_us(d_p10);
+        let p11_norm = to_us(d_p11_norm);
+        let p11_snap = to_us(d_p11_snap);
+
+        let tot_norm =
+            p1 + p2 + p3 + p4_sel + p4_int + p5 + p6a + p6b + p7 + p8 + p9 + stg + p10 + p11_norm;
+        let dps = 1_000_000.0 / tot_norm.max(0.001);
+        let agent_steps = dps * (pop as f64);
+
+        let durs = PhaseDurations {
+            p1,
+            p2,
+            p3,
+            p4_sel,
+            p4_int,
+            p5,
+            p6a,
+            p6b,
+            p7,
+            p8,
+            p9,
+            stg,
+            p10,
+            p11_norm,
+            p11_snap,
+            total_norm: tot_norm,
+        };
+        results.push((pop, durs, dps, agent_steps));
+
+        println!(
+            "{:<6} | {:>6.2} | {:>6.2} | {:>6.2} | {:>7.2} | {:>7.2} | {:>6.2} | {:>6.2} | {:>6.2} | {:>6.2} | {:>6.2} | {:>6.2} | {:>6.2} | {:>6.2} | {:>6.2} | {:>8.2} | {:>9.1} | {:>10.0}",
+            pop,
+            p1,
+            p2,
+            p3,
+            p4_sel,
+            p4_int,
+            p5,
+            p6a,
+            p6b,
+            p7,
+            p8,
+            p9,
+            stg,
+            p10,
+            p11_norm,
+            tot_norm,
+            dps,
+            agent_steps
+        );
+    }
+
+    println!("\n--- Part 1B: Per-Phase Runtime Share (%) in Normal Tick ---");
+    println!(
+        "{:<6} | {:>5} | {:>5} | {:>5} | {:>6} | {:>6} | {:>5} | {:>5} | {:>5} | {:>5} | {:>5} | {:>5} | {:>5} | {:>5} | {:>5}",
+        "Pop(N)",
+        "P1%",
+        "P2%",
+        "P3%",
+        "P4S%",
+        "P4I%",
+        "P5%",
+        "P6A%",
+        "P6B%",
+        "P7%",
+        "P8%",
+        "P9%",
+        "Stg%",
+        "P10%",
+        "P11%"
+    );
+    println!("{:-<100}", "");
+    for &(pop, d, _, _) in &results {
+        let tot = d.total_norm;
+        let pct = |v: f64| (v / tot) * 100.0;
+        println!(
+            "{:<6} | {:>4.1}% | {:>4.1}% | {:>4.1}% | {:>5.1}% | {:>5.1}% | {:>4.1}% | {:>4.1}% | {:>4.1}% | {:>4.1}% | {:>4.1}% | {:>4.1}% | {:>4.1}% | {:>4.1}% | {:>4.1}%",
+            pop,
+            pct(d.p1),
+            pct(d.p2),
+            pct(d.p3),
+            pct(d.p4_sel),
+            pct(d.p4_int),
+            pct(d.p5),
+            pct(d.p6a),
+            pct(d.p6b),
+            pct(d.p7),
+            pct(d.p8),
+            pct(d.p9),
+            pct(d.stg),
+            pct(d.p10),
+            pct(d.p11_norm)
+        );
+    }
+
+    println!("\n--- Part 1C: Normal Tick vs Snapshot Boundary Tick Latency Overhead ---");
+    println!(
+        "{:<6} | {:>14} | {:>14} | {:>14} | {:>14}",
+        "Pop(N)", "Normal(us)", "Snap Bound(us)", "Overhead(us)", "Overhead Ratio"
+    );
+    println!("{:-<70}", "");
+    for &(pop, d, _, _) in &results {
+        let snap_tot = d.total_norm + d.p11_snap;
+        let ratio = snap_tot / d.total_norm;
+        println!(
+            "{:<6} | {:>14.2} | {:>14.2} | {:>14.2} | {:>13.2}x",
+            pop, d.total_norm, snap_tot, d.p11_snap, ratio
+        );
+    }
+
+    println!("\n--- Part 2: Population Scaling Analysis & Empirical Exponent (alpha) ---");
+    println!(
+        "{:<20} | {:>10} | {:>10} | {:>12} | {:>14} | {:>26}",
+        "Phase / Metric",
+        "T(1000) us",
+        "T(10000) us",
+        "Ratio(10k/1k)",
+        "Exponent alpha",
+        "Scaling Regime"
+    );
+    println!("{:-<102}", "");
+
+    let r_1k = results.iter().find(|(p, _, _, _)| *p == 1000).unwrap();
+    let r_10k = results.iter().find(|(p, _, _, _)| *p == 10000).unwrap();
+    let d_1k = r_1k.1;
+    let d_10k = r_10k.1;
+
+    let phases_eval = [
+        ("Phase 1 Regrowth", d_1k.p1, d_10k.p1),
+        ("Phase 2 Degradation", d_1k.p2, d_10k.p2),
+        ("Phase 3 Features", d_1k.p3, d_10k.p3),
+        ("Phase 4 Selection", d_1k.p4_sel, d_10k.p4_sel),
+        ("Phase 4 Intent", d_1k.p4_int, d_10k.p4_int),
+        ("Phase 5 Partition", d_1k.p5, d_10k.p5),
+        ("Phase 6A Work", d_1k.p6a, d_10k.p6a),
+        ("Phase 6B Targeted", d_1k.p6b, d_10k.p6b),
+        ("Phase 7 Market", d_1k.p7, d_10k.p7),
+        ("Phase 8 Welfare", d_1k.p8, d_10k.p8),
+        ("Phase 9 Mortality", d_1k.p9, d_10k.p9),
+        ("Event Staging", d_1k.stg, d_10k.stg),
+        ("Phase 10 Metrics", d_1k.p10, d_10k.p10),
+        ("Phase 11 Normal", d_1k.p11_norm, d_10k.p11_norm),
+        ("Total Normal Tick", d_1k.total_norm, d_10k.total_norm),
+        ("Snapshot Overhead", d_1k.p11_snap, d_10k.p11_snap),
+    ];
+
+    for (name, t1k, t10k) in &phases_eval {
+        let ratio = t10k / t1k.max(0.001);
+        let alpha = ratio.ln() / (10.0f64).ln();
+        let regime = if alpha < 0.2 {
+            "O(1) Population-Independent"
+        } else if alpha < 1.05 {
+            "O(N) Strictly Linear"
+        } else if alpha <= 1.30 {
+            "O(N log N) Mild Superlinear"
+        } else {
+            "O(N^2) Bottleneck Candidate"
+        };
+        println!(
+            "{:<20} | {:>10.2} | {:>10.2} | {:>11.2}x | {:>14.3} | {:>26}",
+            name, t1k, t10k, ratio, alpha, regime
+        );
+    }
+
+    println!("\n--- Part 3: Native Kernel Internal Sub-component Breakdown ---");
+    let test_pops = [100u64, 500, 1000, 10000];
+
+    // 1. Phase 2 Breakdown
+    println!("\n[Phase 2 Biological Degradation Sub-components (us)]");
+    println!(
+        "{:<6} | {:>12} | {:>14} | {:>14} | {:>14}",
+        "Pop(N)", "Total P2(us)", "Decay Math(us)", "Clamp(us)", "Mem Store(us)"
+    );
+    println!("{:-<64}", "");
+    for &pop in &test_pops {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let mut storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let n = storage.len();
+        let sweeps = 50;
+
+        let f_metabolic = cfg.environment.base_metabolic_cost;
+        let decay_rate = cfg.environment.health_decay_rate;
+        let mut foods = storage.economy.food.clone();
+        let mut healths = storage.demography.health.clone();
+        let alives = &storage.demography.alive;
+
+        let t_math = Instant::now();
+        for _ in 0..sweeps {
+            for i in 0..n {
+                if alives[i] {
+                    let f = foods[i];
+                    let f_consumed = f.min(f_metabolic);
+                    let f_deficit = f_metabolic - f_consumed;
+                    let health_delta = -decay_rate * f_deficit;
+                    std::hint::black_box((f_consumed, health_delta));
+                }
+            }
+        }
+        let math_us = t_math.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let t_clamp = Instant::now();
+        for _ in 0..sweeps {
+            for i in 0..n {
+                if alives[i] {
+                    let f = (foods[i] - 1.0).max(0.0);
+                    let h = (healths[i] - 0.05).clamp(0.0, 1.0);
+                    std::hint::black_box((f, h));
+                }
+            }
+        }
+        let clamp_us = t_clamp.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let t_store = Instant::now();
+        for _ in 0..sweeps {
+            for i in 0..n {
+                if alives[i] {
+                    foods[i] = 20.0;
+                    healths[i] = 0.95;
+                }
+            }
+        }
+        let store_us = t_store.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let t_tot = Instant::now();
+        for _ in 0..sweeps {
+            storage.phase2_degradation_with_config(&cfg);
+        }
+        let tot_us = t_tot.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        println!(
+            "{:<6} | {:>12.2} | {:>14.2} | {:>14.2} | {:>14.2}",
+            pop, tot_us, math_us, clamp_us, store_us
+        );
+    }
+
+    // 2. Phase 3 Breakdown
+    println!("\n[Phase 3 Observation & Features Sub-components (us)]");
+    println!(
+        "{:<6} | {:>12} | {:>14} | {:>14} | {:>14} | {:>14}",
+        "Pop(N)", "Total P3(us)", "Scarcity(us)", "State Norm(us)", "Pack/Push(us)", "Sort(us)"
+    );
+    println!("{:-<80}", "");
+    for &pop in &test_pops {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let n = storage.len();
+        let sweeps = 50;
+
+        let starvation_threshold = cfg.interaction.starvation_threshold;
+        let target_reserve = cfg.economy.target_reserve as f32;
+        let target_food = cfg.economy.target_food;
+        let foods = storage.food();
+        let wealths = storage.wealth();
+        let healths = storage.health();
+        let alives = storage.alive();
+        let agent_ids = storage.agent_ids();
+
+        let t_scarcity = Instant::now();
+        for _ in 0..sweeps {
+            for i in 0..n {
+                if alives[i] {
+                    let sc = 0.15f32;
+                    std::hint::black_box(sc);
+                }
+            }
+        }
+        let scarcity_us = t_scarcity.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let t_norm = Instant::now();
+        for _ in 0..sweeps {
+            for i in 0..n {
+                if alives[i] {
+                    let hunger_ratio = (1.0 - foods[i] / starvation_threshold).clamp(0.0, 1.0);
+                    let wealth_pressure =
+                        (1.0 - (wealths[i] as f32) / target_reserve).clamp(0.0, 1.0);
+                    let health_deficit = (1.0 - healths[i]).clamp(0.0, 1.0);
+                    let food_surplus =
+                        ((foods[i] - starvation_threshold) / target_food).clamp(0.0, 1.0);
+                    std::hint::black_box((
+                        hunger_ratio,
+                        wealth_pressure,
+                        health_deficit,
+                        food_surplus,
+                    ));
+                }
+            }
+        }
+        let norm_us = t_norm.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let mut out_features = Vec::with_capacity(n);
+        let t_pack = Instant::now();
+        for _ in 0..sweeps {
+            out_features.clear();
+            for i in 0..n {
+                if alives[i] {
+                    out_features.push(AgentFeatures {
+                        agent_id: agent_ids[i],
+                        features: FeatureVector::new([0.2, 0.3, 0.1, 0.15, 0.4]),
+                    });
+                }
+            }
+        }
+        let pack_us = t_pack.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let t_sort = Instant::now();
+        for _ in 0..sweeps {
+            out_features.sort_by_key(|af| af.agent_id);
+        }
+        let sort_us = t_sort.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let mut full_scratch = Vec::with_capacity(n);
+        let t_tot = Instant::now();
+        for _ in 0..sweeps {
+            full_scratch.clear();
+            storage
+                .phase3_features_into(&base_world.settlements, &cfg, &mut full_scratch)
+                .unwrap();
+        }
+        let tot_us = t_tot.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        println!(
+            "{:<6} | {:>12.2} | {:>14.2} | {:>14.2} | {:>14.2} | {:>14.2}",
+            pop, tot_us, scarcity_us, norm_us, pack_us, sort_us
+        );
+    }
+
+    // 3. Phase 4 Breakdown
+    println!("\n[Phase 4 Decision & Intent Sub-components (us)]");
+    println!(
+        "{:<6} | {:>10} | {:>12} | {:>10} | {:>10} | {:>10} | {:>10} | {:>12}",
+        "Pop(N)",
+        "Total P4",
+        "U_base Dot",
+        "Softmax",
+        "PRNG Hash",
+        "CDF Select",
+        "Cand Search",
+        "Intent Alloc"
+    );
+    println!("{:-<96}", "");
+    for &pop in &test_pops {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let n = storage.len();
+        let sweeps = match pop {
+            100..=1000 => 40,
+            _ => 15,
+        };
+
+        let mut features = Vec::with_capacity(n);
+        storage
+            .phase3_features_into(&base_world.settlements, &cfg, &mut features)
+            .unwrap();
+
+        // U_base dot product
+        let t_dot = Instant::now();
+        for _ in 0..sweeps {
+            for af in &features {
+                let mut utilities = [0.0f32; 6];
+                for (m, _action) in Action::ALL.iter().enumerate() {
+                    let mut u_base = cfg.decision.action_biases[m];
+                    for k in 0..5 {
+                        u_base += cfg.decision.base_weight_matrix[m][k] * af.features.values[k];
+                    }
+                    utilities[m] = u_base;
+                }
+                std::hint::black_box(utilities);
+            }
+        }
+        let dot_us = t_dot.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        // Softmax
+        let utilities = [0.5f32, 1.2, 0.8, -0.4, 0.1, 0.9];
+        let t_sm = Instant::now();
+        for _ in 0..sweeps {
+            for _ in 0..n {
+                let probs = stable_softmax(&utilities, cfg.decision.decision_temperature);
+                std::hint::black_box(probs);
+            }
+        }
+        let sm_us = t_sm.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        // PRNG coordinate hash
+        let t_prng = Instant::now();
+        for _ in 0..sweeps {
+            for i in 0..n {
+                let coord = RngCoordinate::new(
+                    cfg.world.master_seed,
+                    cfg.world.replicate_id,
+                    1,
+                    4,
+                    Subsystem::Decision.id(),
+                    i as u32,
+                    0,
+                );
+                let u = coordinate_prng_f32(&coord);
+                std::hint::black_box(u);
+            }
+        }
+        let prng_us = t_prng.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        // CDF select
+        let probs = [0.1f32, 0.2, 0.3, 0.15, 0.15, 0.1];
+        let t_cdf = Instant::now();
+        for _ in 0..sweeps {
+            for i in 0..n {
+                let u = (i as f32) / (n as f32);
+                let a = select_action(&probs, u);
+                std::hint::black_box(a);
+            }
+        }
+        let cdf_us = t_cdf.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        // Candidate search
+        let mut choices = Vec::with_capacity(n);
+        phase4_primary_action_selection_storage_into(
+            &storage,
+            base_world.current_day,
+            &cfg,
+            &features,
+            &mut choices,
+        )
+        .unwrap();
+
+        let foods = storage.food();
+        let alives = storage.alive();
+        let healths = storage.health();
+        let group_ids = storage.group_ids();
+        let agent_ids = storage.agent_ids();
+        let mut cand_scratch = Vec::with_capacity(n);
+
+        let t_cand = Instant::now();
+        for _ in 0..sweeps {
+            for c in &choices {
+                if c.action == Action::GiveFood || c.action == Action::StealFood {
+                    cand_scratch.clear();
+                    let target_gid = group_ids[0];
+                    for s in 0..n {
+                        if group_ids[s] == target_gid
+                            && alives[s]
+                            && healths[s] > 0.0
+                            && agent_ids[s] != c.agent_id
+                            && foods[s] < cfg.interaction.starvation_threshold
+                        {
+                            cand_scratch.push(agent_ids[s]);
+                        }
+                    }
+                    cand_scratch.sort_unstable();
+                    std::hint::black_box(&cand_scratch);
+                }
+            }
+        }
+        let cand_us = t_cand.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        // Intent allocation
+        let mut intents = Vec::with_capacity(n);
+        let t_alloc = Instant::now();
+        for _ in 0..sweeps {
+            intents.clear();
+            for c in &choices {
+                intents.push(Intent::Work {
+                    agent_id: c.agent_id,
+                    group_id: GroupId(0),
+                    requested_harvest: 2.0,
+                });
+            }
+        }
+        let alloc_us = t_alloc.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        // Total Phase 4
+        let mut full_choices = Vec::with_capacity(n);
+        let mut full_intents = Vec::with_capacity(n);
+        let t_tot = Instant::now();
+        for _ in 0..sweeps {
+            full_choices.clear();
+            phase4_primary_action_selection_storage_into(
+                &storage,
+                base_world.current_day,
+                &cfg,
+                &features,
+                &mut full_choices,
+            )
+            .unwrap();
+            full_intents.clear();
+            generate_intents_storage_with_scratch(
+                &storage,
+                base_world.current_day,
+                &cfg,
+                &full_choices,
+                &mut cand_scratch,
+                &mut full_intents,
+            )
+            .unwrap();
+        }
+        let tot_us = t_tot.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        println!(
+            "{:<6} | {:>10.2} | {:>12.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>10.2} | {:>12.2}",
+            pop, tot_us, dot_us, sm_us, prng_us, cdf_us, cand_us, alloc_us
+        );
+    }
+
+    // 4. Phase 8 Breakdown
+    println!("\n[Phase 8 Welfare Distribution Sub-components (us)]");
+    println!(
+        "{:<6} | {:>12} | {:>16} | {:>16} | {:>14}",
+        "Pop(N)", "Total P8(us)", "Eligible Scan(us)", "Payment Math(us)", "Wealth Write(us)"
+    );
+    println!("{:-<72}", "");
+    for &pop in &test_pops {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        let mut base_world = initialize_world(&cfg).unwrap();
+        let mut storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let n = storage.len();
+        let sweeps = 50;
+
+        let alives = storage.alive();
+        let healths = storage.health();
+        let foods = storage.food();
+        let group_ids = storage.group_ids();
+        let starvation_threshold = cfg.interaction.starvation_threshold;
+
+        let t_scan = Instant::now();
+        for _ in 0..sweeps {
+            let mut eligible_count = 0usize;
+            for i in 0..n {
+                if group_ids[i] == GroupId(0)
+                    && alives[i]
+                    && healths[i] > 0.0
+                    && foods[i] < starvation_threshold
+                {
+                    eligible_count += 1;
+                }
+            }
+            std::hint::black_box(eligible_count);
+        }
+        let scan_us = t_scan.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let treasury = 5000i64;
+        let count = (pop / 4).max(1) as i64;
+        let t_math = Instant::now();
+        for _ in 0..sweeps {
+            for _ in 0..10 {
+                let per_agent = treasury / count;
+                let remainder = treasury % count;
+                std::hint::black_box((per_agent, remainder));
+            }
+        }
+        let math_us = t_math.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let mut wealths = storage.economy.wealth.clone();
+        let t_write = Instant::now();
+        for _ in 0..sweeps {
+            for i in 0..n {
+                if i % 4 == 0 {
+                    wealths[i] += 100;
+                }
+            }
+        }
+        let write_us = t_write.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let t_tot = Instant::now();
+        for _ in 0..sweeps {
+            let _ = storage
+                .phase8_welfare_distribution_with_config(&mut base_world.settlements, &cfg)
+                .unwrap();
+        }
+        let tot_us = t_tot.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        println!(
+            "{:<6} | {:>12.2} | {:>16.2} | {:>16.2} | {:>14.2}",
+            pop, tot_us, scan_us, math_us, write_us
+        );
+    }
+
+    // 5. Phase 9 Breakdown
+    println!("\n[Phase 9 Mortality Commitment Sub-components (us)]");
+    println!(
+        "{:<6} | {:>12} | {:>16} | {:>14} | {:>14}",
+        "Pop(N)", "Total P9(us)", "Mortality Scan(us)", "Alive Write(us)", "Record Alloc(us)"
+    );
+    println!("{:-<68}", "");
+    for &pop in &test_pops {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let mut storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let n = storage.len();
+        let sweeps = 50;
+
+        let healths = storage.health();
+        let alives = storage.alive();
+
+        let t_scan = Instant::now();
+        for _ in 0..sweeps {
+            let mut dead_count = 0usize;
+            for i in 0..n {
+                if alives[i] && healths[i] <= 0.0 {
+                    dead_count += 1;
+                }
+            }
+            std::hint::black_box(dead_count);
+        }
+        let scan_us = t_scan.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let mut alive_mut = storage.demography.alive.clone();
+        let t_write = Instant::now();
+        for _ in 0..sweeps {
+            for i in 0..n {
+                if i % 20 == 0 {
+                    alive_mut[i] = false;
+                }
+            }
+        }
+        let write_us = t_write.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let mut dead_vec = Vec::new();
+        let t_alloc = Instant::now();
+        for _ in 0..sweeps {
+            dead_vec.clear();
+            for i in 0..n {
+                if i % 20 == 0 {
+                    dead_vec.push(AgentId(i as u32));
+                }
+            }
+        }
+        let alloc_us = t_alloc.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let t_tot = Instant::now();
+        for _ in 0..sweeps {
+            let _ = storage.phase9_mortality_commitment().unwrap();
+        }
+        let tot_us = t_tot.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        println!(
+            "{:<6} | {:>12.2} | {:>16.2} | {:>14.2} | {:>14.2}",
+            pop, tot_us, scan_us, write_us, alloc_us
+        );
+    }
+
+    // 6. Phase 10 Breakdown
+    println!("\n[Phase 10 Macroscopic Metrics Sub-components (us)]");
+    println!(
+        "{:<6} | {:>12} | {:>16} | {:>14} | {:>14} | {:>14}",
+        "Pop(N)",
+        "Total P10(us)",
+        "Food Sum Red(us)",
+        "Treasury Sum(us)",
+        "Wealth Sort(us)",
+        "Gini Math(us)"
+    );
+    println!("{:-<84}", "");
+    for &pop in &test_pops {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let n = storage.len();
+        let sweeps = 50;
+
+        let foods = storage.food();
+        let wealths = storage.wealth();
+        let alives = storage.alive();
+        let agent_ids = storage.agent_ids();
+
+        let mut indices: Vec<usize> = (0..n).collect();
+
+        // Food sum reduction
+        let t_food = Instant::now();
+        for _ in 0..sweeps {
+            let mut total_food = 0.0f64;
+            for i in 0..n {
+                if alives[i] {
+                    total_food += foods[i] as f64;
+                }
+            }
+            std::hint::black_box(total_food);
+        }
+        let food_us = t_food.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        // Treasury sum
+        let t_treasury = Instant::now();
+        for _ in 0..sweeps {
+            let mut tot_t = 0i64;
+            for s in &base_world.settlements {
+                tot_t += s.treasury;
+            }
+            std::hint::black_box(tot_t);
+        }
+        let treasury_us = t_treasury.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        // Wealth sort
+        let t_sort = Instant::now();
+        for _ in 0..sweeps {
+            indices.sort_unstable_by_key(|&i| (wealths[i], agent_ids[i]));
+        }
+        let sort_us = t_sort.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        // Gini math & weighted sum
+        let t_gini = Instant::now();
+        for _ in 0..sweeps {
+            let mut sum_x: u128 = 0;
+            for &idx in &indices {
+                sum_x += wealths[idx] as u128;
+            }
+            let mut weighted_sum: u128 = 0;
+            for (idx, &i) in indices.iter().enumerate() {
+                let rank = (idx as u128) + 1;
+                weighted_sum += rank * (wealths[i] as u128);
+            }
+            let two_w = weighted_sum * 2;
+            let n_plus_one_s = (n as u128 + 1) * sum_x;
+            let num = two_w.saturating_sub(n_plus_one_s);
+            let den = (n as u128) * sum_x.max(1);
+            let g = (num as f64) / (den as f64);
+            std::hint::black_box(g);
+        }
+        let gini_us = t_gini.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        let t_tot = Instant::now();
+        for _ in 0..sweeps {
+            let _ = storage.phase10_metrics(&base_world.settlements, 1).unwrap();
+        }
+        let tot_us = t_tot.elapsed().as_nanos() as f64 / sweeps as f64 / 1000.0;
+
+        println!(
+            "{:<6} | {:>12.2} | {:>16.2} | {:>14.2} | {:>14.2} | {:>14.2}",
+            pop, tot_us, food_us, treasury_us, sort_us, gini_us
+        );
+    }
+
+    // Part 4: Amdahl's Law Speedup Estimation for Candidates
+    println!("\n--- Part 4: Theoretical Speedup Estimation (Amdahl's Law) ---");
+    println!(
+        "{:<38} | {:>7} | {:>10} | {:>10} | {:>10}",
+        "Candidate Kernel", "Share(P)", "Speedup 4x", "Speedup 8x", "Speedup 16x"
+    );
+    println!("{:-<86}", "");
+
+    // Shares at N=1000:
+    let tot_1k = d_1k.total_norm;
+    let p_p4_sel = d_1k.p4_sel / tot_1k;
+    let p_p2 = d_1k.p2 / tot_1k;
+    let p_p3 = d_1k.p3 / tot_1k;
+    let _p_p10_food = 0.001; // tiny fraction
+    let p_combined = p_p4_sel + p_p2 + p_p3;
+
+    let amdahl = |p: f64, s: f64| 1.0 / ((1.0 - p) + (p / s));
+
+    let candidates = [
+        ("Candidate 1: Phase 4 Decision Dot & Softmax", p_p4_sel),
+        ("Candidate 2: Phase 2 Degradation Clamp & Decay", p_p2),
+        ("Candidate 3: Phase 3 State Norm Ratios", p_p3),
+        ("Combined Top 3 Kernels (P4-Sel + P2 + P3)", p_combined),
+    ];
+
+    for (name, p) in &candidates {
+        let s4 = amdahl(*p, 4.0);
+        let s8 = amdahl(*p, 8.0);
+        let s16 = amdahl(*p, 16.0);
+        println!(
+            "{:<38} | {:>6.1}% | {:>9.2}x | {:>9.2}x | {:>9.2}x",
+            name,
+            p * 100.0,
+            s4,
+            s8,
+            s16
+        );
+    }
+
+    println!("\nAmdahl Bottleneck Identification:");
+    println!(
+        "- Intent Generation (Phase 4-Int) takes ~{:.1}% of total runtime (dominant non-SIMD candidate).",
+        (d_1k.p4_int / tot_1k) * 100.0
+    );
+    println!(
+        "- Resolution & Event Staging take ~{:.1}% of total runtime.",
+        ((d_1k.p6a + d_1k.p6b + d_1k.p7 + d_1k.stg) / tot_1k) * 100.0
+    );
+    println!(
+        "- Maximum theoretical speedup from accelerating Phase 4 Selection + Phase 2 + Phase 3 to infinity: {:.2}x",
+        1.0 / (1.0 - p_combined)
+    );
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -4794,6 +5900,9 @@ fn main() {
 
     // 19. M2-28 Phase 4 Native SoA Regression Removal Benchmark
     measure_m2_28_phase4_optimization(&config, &context);
+
+    // 20. M2-29 Post-SoA Hot-Path Profiling & SIMD Target Selection Benchmark
+    measure_m2_29_post_soa_profiling(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");
