@@ -255,6 +255,72 @@ pub fn phase9_mortality_commitment_with_config(
     phase9_mortality_commitment(world)
 }
 
+/// Executes Phase 9: Mortality Status Commitment natively on authoritative [`SegmentedAgentStorage`].
+///
+/// Validates agent health and identifiers directly across contiguous `demography.alive`,
+/// `demography.health`, and `agent_ids` columns, then atomically commits mortality by setting
+/// `alive = false` in-place without heap allocations or linear command search overhead.
+pub fn phase9_mortality_commitment_storage(
+    storage: &mut SegmentedAgentStorage,
+) -> Result<Phase9MortalityResolution, Phase9Error> {
+    let n = storage.agent_ids.len();
+    let mut seen_set = if n > 32 {
+        Some(HashSet::with_capacity(n))
+    } else {
+        None
+    };
+
+    let mut newly_deceased_slots = Vec::new();
+    let mut newly_deceased = Vec::new();
+    let mut already_dead_count = 0;
+    let mut survivors_count = 0;
+
+    for i in 0..n {
+        let aid = storage.agent_ids[i];
+        let duplicate = if let Some(ref mut set) = seen_set {
+            !set.insert(aid)
+        } else {
+            storage.agent_ids[..i].contains(&aid)
+        };
+        if duplicate {
+            return Err(Phase9Error::DuplicateAgent(aid));
+        }
+
+        let h = storage.demography.health[i];
+        if !h.is_finite() {
+            return Err(Phase9Error::NonFiniteHealth {
+                agent_id: aid,
+                health: h,
+            });
+        }
+
+        let is_alive = storage.demography.alive[i];
+        if !is_alive {
+            already_dead_count += 1;
+        } else if h <= 0.0 {
+            newly_deceased_slots.push(i);
+            newly_deceased.push(aid);
+        } else {
+            survivors_count += 1;
+        }
+    }
+
+    // Canonical ordering: strictly ascending AgentId
+    newly_deceased.sort();
+
+    // Stage B: Atomic in-place commit to demography.alive
+    for &slot in &newly_deceased_slots {
+        storage.demography.alive[slot] = false;
+    }
+
+    Ok(Phase9MortalityResolution {
+        newly_deceased_count: newly_deceased.len(),
+        newly_deceased,
+        already_dead_count,
+        survivors_count,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,6 +414,51 @@ trait_weight_risk_tolerance = 1.0
                 i
             );
             assert_eq!(agent.food, storage.food()[i], "agent {} food mismatch", i);
+        }
+
+        // Test reconstructing agents from storage matches world_aos
+        let reconstructed = storage.to_agents();
+        assert_eq!(world_aos.agents, reconstructed);
+    }
+
+    #[test]
+    fn test_phase9_storage_parity() {
+        let config = SimConfig::parse_and_validate(TEST_CONFIG_TOML).unwrap();
+        let mut world = initialize_world(&config).unwrap();
+
+        // Mutate some agent health and alive values to test diverse conditions
+        world.agents[0].alive = false; // already dead
+        world.agents[1].health = 0.0; // newly deceased (exact boundary)
+        world.agents[2].health = -0.5; // newly deceased (negative health)
+        world.agents[3].health = 0.8; // survivor
+        world.agents[4].health = 0.001; // survivor near boundary
+
+        let mut world_aos = world.clone();
+        let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+
+        // Run AoS Phase 9
+        let res_aos = phase9_mortality_commitment(&mut world_aos).unwrap();
+
+        // Run Native SoA Phase 9
+        let res_storage = phase9_mortality_commitment_storage(&mut storage).unwrap();
+
+        // Check resolutions match bit-identically
+        assert_eq!(res_aos, res_storage);
+
+        // Check living status and health match exactly across all agents
+        for (i, agent) in world_aos.agents.iter().enumerate() {
+            assert_eq!(
+                agent.alive,
+                storage.alive()[i],
+                "agent {} alive mismatch",
+                i
+            );
+            assert_eq!(
+                agent.health,
+                storage.health()[i],
+                "agent {} health mismatch",
+                i
+            );
         }
 
         // Test reconstructing agents from storage matches world_aos

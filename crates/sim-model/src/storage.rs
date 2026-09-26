@@ -605,6 +605,14 @@ impl SegmentedAgentStorage {
         Ok(out)
     }
 
+    /// Executes Phase 9: Mortality Status Commitment natively on segmented storage columns.
+    #[inline]
+    pub fn phase9_mortality_commitment(
+        &mut self,
+    ) -> Result<crate::phases::Phase9MortalityResolution, crate::phases::Phase9Error> {
+        crate::phases::phase9_mortality_commitment_storage(self)
+    }
+
     /// Executes Phase 10: Macroscopic Metrics Observation natively on segmented storage columns.
     #[inline]
     pub fn phase10_metrics(

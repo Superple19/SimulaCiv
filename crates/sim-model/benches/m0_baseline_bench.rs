@@ -10,8 +10,12 @@
 
 use std::time::{Duration, Instant};
 
-use sim_core::SimulationDay;
-use sim_model::decision::phase4_primary_action_selection;
+use sim_core::prng::{RngCoordinate, coordinate_prng_f32};
+use sim_core::{AgentId, Money, SimulationDay};
+use sim_model::decision::{
+    Action, PrimaryActionChoice, phase4_primary_action_selection,
+    phase4_primary_action_selection_into, select_action, stable_softmax,
+};
 use sim_model::events::{
     Event, EventBuffer, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
     event_from_daily_metrics, events_from_market_resolution, events_from_mortality_resolution,
@@ -19,21 +23,22 @@ use sim_model::events::{
     phase11_flush_events,
 };
 use sim_model::features::{
-    phase3_observation_and_features, phase3_observation_and_features_into,
+    AgentFeatures, phase3_observation_and_features, phase3_observation_and_features_into,
     phase3_observation_and_features_soa_into, phase3_observation_and_features_storage_into,
     phase3_observation_and_features_with_scratch,
 };
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
-use sim_model::intents::phase4_generate_intents;
+use sim_model::intents::{Intent, phase4_generate_intents, phase4_generate_intents_into};
 use sim_model::metrics::{
     DailyMetrics, phase10_observe, phase10_observe_compact_aos, phase10_observe_soa_fresh,
     phase10_observe_storage, phase10_observe_storage_with_scratch, phase10_observe_with_scratch,
 };
-use sim_model::partitioning::phase5_partition_intents;
+use sim_model::partitioning::{SettlementIntentPartition, phase5_partition_intents};
 use sim_model::phases::{
     phase1_resource_regrowth, phase2_biological_degradation, phase2_biological_degradation_soa,
     phase2_biological_degradation_storage, phase2_biological_degradation_with_scratch,
-    phase9_mortality_commitment, update_biological_degradation,
+    phase9_mortality_commitment, phase9_mortality_commitment_storage,
+    update_biological_degradation,
 };
 use sim_model::resolution::{
     phase6a_work_resolution, phase6b_targeted_resolution, phase7_market_clearance_with_config,
@@ -43,8 +48,10 @@ use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext, run_m0_day,
 };
 use sim_model::snapshot::{SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot};
+use sim_model::state::SettlementState;
 use sim_model::state::{AgentDynamicSoAScratch, WorldState};
 use sim_model::storage::{SegmentedAgentStorage, WorldStorage, canonical_state_hash_from_storage};
+use sim_model::subsystems::Subsystem;
 use sim_model::{SimConfig, initialize_world};
 
 const GATE_CONFIG_TOML: &str = r#"
@@ -2399,6 +2406,767 @@ fn measure_phase3_native_soa(base_config: &SimConfig, context: &M0RunContext) {
     }
 }
 
+// =========================================================================
+// M2-24 Phase 9 Native Segmented SoA Migration Benchmark
+// =========================================================================
+
+fn measure_phase9_native_soa(base_config: &SimConfig, context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-24 Phase 9 Native Segmented SoA Migration Benchmark");
+    println!("=================================================================");
+
+    // Part 1: 500-Day Canonical Trajectory with Native Segmented Phase 9
+    println!("\nPart 1: 500-Day Canonical Trajectory with Native Segmented Phase 9");
+
+    let mut world = initialize_world(base_config).expect("world initializes");
+    let mut segmented = SegmentedAgentStorage::from_agents(&world.agents);
+
+    let mut all_events = Vec::new();
+    let mut metrics = Vec::new();
+    let mut t_p9_native = Duration::ZERO;
+
+    let mut effective_config = base_config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+
+    let start_500 = Instant::now();
+
+    for _d in 0..500 {
+        let executed_day = world.current_day.as_u32();
+        let next_day = executed_day + 1;
+
+        // Phase 1
+        phase1_resource_regrowth(&mut world, &effective_config);
+
+        // Phase 2 (Native SoA)
+        segmented.phase2_degradation_with_config(&effective_config);
+        segmented.write_back_to_agents(&mut world.agents);
+
+        // Phase 3 (Native SoA)
+        let features = segmented
+            .phase3_features(&world.settlements, &effective_config)
+            .expect("phase3 succeeds");
+
+        // Phase 4
+        let choices = phase4_primary_action_selection(&world, &effective_config, &features)
+            .expect("phase4 primary action selection succeeds");
+        let intents = phase4_generate_intents(&world, &effective_config, &choices)
+            .expect("phase4 intent generation succeeds");
+
+        // Phase 5
+        let partitions = phase5_partition_intents(&intents).expect("phase5 succeeds");
+
+        // Phase 6A
+        let work_res = phase6a_work_resolution(&mut world, &partitions).expect("phase6a succeeds");
+
+        // Phase 6B
+        let targeted_res = phase6b_targeted_resolution(&mut world, &effective_config, &partitions)
+            .expect("phase6b succeeds");
+
+        // Phase 7
+        let market_res =
+            phase7_market_clearance_with_config(&mut world, &partitions, &effective_config.economy)
+                .expect("phase7 succeeds");
+
+        // Phase 8
+        let welfare_res = phase8_welfare_distribution_with_config(&mut world, &effective_config)
+            .expect("phase8 succeeds");
+
+        // Sync segmented storage with any mutated fields from phases 6-8
+        segmented.sync_from_agents(&world.agents);
+
+        // Phase 9 (Native SoA)
+        let t0 = Instant::now();
+        let mortality_res = segmented
+            .phase9_mortality_commitment()
+            .expect("phase9 succeeds");
+        t_p9_native += t0.elapsed();
+
+        // Write back alive status to world.agents
+        segmented.write_back_to_agents(&mut world.agents);
+
+        // Event staging
+        let estimated_cap = world.agents.len().saturating_mul(2) + world.settlements.len() + 4;
+        let mut event_buffer = EventBuffer::with_capacity(estimated_cap);
+        let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_res.len());
+        for w in &work_res {
+            let work_events = events_from_work_resolution(executed_day, w);
+            let count = work_events.len() as u64;
+            if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == w.group_id.0)
+            {
+                entry.1 += count;
+            } else {
+                phase6_counts.push((w.group_id.0, count));
+            }
+            event_buffer.push_all(work_events);
+        }
+        for t in &targeted_res {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, t);
+            let offset = if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == t.group_id.0)
+            {
+                let prev = entry.1;
+                entry.1 += targeted_events.len() as u64;
+                prev
+            } else {
+                let count = targeted_events.len() as u64;
+                phase6_counts.push((t.group_id.0, count));
+                0
+            };
+            if offset > 0 {
+                for te in &mut targeted_events {
+                    te.key.local_sequence += offset;
+                }
+            }
+            event_buffer.push_all(targeted_events);
+        }
+        for m in &market_res {
+            event_buffer.push_all(events_from_market_resolution(executed_day, m));
+        }
+        for wel in &welfare_res {
+            event_buffer.push_all(events_from_welfare_resolution(executed_day, wel));
+        }
+        event_buffer.push_all(events_from_mortality_resolution(
+            executed_day,
+            &mortality_res,
+        ));
+
+        // Phase 10 (Native SoA)
+        let m = phase10_observe_storage(&segmented, &world.settlements, executed_day)
+            .expect("phase10 succeeds");
+        event_buffer.push(event_from_daily_metrics(&m));
+        metrics.push(m);
+
+        // Phase 11 Snapshot (Day 199 only)
+        if _d == 199 {
+            let meta = SnapshotMetadata::new(
+                next_day,
+                context.master_seed,
+                context.replicate_id,
+                DEFAULT_MODEL_VERSION,
+                DEFAULT_CONFIG_VERSION,
+            );
+            let _snap = encode_snapshot(&world, &meta).expect("snapshot succeeds");
+            let snap_ev = EventRecord::new(
+                EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: meta.day,
+                    master_seed: meta.master_seed,
+                    replicate_id: meta.replicate_id,
+                    schema_version: SNAPSHOT_SCHEMA_VERSION,
+                }),
+            );
+            event_buffer.push(snap_ev);
+        }
+
+        // Phase 11 Event Flush
+        let flushed = phase11_flush_events(&mut event_buffer).expect("event flush succeeds");
+        all_events.extend(flushed);
+
+        world.current_day = SimulationDay(next_day);
+    }
+
+    let elapsed_500 = start_500.elapsed();
+
+    // Correctness Verification
+    let actual_state_hash = canonical_state_hash(&world).unwrap().to_hex();
+    let actual_metrics_hash = canonical_metrics_hash(&metrics).unwrap().to_hex();
+    let actual_event_hash = canonical_event_hash(&all_events).unwrap().to_hex();
+
+    println!("CanonicalStateHash:   {}", actual_state_hash);
+    println!("  Expected:           {}", EXPECTED_STATE_HASH);
+    assert_eq!(
+        actual_state_hash, EXPECTED_STATE_HASH,
+        "State hash mismatch in Native SoA Phase 9 trajectory!"
+    );
+
+    println!("CanonicalMetricsHash: {}", actual_metrics_hash);
+    println!("  Expected:           {}", EXPECTED_METRICS_HASH);
+    assert_eq!(
+        actual_metrics_hash, EXPECTED_METRICS_HASH,
+        "Metrics hash mismatch in Native SoA Phase 9 trajectory!"
+    );
+
+    println!("CanonicalEventHash:   {}", actual_event_hash);
+    println!("  Expected:           {}", EXPECTED_EVENT_HASH);
+    assert_eq!(
+        actual_event_hash, EXPECTED_EVENT_HASH,
+        "Event hash mismatch in Native SoA Phase 9 trajectory!"
+    );
+    println!("CANONICAL GRADUATION TRAJECTORY: 100% BIT-EXACT MATCH.");
+
+    let total_ms = elapsed_500.as_secs_f64() * 1000.0;
+    let avg_day_us = (elapsed_500.as_nanos() as f64) / 500.0 / 1000.0;
+    let p9_ms = t_p9_native.as_secs_f64() * 1000.0;
+    let p9_us = (t_p9_native.as_nanos() as f64) / 500.0 / 1000.0;
+    println!(
+        "\n500-Day Trajectory Execution Time: {:.3} ms ({:.2} us/day)",
+        total_ms, avg_day_us
+    );
+    println!(
+        "  Phase 9 Native SoA Latency:    {:.3} ms ({:.2} us/day)",
+        p9_ms, p9_us
+    );
+
+    // Part 2: Isolated Phase 9 Latency Comparison (Population Scaling)
+    println!("\nPart 2: Population Scaling Phase 9 Latency Comparison (50 Days)");
+    println!(
+        "{:<8} | {:>14} | {:>16} | {:>16} | {:>8} | {:>8} | {:>14}",
+        "Pop (N)",
+        "A: AoS (us/d)",
+        "B: Adapter(us)",
+        "C: Native(us/d)",
+        "C vs A",
+        "C vs B",
+        "Throughput"
+    );
+    println!("{:-<94}", "");
+
+    let populations = [100u64, 250, 500, 1000];
+    let days = 50;
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let base_world = initialize_world(&cfg).unwrap();
+
+        // Condition A: AoS Phase 9
+        let mut t_aos = Duration::ZERO;
+        for _ in 0..days {
+            let mut w = base_world.clone();
+            for (i, agent) in w.agents.iter_mut().enumerate() {
+                if i % 20 == 0 {
+                    agent.health = 0.0;
+                }
+            }
+            let t0 = Instant::now();
+            let _ = phase9_mortality_commitment(&mut w).unwrap();
+            t_aos += t0.elapsed();
+        }
+
+        // Condition B: Storage Adapter (AoS -> SoA -> execute -> AoS)
+        let mut t_adapter = Duration::ZERO;
+        for _ in 0..days {
+            let mut w = base_world.clone();
+            for (i, agent) in w.agents.iter_mut().enumerate() {
+                if i % 20 == 0 {
+                    agent.health = 0.0;
+                }
+            }
+            let t0 = Instant::now();
+            let mut seg = SegmentedAgentStorage::from_agents(&w.agents);
+            let _ = phase9_mortality_commitment_storage(&mut seg).unwrap();
+            seg.write_back_to_agents(&mut w.agents);
+            t_adapter += t0.elapsed();
+        }
+
+        // Condition C: Native Segmented SoA
+        let mut template_storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        for i in 0..template_storage.len() {
+            if i % 20 == 0 {
+                template_storage.demography.health[i] = 0.0;
+            }
+        }
+        let mut t_native = Duration::ZERO;
+        for _ in 0..days {
+            let mut seg = template_storage.clone();
+            let t0 = Instant::now();
+            let _ = seg.phase9_mortality_commitment().unwrap();
+            t_native += t0.elapsed();
+        }
+
+        let us_aos = (t_aos.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_adapter = (t_adapter.as_nanos() as f64) / (days as f64) / 1000.0;
+        let us_native = (t_native.as_nanos() as f64) / (days as f64) / 1000.0;
+
+        let speedup_c_a = us_aos / us_native.max(0.001);
+        let speedup_c_b = us_adapter / us_native.max(0.001);
+
+        let m_agents_per_sec =
+            ((pop as usize * days) as f64) / t_native.as_secs_f64() / 1_000_000.0;
+
+        println!(
+            "{:<8} | {:>14.2} | {:>16.2} | {:>16.2} | {:>7.2}x | {:>7.2}x | {:>10.2} M/s",
+            pop, us_aos, us_adapter, us_native, speedup_c_a, speedup_c_b, m_agents_per_sec
+        );
+    }
+}
+
+// =========================================================================
+// M2-23 Hot Phase Profiling & Candidate Migration Synthetic Benchmark
+// =========================================================================
+
+fn synthetic_phase9_native(storage: &mut SegmentedAgentStorage) -> Vec<AgentId> {
+    let mut deceased = Vec::new();
+    let n = storage.agent_ids.len();
+    for i in 0..n {
+        if storage.demography.alive[i] && storage.demography.health[i] <= 0.0 {
+            storage.demography.alive[i] = false;
+            deceased.push(storage.agent_ids[i]);
+        }
+    }
+    deceased.sort();
+    deceased
+}
+
+fn synthetic_phase8_native(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    starvation_threshold: f32,
+    welfare_payment: Money,
+) {
+    for settlement in settlements.iter_mut() {
+        let gid = settlement.group_id;
+        let mut eligible_slots = Vec::new();
+        let n = storage.agent_ids.len();
+        for i in 0..n {
+            if storage.economy.group_id[i] == gid
+                && storage.demography.alive[i]
+                && storage.demography.health[i] > 0.0
+                && storage.economy.food[i] < starvation_threshold
+            {
+                eligible_slots.push(i);
+            }
+        }
+        eligible_slots.sort_by_key(|&idx| storage.agent_ids[idx]);
+        let eligible_count = eligible_slots.len();
+        if eligible_count == 0 || welfare_payment == 0 {
+            continue;
+        }
+        let required = (eligible_count as Money).saturating_mul(welfare_payment);
+        if settlement.treasury >= required {
+            settlement.treasury -= required;
+            for &slot in &eligible_slots {
+                storage.economy.wealth[slot] += welfare_payment;
+            }
+        } else {
+            let count_money = eligible_count as Money;
+            let payment_per_agent = settlement.treasury / count_money;
+            let remainder = settlement.treasury % count_money;
+            settlement.treasury = 0;
+            for (idx, &slot) in eligible_slots.iter().enumerate() {
+                let extra = if (idx as Money) < remainder { 1 } else { 0 };
+                storage.economy.wealth[slot] += payment_per_agent + extra;
+            }
+        }
+    }
+}
+
+fn synthetic_phase4_native(
+    storage: &SegmentedAgentStorage,
+    config: &SimConfig,
+    day: u32,
+    agent_features: &[AgentFeatures],
+    out: &mut Vec<PrimaryActionChoice>,
+) {
+    out.clear();
+    let coops = &storage.personality.cooperation;
+    let aggrs = &storage.personality.aggression;
+    let risks = &storage.personality.risk_tolerance;
+    let alives = &storage.demography.alive;
+    let healths = &storage.demography.health;
+
+    for af in agent_features {
+        let slot = match storage.slot_of(af.agent_id) {
+            Some(s) => s,
+            None => continue,
+        };
+        if !alives[slot] || healths[slot] <= 0.0 {
+            continue;
+        }
+        let mut utilities = [0.0f32; 6];
+        for (m, action) in Action::ALL.iter().enumerate() {
+            let mut u_base = config.decision.action_biases[m];
+            for k in 0..5 {
+                u_base += config.decision.base_weight_matrix[m][k] * af.features.values[k];
+            }
+            let trait_mod = match action {
+                Action::Work | Action::BuyFood | Action::SellFood | Action::Idle => 0.0,
+                Action::GiveFood => config.decision.trait_weight_cooperation * coops[slot],
+                Action::StealFood => {
+                    config.decision.trait_weight_aggression * aggrs[slot]
+                        + config.decision.trait_weight_risk_tolerance * risks[slot]
+                }
+            };
+            utilities[m] = u_base + trait_mod;
+        }
+        let probabilities = stable_softmax(&utilities, config.decision.decision_temperature);
+        let coord = RngCoordinate::new(
+            config.world.master_seed,
+            config.world.replicate_id,
+            day,
+            4,
+            Subsystem::Decision.id(),
+            af.agent_id.as_u32(),
+            0,
+        );
+        let u = coordinate_prng_f32(&coord);
+        let action = select_action(&probabilities, u);
+        out.push(PrimaryActionChoice {
+            agent_id: af.agent_id,
+            action,
+        });
+    }
+    out.sort_by_key(|c| c.agent_id);
+}
+
+fn synthetic_phase6a_native(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    partitions: &[SettlementIntentPartition],
+) {
+    for partition in partitions {
+        let mut work_intents = Vec::new();
+        for intent in &partition.intents {
+            if let Intent::Work {
+                agent_id,
+                requested_harvest,
+                ..
+            } = *intent
+            {
+                work_intents.push((agent_id, requested_harvest));
+            }
+        }
+        if work_intents.is_empty() {
+            continue;
+        }
+        work_intents.sort_by_key(|&(agent_id, _)| agent_id);
+
+        let settlement = match settlements
+            .iter_mut()
+            .find(|s| s.group_id == partition.group_id)
+        {
+            Some(s) => s,
+            None => continue,
+        };
+        let resource = settlement.resource;
+
+        let total_requested: f32 = work_intents.iter().map(|&(_, r)| r).sum();
+
+        if total_requested <= resource {
+            settlement.resource -= total_requested;
+            for &(agent_id, requested_harvest) in &work_intents {
+                if let Some(slot) = storage.slot_of(agent_id) {
+                    storage.economy.food[slot] += requested_harvest;
+                }
+            }
+        } else if total_requested > 0.0 {
+            settlement.resource = 0.0;
+            for &(agent_id, requested_harvest) in &work_intents {
+                let share = requested_harvest / total_requested;
+                let allocation = resource * share;
+                if let Some(slot) = storage.slot_of(agent_id) {
+                    storage.economy.food[slot] += allocation;
+                }
+            }
+        }
+    }
+}
+
+fn measure_candidate_phases_profiling(base_config: &SimConfig, _context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-23 Hot Phase Profiling & Candidate Migration Synthetic Benchmark");
+    println!("Comparing: A: AoS Baseline, B: Storage Adapter, C: Native Candidate SoA");
+    println!("=================================================================");
+
+    let populations = [100, 250, 500, 1000];
+    let iters = 50;
+
+    // --- Candidate 1: Phase 9 Mortality Commitment ---
+    println!(
+        "\nCandidate 1: Phase 9 Mortality Commitment Latency ({} Sweeps)",
+        iters
+    );
+    println!(
+        "{:<8} | {:>14} | {:>16} | {:>16} | {:>10} | {:>10}",
+        "Pop (N)", "A: AoS (us)", "B: Adapter(us)", "C: Native(us)", "C vs A", "C vs B"
+    );
+    println!("{:-<84}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+        let template_world = initialize_world(&cfg).unwrap();
+
+        // Setup 5% deceased agents
+        let mut base_world = template_world.clone();
+        for (i, agent) in base_world.agents.iter_mut().enumerate() {
+            if i % 20 == 0 {
+                agent.health = 0.0;
+            }
+        }
+
+        // A: AoS Baseline
+        let mut t_aos = Duration::ZERO;
+        for _ in 0..iters {
+            let mut w = base_world.clone();
+            let t0 = Instant::now();
+            let _ = phase9_mortality_commitment(&mut w).unwrap();
+            t_aos += t0.elapsed();
+        }
+
+        // B: Storage Adapter (AoS -> SoA -> execute -> AoS)
+        let mut t_adapter = Duration::ZERO;
+        for _ in 0..iters {
+            let mut w = base_world.clone();
+            let t0 = Instant::now();
+            let mut seg = SegmentedAgentStorage::from_agents(&w.agents);
+            let _ = synthetic_phase9_native(&mut seg);
+            seg.write_back_to_agents(&mut w.agents);
+            t_adapter += t0.elapsed();
+        }
+
+        // C: Native SoA Prototype
+        let template_storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let mut t_native = Duration::ZERO;
+        for _ in 0..iters {
+            let mut seg = template_storage.clone();
+            let t0 = Instant::now();
+            let _ = synthetic_phase9_native(&mut seg);
+            t_native += t0.elapsed();
+        }
+
+        let us_aos = (t_aos.as_nanos() as f64) / (iters as f64) / 1000.0;
+        let us_adapter = (t_adapter.as_nanos() as f64) / (iters as f64) / 1000.0;
+        let us_native = (t_native.as_nanos() as f64) / (iters as f64) / 1000.0;
+
+        let speedup_c_a = us_aos / us_native.max(0.001);
+        let speedup_c_b = us_adapter / us_native.max(0.001);
+
+        println!(
+            "{:<8} | {:>14.2} | {:>16.2} | {:>16.2} | {:>9.2}x | {:>9.2}x",
+            pop, us_aos, us_adapter, us_native, speedup_c_a, speedup_c_b
+        );
+    }
+
+    // --- Candidate 2: Phase 8 Welfare Distribution ---
+    println!(
+        "\nCandidate 2: Phase 8 Welfare Distribution Latency ({} Sweeps)",
+        iters
+    );
+    println!(
+        "{:<8} | {:>14} | {:>16} | {:>16} | {:>10} | {:>10}",
+        "Pop (N)", "A: AoS (us)", "B: Adapter(us)", "C: Native(us)", "C vs A", "C vs B"
+    );
+    println!("{:-<84}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+        let template_world = initialize_world(&cfg).unwrap();
+
+        // Setup 33% starving agents
+        let mut base_world = template_world.clone();
+        for (i, agent) in base_world.agents.iter_mut().enumerate() {
+            if i % 3 == 0 {
+                agent.food = cfg.interaction.starvation_threshold - 5.0;
+            }
+        }
+
+        // A: AoS Baseline
+        let mut t_aos = Duration::ZERO;
+        for _ in 0..iters {
+            let mut w = base_world.clone();
+            let t0 = Instant::now();
+            let _ = phase8_welfare_distribution_with_config(&mut w, &cfg).unwrap();
+            t_aos += t0.elapsed();
+        }
+
+        // B: Storage Adapter (AoS -> SoA -> execute -> AoS)
+        let mut t_adapter = Duration::ZERO;
+        for _ in 0..iters {
+            let mut w = base_world.clone();
+            let t0 = Instant::now();
+            let mut seg = SegmentedAgentStorage::from_agents(&w.agents);
+            synthetic_phase8_native(
+                &mut seg,
+                &mut w.settlements,
+                cfg.interaction.starvation_threshold,
+                cfg.economy.welfare_payment,
+            );
+            seg.write_back_to_agents(&mut w.agents);
+            t_adapter += t0.elapsed();
+        }
+
+        // C: Native SoA Prototype
+        let template_storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let mut t_native = Duration::ZERO;
+        for _ in 0..iters {
+            let mut seg = template_storage.clone();
+            let mut settlements = base_world.settlements.clone();
+            let t0 = Instant::now();
+            synthetic_phase8_native(
+                &mut seg,
+                &mut settlements,
+                cfg.interaction.starvation_threshold,
+                cfg.economy.welfare_payment,
+            );
+            t_native += t0.elapsed();
+        }
+
+        let us_aos = (t_aos.as_nanos() as f64) / (iters as f64) / 1000.0;
+        let us_adapter = (t_adapter.as_nanos() as f64) / (iters as f64) / 1000.0;
+        let us_native = (t_native.as_nanos() as f64) / (iters as f64) / 1000.0;
+
+        let speedup_c_a = us_aos / us_native.max(0.001);
+        let speedup_c_b = us_adapter / us_native.max(0.001);
+
+        println!(
+            "{:<8} | {:>14.2} | {:>16.2} | {:>16.2} | {:>9.2}x | {:>9.2}x",
+            pop, us_aos, us_adapter, us_native, speedup_c_a, speedup_c_b
+        );
+    }
+
+    // --- Candidate 3: Phase 4 Primary Action Selection ---
+    println!(
+        "\nCandidate 3: Phase 4 Primary Action Selection Latency ({} Sweeps)",
+        iters
+    );
+    println!(
+        "{:<8} | {:>14} | {:>16} | {:>16} | {:>10} | {:>10}",
+        "Pop (N)", "A: AoS (us)", "B: Adapter(us)", "C: Native(us)", "C vs A", "C vs B"
+    );
+    println!("{:-<84}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let features = phase3_observation_and_features(&base_world, &cfg).unwrap();
+
+        // A: AoS Baseline
+        let mut choices_aos = Vec::with_capacity(pop as usize);
+        let mut t_aos = Duration::ZERO;
+        for _ in 0..iters {
+            let t0 = Instant::now();
+            phase4_primary_action_selection_into(&base_world, &cfg, &features, &mut choices_aos)
+                .unwrap();
+            t_aos += t0.elapsed();
+        }
+
+        // B: Storage Adapter (AoS -> SoA -> execute)
+        let mut choices_adapter = Vec::with_capacity(pop as usize);
+        let mut t_adapter = Duration::ZERO;
+        let day = base_world.current_day.as_u32();
+        for _ in 0..iters {
+            let t0 = Instant::now();
+            let seg = SegmentedAgentStorage::from_agents(&base_world.agents);
+            synthetic_phase4_native(&seg, &cfg, day, &features, &mut choices_adapter);
+            t_adapter += t0.elapsed();
+        }
+
+        // C: Native SoA Prototype
+        let template_storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let mut choices_native = Vec::with_capacity(pop as usize);
+        let mut t_native = Duration::ZERO;
+        for _ in 0..iters {
+            let t0 = Instant::now();
+            synthetic_phase4_native(&template_storage, &cfg, day, &features, &mut choices_native);
+            t_native += t0.elapsed();
+        }
+
+        assert_eq!(
+            choices_aos, choices_native,
+            "Phase 4 synthetic choice parity failure!"
+        );
+
+        let us_aos = (t_aos.as_nanos() as f64) / (iters as f64) / 1000.0;
+        let us_adapter = (t_adapter.as_nanos() as f64) / (iters as f64) / 1000.0;
+        let us_native = (t_native.as_nanos() as f64) / (iters as f64) / 1000.0;
+
+        let speedup_c_a = us_aos / us_native.max(0.001);
+        let speedup_c_b = us_adapter / us_native.max(0.001);
+
+        println!(
+            "{:<8} | {:>14.2} | {:>16.2} | {:>16.2} | {:>9.2}x | {:>9.2}x",
+            pop, us_aos, us_adapter, us_native, speedup_c_a, speedup_c_b
+        );
+    }
+
+    // --- Candidate 4: Phase 6A Work Resolution ---
+    println!(
+        "\nCandidate 4: Phase 6A Work Resolution Latency ({} Sweeps)",
+        iters
+    );
+    println!(
+        "{:<8} | {:>14} | {:>16} | {:>16} | {:>10} | {:>10}",
+        "Pop (N)", "A: AoS (us)", "B: Adapter(us)", "C: Native(us)", "C vs A", "C vs B"
+    );
+    println!("{:-<84}", "");
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+        let base_world = initialize_world(&cfg).unwrap();
+        let features = phase3_observation_and_features(&base_world, &cfg).unwrap();
+        let mut choices = Vec::with_capacity(pop as usize);
+        phase4_primary_action_selection_into(&base_world, &cfg, &features, &mut choices).unwrap();
+        for c in &mut choices {
+            c.action = Action::Work;
+        }
+        let mut intents = Vec::with_capacity(pop as usize);
+        phase4_generate_intents_into(&base_world, &cfg, &choices, &mut intents).unwrap();
+        let partitions = phase5_partition_intents(&intents).unwrap();
+
+        // A: AoS Baseline
+        let mut t_aos = Duration::ZERO;
+        for _ in 0..iters {
+            let mut w = base_world.clone();
+            let t0 = Instant::now();
+            let _ = phase6a_work_resolution(&mut w, &partitions).unwrap();
+            t_aos += t0.elapsed();
+        }
+
+        // B: Storage Adapter (AoS -> SoA -> execute -> AoS)
+        let mut t_adapter = Duration::ZERO;
+        for _ in 0..iters {
+            let mut w = base_world.clone();
+            let t0 = Instant::now();
+            let mut seg = SegmentedAgentStorage::from_agents(&w.agents);
+            synthetic_phase6a_native(&mut seg, &mut w.settlements, &partitions);
+            seg.write_back_to_agents(&mut w.agents);
+            t_adapter += t0.elapsed();
+        }
+
+        // C: Native SoA Prototype
+        let template_storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+        let mut t_native = Duration::ZERO;
+        for _ in 0..iters {
+            let mut seg = template_storage.clone();
+            let mut settlements = base_world.settlements.clone();
+            let t0 = Instant::now();
+            synthetic_phase6a_native(&mut seg, &mut settlements, &partitions);
+            t_native += t0.elapsed();
+        }
+
+        let us_aos = (t_aos.as_nanos() as f64) / (iters as f64) / 1000.0;
+        let us_adapter = (t_adapter.as_nanos() as f64) / (iters as f64) / 1000.0;
+        let us_native = (t_native.as_nanos() as f64) / (iters as f64) / 1000.0;
+
+        let speedup_c_a = us_aos / us_native.max(0.001);
+        let speedup_c_b = us_adapter / us_native.max(0.001);
+
+        println!(
+            "{:<8} | {:>14.2} | {:>16.2} | {:>16.2} | {:>9.2}x | {:>9.2}x",
+            pop, us_aos, us_adapter, us_native, speedup_c_a, speedup_c_b
+        );
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -2542,6 +3310,12 @@ fn main() {
 
     // 13. M2-22 Phase 3 Native Segmented SoA Migration Benchmark
     measure_phase3_native_soa(&config, &context);
+
+    // 14. M2-24 Phase 9 Native Segmented SoA Migration Benchmark
+    measure_phase9_native_soa(&config, &context);
+
+    // 15. M2-23 Hot Phase Profiling & Candidate Migration Synthetic Benchmark
+    measure_candidate_phases_profiling(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

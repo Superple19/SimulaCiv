@@ -68,8 +68,8 @@ pub use phases::{
     phase1_resource_regrowth, phase2_biological_degradation, phase2_biological_degradation_dynamic,
     phase2_biological_degradation_soa, phase2_biological_degradation_storage,
     phase2_biological_degradation_with_scratch, phase9_mortality_commitment,
-    phase9_mortality_commitment_with_config, phase9_mortality_resolution,
-    update_biological_degradation,
+    phase9_mortality_commitment_storage, phase9_mortality_commitment_with_config,
+    phase9_mortality_resolution, update_biological_degradation,
 };
 pub use resolution::{
     BuyerMarketResolution, Phase6AError, Phase6BError, Phase7Error, Phase8Error,
