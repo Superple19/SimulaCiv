@@ -53,8 +53,10 @@ use sim_model::phases::{
     update_biological_degradation,
 };
 use sim_model::resolution::{
+    TargetedActionKind, compare_keyed_interactions, compute_resolution_key,
     phase6a_work_resolution, phase6a_work_resolution_storage, phase6b_targeted_resolution,
-    phase6b_targeted_resolution_storage, phase7_market_clearance_storage_with_config,
+    phase6b_targeted_resolution_storage, phase6b_targeted_resolution_storage_baseline,
+    phase6b_targeted_resolution_storage_with_scratch, phase7_market_clearance_storage_with_config,
     phase7_market_clearance_with_config, phase8_welfare_distribution_storage_full_scan,
     phase8_welfare_distribution_storage_with_config,
     phase8_welfare_distribution_storage_with_scratch, phase8_welfare_distribution_with_config,
@@ -65,6 +67,7 @@ use sim_model::runner::{
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
     run_hybrid_authority_days_with_phase5_baseline,
+    run_hybrid_authority_days_with_phase6b_baseline,
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_days, run_m0_day,
     run_m0_days, run_native_soa_day, run_native_soa_days,
 };
@@ -75,7 +78,10 @@ use sim_model::state::SettlementState;
 use sim_model::state::{AgentDynamicSoAScratch, HybridWorldState, WorldState};
 use sim_model::storage::{SegmentedAgentStorage, WorldStorage, canonical_state_hash_from_storage};
 use sim_model::subsystems::Subsystem;
-use sim_model::{Phase3ScarcityScratch, Phase8WelfareScratch, SimConfig, initialize_world};
+use sim_model::{
+    Phase3ScarcityScratch, Phase6BResolutionScratch, Phase8WelfareScratch, SimConfig,
+    initialize_world,
+};
 
 const GATE_CONFIG_TOML: &str = r#"
 [world]
@@ -3807,7 +3813,7 @@ fn run_toggle_benchmark_days(
         }
 
         if native_p6b {
-            let _ = phase6b_targeted_resolution_storage(
+            let _ = phase6b_targeted_resolution_storage_baseline(
                 storage,
                 &world.settlements,
                 world.current_day,
@@ -4077,7 +4083,7 @@ fn measure_m2_27_1_scope_isolation_benchmark(base_config: &SimConfig, context: &
         let t5 = Instant::now();
         for _ in 0..sweeps {
             let mut s = seg.clone();
-            let _ = phase6b_targeted_resolution_storage(
+            let _ = phase6b_targeted_resolution_storage_baseline(
                 &mut s,
                 &base_world.settlements,
                 day,
@@ -4268,7 +4274,7 @@ fn run_hybrid_p4_bench_days(
 
         let partitions = phase5_partition_intents_baseline(&intents_scratch)?;
         let _ = phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)?;
-        let _ = phase6b_targeted_resolution_storage(
+        let _ = phase6b_targeted_resolution_storage_baseline(
             storage,
             &world.settlements,
             world.current_day,
@@ -4830,7 +4836,7 @@ fn measure_m2_29_post_soa_profiling(base_config: &SimConfig, context: &M0RunCont
 
             // Phase 6B
             let t6b = Instant::now();
-            let targeted_resolutions = phase6b_targeted_resolution_storage(
+            let targeted_resolutions = phase6b_targeted_resolution_storage_baseline(
                 storage,
                 &world.settlements,
                 world.current_day,
@@ -6737,7 +6743,7 @@ fn m2_30_profile_indexed_day(
     times[6] = started.elapsed();
 
     let started = Instant::now();
-    let targeted_resolutions = phase6b_targeted_resolution_storage(
+    let targeted_resolutions = phase6b_targeted_resolution_storage_baseline(
         &mut storage,
         &world.settlements,
         world.current_day,
@@ -8264,6 +8270,729 @@ fn measure_m2_35_phase5_stable_group_bucketing(base_config: &SimConfig, context:
     );
 }
 
+#[derive(Clone, Copy)]
+struct M236ScalingRow {
+    family: &'static str,
+    population: u64,
+    settlement_count: u32,
+    targeted: usize,
+    keyed: usize,
+    zero_target: usize,
+    order_verification_comparisons: usize,
+    partition_sort_comparisons: usize,
+    zero_sort_comparisons: usize,
+    key_sort_comparisons: usize,
+    phase6b: [M2292Median; 3],
+    full_tick: [M2292Median; 2],
+}
+
+fn m2_36_inputs(
+    base_config: &SimConfig,
+    context: &M0RunContext,
+    population: u64,
+    settlement_count: u32,
+) -> (
+    SimConfig,
+    WorldState,
+    SegmentedAgentStorage,
+    Vec<SettlementIntentPartition>,
+) {
+    let (mut config, world, intents) =
+        m2_35_production_intents(base_config, context, population, settlement_count);
+    config.world.master_seed = context.master_seed;
+    config.world.replicate_id = context.replicate_id;
+    let partitions = phase5_partition_intents_baseline(&intents).unwrap();
+    assert!(
+        partitions
+            .windows(2)
+            .all(|pair| pair[0].group_id < pair[1].group_id)
+    );
+    assert!(partitions.iter().all(|partition| {
+        partition
+            .intents
+            .windows(2)
+            .all(|pair| pair[0].agent_id() < pair[1].agent_id())
+    }));
+
+    let mut phase1_world = world.clone();
+    phase1_resource_regrowth(&mut phase1_world, &config);
+    let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+    storage.phase2_degradation_with_config(&config);
+    (config, world, storage, partitions)
+}
+
+fn m2_36_phase6b_sample(
+    base_storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    path: usize,
+    scratch: &mut Phase6BResolutionScratch,
+) -> f64 {
+    let mut storage = base_storage.clone();
+    let started = Instant::now();
+    let resolutions = match path {
+        0 => phase6b_targeted_resolution_storage_baseline(
+            &mut storage,
+            settlements,
+            current_day,
+            config,
+            partitions,
+        ),
+        1 => phase6b_targeted_resolution_storage_with_scratch(
+            &mut storage,
+            settlements,
+            current_day,
+            config,
+            partitions,
+            scratch,
+        ),
+        _ => phase6b_targeted_resolution_storage(
+            &mut storage,
+            settlements,
+            current_day,
+            config,
+            partitions,
+        ),
+    }
+    .unwrap();
+    std::hint::black_box(resolutions);
+    started.elapsed().as_nanos() as f64 / 1000.0
+}
+
+fn m2_36_time_full_tick(
+    initial: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    days: u32,
+    baseline: bool,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(initial.clone());
+    let started = Instant::now();
+    let outcomes = if baseline {
+        run_hybrid_authority_days_with_phase6b_baseline(&mut world, config, context, days, options)
+    } else {
+        run_hybrid_authority_days(&mut world, config, context, days, options)
+    };
+    std::hint::black_box(outcomes.unwrap());
+    started.elapsed().as_nanos() as f64 / days as f64 / 1000.0
+}
+
+fn m2_36_assert_parity(
+    initial: &WorldState,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+) {
+    let mut baseline_storage = SegmentedAgentStorage::from_agents(&initial.agents);
+    let mut optimized_storage = baseline_storage.clone();
+    let baseline = phase6b_targeted_resolution_storage_baseline(
+        &mut baseline_storage,
+        &initial.settlements,
+        initial.current_day,
+        config,
+        partitions,
+    )
+    .unwrap();
+    let mut scratch = Phase6BResolutionScratch::with_capacity(initial.agents.len());
+    let optimized = phase6b_targeted_resolution_storage_with_scratch(
+        &mut optimized_storage,
+        &initial.settlements,
+        initial.current_day,
+        config,
+        partitions,
+        &mut scratch,
+    )
+    .unwrap();
+    assert_eq!(optimized, baseline);
+    assert_eq!(optimized_storage, baseline_storage);
+}
+
+fn m2_36_work_counts(
+    config: &SimConfig,
+    current_day: SimulationDay,
+    partitions: &[SettlementIntentPartition],
+) -> (usize, usize, usize, usize, usize, usize, usize) {
+    let mut targeted = 0;
+    let mut keyed = 0;
+    let mut zero = 0;
+    let mut zero_sort_comparisons = 0;
+    let mut partition_ids: Vec<_> = partitions
+        .iter()
+        .map(|partition| partition.group_id)
+        .collect();
+    let mut partition_comparisons = 0;
+    partition_ids.sort_by(|left, right| {
+        partition_comparisons += 1;
+        left.cmp(right)
+    });
+
+    let mut total_key_comparisons = 0;
+    let mut order_verification_comparisons = partitions.len().saturating_sub(1);
+    for partition in partitions {
+        order_verification_comparisons += partition.intents.len().saturating_sub(1);
+        let mut keys = Vec::new();
+        let mut zero_records = Vec::new();
+        for intent in &partition.intents {
+            let (initiator, group_id, target, action) = match *intent {
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    ..
+                } => (
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    TargetedActionKind::GiveFood,
+                ),
+                Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    ..
+                } => (
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    TargetedActionKind::StealFood,
+                ),
+                _ => continue,
+            };
+            targeted += 1;
+            if let Some(target) = target {
+                keyed += 1;
+                keys.push((
+                    compute_resolution_key(
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        current_day.as_u32(),
+                        group_id.as_u16(),
+                        target.as_u32(),
+                        initiator.as_u32(),
+                        action.action_kind(),
+                    ),
+                    target,
+                    initiator,
+                    action,
+                ));
+            } else {
+                zero += 1;
+                zero_records.push((initiator, action));
+            }
+        }
+        keys.sort_by(|a, b| {
+            total_key_comparisons += 1;
+            compare_keyed_interactions(a.0, a.1, a.2, a.3, b.0, b.1, b.2, b.3)
+        });
+        zero_records.sort_by(|a, b| {
+            zero_sort_comparisons += 1;
+            (a.0, a.1).cmp(&(b.0, b.1))
+        });
+    }
+    (
+        targeted,
+        keyed,
+        zero,
+        partition_comparisons,
+        zero_sort_comparisons,
+        total_key_comparisons,
+        order_verification_comparisons,
+    )
+}
+
+fn m2_36_component_probes(
+    config: &SimConfig,
+    world: &WorldState,
+    storage: &SegmentedAgentStorage,
+    partitions: &[SettlementIntentPartition],
+) {
+    const SAMPLES: usize = 7;
+    let mut targeted_inputs = Vec::new();
+    let mut zero_groups = Vec::with_capacity(partitions.len());
+    let mut key_inputs = Vec::new();
+    for partition in partitions {
+        let mut zero_records = Vec::new();
+        for intent in &partition.intents {
+            let (initiator, group_id, target, kind) = match *intent {
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    ..
+                } => (
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    TargetedActionKind::GiveFood,
+                ),
+                Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    ..
+                } => (
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    TargetedActionKind::StealFood,
+                ),
+                _ => continue,
+            };
+            targeted_inputs.push((initiator, target));
+            if let Some(target) = target {
+                key_inputs.push((group_id, target, initiator, kind));
+            } else {
+                zero_records.push((initiator, kind));
+            }
+        }
+        zero_groups.push(zero_records);
+    }
+    let mut baseline_storage = storage.clone();
+    let result = phase6b_targeted_resolution_storage_baseline(
+        &mut baseline_storage,
+        &world.settlements,
+        world.current_day,
+        config,
+        partitions,
+    )
+    .unwrap();
+    let group_ids: Vec<_> = partitions.iter().map(|p| p.group_id).collect();
+    let work = m2_36_work_counts(config, world.current_day, partitions);
+    let mut component_samples: [Vec<f64>; 7] = std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+
+    for _ in 0..SAMPLES {
+        let started = Instant::now();
+        let canonical = partitions
+            .windows(2)
+            .all(|pair| pair[0].group_id < pair[1].group_id)
+            && partitions.iter().all(|p| {
+                p.intents
+                    .windows(2)
+                    .all(|pair| pair[0].agent_id() < pair[1].agent_id())
+            });
+        std::hint::black_box(canonical);
+        component_samples[0].push(started.elapsed().as_nanos() as f64 / 1000.0);
+
+        for lookup_mode in 0..2 {
+            let started = Instant::now();
+            for &(initiator, target) in &targeted_inputs {
+                std::hint::black_box(storage.slot_of(initiator));
+                if let Some(target) = target {
+                    std::hint::black_box(storage.slot_of(target));
+                    if lookup_mode == 0 {
+                        std::hint::black_box(storage.slot_of(initiator));
+                        std::hint::black_box(storage.slot_of(target));
+                    }
+                }
+            }
+            component_samples[1 + lookup_mode].push(started.elapsed().as_nanos() as f64 / 1000.0);
+        }
+
+        let mut partition_sort = group_ids.clone();
+        let started = Instant::now();
+        partition_sort.sort_by_key(|group_id| *group_id);
+        component_samples[3].push(started.elapsed().as_nanos() as f64 / 1000.0);
+
+        let mut zero_sort = zero_groups.clone();
+        let started = Instant::now();
+        for group in &mut zero_sort {
+            group.sort_by_key(|(initiator, kind)| (*initiator, *kind));
+        }
+        component_samples[4].push(started.elapsed().as_nanos() as f64 / 1000.0);
+
+        let started = Instant::now();
+        let mut keys = Vec::with_capacity(key_inputs.len());
+        for &(group, target, initiator, kind) in &key_inputs {
+            keys.push((
+                compute_resolution_key(
+                    config.world.master_seed,
+                    config.world.replicate_id,
+                    world.current_day.as_u32(),
+                    group.as_u16(),
+                    target.as_u32(),
+                    initiator.as_u32(),
+                    kind.action_kind(),
+                ),
+                target,
+                initiator,
+                kind,
+            ));
+        }
+        component_samples[5].push(started.elapsed().as_nanos() as f64 / 1000.0);
+
+        let mut keys = keys.clone();
+        let started = Instant::now();
+        keys.sort_by(|a, b| compare_keyed_interactions(a.0, a.1, a.2, a.3, b.0, b.1, b.2, b.3));
+        component_samples[6].push(started.elapsed().as_nanos() as f64 / 1000.0);
+    }
+
+    let mut clone_samples = Vec::with_capacity(SAMPLES);
+    for _ in 0..SAMPLES {
+        let started = Instant::now();
+        std::hint::black_box(result.clone());
+        clone_samples.push(started.elapsed().as_nanos() as f64 / 1000.0);
+    }
+    println!(
+        "Component probes N=10000: order verification={:.2}us; slot-map lookups baseline/fast-probe={:.2}/{:.2}us ({}/{}) ; partition sort={:.2}us ({} compares), zero sort={:.2}us ({} compares), key generation={:.2}us, keyed sort={:.2}us ({} compares), combined result clone={:.2}us ({} records cloned). Probe timings are non-additive; dynamic validation/commit and result construction stay in end-to-end Phase6B.",
+        m2_29_2_summary(component_samples[0].clone()).median_us,
+        m2_29_2_summary(component_samples[1].clone()).median_us,
+        m2_29_2_summary(component_samples[2].clone()).median_us,
+        work.0 + work.1 * 3,
+        work.0 + work.1,
+        m2_29_2_summary(component_samples[3].clone()).median_us,
+        work.3,
+        m2_29_2_summary(component_samples[4].clone()).median_us,
+        work.4,
+        m2_29_2_summary(component_samples[5].clone()).median_us,
+        m2_29_2_summary(component_samples[6].clone()).median_us,
+        work.5,
+        m2_29_2_summary(clone_samples).median_us,
+        work.0,
+    );
+}
+
+fn measure_m2_36_phase6b_slot_cache(base_config: &SimConfig, context: &M0RunContext) {
+    const POPULATIONS: [u64; 9] = [100, 250, 500, 1000, 2500, 5000, 10000, 20000, 50000];
+    const WARMUPS: usize = 2;
+    const SAMPLES: usize = 7;
+    const DAYS_PER_SAMPLE: u32 = 3;
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+    let workloads = ["Fixed settlements (2)", "Fixed group size (~200)"];
+    let mut rows = Vec::with_capacity(POPULATIONS.len() * workloads.len());
+
+    println!("\n=================================================================");
+    println!("M2-36 Phase6B Baseline vs Stable Slot Cache");
+    println!(
+        "Method: 2 warm-ups + 7 median/MAD samples; Full Hybrid Phase4 inputs; full-tick samples average 3 days."
+    );
+    println!(
+        "Phase6B direct samples clone storage before timing; production full-tick scratch spans days."
+    );
+    println!("=================================================================");
+
+    for (family_index, family) in workloads.iter().enumerate() {
+        for &population in &POPULATIONS {
+            let settlement_count = if family_index == 0 {
+                2
+            } else {
+                population.div_ceil(200) as u32
+            };
+            let (config, initial, storage, partitions) =
+                m2_36_inputs(base_config, context, population, settlement_count);
+            m2_36_assert_parity(&initial, &config, &partitions);
+            if population == 10000 {
+                let mut baseline = HybridWorldState::hybrid(initial.clone());
+                let mut optimized = HybridWorldState::hybrid(initial.clone());
+                let baseline_outcomes = run_hybrid_authority_days_with_phase6b_baseline(
+                    &mut baseline,
+                    &config,
+                    context,
+                    3,
+                    &options,
+                )
+                .unwrap();
+                let optimized_outcomes =
+                    run_hybrid_authority_days(&mut optimized, &config, context, 3, &options)
+                        .unwrap();
+                assert_eq!(optimized_outcomes, baseline_outcomes);
+                assert_eq!(
+                    optimized.canonical_state_hash().unwrap(),
+                    baseline.canonical_state_hash().unwrap()
+                );
+            }
+
+            let mut scratch = Phase6BResolutionScratch::with_capacity(population as usize);
+            for _ in 0..WARMUPS {
+                for path in 0..3 {
+                    let _ = m2_36_phase6b_sample(
+                        &storage,
+                        &initial.settlements,
+                        initial.current_day,
+                        &config,
+                        &partitions,
+                        path,
+                        &mut scratch,
+                    );
+                }
+                let _ = m2_36_time_full_tick(
+                    &initial,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    true,
+                );
+                let _ = m2_36_time_full_tick(
+                    &initial,
+                    &config,
+                    context,
+                    &options,
+                    DAYS_PER_SAMPLE,
+                    false,
+                );
+            }
+
+            let mut phase_samples: [Vec<f64>; 3] =
+                std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+            let mut full_samples: [Vec<f64>; 2] =
+                std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+            for sample in 0..SAMPLES {
+                for offset in 0..3 {
+                    let path = (sample + offset) % 3;
+                    phase_samples[path].push(m2_36_phase6b_sample(
+                        &storage,
+                        &initial.settlements,
+                        initial.current_day,
+                        &config,
+                        &partitions,
+                        path,
+                        &mut scratch,
+                    ));
+                }
+                for offset in 0..2 {
+                    let path = (sample + offset) % 2;
+                    full_samples[path].push(m2_36_time_full_tick(
+                        &initial,
+                        &config,
+                        context,
+                        &options,
+                        DAYS_PER_SAMPLE,
+                        path == 0,
+                    ));
+                }
+            }
+
+            let counts = m2_36_work_counts(&config, initial.current_day, &partitions);
+            let row = M236ScalingRow {
+                family,
+                population,
+                settlement_count,
+                targeted: counts.0,
+                keyed: counts.1,
+                zero_target: counts.2,
+                order_verification_comparisons: counts.6,
+                partition_sort_comparisons: counts.3,
+                zero_sort_comparisons: counts.4,
+                key_sort_comparisons: counts.5,
+                phase6b: [
+                    m2_29_2_summary(phase_samples[0].clone()),
+                    m2_29_2_summary(phase_samples[1].clone()),
+                    m2_29_2_summary(phase_samples[2].clone()),
+                ],
+                full_tick: [
+                    m2_29_2_summary(full_samples[0].clone()),
+                    m2_29_2_summary(full_samples[1].clone()),
+                ],
+            };
+            println!(
+                "{family:<26} N={population:<5} K={settlement_count:<3} targeted/keyed/zero={}/{}/{} slots(base validate/commit,total;fast)={}/{}/{}/{} cmp(order/partition/zero/key)={}/{}/{}/{} Phase6B(base/reuse/dispatch)={:.2}±{:.2}/{:.2}±{:.2}/{:.2}±{:.2}us full(base/fast)={:.2}±{:.2}/{:.2}±{:.2}us",
+                row.targeted,
+                row.keyed,
+                row.zero_target,
+                row.targeted + row.keyed,
+                row.keyed * 2,
+                row.targeted + row.keyed * 3,
+                row.targeted + row.keyed,
+                row.order_verification_comparisons,
+                row.partition_sort_comparisons,
+                row.zero_sort_comparisons,
+                row.key_sort_comparisons,
+                row.phase6b[0].median_us,
+                row.phase6b[0].mad_us,
+                row.phase6b[1].median_us,
+                row.phase6b[1].mad_us,
+                row.phase6b[2].median_us,
+                row.phase6b[2].mad_us,
+                row.full_tick[0].median_us,
+                row.full_tick[0].mad_us,
+                row.full_tick[1].median_us,
+                row.full_tick[1].mad_us,
+            );
+            println!(
+                "  work/allocation audit: baseline HashSet insertions={}, partition sort Vec entries={}, per-group zero/keyed temp Vec headers={} each, record clones={}; fast HashSet=0, partition-ref Vec=0, zero sort=0, keyed ResolutionKey sort retained, reusable scratch Vecs=2, record clones={} (frozen combined result shape). Heap allocation totals are not instrumented.",
+                row.settlement_count,
+                row.settlement_count,
+                row.settlement_count,
+                row.targeted,
+                row.targeted,
+            );
+            rows.push(row);
+        }
+    }
+
+    for family in workloads {
+        for (small_n, large_n) in [(1000, 10000), (10000, 20000), (20000, 50000)] {
+            let small = rows
+                .iter()
+                .find(|row| row.family == family && row.population == small_n)
+                .unwrap();
+            let large = rows
+                .iter()
+                .find(|row| row.family == family && row.population == large_n)
+                .unwrap();
+            let divisor = (large_n as f64 / small_n as f64).ln();
+            for (name, before, after) in [
+                (
+                    "Phase6B baseline",
+                    small.phase6b[0].median_us,
+                    large.phase6b[0].median_us,
+                ),
+                (
+                    "Phase6B cached",
+                    small.phase6b[1].median_us,
+                    large.phase6b[1].median_us,
+                ),
+                (
+                    "Full tick baseline",
+                    small.full_tick[0].median_us,
+                    large.full_tick[0].median_us,
+                ),
+                (
+                    "Full tick fast",
+                    small.full_tick[1].median_us,
+                    large.full_tick[1].median_us,
+                ),
+            ] {
+                let ratio = after / before.max(0.001);
+                println!(
+                    "{family:<26} {name:<19} N={small_n}->{large_n}: {before:.2}->{after:.2}us ratio={ratio:.2}x alpha={:.3}",
+                    ratio.ln() / divisor
+                );
+            }
+        }
+        for population in [10000, 20000, 50000] {
+            let row = rows
+                .iter()
+                .find(|row| row.family == family && row.population == population)
+                .unwrap();
+            println!(
+                "{family:<26} N={population:<5} K={} Phase6B base/fast={:.2}/{:.2}us speedup={:.3}x full-tick={:.2}/{:.2}us speedup={:.3}x Phase6B share={:.2}/{:.2}%",
+                row.settlement_count,
+                row.phase6b[0].median_us,
+                row.phase6b[1].median_us,
+                row.phase6b[0].median_us / row.phase6b[1].median_us,
+                row.full_tick[0].median_us,
+                row.full_tick[1].median_us,
+                row.full_tick[0].median_us / row.full_tick[1].median_us,
+                row.phase6b[0].median_us / row.full_tick[0].median_us * 100.0,
+                row.phase6b[1].median_us / row.full_tick[1].median_us * 100.0,
+            );
+        }
+    }
+
+    let (probe_config, probe_world, probe_storage, probe_partitions) =
+        m2_36_inputs(base_config, context, 10000, 50);
+    m2_36_component_probes(
+        &probe_config,
+        &probe_world,
+        &probe_storage,
+        &probe_partitions,
+    );
+
+    for population in [1000u64, 10000] {
+        let settlement_count = (population / 200).max(1) as u32;
+        let (config, world, storage, mut partitions) =
+            m2_36_inputs(base_config, context, population, settlement_count);
+        for index in (1..partitions.len()).rev() {
+            let mut state = (population << 16) ^ index as u64 ^ 0xd1b54a32d192ed03;
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            partitions.swap(index, state as usize % (index + 1));
+        }
+        for (index, partition) in partitions.iter_mut().enumerate() {
+            for intent_index in (1..partition.intents.len()).rev() {
+                let mut state = (population << 24)
+                    ^ ((index as u64) << 12)
+                    ^ intent_index as u64
+                    ^ 0x94d049bb133111eb;
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                partition
+                    .intents
+                    .swap(intent_index, state as usize % (intent_index + 1));
+            }
+        }
+        assert!(
+            !partitions
+                .windows(2)
+                .all(|pair| pair[0].group_id < pair[1].group_id)
+                || !partitions.iter().all(|partition| partition
+                    .intents
+                    .windows(2)
+                    .all(|pair| pair[0].agent_id() < pair[1].agent_id()))
+        );
+        m2_36_assert_parity(&world, &config, &partitions);
+        let mut scratch = Phase6BResolutionScratch::with_capacity(population as usize);
+        let mut baseline_samples = Vec::with_capacity(SAMPLES);
+        let mut dispatch_samples = Vec::with_capacity(SAMPLES);
+        for _ in 0..WARMUPS {
+            let _ = m2_36_phase6b_sample(
+                &storage,
+                &world.settlements,
+                world.current_day,
+                &config,
+                &partitions,
+                0,
+                &mut scratch,
+            );
+            let _ = m2_36_phase6b_sample(
+                &storage,
+                &world.settlements,
+                world.current_day,
+                &config,
+                &partitions,
+                2,
+                &mut scratch,
+            );
+        }
+        for sample in 0..SAMPLES {
+            let first = sample % 2;
+            for offset in 0..2 {
+                let path = if (first + offset) % 2 == 0 { 0 } else { 2 };
+                let elapsed = m2_36_phase6b_sample(
+                    &storage,
+                    &world.settlements,
+                    world.current_day,
+                    &config,
+                    &partitions,
+                    path,
+                    &mut scratch,
+                );
+                if path == 0 {
+                    baseline_samples.push(elapsed);
+                } else {
+                    dispatch_samples.push(elapsed);
+                }
+            }
+        }
+        let baseline = m2_29_2_summary(baseline_samples);
+        let dispatch = m2_29_2_summary(dispatch_samples);
+        println!(
+            "Arbitrary-order Phase6B fallback N={population}: baseline={:.2}±{:.2}us dispatcher={:.2}±{:.2}us overhead={:.2}% (reversed/shuffled partitions and intents)",
+            baseline.median_us,
+            baseline.mad_us,
+            dispatch.median_us,
+            dispatch.mad_us,
+            (dispatch.median_us / baseline.median_us - 1.0) * 100.0,
+        );
+    }
+
+    println!(
+        "Phase6B structure: baseline repeats storage slot lookup at structural validation and keyed commit, sorts partition refs and zero-target records, and allocates keyed staging per settlement. The fast runner reserves one validation Vec and reuses a second keyed Vec at its largest-settlement high-water mark, skips partition/zero-target sorts, and caches structural slots; output vectors and combined result record clones remain owned and unchanged. Heap allocation totals were not instrumented."
+    );
+    println!(
+        "The public dispatcher performs an O(N+K) ordering verification for fallback safety. Full Hybrid calls the ordered internal entry immediately after canonical Phase5, so release production skips that dispatch scan; debug builds assert the upstream invariant."
+    );
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -8443,6 +9172,9 @@ fn main() {
 
     // 25. M2-35 Phase5 Stable Group Bucketing Gate
     measure_m2_35_phase5_stable_group_bucketing(&config, &context);
+
+    // 26. M2-36 Phase6B Stable Slot Cache and Scratch Gate
+    measure_m2_36_phase6b_slot_cache(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

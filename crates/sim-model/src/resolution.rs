@@ -682,6 +682,53 @@ struct PlannedKeyedItem {
     requested_amount: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ValidatedStorageInteraction {
+    group_id: GroupId,
+    initiator_agent_id: AgentId,
+    target_agent_id: Option<AgentId>,
+    initiator_slot: usize,
+    target_slot: Option<usize>,
+    action_kind: TargetedActionKind,
+    requested_amount: f32,
+    resolution_key: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CachedStorageKeyedItem {
+    key: u64,
+    initiator_agent_id: AgentId,
+    target_agent_id: AgentId,
+    initiator_slot: usize,
+    target_slot: usize,
+    action_kind: TargetedActionKind,
+    requested_amount: f32,
+}
+
+/// Transient Phase6B staging and slot scratch. DenseSlot indices remain valid for the duration of
+/// Phase6B because the resolver updates agent columns without reordering or compacting storage.
+#[derive(Debug, Default)]
+pub struct Phase6BResolutionScratch {
+    validated: Vec<ValidatedStorageInteraction>,
+    keyed: Vec<CachedStorageKeyedItem>,
+}
+
+impl Phase6BResolutionScratch {
+    /// Reserves the full validation staging buffer; keyed staging grows to the largest settlement
+    /// and retains that capacity across days.
+    pub fn with_capacity(targeted_intents: usize) -> Self {
+        Self {
+            validated: Vec::with_capacity(targeted_intents),
+            keyed: Vec::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.validated.clear();
+        self.keyed.clear();
+    }
+}
+
 /// Executes Phase 6B: Targeted Interaction Resolution.
 ///
 /// 1. Structural validation pass over all supplied partitions and config.
@@ -1075,7 +1122,7 @@ pub fn phase6b_targeted_resolution(
 }
 
 /// Executes Phase 6B: Targeted Interaction Resolution directly against authoritative [`SegmentedAgentStorage`].
-pub fn phase6b_targeted_resolution_storage(
+pub fn phase6b_targeted_resolution_storage_baseline(
     storage: &mut SegmentedAgentStorage,
     settlements: &[SettlementState],
     current_day: sim_core::SimulationDay,
@@ -1441,6 +1488,402 @@ pub fn phase6b_targeted_resolution_storage(
         });
     }
 
+    Ok(settlement_resolutions)
+}
+
+/// True only for the canonical Phase5 ordering required by the Phase6B ordering fast path.
+fn phase6b_partitions_are_canonical(partitions: &[SettlementIntentPartition]) -> bool {
+    partitions
+        .windows(2)
+        .all(|pair| pair[0].group_id < pair[1].group_id)
+        && partitions.iter().all(|partition| {
+            partition
+                .intents
+                .windows(2)
+                .all(|pair| pair[0].agent_id() < pair[1].agent_id())
+        })
+}
+
+/// Storage Phase6B dispatcher. Canonical Phase5 partitions use reusable staging and cached slots;
+/// arbitrary public input falls back to the original canonical resolver.
+pub fn phase6b_targeted_resolution_storage_with_scratch(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    scratch: &mut Phase6BResolutionScratch,
+) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    if !phase6b_partitions_are_canonical(partitions) {
+        scratch.clear();
+        return phase6b_targeted_resolution_storage_baseline(
+            storage,
+            settlements,
+            current_day,
+            config,
+            partitions,
+        );
+    }
+
+    phase6b_targeted_resolution_storage_ordered_with_scratch(
+        storage,
+        settlements,
+        current_day,
+        config,
+        partitions,
+        scratch,
+    )
+}
+
+/// Public Phase6B storage dispatcher. Canonical Phase5 partitions use the ordered fast path;
+/// arbitrary partitions preserve the original sort-based behavior.
+pub fn phase6b_targeted_resolution_storage(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    phase6b_targeted_resolution_storage_with_scratch(
+        storage,
+        settlements,
+        current_day,
+        config,
+        partitions,
+        &mut Phase6BResolutionScratch::default(),
+    )
+}
+
+/// Trusted runner entry for Phase5's strict canonical output; public callers use the dispatcher.
+pub(crate) fn phase6b_targeted_resolution_storage_ordered_with_scratch(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    scratch: &mut Phase6BResolutionScratch,
+) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    debug_assert!(phase6b_partitions_are_canonical(partitions));
+    scratch.clear();
+    // Keep baseline error precedence: configuration first, then canonical partition and intent order.
+    if !config.interaction.theft_success_probability.is_finite()
+        || config.interaction.theft_success_probability < 0.0
+        || config.interaction.theft_success_probability > 1.0
+    {
+        return Err(Phase6BError::InvalidTheftSuccessProbability(
+            config.interaction.theft_success_probability,
+        ));
+    }
+
+    // Phase5's strict ordering already proves partitions are unique, so this path needs no HashSet.
+    // Cache each validated structural slot once; no storage operation below changes slot layout.
+    for partition in partitions {
+        if !settlements.iter().any(|s| s.group_id == partition.group_id) {
+            return Err(Phase6BError::MissingSettlement(partition.group_id));
+        }
+
+        for intent in &partition.intents {
+            let (agent_id, group_id, target_agent_id, requested_amount, action_kind) = match *intent
+            {
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                } => (
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                    TargetedActionKind::GiveFood,
+                ),
+                Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                } => (
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                    TargetedActionKind::StealFood,
+                ),
+                _ => continue,
+            };
+
+            if group_id != partition.group_id {
+                return Err(Phase6BError::PartitionGroupMismatch {
+                    agent_id,
+                    intent_group_id: group_id,
+                    partition_group_id: partition.group_id,
+                });
+            }
+            if !requested_amount.is_finite() || requested_amount < 0.0 {
+                return Err(Phase6BError::InvalidRequestedAmount {
+                    agent_id,
+                    requested_amount,
+                });
+            }
+            let initiator_slot = storage
+                .slot_of(agent_id)
+                .ok_or(Phase6BError::MissingInitiator(agent_id))?;
+            let target_slot = match target_agent_id {
+                Some(target_id) => Some(
+                    storage
+                        .slot_of(target_id)
+                        .ok_or(Phase6BError::MissingTarget(target_id))?,
+                ),
+                None => None,
+            };
+            let resolution_key = target_agent_id.map(|target_id| {
+                compute_resolution_key(
+                    config.world.master_seed,
+                    config.world.replicate_id,
+                    current_day.as_u32(),
+                    group_id.as_u16(),
+                    target_id.as_u32(),
+                    agent_id.as_u32(),
+                    action_kind.action_kind(),
+                )
+            });
+            scratch.validated.push(ValidatedStorageInteraction {
+                group_id,
+                initiator_agent_id: agent_id,
+                target_agent_id,
+                initiator_slot,
+                target_slot,
+                action_kind,
+                requested_amount,
+                resolution_key,
+            });
+        }
+    }
+
+    let mut settlement_resolutions = Vec::with_capacity(partitions.len());
+    let mut staged_cursor = 0;
+
+    for partition in partitions {
+        let group_id = partition.group_id;
+        let mut zero_target_records = Vec::new();
+        scratch.keyed.clear();
+
+        while staged_cursor < scratch.validated.len()
+            && scratch.validated[staged_cursor].group_id == group_id
+        {
+            let staged = scratch.validated[staged_cursor];
+            staged_cursor += 1;
+            match (
+                staged.target_agent_id,
+                staged.resolution_key,
+                staged.target_slot,
+            ) {
+                (None, None, None) => zero_target_records.push(TargetedResolution {
+                    group_id: staged.group_id,
+                    initiator_agent_id: staged.initiator_agent_id,
+                    target_agent_id: None,
+                    action_kind: staged.action_kind,
+                    resolution_key: None,
+                    theft_success_draw: None,
+                    outcome: TargetedOutcome::ZeroTarget,
+                }),
+                (Some(target_agent_id), Some(key), Some(target_slot)) => {
+                    scratch.keyed.push(CachedStorageKeyedItem {
+                        key,
+                        initiator_agent_id: staged.initiator_agent_id,
+                        target_agent_id,
+                        initiator_slot: staged.initiator_slot,
+                        target_slot,
+                        action_kind: staged.action_kind,
+                        requested_amount: staged.requested_amount,
+                    });
+                }
+                _ => unreachable!("validated target and key fields must agree"),
+            }
+        }
+
+        // Phase5 gives zero-target records AgentId order here. Keep the ResolutionKey sort below:
+        // its hashed coordinate order is independent of the partition's AgentId order.
+        scratch.keyed.sort_by(|a, b| {
+            compare_keyed_interactions(
+                a.key,
+                a.target_agent_id,
+                a.initiator_agent_id,
+                a.action_kind,
+                b.key,
+                b.target_agent_id,
+                b.initiator_agent_id,
+                b.action_kind,
+            )
+        });
+
+        let mut keyed_resolutions = Vec::with_capacity(scratch.keyed.len());
+        for item in &scratch.keyed {
+            let key = item.key;
+            let initiator_id = item.initiator_agent_id;
+            let target_id = item.target_agent_id;
+            let initiator_idx = item.initiator_slot;
+            let target_idx = item.target_slot;
+
+            // Slot indices are stable during Phase6B; re-read mutable fields immediately before
+            // each interaction so earlier commits still affect eligibility and transfer amounts.
+            let initiator_alive = storage.demography.alive[initiator_idx];
+            let initiator_health = storage.demography.health[initiator_idx];
+            let initiator_group = storage.economy.group_id[initiator_idx];
+            if !initiator_alive || initiator_health <= 0.0 || initiator_group != group_id {
+                keyed_resolutions.push(TargetedResolution {
+                    group_id,
+                    initiator_agent_id: initiator_id,
+                    target_agent_id: Some(target_id),
+                    action_kind: item.action_kind,
+                    resolution_key: Some(key),
+                    theft_success_draw: None,
+                    outcome: TargetedOutcome::InitiatorIneligible,
+                });
+                continue;
+            }
+
+            match item.action_kind {
+                TargetedActionKind::GiveFood => {
+                    let target_group = storage.economy.group_id[target_idx];
+                    let target_alive = storage.demography.alive[target_idx];
+                    let target_health = storage.demography.health[target_idx];
+                    let target_food = storage.economy.food[target_idx];
+                    let giver_food = storage.economy.food[initiator_idx];
+                    let target_valid = target_group == initiator_group
+                        && target_alive
+                        && target_health > 0.0
+                        && target_id != initiator_id
+                        && target_food < config.interaction.starvation_threshold
+                        && giver_food > 0.0;
+
+                    if !target_valid {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::GiveFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::TargetIneligible,
+                        });
+                        continue;
+                    }
+                    let actual_given = item.requested_amount.min(giver_food);
+                    if actual_given <= 0.0 {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::GiveFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::Applied { amount: 0.0 },
+                        });
+                        continue;
+                    }
+                    storage.economy.food[initiator_idx] -= actual_given;
+                    storage.economy.food[target_idx] += actual_given;
+                    keyed_resolutions.push(TargetedResolution {
+                        group_id,
+                        initiator_agent_id: initiator_id,
+                        target_agent_id: Some(target_id),
+                        action_kind: TargetedActionKind::GiveFood,
+                        resolution_key: Some(key),
+                        theft_success_draw: None,
+                        outcome: TargetedOutcome::Applied {
+                            amount: actual_given,
+                        },
+                    });
+                }
+                TargetedActionKind::StealFood => {
+                    let target_group = storage.economy.group_id[target_idx];
+                    let target_alive = storage.demography.alive[target_idx];
+                    let target_health = storage.demography.health[target_idx];
+                    let victim_food = storage.economy.food[target_idx];
+                    let target_valid = target_group == initiator_group
+                        && target_alive
+                        && target_health > 0.0
+                        && target_id != initiator_id
+                        && victim_food > 0.0;
+                    if !target_valid {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::StealFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::TargetIneligible,
+                        });
+                        continue;
+                    }
+
+                    let coord = RngCoordinate::new(
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        current_day.as_u32(),
+                        6,
+                        Subsystem::TheftSuccess.id(),
+                        initiator_id.as_u32(),
+                        0,
+                    );
+                    let draw = coordinate_prng_f32(&coord);
+                    let theft_succeeded = draw < config.interaction.theft_success_probability;
+                    if !theft_succeeded {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::StealFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: Some(draw),
+                            outcome: TargetedOutcome::TheftFailed,
+                        });
+                        continue;
+                    }
+
+                    let actual_stolen = item.requested_amount.min(storage.economy.food[target_idx]);
+                    if actual_stolen <= 0.0 {
+                        keyed_resolutions.push(TargetedResolution {
+                            group_id,
+                            initiator_agent_id: initiator_id,
+                            target_agent_id: Some(target_id),
+                            action_kind: TargetedActionKind::StealFood,
+                            resolution_key: Some(key),
+                            theft_success_draw: Some(draw),
+                            outcome: TargetedOutcome::Applied { amount: 0.0 },
+                        });
+                        continue;
+                    }
+                    storage.economy.food[target_idx] -= actual_stolen;
+                    storage.economy.food[initiator_idx] += actual_stolen;
+                    keyed_resolutions.push(TargetedResolution {
+                        group_id,
+                        initiator_agent_id: initiator_id,
+                        target_agent_id: Some(target_id),
+                        action_kind: TargetedActionKind::StealFood,
+                        resolution_key: Some(key),
+                        theft_success_draw: Some(draw),
+                        outcome: TargetedOutcome::Applied {
+                            amount: actual_stolen,
+                        },
+                    });
+                }
+            }
+        }
+
+        let mut all_resolutions = zero_target_records.clone();
+        all_resolutions.extend(keyed_resolutions.clone());
+        settlement_resolutions.push(SettlementTargetedResolution {
+            group_id,
+            zero_target: zero_target_records,
+            keyed_stream: keyed_resolutions,
+            resolutions: all_resolutions,
+        });
+    }
+
+    scratch.clear();
     Ok(settlement_resolutions)
 }
 

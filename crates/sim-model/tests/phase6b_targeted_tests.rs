@@ -3,11 +3,13 @@ use sim_core::{
     coordinate_prng_u64,
 };
 use sim_model::{
-    AgentState, Command, CommandExecutionError, Intent, Phase6BError, SettlementIntentPartition,
-    SettlementState, SimConfig, TargetedActionKind, TargetedOutcome, WorldState,
-    compare_keyed_interactions, compute_resolution_key, execute_phases_1_and_2, generate_intents,
-    initialize_world, phase3_observation_and_features, phase4_primary_action_selection,
-    phase5_partition_intents, phase6a_work_resolution, phase6b_targeted_resolution,
+    AgentState, Command, CommandExecutionError, Intent, Phase6BError, Phase6BResolutionScratch,
+    SegmentedAgentStorage, SettlementIntentPartition, SettlementState, SimConfig,
+    TargetedActionKind, TargetedOutcome, WorldState, compare_keyed_interactions,
+    compute_resolution_key, execute_phases_1_and_2, generate_intents, initialize_world,
+    phase3_observation_and_features, phase4_primary_action_selection, phase5_partition_intents,
+    phase6a_work_resolution, phase6b_targeted_resolution,
+    phase6b_targeted_resolution_storage_baseline, phase6b_targeted_resolution_storage_with_scratch,
 };
 
 const BASE_TOML: &str = r#"
@@ -103,6 +105,38 @@ fn make_test_world(agents: Vec<AgentState>) -> WorldState {
         ],
         initial_money_supply: 2000,
     }
+}
+
+fn assert_storage_phase6b_matches_baseline(
+    initial: &WorldState,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+) {
+    let mut baseline_world = initial.clone();
+    let mut optimized_world = initial.clone();
+    let mut baseline_storage = SegmentedAgentStorage::from_agents(&baseline_world.agents);
+    let mut optimized_storage = SegmentedAgentStorage::from_agents(&optimized_world.agents);
+    let baseline = phase6b_targeted_resolution_storage_baseline(
+        &mut baseline_storage,
+        &baseline_world.settlements,
+        baseline_world.current_day,
+        config,
+        partitions,
+    );
+    let mut scratch = Phase6BResolutionScratch::with_capacity(initial.agents.len());
+    let optimized = phase6b_targeted_resolution_storage_with_scratch(
+        &mut optimized_storage,
+        &optimized_world.settlements,
+        optimized_world.current_day,
+        config,
+        partitions,
+        &mut scratch,
+    );
+    assert_eq!(optimized, baseline);
+    baseline_storage.write_back_to_agents(&mut baseline_world.agents);
+    optimized_storage.write_back_to_agents(&mut optimized_world.agents);
+    assert_eq!(optimized_world, baseline_world);
+    assert_eq!(optimized_storage, baseline_storage);
 }
 
 // 1. ResolutionKey GiveFood golden
@@ -1378,4 +1412,364 @@ fn test_command_modify_food_execution() {
         cmd_nan.execute(&mut world),
         Err(CommandExecutionError::InvalidAmount(_))
     ));
+}
+
+#[test]
+fn test_storage_phase6b_fast_path_preserves_live_state_between_commits() {
+    let mut config = SimConfig::parse_and_validate(BASE_TOML).unwrap();
+    config.world.master_seed = 0x0123456789abcdef;
+    config.world.replicate_id = 7;
+    config.interaction.starvation_threshold = 5.0;
+    let initial = make_test_world(vec![
+        make_test_agent(1, 0, 10.0, 1.0, true),
+        make_test_agent(2, 0, 10.0, 1.0, true),
+        make_test_agent(7, 0, 3.0, 1.0, true),
+    ]);
+    let partitions = vec![SettlementIntentPartition {
+        group_id: GroupId(0),
+        intents: vec![
+            Intent::GiveFood {
+                agent_id: AgentId(1),
+                group_id: GroupId(0),
+                target_agent_id: Some(AgentId(7)),
+                requested_amount: 3.0,
+            },
+            Intent::GiveFood {
+                agent_id: AgentId(2),
+                group_id: GroupId(0),
+                target_agent_id: Some(AgentId(7)),
+                requested_amount: 3.0,
+            },
+        ],
+    }];
+
+    let mut storage = SegmentedAgentStorage::from_agents(&initial.agents);
+    let mut scratch = Phase6BResolutionScratch::with_capacity(initial.agents.len());
+    let result = phase6b_targeted_resolution_storage_with_scratch(
+        &mut storage,
+        &initial.settlements,
+        initial.current_day,
+        &config,
+        &partitions,
+        &mut scratch,
+    )
+    .unwrap();
+    let keyed = &result[0].keyed_stream;
+    let first = if keyed[0].initiator_agent_id == AgentId(1) {
+        0
+    } else {
+        1
+    };
+    let second = 1 - first;
+    assert_eq!(
+        keyed[first].outcome,
+        TargetedOutcome::Applied { amount: 3.0 }
+    );
+    assert_eq!(keyed[second].outcome, TargetedOutcome::TargetIneligible);
+    let target_slot = storage.slot_of(AgentId(7)).unwrap();
+    assert_eq!(storage.economy.food[target_slot], 6.0);
+    assert_storage_phase6b_matches_baseline(&initial, &config, &partitions);
+}
+
+#[test]
+fn test_storage_phase6b_canonical_and_fallback_edge_parity() {
+    let mut config = SimConfig::parse_and_validate(BASE_TOML).unwrap();
+    config.interaction.theft_success_probability = 1.0;
+    let initial = make_test_world(vec![
+        make_test_agent(1, 0, 2.0, 1.0, true),
+        make_test_agent(2, 0, 8.0, 1.0, true),
+        make_test_agent(3, 0, 3.0, 1.0, true),
+        make_test_agent(4, 1, 10.0, 1.0, true),
+        make_test_agent(5, 1, 2.0, 1.0, true),
+    ]);
+    let canonical = vec![
+        SettlementIntentPartition {
+            group_id: GroupId(0),
+            intents: vec![
+                Intent::GiveFood {
+                    agent_id: AgentId(1),
+                    group_id: GroupId(0),
+                    target_agent_id: None,
+                    requested_amount: 1.0,
+                },
+                Intent::StealFood {
+                    agent_id: AgentId(2),
+                    group_id: GroupId(0),
+                    target_agent_id: Some(AgentId(3)),
+                    requested_amount: 2.0,
+                },
+                Intent::GiveFood {
+                    agent_id: AgentId(3),
+                    group_id: GroupId(0),
+                    target_agent_id: Some(AgentId(2)),
+                    requested_amount: 1.0,
+                },
+            ],
+        },
+        SettlementIntentPartition {
+            group_id: GroupId(1),
+            intents: vec![
+                Intent::StealFood {
+                    agent_id: AgentId(4),
+                    group_id: GroupId(1),
+                    target_agent_id: None,
+                    requested_amount: 1.0,
+                },
+                Intent::GiveFood {
+                    agent_id: AgentId(5),
+                    group_id: GroupId(1),
+                    target_agent_id: Some(AgentId(4)),
+                    requested_amount: 1.0,
+                },
+            ],
+        },
+    ];
+    assert_storage_phase6b_matches_baseline(&initial, &config, &canonical);
+
+    let mut reversed_groups = canonical.clone();
+    reversed_groups.reverse();
+    assert_storage_phase6b_matches_baseline(&initial, &config, &reversed_groups);
+
+    let mut shuffled_groups = canonical.clone();
+    shuffled_groups.swap(0, 1);
+    shuffled_groups[0].intents.reverse();
+    assert_storage_phase6b_matches_baseline(&initial, &config, &shuffled_groups);
+
+    let duplicate_partition = vec![canonical[0].clone(), canonical[0].clone()];
+    assert_storage_phase6b_matches_baseline(&initial, &config, &duplicate_partition);
+
+    let only_zero = vec![SettlementIntentPartition {
+        group_id: GroupId(0),
+        intents: vec![
+            Intent::GiveFood {
+                agent_id: AgentId(1),
+                group_id: GroupId(0),
+                target_agent_id: None,
+                requested_amount: 1.0,
+            },
+            Intent::StealFood {
+                agent_id: AgentId(2),
+                group_id: GroupId(0),
+                target_agent_id: None,
+                requested_amount: 1.0,
+            },
+        ],
+    }];
+    assert_storage_phase6b_matches_baseline(&initial, &config, &only_zero);
+
+    let only_keyed = vec![SettlementIntentPartition {
+        group_id: GroupId(0),
+        intents: vec![Intent::StealFood {
+            agent_id: AgentId(2),
+            group_id: GroupId(0),
+            target_agent_id: Some(AgentId(3)),
+            requested_amount: 1.0,
+        }],
+    }];
+    assert_storage_phase6b_matches_baseline(&initial, &config, &only_keyed);
+    assert_storage_phase6b_matches_baseline(&initial, &config, &[]);
+}
+
+#[test]
+fn test_storage_phase6b_dispatcher_keeps_validation_error_precedence() {
+    let config = SimConfig::parse_and_validate(BASE_TOML).unwrap();
+    let initial = make_test_world(vec![make_test_agent(1, 0, 4.0, 1.0, true)]);
+    let cases = [
+        (
+            vec![SettlementIntentPartition {
+                group_id: GroupId(99),
+                intents: vec![Intent::Idle {
+                    agent_id: AgentId(1),
+                    group_id: GroupId(99),
+                }],
+            }],
+            Phase6BError::MissingSettlement(GroupId(99)),
+        ),
+        (
+            vec![SettlementIntentPartition {
+                group_id: GroupId(0),
+                intents: vec![Intent::GiveFood {
+                    agent_id: AgentId(99),
+                    group_id: GroupId(1),
+                    target_agent_id: Some(AgentId(100)),
+                    requested_amount: -1.0,
+                }],
+            }],
+            Phase6BError::PartitionGroupMismatch {
+                agent_id: AgentId(99),
+                intent_group_id: GroupId(1),
+                partition_group_id: GroupId(0),
+            },
+        ),
+        (
+            vec![SettlementIntentPartition {
+                group_id: GroupId(0),
+                intents: vec![Intent::GiveFood {
+                    agent_id: AgentId(99),
+                    group_id: GroupId(0),
+                    target_agent_id: Some(AgentId(100)),
+                    requested_amount: -1.0,
+                }],
+            }],
+            Phase6BError::InvalidRequestedAmount {
+                agent_id: AgentId(99),
+                requested_amount: -1.0,
+            },
+        ),
+        (
+            vec![SettlementIntentPartition {
+                group_id: GroupId(0),
+                intents: vec![Intent::GiveFood {
+                    agent_id: AgentId(99),
+                    group_id: GroupId(0),
+                    target_agent_id: Some(AgentId(100)),
+                    requested_amount: 1.0,
+                }],
+            }],
+            Phase6BError::MissingInitiator(AgentId(99)),
+        ),
+        (
+            vec![SettlementIntentPartition {
+                group_id: GroupId(0),
+                intents: vec![Intent::GiveFood {
+                    agent_id: AgentId(1),
+                    group_id: GroupId(0),
+                    target_agent_id: Some(AgentId(100)),
+                    requested_amount: 1.0,
+                }],
+            }],
+            Phase6BError::MissingTarget(AgentId(100)),
+        ),
+    ];
+
+    for (partitions, expected) in cases {
+        assert_storage_phase6b_matches_baseline(&initial, &config, &partitions);
+        let mut storage = SegmentedAgentStorage::from_agents(&initial.agents);
+        let mut scratch = Phase6BResolutionScratch::with_capacity(1);
+        assert_eq!(
+            phase6b_targeted_resolution_storage_with_scratch(
+                &mut storage,
+                &initial.settlements,
+                initial.current_day,
+                &config,
+                &partitions,
+                &mut scratch,
+            ),
+            Err(expected)
+        );
+    }
+
+    let mut invalid_config = config.clone();
+    invalid_config.interaction.theft_success_probability = 1.5;
+    let duplicate_partitions = vec![
+        SettlementIntentPartition {
+            group_id: GroupId(0),
+            intents: Vec::new(),
+        },
+        SettlementIntentPartition {
+            group_id: GroupId(0),
+            intents: Vec::new(),
+        },
+    ];
+    assert_storage_phase6b_matches_baseline(&initial, &invalid_config, &duplicate_partitions);
+    let mut storage = SegmentedAgentStorage::from_agents(&initial.agents);
+    let mut scratch = Phase6BResolutionScratch::default();
+    assert_eq!(
+        phase6b_targeted_resolution_storage_with_scratch(
+            &mut storage,
+            &initial.settlements,
+            initial.current_day,
+            &invalid_config,
+            &duplicate_partitions,
+            &mut scratch,
+        ),
+        Err(Phase6BError::InvalidTheftSuccessProbability(1.5))
+    );
+}
+
+#[test]
+fn test_storage_phase6b_randomized_layout_differential_parity() {
+    fn shuffled<T>(items: &mut [T], mut state: u64) {
+        for index in (1..items.len()).rev() {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            items.swap(index, state as usize % (index + 1));
+        }
+    }
+
+    for population in [100u32, 250, 1000, 5000] {
+        for group_count in [1u32, 2, 5, 20, 50] {
+            let agents: Vec<_> = (1..=population)
+                .map(|id| {
+                    let group = ((id.wrapping_mul(31).wrapping_add(7)) % group_count) as u16;
+                    make_test_agent(id, group, 1.0 + (id % 7) as f32, 1.0, true)
+                })
+                .collect();
+            let initial = WorldState {
+                current_day: SimulationDay(3),
+                agents,
+                settlements: (0..group_count)
+                    .map(|group_id| SettlementState {
+                        group_id: GroupId(group_id as u16),
+                        resource: 50.0,
+                        treasury: 1000,
+                    })
+                    .collect(),
+                initial_money_supply: 1000,
+            };
+            let mut config = SimConfig::parse_and_validate(BASE_TOML).unwrap();
+            config.interaction.theft_success_probability = 1.0;
+            let intents: Vec<_> = (1..=population)
+                .map(|id| {
+                    let group = ((id.wrapping_mul(31).wrapping_add(7)) % group_count) as u16;
+                    let target = AgentId(id % population + 1);
+                    if id % 7 == 0 {
+                        Intent::GiveFood {
+                            agent_id: AgentId(id),
+                            group_id: GroupId(group),
+                            target_agent_id: None,
+                            requested_amount: 1.5,
+                        }
+                    } else if id % 2 == 0 {
+                        Intent::StealFood {
+                            agent_id: AgentId(id),
+                            group_id: GroupId(group),
+                            target_agent_id: Some(target),
+                            requested_amount: 1.0,
+                        }
+                    } else {
+                        Intent::GiveFood {
+                            agent_id: AgentId(id),
+                            group_id: GroupId(group),
+                            target_agent_id: Some(target),
+                            requested_amount: 1.0,
+                        }
+                    }
+                })
+                .collect();
+            let canonical = phase5_partition_intents(&intents).unwrap();
+            assert_storage_phase6b_matches_baseline(&initial, &config, &canonical);
+
+            let mut reversed = canonical.clone();
+            reversed.reverse();
+            assert_storage_phase6b_matches_baseline(&initial, &config, &reversed);
+
+            let mut shuffled_groups = canonical.clone();
+            shuffled(
+                &mut shuffled_groups,
+                ((population as u64) << 32) | group_count as u64,
+            );
+            assert_storage_phase6b_matches_baseline(&initial, &config, &shuffled_groups);
+
+            let mut shuffled_intents = canonical.clone();
+            for (index, partition) in shuffled_intents.iter_mut().enumerate() {
+                shuffled(
+                    &mut partition.intents,
+                    ((population as u64) << 40) ^ ((group_count as u64) << 16) ^ index as u64,
+                );
+            }
+            assert_storage_phase6b_matches_baseline(&initial, &config, &shuffled_intents);
+        }
+    }
 }

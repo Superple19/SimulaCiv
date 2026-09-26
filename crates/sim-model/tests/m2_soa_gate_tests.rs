@@ -14,6 +14,7 @@ use sim_model::runner::{
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_days,
     run_hybrid_authority_days_with_phase3_linear_scan,
     run_hybrid_authority_days_with_phase5_baseline,
+    run_hybrid_authority_days_with_phase6b_baseline,
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_day,
     run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
     run_native_soa_days,
@@ -1743,5 +1744,42 @@ fn phase5_owned_production_runner_matches_canonical_runner() {
     assert_eq!(
         optimized.canonical_state_hash().unwrap(),
         canonical.canonical_state_hash().unwrap()
+    );
+}
+
+#[test]
+fn phase6b_scratch_production_runner_matches_existing_storage_resolver() {
+    let mut config = make_config();
+    config.world.initial_population = 500;
+    config.world.settlement_count = 5;
+    config.environment.carrying_capacity = 500_000.0;
+    let context = make_context();
+    let initial = initialize_world(&config).expect("world initializes");
+    let mut optimized = HybridWorldState::hybrid(initial.clone());
+    let mut baseline = HybridWorldState::hybrid(initial);
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: true,
+    };
+
+    let optimized_outcomes =
+        run_hybrid_authority_days(&mut optimized, &config, &context, 3, &options)
+            .expect("Phase6B scratch path succeeds");
+    let baseline_outcomes = run_hybrid_authority_days_with_phase6b_baseline(
+        &mut baseline,
+        &config,
+        &context,
+        3,
+        &options,
+    )
+    .expect("existing Phase6B path succeeds");
+
+    assert_eq!(optimized_outcomes, baseline_outcomes);
+    assert_eq!(optimized.world, baseline.world);
+    assert_eq!(optimized.segmented_storage, baseline.segmented_storage);
+    assert_eq!(
+        optimized.canonical_state_hash().unwrap(),
+        baseline.canonical_state_hash().unwrap()
     );
 }

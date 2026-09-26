@@ -44,10 +44,12 @@ use crate::phases::{
     phase9_mortality_commitment,
 };
 use crate::resolution::{
-    Phase6AError, Phase6BError, Phase7Error, Phase8Error, Phase8WelfareScratch,
-    phase6a_work_resolution, phase6a_work_resolution_storage, phase6b_targeted_resolution,
-    phase6b_targeted_resolution_storage, phase7_market_clearance_storage_with_config,
-    phase7_market_clearance_with_config, phase8_welfare_distribution_storage_full_scan,
+    Phase6AError, Phase6BError, Phase6BResolutionScratch, Phase7Error, Phase8Error,
+    Phase8WelfareScratch, phase6a_work_resolution, phase6a_work_resolution_storage,
+    phase6b_targeted_resolution, phase6b_targeted_resolution_storage_baseline,
+    phase6b_targeted_resolution_storage_ordered_with_scratch,
+    phase7_market_clearance_storage_with_config, phase7_market_clearance_with_config,
+    phase8_welfare_distribution_storage_full_scan,
     phase8_welfare_distribution_storage_with_config_and_scratch,
     phase8_welfare_distribution_with_config,
 };
@@ -816,6 +818,7 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase5_scratch =
         Phase5PartitionScratch::with_capacity(hybrid_world.world.settlements.len());
+    let mut phase6b_scratch = Phase6BResolutionScratch::with_capacity(agent_count);
     run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
@@ -830,6 +833,8 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
         Phase5RuntimeMode::OwnedFast,
         Some(&mut phase5_scratch),
+        Phase6BRuntimeMode::StorageFast,
+        Some(&mut phase6b_scratch),
     )
 }
 
@@ -857,6 +862,7 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase5_scratch =
         Phase5PartitionScratch::with_capacity(hybrid_world.world.settlements.len());
+    let mut phase6b_scratch = Phase6BResolutionScratch::with_capacity(agent_count);
     run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
@@ -871,6 +877,8 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
         Phase5RuntimeMode::OwnedFast,
         Some(&mut phase5_scratch),
+        Phase6BRuntimeMode::StorageFast,
+        Some(&mut phase6b_scratch),
     )
 }
 
@@ -910,6 +918,7 @@ pub fn run_hybrid_authority_day_with_scratch(
         Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     let mut phase5_scratch =
         Phase5PartitionScratch::with_capacity(hybrid_world.world.settlements.len());
+    let mut phase6b_scratch = Phase6BResolutionScratch::with_capacity(agent_count);
     run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
@@ -924,6 +933,8 @@ pub fn run_hybrid_authority_day_with_scratch(
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
         Phase5RuntimeMode::OwnedFast,
         Some(&mut phase5_scratch),
+        Phase6BRuntimeMode::StorageFast,
+        Some(&mut phase6b_scratch),
     )
 }
 
@@ -948,6 +959,12 @@ enum Phase5RuntimeMode {
     OwnedFast,
 }
 
+#[derive(Clone, Copy)]
+enum Phase6BRuntimeMode {
+    CanonicalBaseline,
+    StorageFast,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_hybrid_authority_day_with_all_scratch(
     hybrid_world: &mut HybridWorldState,
@@ -963,6 +980,8 @@ fn run_hybrid_authority_day_with_all_scratch(
     phase3_scratch: Phase3RuntimeScratch<'_>,
     phase5_mode: Phase5RuntimeMode,
     phase5_scratch: Option<&mut Phase5PartitionScratch>,
+    phase6b_mode: Phase6BRuntimeMode,
+    phase6b_scratch: Option<&mut Phase6BResolutionScratch>,
 ) -> Result<DayOutcome, M0RunError> {
     if !hybrid_world.is_hybrid() {
         return run_m0_day_with_scratch(
@@ -1075,13 +1094,30 @@ fn run_hybrid_authority_day_with_all_scratch(
         phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)?;
 
     // 9. Phase 6B: Targeted Interaction Resolution (Directly on storage and settlements)
-    let targeted_resolutions = phase6b_targeted_resolution_storage(
-        storage,
-        &world.settlements,
-        world.current_day,
-        &effective_config,
-        &partitions,
-    )?;
+    let targeted_resolutions = match phase6b_mode {
+        Phase6BRuntimeMode::CanonicalBaseline => phase6b_targeted_resolution_storage_baseline(
+            storage,
+            &world.settlements,
+            world.current_day,
+            &effective_config,
+            &partitions,
+        )?,
+        Phase6BRuntimeMode::StorageFast => {
+            let scratch = phase6b_scratch.ok_or_else(|| {
+                M0RunError::InvariantViolation(
+                    "fast Phase6B path requires its transient scratch".to_string(),
+                )
+            })?;
+            phase6b_targeted_resolution_storage_ordered_with_scratch(
+                storage,
+                &world.settlements,
+                world.current_day,
+                &effective_config,
+                &partitions,
+                scratch,
+            )?
+        }
+    };
 
     // 10. Phase 7: Settlement Market Clearance (Directly on storage and settlements)
     let market_resolutions = phase7_market_clearance_storage_with_config(
@@ -1251,6 +1287,7 @@ pub fn run_hybrid_authority_days(
         true,
         true,
         Phase5RuntimeMode::OwnedFast,
+        Phase6BRuntimeMode::StorageFast,
     )
 }
 
@@ -1272,6 +1309,28 @@ pub fn run_hybrid_authority_days_with_phase5_baseline(
         true,
         true,
         Phase5RuntimeMode::CanonicalBaseline,
+        Phase6BRuntimeMode::StorageFast,
+    )
+}
+
+/// Executes Hybrid days using the existing Phase6B storage resolver for before/after benchmarks.
+pub fn run_hybrid_authority_days_with_phase6b_baseline(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<DayOutcome>, M0RunError> {
+    run_hybrid_authority_days_with_phase_modes(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        true,
+        true,
+        Phase5RuntimeMode::OwnedFast,
+        Phase6BRuntimeMode::CanonicalBaseline,
     )
 }
 
@@ -1294,6 +1353,7 @@ pub fn run_hybrid_authority_days_with_phase8_full_scan(
         true,
         false,
         Phase5RuntimeMode::OwnedFast,
+        Phase6BRuntimeMode::StorageFast,
     )
 }
 
@@ -1316,6 +1376,7 @@ pub fn run_hybrid_authority_days_with_phase3_linear_scan(
         false,
         true,
         Phase5RuntimeMode::OwnedFast,
+        Phase6BRuntimeMode::StorageFast,
     )
 }
 
@@ -1329,6 +1390,7 @@ fn run_hybrid_authority_days_with_phase_modes(
     use_direct_phase3: bool,
     use_one_pass_phase8: bool,
     phase5_mode: Phase5RuntimeMode,
+    phase6b_mode: Phase6BRuntimeMode,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
     let agent_count = match &hybrid_world.segmented_storage {
         Some(s) => s.len(),
@@ -1354,6 +1416,12 @@ fn run_hybrid_authority_days_with_phase_modes(
             hybrid_world.world.settlements.len(),
         )),
     };
+    let mut phase6b_scratch = match phase6b_mode {
+        Phase6BRuntimeMode::CanonicalBaseline => None,
+        Phase6BRuntimeMode::StorageFast => {
+            Some(Phase6BResolutionScratch::with_capacity(agent_count))
+        }
+    };
 
     for _ in 0..days {
         let outcome = run_hybrid_authority_day_with_all_scratch(
@@ -1377,6 +1445,8 @@ fn run_hybrid_authority_days_with_phase_modes(
             },
             phase5_mode,
             phase5_scratch.as_mut(),
+            phase6b_mode,
+            phase6b_scratch.as_mut(),
         )?;
         outcomes.push(outcome);
     }
