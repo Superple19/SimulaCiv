@@ -3,15 +3,18 @@ use sim_core::{AgentId, DenseSlot, GroupId, SimulationDay};
 use sim_model::features::{AgentFeatures, FeatureVector};
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash};
 use sim_model::runner::{
-    DayExecutionOptions, M0RunContext, run_hybrid_authority_days,
+    DayExecutionOptions, M0RunContext, M0RunError, Phase4Backend, Phase4ExecutionPolicy,
+    run_hybrid_authority_days, run_hybrid_authority_days_with_phase4_policy,
     run_hybrid_authority_days_with_rayon_phase4,
 };
+use sim_model::snapshot::restore_snapshot;
 use sim_model::state::{AgentState, HybridWorldState};
 use sim_model::storage::SegmentedAgentStorage;
 use sim_model::{
-    Action, DecisionError, Intent, IntentError, Phase4CandidateIndexScratch, PrimaryActionChoice,
-    SimConfig, generate_intents_storage_with_candidate_index,
+    Action, DecisionError, Intent, IntentError, Phase3ScarcityScratch, Phase4CandidateIndexScratch,
+    PrimaryActionChoice, SimConfig, generate_intents_storage_with_candidate_index,
     generate_intents_storage_with_candidate_index_rayon, initialize_world,
+    phase3_observation_and_features_storage_with_scratch,
     phase4_primary_action_selection_storage_into,
     phase4_primary_action_selection_storage_into_rayon,
 };
@@ -856,4 +859,440 @@ fn empty_indexed_intent_input_matches_serial() {
     );
     assert_eq!(parallel_result, serial_result);
     assert_eq!(parallel, serial);
+}
+
+#[test]
+fn execution_policy_threshold_is_explicit_and_inclusive() {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(6)
+        .build()
+        .unwrap();
+    let auto = Phase4ExecutionPolicy::Auto {
+        pool: &pool,
+        threshold: NonZeroUsize::new(7500).unwrap(),
+        chunk_size: NonZeroUsize::new(256).unwrap(),
+    };
+    for count in [100, 250, 500, 1000, 7499] {
+        assert_eq!(auto.backend_for(count), Phase4Backend::Serial, "N={count}");
+    }
+    assert_eq!(auto.backend_for(7500), Phase4Backend::Rayon);
+    assert_eq!(auto.backend_for(7501), Phase4Backend::Rayon);
+    assert_eq!(
+        Phase4ExecutionPolicy::Serial.backend_for(usize::MAX),
+        Phase4Backend::Serial
+    );
+    assert_eq!(
+        Phase4ExecutionPolicy::Rayon {
+            pool: &pool,
+            chunk_size: NonZeroUsize::new(256).unwrap(),
+        }
+        .backend_for(0),
+        Phase4Backend::Rayon
+    );
+    let one_thread_pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    assert_eq!(
+        Phase4ExecutionPolicy::Auto {
+            pool: &one_thread_pool,
+            threshold: NonZeroUsize::new(1).unwrap(),
+            chunk_size: NonZeroUsize::new(128).unwrap(),
+        }
+        .backend_for(usize::MAX),
+        Phase4Backend::Serial
+    );
+    assert_eq!(pool.current_num_threads(), 6);
+    assert!(NonZeroUsize::new(0).is_none());
+}
+
+#[test]
+fn serial_explicit_rayon_and_auto_policies_match_short_trajectories() {
+    let config = config();
+    let context = gate_context();
+    let options = options(false);
+    for (threads, pool) in pools().into_iter().filter(|(threads, _)| *threads > 1) {
+        for chunk in [128, 256] {
+            let serial_initial = HybridWorldState::hybrid(initialize_world(&config).unwrap());
+            let mut serial = serial_initial.clone();
+            let expected =
+                run_hybrid_authority_days(&mut serial, &config, &context, 40, &options).unwrap();
+
+            for policy in [
+                Phase4ExecutionPolicy::Rayon {
+                    pool: &pool,
+                    chunk_size: NonZeroUsize::new(chunk).unwrap(),
+                },
+                Phase4ExecutionPolicy::Auto {
+                    pool: &pool,
+                    threshold: NonZeroUsize::new(5).unwrap(),
+                    chunk_size: NonZeroUsize::new(chunk).unwrap(),
+                },
+                Phase4ExecutionPolicy::Auto {
+                    pool: &pool,
+                    threshold: NonZeroUsize::new(100).unwrap(),
+                    chunk_size: NonZeroUsize::new(chunk).unwrap(),
+                },
+            ] {
+                let mut candidate = serial_initial.clone();
+                let actual = run_hybrid_authority_days_with_phase4_policy(
+                    &mut candidate,
+                    &config,
+                    &context,
+                    40,
+                    &options,
+                    policy,
+                )
+                .unwrap();
+                assert_eq!(actual, expected, "threads={threads}, chunk={chunk}");
+                assert_eq!(candidate, serial, "threads={threads}, chunk={chunk}");
+            }
+        }
+    }
+}
+
+#[test]
+fn runner_level_errors_are_policy_independent() {
+    let config = config();
+    let context = gate_context();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let options = options(false);
+    let mut initial = HybridWorldState::hybrid(initialize_world(&config).unwrap());
+    initial.world.current_day = SimulationDay(u32::MAX);
+    let serial_result =
+        run_hybrid_authority_days(&mut initial.clone(), &config, &context, 1, &options);
+    assert_eq!(serial_result, Err(M0RunError::DayOverflow));
+    for policy in [
+        Phase4ExecutionPolicy::Rayon {
+            pool: &pool,
+            chunk_size: NonZeroUsize::new(256).unwrap(),
+        },
+        Phase4ExecutionPolicy::Auto {
+            pool: &pool,
+            threshold: NonZeroUsize::new(5).unwrap(),
+            chunk_size: NonZeroUsize::new(256).unwrap(),
+        },
+    ] {
+        let before = initial.clone();
+        let mut candidate = before.clone();
+        let result = run_hybrid_authority_days_with_phase4_policy(
+            &mut candidate,
+            &config,
+            &context,
+            1,
+            &options,
+            policy,
+        );
+        assert_eq!(result, serial_result);
+        assert_eq!(candidate, before);
+    }
+
+    let mut legacy = HybridWorldState::legacy(initialize_world(&config).unwrap());
+    assert!(matches!(
+        run_hybrid_authority_days_with_phase4_policy(
+            &mut legacy,
+            &config,
+            &context,
+            1,
+            &options,
+            Phase4ExecutionPolicy::Auto {
+                pool: &pool,
+                threshold: NonZeroUsize::new(5).unwrap(),
+                chunk_size: NonZeroUsize::new(256).unwrap(),
+            },
+        ),
+        Err(M0RunError::InvariantViolation(_))
+    ));
+}
+
+fn low_food_crossing_config() -> SimConfig {
+    let mut config = config();
+    config.world.initial_population = 5;
+    config.world.initial_food = 0.0;
+    config.environment.base_metabolic_cost = 1.0;
+    config.environment.health_decay_rate = 0.1;
+    config
+}
+
+fn next_phase4_item_count(
+    world: &HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+) -> usize {
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+    let mut storage = world.segmented_storage.as_ref().unwrap().clone();
+    storage.phase2_degradation_with_config(&effective_config);
+    let mut features = Vec::new();
+    let mut scratch = Phase3ScarcityScratch::with_capacity(world.world.settlements.len());
+    phase3_observation_and_features_storage_with_scratch(
+        &storage,
+        &world.world.settlements,
+        &effective_config,
+        &mut features,
+        &mut scratch,
+    )
+    .unwrap();
+    features.len()
+}
+
+#[test]
+fn auto_policy_switches_on_current_eligible_count_and_survives_synthetic_crossings() {
+    let config = low_food_crossing_config();
+    let context = gate_context();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let policy = Phase4ExecutionPolicy::Auto {
+        pool: &pool,
+        threshold: NonZeroUsize::new(5).unwrap(),
+        chunk_size: NonZeroUsize::new(128).unwrap(),
+    };
+    let options = options(false);
+
+    let mut initial_world = initialize_world(&config).unwrap();
+    initial_world.agents[0].health = 0.2;
+    for agent in &mut initial_world.agents {
+        agent.food = 0.0;
+    }
+    let initial = HybridWorldState::hybrid(initial_world);
+    assert_eq!(next_phase4_item_count(&initial, &config, &context), 5);
+    assert_eq!(policy.backend_for(5), Phase4Backend::Rayon);
+
+    let mut after_first = initial.clone();
+    run_hybrid_authority_days(&mut after_first, &config, &context, 1, &options).unwrap();
+    assert_eq!(next_phase4_item_count(&after_first, &config, &context), 4);
+    assert_eq!(policy.backend_for(4), Phase4Backend::Serial);
+
+    let mut auto_world = initial.clone();
+    let mut serial_world = initial.clone();
+    let auto_outcomes = run_hybrid_authority_days_with_phase4_policy(
+        &mut auto_world,
+        &config,
+        &context,
+        2,
+        &options,
+        policy,
+    )
+    .unwrap();
+    let serial_outcomes =
+        run_hybrid_authority_days(&mut serial_world, &config, &context, 2, &options).unwrap();
+    assert_eq!(auto_outcomes, serial_outcomes);
+    assert_eq!(auto_world, serial_world);
+
+    // Natural eligibility only falls in this model. Synthesize an external population increase
+    // between calls to prove Auto can also move from its serial to its Rayon zone.
+    let mut below_initial = initialize_world(&config).unwrap();
+    below_initial.agents[4].health = 0.0;
+    below_initial.agents[4].food = 0.0;
+    let below_world = HybridWorldState::hybrid(below_initial);
+    let mut below_auto = below_world.clone();
+    let mut below_serial = below_world;
+    assert_eq!(next_phase4_item_count(&below_auto, &config, &context), 4);
+    assert_eq!(policy.backend_for(4), Phase4Backend::Serial);
+    run_hybrid_authority_days_with_phase4_policy(
+        &mut below_auto,
+        &config,
+        &context,
+        1,
+        &options,
+        policy,
+    )
+    .unwrap();
+    run_hybrid_authority_days(&mut below_serial, &config, &context, 1, &options).unwrap();
+    for world in [&mut below_auto, &mut below_serial] {
+        let storage = world.segmented_storage.as_mut().unwrap();
+        storage.alive_mut()[4] = true;
+        storage.health_mut()[4] = 0.5;
+        world.world.agents[4].alive = true;
+        world.world.agents[4].health = 0.5;
+    }
+    assert_eq!(next_phase4_item_count(&below_auto, &config, &context), 5);
+    assert_eq!(policy.backend_for(5), Phase4Backend::Rayon);
+    let auto_outcome = run_hybrid_authority_days_with_phase4_policy(
+        &mut below_auto,
+        &config,
+        &context,
+        1,
+        &options,
+        policy,
+    )
+    .unwrap();
+    let serial_outcome =
+        run_hybrid_authority_days(&mut below_serial, &config, &context, 1, &options).unwrap();
+    assert_eq!(auto_outcome, serial_outcome);
+    assert_eq!(below_auto, below_serial);
+}
+
+#[test]
+fn auto_policy_snapshot_restore_and_500_day_hashes_match_serial() {
+    let config = config();
+    let context = gate_context();
+    let normal_options = options(false);
+    for target_day in [100u32, 250, 500] {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(6)
+            .build()
+            .unwrap();
+        let policy = Phase4ExecutionPolicy::Auto {
+            pool: &pool,
+            threshold: NonZeroUsize::new(5).unwrap(),
+            chunk_size: NonZeroUsize::new(128).unwrap(),
+        };
+        let mut serial = HybridWorldState::hybrid(initialize_world(&config).unwrap());
+        let mut automatic = serial.clone();
+        let before_boundary = target_day - 1;
+        if before_boundary > 0 {
+            let serial_prior = run_hybrid_authority_days(
+                &mut serial,
+                &config,
+                &context,
+                before_boundary,
+                &normal_options,
+            )
+            .unwrap();
+            let auto_prior = run_hybrid_authority_days_with_phase4_policy(
+                &mut automatic,
+                &config,
+                &context,
+                before_boundary,
+                &normal_options,
+                policy,
+            )
+            .unwrap();
+            assert_eq!(auto_prior, serial_prior);
+            assert_eq!(automatic, serial);
+        }
+        let boundary_options = options(true);
+        let serial_boundary =
+            run_hybrid_authority_days(&mut serial, &config, &context, 1, &boundary_options)
+                .unwrap();
+        let auto_boundary = run_hybrid_authority_days_with_phase4_policy(
+            &mut automatic,
+            &config,
+            &context,
+            1,
+            &boundary_options,
+            policy,
+        )
+        .unwrap();
+        assert_eq!(auto_boundary, serial_boundary);
+        let serial_snapshot = serial_boundary[0].snapshot.as_ref().unwrap();
+        let auto_snapshot = auto_boundary[0].snapshot.as_ref().unwrap();
+        assert_eq!(auto_snapshot, serial_snapshot, "resume day {target_day}");
+
+        let mut restored_serial =
+            HybridWorldState::hybrid(restore_snapshot(serial_snapshot).unwrap().world);
+        let mut restored_auto =
+            HybridWorldState::hybrid(restore_snapshot(auto_snapshot).unwrap().world);
+        let serial_continuous =
+            run_hybrid_authority_days(&mut serial, &config, &context, 25, &normal_options).unwrap();
+        let serial_resumed =
+            run_hybrid_authority_days(&mut restored_serial, &config, &context, 25, &normal_options)
+                .unwrap();
+        let auto_continuous = run_hybrid_authority_days_with_phase4_policy(
+            &mut automatic,
+            &config,
+            &context,
+            25,
+            &normal_options,
+            policy,
+        )
+        .unwrap();
+        let auto_resumed = run_hybrid_authority_days_with_phase4_policy(
+            &mut restored_auto,
+            &config,
+            &context,
+            25,
+            &normal_options,
+            policy,
+        )
+        .unwrap();
+        assert_eq!(serial_resumed, serial_continuous);
+        assert_eq!(auto_resumed, auto_continuous);
+        assert_eq!(auto_continuous, serial_continuous);
+        assert_eq!(restored_serial, serial);
+        assert_eq!(restored_auto, automatic);
+        assert_eq!(automatic, serial);
+    }
+
+    let pool6 = rayon::ThreadPoolBuilder::new()
+        .num_threads(6)
+        .build()
+        .unwrap();
+    let pool12 = rayon::ThreadPoolBuilder::new()
+        .num_threads(12)
+        .build()
+        .unwrap();
+    for pool in [&pool6, &pool12] {
+        for auto in [false, true] {
+            let policy = if auto {
+                Phase4ExecutionPolicy::Auto {
+                    pool,
+                    threshold: NonZeroUsize::new(7500).unwrap(),
+                    chunk_size: NonZeroUsize::new(128).unwrap(),
+                }
+            } else {
+                Phase4ExecutionPolicy::Rayon {
+                    pool,
+                    chunk_size: NonZeroUsize::new(256).unwrap(),
+                }
+            };
+            let mut serial_world = HybridWorldState::hybrid(initialize_world(&config).unwrap());
+            let mut policy_world = serial_world.clone();
+            let mut serial_outcomes = Vec::with_capacity(500);
+            let mut policy_outcomes = Vec::with_capacity(500);
+            for (days, boundary) in [(199, false), (1, true), (300, false)] {
+                let execution_options = options(boundary);
+                serial_outcomes.extend(
+                    run_hybrid_authority_days(
+                        &mut serial_world,
+                        &config,
+                        &context,
+                        days,
+                        &execution_options,
+                    )
+                    .unwrap(),
+                );
+                policy_outcomes.extend(
+                    run_hybrid_authority_days_with_phase4_policy(
+                        &mut policy_world,
+                        &config,
+                        &context,
+                        days,
+                        &execution_options,
+                        policy,
+                    )
+                    .unwrap(),
+                );
+            }
+            assert_eq!(policy_outcomes, serial_outcomes, "auto={auto}");
+            assert_eq!(policy_world, serial_world, "auto={auto}");
+            let metrics = policy_outcomes
+                .iter()
+                .filter_map(|outcome| outcome.metrics.clone())
+                .collect::<Vec<_>>();
+            let events = policy_outcomes
+                .iter()
+                .flat_map(|outcome| outcome.events.clone())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                policy_world.canonical_state_hash().unwrap().to_hex(),
+                EXPECTED_STATE
+            );
+            assert_eq!(
+                canonical_metrics_hash(&metrics).unwrap().to_hex(),
+                EXPECTED_METRICS
+            );
+            assert_eq!(
+                canonical_event_hash(&events).unwrap().to_hex(),
+                EXPECTED_EVENTS
+            );
+        }
+    }
 }

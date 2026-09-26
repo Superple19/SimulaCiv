@@ -833,7 +833,7 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
         &mut intents_scratch,
         &mut metrics_scratch,
         Phase4RuntimeScratch::PreIndexed(candidate_index),
-        Phase4ExecutionMode::Serial,
+        Phase4ExecutionPolicy::Serial,
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
         Phase5RuntimeMode::OwnedFast,
@@ -878,7 +878,7 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
         &mut intents_scratch,
         &mut metrics_scratch,
         Phase4RuntimeScratch::FullScan(candidate_scratch),
-        Phase4ExecutionMode::Serial,
+        Phase4ExecutionPolicy::Serial,
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
         Phase5RuntimeMode::OwnedFast,
@@ -935,7 +935,7 @@ pub fn run_hybrid_authority_day_with_scratch(
         intents_scratch,
         metrics_scratch,
         Phase4RuntimeScratch::FullScan(&mut candidate_scratch),
-        Phase4ExecutionMode::Serial,
+        Phase4ExecutionPolicy::Serial,
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
         Phase5RuntimeMode::OwnedFast,
@@ -948,6 +948,74 @@ pub fn run_hybrid_authority_day_with_scratch(
 enum Phase4RuntimeScratch<'a> {
     FullScan(&'a mut Vec<AgentId>),
     PreIndexed(&'a mut Phase4CandidateIndexScratch),
+}
+
+/// Runtime Phase4 backend chosen for a simulation tick. It is not simulation state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase4Backend {
+    Serial,
+    Rayon,
+}
+
+/// Caller-owned execution policy for Phase4.
+///
+/// Auto uses Serial when the pool has one worker or fewer. Otherwise it compares the eligible
+/// feature count produced for the current tick with its configured threshold, selecting Rayon at
+/// `count >= threshold`. Both numeric settings are nonzero, and the caller owns the pool for the
+/// full run.
+#[derive(Clone, Copy)]
+pub enum Phase4ExecutionPolicy<'a> {
+    /// Keep using the existing serial Phase4 implementation.
+    Serial,
+    /// Always use Rayon with the supplied, already-built pool.
+    Rayon {
+        pool: &'a ThreadPool,
+        chunk_size: NonZeroUsize,
+    },
+    /// Use serial below `threshold`, and Rayon at or above it.
+    Auto {
+        pool: &'a ThreadPool,
+        threshold: NonZeroUsize,
+        chunk_size: NonZeroUsize,
+    },
+}
+
+impl Phase4ExecutionPolicy<'_> {
+    /// Exposes the deterministic policy decision for tests and benchmarks.
+    pub fn backend_for(&self, item_count: usize) -> Phase4Backend {
+        match self {
+            Self::Serial => Phase4Backend::Serial,
+            Self::Rayon { .. } => Phase4Backend::Rayon,
+            Self::Auto {
+                pool, threshold, ..
+            } => {
+                if pool.current_num_threads() > 1 && item_count >= threshold.get() {
+                    Phase4Backend::Rayon
+                } else {
+                    Phase4Backend::Serial
+                }
+            }
+        }
+    }
+
+    fn execution_mode(&self, item_count: usize) -> Phase4ExecutionMode<'_> {
+        match (self.backend_for(item_count), self) {
+            (Phase4Backend::Serial, _) => Phase4ExecutionMode::Serial,
+            (Phase4Backend::Rayon, Self::Rayon { pool, chunk_size })
+            | (
+                Phase4Backend::Rayon,
+                Self::Auto {
+                    pool, chunk_size, ..
+                },
+            ) => Phase4ExecutionMode::Rayon {
+                pool,
+                chunk_size: *chunk_size,
+            },
+            (Phase4Backend::Rayon, Self::Serial) => {
+                unreachable!("serial policy cannot select Rayon")
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -992,7 +1060,7 @@ fn run_hybrid_authority_day_with_all_scratch(
     intents_scratch: &mut Vec<Intent>,
     metrics_scratch: &mut AgentDynamicSoAScratch,
     phase4_scratch: Phase4RuntimeScratch<'_>,
-    phase4_mode: Phase4ExecutionMode<'_>,
+    phase4_policy: Phase4ExecutionPolicy<'_>,
     phase8_scratch: Phase8RuntimeScratch<'_>,
     phase3_scratch: Phase3RuntimeScratch<'_>,
     phase5_mode: Phase5RuntimeMode,
@@ -1058,6 +1126,9 @@ fn run_hybrid_authority_day_with_all_scratch(
             )?;
         }
     }
+
+    // Policy selection uses this tick's actual eligible Phase4 work, not total storage length.
+    let phase4_mode = phase4_policy.execution_mode(features_scratch.len());
 
     // 6. Phase 4: Intent Generation (Primary Action Selection & Intent Formulation directly on storage)
     choices_scratch.clear();
@@ -1328,26 +1399,25 @@ pub fn run_hybrid_authority_days(
         options,
         true,
         true,
-        Phase4ExecutionMode::Serial,
+        Phase4ExecutionPolicy::Serial,
         Phase5RuntimeMode::OwnedFast,
         Phase6BRuntimeMode::StorageFast,
     )
 }
 
-/// Executes Hybrid days with an experimental, caller-pooled Rayon Phase4 path.
-/// Existing runners remain serial; chunk merging preserves canonical input order.
-pub fn run_hybrid_authority_days_with_rayon_phase4(
+/// Executes Hybrid days with an explicit caller-configured Phase4 policy.
+/// Existing serial entry points are unchanged; non-serial policies require Hybrid authority.
+pub fn run_hybrid_authority_days_with_phase4_policy(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &M0RunContext,
     days: u32,
     options: &DayExecutionOptions,
-    pool: &ThreadPool,
-    chunk_size: NonZeroUsize,
+    policy: Phase4ExecutionPolicy<'_>,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
-    if !hybrid_world.is_hybrid() {
+    if !hybrid_world.is_hybrid() && !matches!(policy, Phase4ExecutionPolicy::Serial) {
         return Err(M0RunError::InvariantViolation(
-            "Rayon Phase4 experiment requires Hybrid Storage Authority".to_string(),
+            "non-serial Phase4 policy requires Hybrid Storage Authority".to_string(),
         ));
     }
     run_hybrid_authority_days_with_phase_modes(
@@ -1358,9 +1428,30 @@ pub fn run_hybrid_authority_days_with_rayon_phase4(
         options,
         true,
         true,
-        Phase4ExecutionMode::Rayon { pool, chunk_size },
+        policy,
         Phase5RuntimeMode::OwnedFast,
         Phase6BRuntimeMode::StorageFast,
+    )
+}
+
+/// Executes Hybrid days with explicit Rayon Phase4 and a caller-owned pool.
+/// Kept as a convenience wrapper over the common execution-policy runner.
+pub fn run_hybrid_authority_days_with_rayon_phase4(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<Vec<DayOutcome>, M0RunError> {
+    run_hybrid_authority_days_with_phase4_policy(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        Phase4ExecutionPolicy::Rayon { pool, chunk_size },
     )
 }
 
@@ -1381,7 +1472,7 @@ pub fn run_hybrid_authority_days_with_phase5_baseline(
         options,
         true,
         true,
-        Phase4ExecutionMode::Serial,
+        Phase4ExecutionPolicy::Serial,
         Phase5RuntimeMode::CanonicalBaseline,
         Phase6BRuntimeMode::StorageFast,
     )
@@ -1403,7 +1494,7 @@ pub fn run_hybrid_authority_days_with_phase6b_baseline(
         options,
         true,
         true,
-        Phase4ExecutionMode::Serial,
+        Phase4ExecutionPolicy::Serial,
         Phase5RuntimeMode::OwnedFast,
         Phase6BRuntimeMode::CanonicalBaseline,
     )
@@ -1427,7 +1518,7 @@ pub fn run_hybrid_authority_days_with_phase8_full_scan(
         options,
         true,
         false,
-        Phase4ExecutionMode::Serial,
+        Phase4ExecutionPolicy::Serial,
         Phase5RuntimeMode::OwnedFast,
         Phase6BRuntimeMode::StorageFast,
     )
@@ -1451,7 +1542,7 @@ pub fn run_hybrid_authority_days_with_phase3_linear_scan(
         options,
         false,
         true,
-        Phase4ExecutionMode::Serial,
+        Phase4ExecutionPolicy::Serial,
         Phase5RuntimeMode::OwnedFast,
         Phase6BRuntimeMode::StorageFast,
     )
@@ -1466,7 +1557,7 @@ fn run_hybrid_authority_days_with_phase_modes(
     options: &DayExecutionOptions,
     use_direct_phase3: bool,
     use_one_pass_phase8: bool,
-    phase4_mode: Phase4ExecutionMode<'_>,
+    phase4_policy: Phase4ExecutionPolicy<'_>,
     phase5_mode: Phase5RuntimeMode,
     phase6b_mode: Phase6BRuntimeMode,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
@@ -1512,7 +1603,7 @@ fn run_hybrid_authority_days_with_phase_modes(
             &mut intents_scratch,
             &mut metrics_scratch,
             Phase4RuntimeScratch::PreIndexed(&mut candidate_index),
-            phase4_mode,
+            phase4_policy,
             if use_one_pass_phase8 {
                 Phase8RuntimeScratch::OnePass(&mut phase8_scratch)
             } else {

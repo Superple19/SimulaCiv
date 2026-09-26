@@ -68,10 +68,10 @@ use sim_model::resolution::{
 };
 use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext,
-    run_hybrid_authority_day_with_candidate_index_scratch,
+    Phase4Backend, Phase4ExecutionPolicy, run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
-    run_hybrid_authority_days_with_phase5_baseline,
+    run_hybrid_authority_days_with_phase4_policy, run_hybrid_authority_days_with_phase5_baseline,
     run_hybrid_authority_days_with_phase6b_baseline,
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_authority_days_with_rayon_phase4,
     run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
@@ -9576,6 +9576,477 @@ fn measure_m2_38_deterministic_rayon_phase4(base_config: &SimConfig, context: &M
     }
 }
 
+#[derive(Clone, Copy)]
+struct M239CrossoverRow {
+    family: &'static str,
+    population: u64,
+    threads: usize,
+    chunk: usize,
+    serial: M2292Median,
+    rayon: M2292Median,
+}
+
+#[derive(Clone, Copy)]
+enum M239RunMode {
+    Serial,
+    ExplicitRayon,
+    Auto,
+    PerCellBest,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn m2_39_full_tick_sample(
+    initial_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    mode: M239RunMode,
+    pool: &ThreadPool,
+    best_pool: &ThreadPool,
+    threshold: NonZeroUsize,
+    chunk: NonZeroUsize,
+    best_chunk: NonZeroUsize,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(initial_world.clone());
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+    let started = Instant::now();
+    let outcomes = match mode {
+        M239RunMode::Serial => run_hybrid_authority_days(&mut world, config, context, 3, &options),
+        M239RunMode::ExplicitRayon => run_hybrid_authority_days_with_phase4_policy(
+            &mut world,
+            config,
+            context,
+            3,
+            &options,
+            Phase4ExecutionPolicy::Rayon {
+                pool,
+                chunk_size: chunk,
+            },
+        ),
+        M239RunMode::Auto => run_hybrid_authority_days_with_phase4_policy(
+            &mut world,
+            config,
+            context,
+            3,
+            &options,
+            Phase4ExecutionPolicy::Auto {
+                pool,
+                threshold,
+                chunk_size: chunk,
+            },
+        ),
+        M239RunMode::PerCellBest => run_hybrid_authority_days_with_phase4_policy(
+            &mut world,
+            config,
+            context,
+            3,
+            &options,
+            Phase4ExecutionPolicy::Rayon {
+                pool: best_pool,
+                chunk_size: best_chunk,
+            },
+        ),
+    };
+    std::hint::black_box(outcomes.unwrap());
+    started.elapsed().as_nanos() as f64 / 3.0 / 1000.0
+}
+
+fn m2_39_reliable_gain(row: &M239CrossoverRow) -> bool {
+    row.rayon.median_us + row.rayon.mad_us < row.serial.median_us - row.serial.mad_us
+}
+
+fn m2_39_recommended_threshold(rows: &[M239CrossoverRow]) -> Option<u64> {
+    const POPULATIONS: [u64; 14] = [
+        1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 6000, 7500, 10000, 20000, 50000,
+    ];
+    // The deployable host profile used for the candidate default is a caller-built 6-thread
+    // pool with chunk 128. Other pools remain supported but require their own threshold choice.
+    let first_reliable = POPULATIONS.into_iter().find(|&candidate| {
+        rows.iter()
+            .filter(|row| row.threads == 6 && row.chunk == 128 && row.population >= candidate)
+            .all(m2_39_reliable_gain)
+    })?;
+    POPULATIONS
+        .into_iter()
+        .find(|&population| population > first_reliable)
+}
+
+fn m2_39_chunk_regret(rows: &[M239CrossoverRow], threshold: u64, chunk: usize) -> Vec<f64> {
+    rows.iter()
+        .filter(|row| row.threads == 6 && row.chunk == chunk && row.population >= threshold)
+        .map(|row| {
+            let best_same_pool = rows
+                .iter()
+                .filter(|candidate| {
+                    candidate.family == row.family
+                        && candidate.population == row.population
+                        && candidate.threads == row.threads
+                })
+                .map(|candidate| candidate.rayon.median_us)
+                .min_by(f64::total_cmp)
+                .expect("same-pool cells are present");
+            row.rayon.median_us / best_same_pool - 1.0
+        })
+        .collect()
+}
+
+fn measure_m2_39_production_policy(base_config: &SimConfig, context: &M0RunContext) {
+    const POPULATIONS: [u64; 14] = [
+        1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 6000, 7500, 10000, 20000, 50000,
+    ];
+    const THREADS: [usize; 4] = [2, 4, 6, 12];
+    const CHUNKS: [usize; 3] = [128, 256, 512];
+    const WARMUPS: usize = 2;
+    const SAMPLES: usize = 7;
+
+    let pools = THREADS.map(|threads| {
+        (
+            threads,
+            ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .expect("M2-39 crossover pool"),
+        )
+    });
+    let mut cells = Vec::with_capacity(POPULATIONS.len() * 2 * THREADS.len() * CHUNKS.len());
+    for family_idx in 0..2 {
+        for population in POPULATIONS {
+            let groups = if family_idx == 0 {
+                2
+            } else {
+                population.div_ceil(200) as u32
+            };
+            for threads in THREADS {
+                for chunk in CHUNKS {
+                    cells.push((family_idx, population, groups, threads, chunk));
+                }
+            }
+        }
+    }
+    let mut ordered_cells = Vec::with_capacity(cells.len());
+    for order in 0..cells.len() {
+        ordered_cells.push(cells[(order * 5) % cells.len()]);
+    }
+
+    let mut rows = Vec::with_capacity(ordered_cells.len());
+    println!("\nM2-39 Refined Phase4 Crossover Matrix");
+    println!(
+        "Threads: 2/4/6/12; chunks: 128/256/512; warmups=2; samples=7; three-day paired full-tick median/MAD."
+    );
+    println!(
+        "Thread pools and initial worlds are built outside the timer; fixed 5-step cell permutation."
+    );
+    println!("family,N,K,threads,chunk,serial_us±MAD,rayon_us±MAD,reliable_gain_1MAD");
+    for (cell_index, (family_idx, population, groups, threads, chunk)) in
+        ordered_cells.into_iter().enumerate()
+    {
+        let family = if family_idx == 0 { "A" } else { "B" };
+        let (config, initial, _, _, _) = m2_38_inputs(base_config, context, population, groups);
+        let pool = &pools.iter().find(|(count, _)| *count == threads).unwrap().1;
+        let mut serial_samples = Vec::with_capacity(SAMPLES);
+        let mut rayon_samples = Vec::with_capacity(SAMPLES);
+        for sample in 0..WARMUPS + SAMPLES {
+            let parallel_first = (cell_index + sample) % 2 == 1;
+            if parallel_first {
+                let rayon = m2_39_full_tick_sample(
+                    &initial,
+                    &config,
+                    context,
+                    M239RunMode::ExplicitRayon,
+                    pool,
+                    pool,
+                    NonZeroUsize::new(1).unwrap(),
+                    NonZeroUsize::new(chunk).unwrap(),
+                    NonZeroUsize::new(chunk).unwrap(),
+                );
+                let serial = m2_39_full_tick_sample(
+                    &initial,
+                    &config,
+                    context,
+                    M239RunMode::Serial,
+                    pool,
+                    pool,
+                    NonZeroUsize::new(1).unwrap(),
+                    NonZeroUsize::new(chunk).unwrap(),
+                    NonZeroUsize::new(chunk).unwrap(),
+                );
+                if sample >= WARMUPS {
+                    rayon_samples.push(rayon);
+                    serial_samples.push(serial);
+                }
+            } else {
+                let serial = m2_39_full_tick_sample(
+                    &initial,
+                    &config,
+                    context,
+                    M239RunMode::Serial,
+                    pool,
+                    pool,
+                    NonZeroUsize::new(1).unwrap(),
+                    NonZeroUsize::new(chunk).unwrap(),
+                    NonZeroUsize::new(chunk).unwrap(),
+                );
+                let rayon = m2_39_full_tick_sample(
+                    &initial,
+                    &config,
+                    context,
+                    M239RunMode::ExplicitRayon,
+                    pool,
+                    pool,
+                    NonZeroUsize::new(1).unwrap(),
+                    NonZeroUsize::new(chunk).unwrap(),
+                    NonZeroUsize::new(chunk).unwrap(),
+                );
+                if sample >= WARMUPS {
+                    serial_samples.push(serial);
+                    rayon_samples.push(rayon);
+                }
+            }
+        }
+        let serial = m2_29_2_summary(serial_samples);
+        let rayon = m2_29_2_summary(rayon_samples);
+        let row = M239CrossoverRow {
+            family,
+            population,
+            threads,
+            chunk,
+            serial,
+            rayon,
+        };
+        println!(
+            "{family},{population},{groups},{threads},{chunk},{:.2}±{:.2},{:.2}±{:.2},{}",
+            serial.median_us,
+            serial.mad_us,
+            rayon.median_us,
+            rayon.mad_us,
+            m2_39_reliable_gain(&row)
+        );
+        rows.push(row);
+    }
+
+    println!(
+        "\nRefined observed crossover: first population with median gain; reliable means serial median−MAD > Rayon median+MAD."
+    );
+    for family in ["A", "B"] {
+        for threads in THREADS {
+            for chunk in CHUNKS {
+                let first = POPULATIONS.into_iter().find(|population| {
+                    rows.iter().any(|row| {
+                        row.family == family
+                            && row.population == *population
+                            && row.threads == threads
+                            && row.chunk == chunk
+                            && row.rayon.median_us < row.serial.median_us
+                    })
+                });
+                let first_reliable = POPULATIONS.into_iter().find(|population| {
+                    rows.iter().any(|row| {
+                        row.family == family
+                            && row.population == *population
+                            && row.threads == threads
+                            && row.chunk == chunk
+                            && m2_39_reliable_gain(row)
+                    })
+                });
+                println!(
+                    "{family},threads={threads},chunk={chunk},first_median={},first_reliable_1MAD={}",
+                    first.map_or("none".to_string(), |n| n.to_string()),
+                    first_reliable.map_or("none".to_string(), |n| n.to_string())
+                );
+            }
+        }
+    }
+
+    let robust_threshold = m2_39_recommended_threshold(&rows);
+    // Keep a conservative measured-run fallback when no all-population threshold qualifies.
+    let measurement_threshold = robust_threshold.unwrap_or(7500);
+    let threshold = NonZeroUsize::new(measurement_threshold as usize).unwrap();
+    let threshold_source = if robust_threshold.is_some() {
+        "first tested threshold whose later six-thread/chunk-128 cells all pass the one-MAD rule"
+    } else {
+        "fallback trial point because no threshold passes the all-population one-MAD rule"
+    };
+    println!(
+        "\nThreshold selection: pool=6/chunk=128 measured profile, all-population threshold {:?}; Auto trial threshold={} ({threshold_source}; the runner embeds no threshold).",
+        robust_threshold, measurement_threshold
+    );
+
+    println!(
+        "\nChunk regret for the 6-thread host profile, relative to best chunk for the same workload/population/pool; populations >= threshold. Other pool sizes remain caller-selected and are shown in the crossover matrix."
+    );
+    let mut chunk_summaries = Vec::new();
+    for chunk in CHUNKS {
+        let regrets = m2_39_chunk_regret(&rows, measurement_threshold, chunk);
+        let max = regrets.iter().copied().fold(0.0f64, f64::max);
+        let mean = regrets.iter().sum::<f64>() / regrets.len().max(1) as f64;
+        println!(
+            "chunk={chunk},cells={},mean_regret={:.2}%,max_regret={:.2}%",
+            regrets.len(),
+            mean * 100.0,
+            max * 100.0
+        );
+        chunk_summaries.push((chunk, max, mean));
+    }
+    let selected_chunk = chunk_summaries
+        .iter()
+        .min_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.2.total_cmp(&b.2)))
+        .map(|summary| summary.0)
+        .unwrap_or(256);
+    println!(
+        "Selected conservative measured chunk candidate={selected_chunk}; pool thread count remains caller-selected."
+    );
+
+    measure_m2_39_production_matrix(
+        base_config,
+        context,
+        &rows,
+        pools,
+        threshold,
+        NonZeroUsize::new(selected_chunk).unwrap(),
+    );
+}
+
+fn measure_m2_39_production_matrix(
+    base_config: &SimConfig,
+    context: &M0RunContext,
+    crossover_rows: &[M239CrossoverRow],
+    pools: [(usize, ThreadPool); 4],
+    threshold: NonZeroUsize,
+    chunk: NonZeroUsize,
+) {
+    const POPULATIONS: [u64; 9] = [1000, 2000, 3000, 4000, 5000, 7500, 10000, 20000, 50000];
+    const WARMUPS: usize = 2;
+    const SAMPLES: usize = 7;
+    let pool = &pools.iter().find(|(threads, _)| *threads == 6).unwrap().1;
+    let mut cells = Vec::with_capacity(POPULATIONS.len() * 2);
+    for family_idx in 0..2 {
+        for population in POPULATIONS {
+            let groups = if family_idx == 0 {
+                2
+            } else {
+                population.div_ceil(200) as u32
+            };
+            cells.push((family_idx, population, groups));
+        }
+    }
+    let mut ordered_cells = Vec::with_capacity(cells.len());
+    for order in 0..cells.len() {
+        ordered_cells.push(cells[(order * 5) % cells.len()]);
+    }
+    println!("\nM2-39 Production Policy Matrix");
+    println!(
+        "Pool: caller-built 6-thread pool; selected chunk={}; Auto threshold={}; warmups=2; samples=7.",
+        chunk.get(),
+        threshold.get()
+    );
+    println!(
+        "The runner does not cap or replace the supplied pool. Auto selection is based on each tick's eligible feature count."
+    );
+    println!(
+        "family,N,K,initial_items,auto_backend,serial_us±MAD,explicit6_us±MAD,auto_us±MAD,paired_best_us±MAD,best_backend,best_threads/chunk,explicit_speedup,auto_speedup,policy_regret,auto_overhead"
+    );
+    for (cell_index, (family_idx, population, groups)) in ordered_cells.into_iter().enumerate() {
+        let family = if family_idx == 0 { "A" } else { "B" };
+        let (config, initial, _, features, _) =
+            m2_38_inputs(base_config, context, population, groups);
+        let initial_items = features.len();
+        let selected_backend = Phase4ExecutionPolicy::Auto {
+            pool,
+            threshold,
+            chunk_size: chunk,
+        }
+        .backend_for(initial_items);
+        let best_row = crossover_rows
+            .iter()
+            .filter(|row| row.family == family && row.population == population)
+            .min_by(|a, b| a.rayon.median_us.total_cmp(&b.rayon.median_us))
+            .expect("matching crossover row exists");
+        let best_pool = &pools
+            .iter()
+            .find(|(threads, _)| *threads == best_row.threads)
+            .unwrap()
+            .1;
+        let best_chunk = NonZeroUsize::new(best_row.chunk).unwrap();
+        let mut serial_samples = Vec::with_capacity(SAMPLES);
+        let mut explicit_samples = Vec::with_capacity(SAMPLES);
+        let mut auto_samples = Vec::with_capacity(SAMPLES);
+        let mut best_samples = Vec::with_capacity(SAMPLES);
+        for sample in 0..WARMUPS + SAMPLES {
+            let mut sample_values = [0.0; 4];
+            let modes = if (cell_index + sample) % 2 == 0 {
+                [
+                    M239RunMode::Serial,
+                    M239RunMode::ExplicitRayon,
+                    M239RunMode::Auto,
+                    M239RunMode::PerCellBest,
+                ]
+            } else {
+                [
+                    M239RunMode::PerCellBest,
+                    M239RunMode::Auto,
+                    M239RunMode::ExplicitRayon,
+                    M239RunMode::Serial,
+                ]
+            };
+            for mode in modes {
+                let index = match mode {
+                    M239RunMode::Serial => 0,
+                    M239RunMode::ExplicitRayon => 1,
+                    M239RunMode::Auto => 2,
+                    M239RunMode::PerCellBest => 3,
+                };
+                sample_values[index] = m2_39_full_tick_sample(
+                    &initial, &config, context, mode, pool, best_pool, threshold, chunk, best_chunk,
+                );
+            }
+            if sample >= WARMUPS {
+                serial_samples.push(sample_values[0]);
+                explicit_samples.push(sample_values[1]);
+                auto_samples.push(sample_values[2]);
+                best_samples.push(sample_values[3]);
+            }
+        }
+        let serial = m2_29_2_summary(serial_samples);
+        let explicit = m2_29_2_summary(explicit_samples);
+        let auto = m2_29_2_summary(auto_samples);
+        let best_measured = m2_29_2_summary(best_samples);
+        let (best_ref_us, best_ref_mad, best_ref_backend, best_ref_config) =
+            if best_measured.median_us < serial.median_us {
+                (
+                    best_measured.median_us,
+                    best_measured.mad_us,
+                    "Rayon",
+                    format!("{}/{}", best_row.threads, best_row.chunk),
+                )
+            } else {
+                (serial.median_us, serial.mad_us, "Serial", "-".to_string())
+            };
+        let auto_overhead = match selected_backend {
+            Phase4Backend::Serial => auto.median_us / serial.median_us - 1.0,
+            Phase4Backend::Rayon => auto.median_us / explicit.median_us - 1.0,
+        };
+        println!(
+            "{family},{population},{groups},{initial_items},{:?},{:.2}±{:.2},{:.2}±{:.2},{:.2}±{:.2},{:.2}±{:.2},{best_ref_backend},{best_ref_config},{:.3}x,{:.3}x,{:.2}%,{:.2}%",
+            selected_backend,
+            serial.median_us,
+            serial.mad_us,
+            explicit.median_us,
+            explicit.mad_us,
+            auto.median_us,
+            auto.mad_us,
+            best_ref_us,
+            best_ref_mad,
+            serial.median_us / explicit.median_us,
+            serial.median_us / auto.median_us,
+            (auto.median_us / best_ref_us - 1.0) * 100.0,
+            auto_overhead * 100.0,
+        );
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -9761,6 +10232,9 @@ fn main() {
 
     // 27. M2-38 Deterministic Rayon Phase4 Selection and Indexed Intent Gate
     measure_m2_38_deterministic_rayon_phase4(&config, &context);
+
+    // 28. M2-39 Production Phase4 Runtime Policy Gate
+    measure_m2_39_production_policy(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");
