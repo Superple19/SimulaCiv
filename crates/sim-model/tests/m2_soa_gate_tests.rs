@@ -12,20 +12,24 @@ use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical
 use sim_model::runner::{
     DayExecutionOptions, M0RunContext, run_hybrid_authority_day,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_days,
-    run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_days, run_m0_day, run_m0_days,
-    run_native_soa_day, run_native_soa_days,
+    run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_day,
+    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
+    run_native_soa_days,
 };
 use sim_model::snapshot::{decode_snapshot, restore_snapshot};
-use sim_model::state::HybridWorldState;
+use sim_model::state::{HybridWorldState, SettlementState};
 use sim_model::storage::SegmentedAgentStorage;
 use sim_model::{
-    Action, AgentState, Intent, Phase4CandidateIndexScratch, PrimaryActionChoice, SimConfig,
-    generate_intents_storage_into_baseline, generate_intents_storage_into_variant_c,
-    generate_intents_storage_into_variant_d, generate_intents_storage_with_candidate_index,
-    generate_intents_storage_with_scratch, initialize_world, phase3_observation_and_features,
-    phase4_generate_intents_into, phase4_generate_intents_storage_into,
-    phase4_primary_action_selection_into, phase4_primary_action_selection_storage_into,
+    Action, AgentState, Intent, Phase4CandidateIndexScratch, Phase8WelfareScratch,
+    PrimaryActionChoice, SimConfig, generate_intents_storage_into_baseline,
+    generate_intents_storage_into_variant_c, generate_intents_storage_into_variant_d,
+    generate_intents_storage_with_candidate_index, generate_intents_storage_with_scratch,
+    initialize_world, phase3_observation_and_features, phase4_generate_intents_into,
+    phase4_generate_intents_storage_into, phase4_primary_action_selection_into,
+    phase4_primary_action_selection_storage_into,
     phase4_primary_action_selection_storage_into_baseline,
+    phase8_welfare_distribution_storage_full_scan,
+    phase8_welfare_distribution_storage_with_scratch,
 };
 
 const GATE_CONFIG_TOML: &str = r#"
@@ -1085,4 +1089,293 @@ fn test_10_phase4_candidate_index_randomized_storage_parity() {
             }
         }
     }
+}
+
+fn phase8_random_input(
+    population: u64,
+    settlement_count: u32,
+    reverse_storage: bool,
+    seed: u64,
+) -> (SegmentedAgentStorage, Vec<SettlementState>) {
+    let mut config = make_config();
+    config.world.initial_population = population;
+    config.world.settlement_count = settlement_count;
+    config.environment.carrying_capacity = 1000.0 * population as f32;
+    let mut world = initialize_world(&config).expect("Phase8 test world initializes");
+    let mut random = seed;
+
+    for (index, agent) in world.agents.iter_mut().enumerate() {
+        random = random
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let value = (random >> 32) as u32;
+        agent.group_id = GroupId((value % settlement_count) as u16);
+        agent.alive = !value.is_multiple_of(11);
+        agent.health = match value % 17 {
+            0 => 0.0,
+            1 => 0.25,
+            _ => 1.0,
+        };
+        agent.food = match value % 5 {
+            0 => 0.0,
+            1 => 4.999,
+            2 => 5.0,
+            _ => 8.0,
+        };
+        agent.wealth = (index % 997) as i64;
+    }
+    for (index, settlement) in world.settlements.iter_mut().enumerate() {
+        settlement.group_id = GroupId(index as u16);
+        settlement.treasury = match index % 3 {
+            0 => 0,
+            1 => 19,
+            _ => 211,
+        };
+    }
+
+    if reverse_storage {
+        world.agents.reverse();
+    }
+    (
+        SegmentedAgentStorage::from_agents(&world.agents),
+        world.settlements,
+    )
+}
+
+fn assert_phase8_full_scan_matches_one_pass(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    payment: i64,
+    scratch: &mut Phase8WelfareScratch,
+) -> Vec<sim_model::SettlementWelfareResolution> {
+    let mut full_scan_storage = storage.clone();
+    let mut full_scan_settlements = settlements.to_vec();
+    let full_scan = phase8_welfare_distribution_storage_full_scan(
+        &mut full_scan_storage,
+        &mut full_scan_settlements,
+        5.0,
+        payment,
+    )
+    .expect("reference Phase8 succeeds");
+
+    let mut one_pass_storage = storage.clone();
+    let mut one_pass_settlements = settlements.to_vec();
+    let one_pass = phase8_welfare_distribution_storage_with_scratch(
+        &mut one_pass_storage,
+        &mut one_pass_settlements,
+        5.0,
+        payment,
+        scratch,
+    )
+    .expect("one-pass Phase8 succeeds");
+
+    assert_eq!(full_scan, one_pass);
+    assert_eq!(full_scan_storage, one_pass_storage);
+    assert_eq!(full_scan_settlements, one_pass_settlements);
+    assert!(
+        one_pass
+            .windows(2)
+            .all(|pair| pair[0].group_id < pair[1].group_id)
+    );
+    assert!(one_pass.iter().all(|settlement| {
+        settlement
+            .recipients
+            .windows(2)
+            .all(|pair| pair[0].agent_id < pair[1].agent_id)
+    }));
+    assert_eq!(
+        scratch.last_slot_inspections(),
+        if settlements.is_empty() {
+            0
+        } else {
+            storage.len()
+        }
+    );
+    one_pass
+}
+
+#[test]
+fn phase8_one_pass_matches_full_scan_boundary_cases() {
+    let mut scratch = Phase8WelfareScratch::with_capacity(3);
+    let (storage, mut settlements) = phase8_random_input(5, 3, true, 17);
+
+    // No settlements means no eligibility buckets are needed.
+    settlements.clear();
+    assert!(
+        assert_phase8_full_scan_matches_one_pass(&storage, &settlements, 10, &mut scratch)
+            .is_empty()
+    );
+
+    let (mut storage, mut settlements) = phase8_random_input(5, 3, true, 18);
+    storage.group_ids_mut().fill(GroupId(0));
+    storage.alive_mut().fill(true);
+    storage.health_mut().fill(1.0);
+    storage.food_mut().fill(5.0);
+    storage.wealth_mut().fill(0);
+    settlements.truncate(1);
+    settlements[0].group_id = GroupId(0);
+    settlements[0].treasury = 100;
+
+    // The threshold is exclusive, so food equal to it is ineligible.
+    assert_eq!(
+        assert_phase8_full_scan_matches_one_pass(&storage, &settlements, 10, &mut scratch)[0]
+            .eligible_count,
+        0
+    );
+
+    // Dead agents and health <= 0 remain ineligible when food is below threshold.
+    storage.food_mut().fill(4.999);
+    storage.alive_mut()[0] = false;
+    storage.health_mut()[1] = 0.0;
+    let result = assert_phase8_full_scan_matches_one_pass(&storage, &settlements, 10, &mut scratch);
+    assert_eq!(result[0].eligible_count, 3);
+
+    // A single eligible recipient receives a fully funded payout.
+    storage.alive_mut().fill(false);
+    storage.alive_mut()[2] = true;
+    storage.health_mut().fill(1.0);
+    settlements[0].treasury = 10;
+    let result = assert_phase8_full_scan_matches_one_pass(&storage, &settlements, 10, &mut scratch);
+    assert_eq!(result[0].eligible_count, 1);
+    assert_eq!(result[0].total_distributed, 10);
+    assert_eq!(result[0].treasury_after, 0);
+
+    // Multiple recipients with zero treasury receive zero; exact funding divides evenly.
+    storage.alive_mut().fill(true);
+    settlements[0].treasury = 0;
+    let result = assert_phase8_full_scan_matches_one_pass(&storage, &settlements, 10, &mut scratch);
+    assert_eq!(result[0].total_distributed, 0);
+    assert_eq!(result[0].treasury_after, 0);
+    settlements[0].treasury = 50;
+    let result = assert_phase8_full_scan_matches_one_pass(&storage, &settlements, 10, &mut scratch);
+    assert_eq!(result[0].total_distributed, 50);
+    assert_eq!(result[0].remainder, 0);
+
+    // Underfunded remainder goes to the first AgentIds, even with reversed storage slots.
+    settlements[0].treasury = 48;
+    let result = assert_phase8_full_scan_matches_one_pass(&storage, &settlements, 10, &mut scratch);
+    assert_eq!(result[0].payment_per_agent, 9);
+    assert_eq!(result[0].remainder, 3);
+    assert_eq!(
+        result[0]
+            .recipients
+            .iter()
+            .map(|recipient| recipient.payout)
+            .collect::<Vec<_>>(),
+        vec![10, 10, 10, 9, 9]
+    );
+}
+
+#[test]
+fn phase8_one_pass_randomized_parity_for_population_and_storage_layouts() {
+    let mut scratch = Phase8WelfareScratch::with_capacity(50);
+    for population in [100, 250, 1000, 5000] {
+        for settlement_count in [1, 2, 5, 20, 50] {
+            for reverse_storage in [false, true] {
+                let (storage, settlements) = phase8_random_input(
+                    population,
+                    settlement_count,
+                    reverse_storage,
+                    0x51a7_0000 + population + settlement_count as u64,
+                );
+                assert_phase8_full_scan_matches_one_pass(&storage, &settlements, 17, &mut scratch);
+            }
+        }
+    }
+}
+
+#[test]
+fn phase8_one_pass_validation_error_keeps_entire_state_unchanged() {
+    let (mut input_storage, mut input_settlements) = phase8_random_input(2, 2, true, 29);
+    input_storage.group_ids_mut()[0] = GroupId(0);
+    input_storage.group_ids_mut()[1] = GroupId(1);
+    input_storage.alive_mut().fill(true);
+    input_storage.health_mut().fill(1.0);
+    input_storage.food_mut().fill(0.0);
+    input_storage.wealth_mut()[0] = 0;
+    input_storage.wealth_mut()[1] = i64::MAX;
+    for settlement in &mut input_settlements {
+        settlement.treasury = 10;
+    }
+
+    let mut full_scan_storage = input_storage.clone();
+    let mut full_scan_settlements = input_settlements.clone();
+    let full_scan_error = phase8_welfare_distribution_storage_full_scan(
+        &mut full_scan_storage,
+        &mut full_scan_settlements,
+        5.0,
+        10,
+    )
+    .unwrap_err();
+
+    let mut one_pass_storage = input_storage.clone();
+    let mut one_pass_settlements = input_settlements.clone();
+    let mut scratch = Phase8WelfareScratch::with_capacity(2);
+    let one_pass_error = phase8_welfare_distribution_storage_with_scratch(
+        &mut one_pass_storage,
+        &mut one_pass_settlements,
+        5.0,
+        10,
+        &mut scratch,
+    )
+    .unwrap_err();
+
+    assert_eq!(full_scan_error, one_pass_error);
+    assert_eq!(full_scan_storage, input_storage);
+    assert_eq!(one_pass_storage, input_storage);
+    assert_eq!(full_scan_settlements, input_settlements);
+    assert_eq!(one_pass_settlements, input_settlements);
+}
+
+#[test]
+fn phase8_one_pass_handles_unbalanced_recipient_groups() {
+    let (mut storage, settlements) = phase8_random_input(100, 2, true, 31);
+    storage.group_ids_mut().fill(GroupId(0));
+    storage.group_ids_mut()[0] = GroupId(1);
+    storage.alive_mut().fill(true);
+    storage.health_mut().fill(1.0);
+    storage.food_mut().fill(0.0);
+    storage.wealth_mut().fill(0);
+
+    let mut scratch = Phase8WelfareScratch::with_capacity(2);
+    let result = assert_phase8_full_scan_matches_one_pass(&storage, &settlements, 3, &mut scratch);
+    assert_eq!(result[0].eligible_count, 99);
+    assert_eq!(result[1].eligible_count, 1);
+}
+
+#[test]
+fn phase8_one_pass_preserves_three_day_runner_outputs_and_state() {
+    let config = make_config();
+    let context = make_context();
+    let mut initial = initialize_world(&config).expect("world initializes");
+    for agent in &mut initial.agents {
+        agent.food = 0.0;
+    }
+
+    let mut full_scan = HybridWorldState::hybrid(initial.clone());
+    let mut one_pass = HybridWorldState::hybrid(initial);
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: true,
+    };
+    let full_scan_outcomes = run_hybrid_authority_days_with_phase8_full_scan(
+        &mut full_scan,
+        &config,
+        &context,
+        3,
+        &options,
+    )
+    .expect("full-scan runner succeeds");
+    let one_pass_outcomes =
+        run_hybrid_authority_days(&mut one_pass, &config, &context, 3, &options)
+            .expect("one-pass runner succeeds");
+
+    assert_eq!(full_scan_outcomes, one_pass_outcomes);
+    assert_eq!(full_scan.world, one_pass.world);
+    assert_eq!(full_scan.segmented_storage, one_pass.segmented_storage);
+    assert_eq!(
+        full_scan.canonical_state_hash().unwrap(),
+        one_pass.canonical_state_hash().unwrap()
+    );
 }

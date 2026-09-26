@@ -9,7 +9,7 @@ use crate::storage::SegmentedAgentStorage;
 use crate::subsystems::Subsystem;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, K_PRIME, Money, RngCoordinate, coordinate_prng_f32, mix64};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Outcome of a single agent's Work intent during Phase 6A.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3085,17 +3085,153 @@ pub fn phase8_welfare_distribution_with_subconfigs(
     )
 }
 
+#[derive(Debug, Default)]
+struct Phase8EligibleBucket {
+    recipients: Vec<(AgentId, usize)>,
+}
+
+/// Reusable transient scratch for Phase 8 welfare eligibility.
+///
+/// The bucket capacity is retained between calls; this value is not part of simulation state.
+#[derive(Debug, Default)]
+pub struct Phase8WelfareScratch {
+    buckets: Vec<Phase8EligibleBucket>,
+    group_to_bucket: HashMap<GroupId, usize>,
+    active_bucket_count: usize,
+    last_slot_inspections: usize,
+}
+
+impl Phase8WelfareScratch {
+    /// Creates scratch with room for the expected number of settlements.
+    pub fn with_capacity(settlement_count: usize) -> Self {
+        Self {
+            buckets: Vec::with_capacity(settlement_count),
+            group_to_bucket: HashMap::with_capacity(settlement_count),
+            active_bucket_count: 0,
+            last_slot_inspections: 0,
+        }
+    }
+
+    /// Returns the number of storage slots visited by the most recent eligibility build.
+    pub fn last_slot_inspections(&self) -> usize {
+        self.last_slot_inspections
+    }
+
+    fn begin(&mut self, settlement_groups: &[(GroupId, usize)]) {
+        self.group_to_bucket.clear();
+        for bucket in self.buckets.iter_mut().take(settlement_groups.len()) {
+            bucket.recipients.clear();
+        }
+
+        for (bucket_index, &(group_id, _)) in settlement_groups.iter().enumerate() {
+            if bucket_index == self.buckets.len() {
+                self.buckets.push(Phase8EligibleBucket::default());
+            }
+            self.group_to_bucket.insert(group_id, bucket_index);
+        }
+        self.active_bucket_count = settlement_groups.len();
+        self.last_slot_inspections = 0;
+    }
+
+    fn index_slot(
+        &mut self,
+        storage: &SegmentedAgentStorage,
+        slot: usize,
+        starvation_threshold: f32,
+    ) {
+        if self.active_bucket_count > 0
+            && storage.demography.alive[slot]
+            && storage.demography.health[slot] > 0.0
+            && storage.economy.food[slot] < starvation_threshold
+            && let Some(&bucket_index) = self.group_to_bucket.get(&storage.economy.group_id[slot])
+        {
+            self.buckets[bucket_index]
+                .recipients
+                .push((storage.agent_ids[slot], slot));
+        }
+    }
+
+    fn finish(&mut self, slot_count: usize, ids_in_ascending_order: bool) {
+        self.last_slot_inspections = if self.active_bucket_count == 0 {
+            0
+        } else {
+            slot_count
+        };
+        if !ids_in_ascending_order {
+            for bucket in self.buckets.iter_mut().take(self.active_bucket_count) {
+                bucket.recipients.sort_by_key(|&(agent_id, _)| agent_id);
+            }
+        }
+    }
+
+    fn recipients(&self, group_id: GroupId) -> &[(AgentId, usize)] {
+        self.group_to_bucket
+            .get(&group_id)
+            .map(|&index| self.buckets[index].recipients.as_slice())
+            .unwrap_or_default()
+    }
+}
+
 /// Executes Phase 8: Institutional Welfare Distribution natively on authoritative [`SegmentedAgentStorage`].
 ///
-/// Directly filters eligible agents using contiguous `economy.group_id`, `demography.alive`,
-/// `demography.health`, and `economy.food` columns, canonicalizes recipient ordering by ascending
-/// `AgentId`, applies integer division and remainder distribution, and updates `settlements` and
-/// `economy.wealth` in-place without heap allocations or command lookup overhead.
+/// Eligibility is gathered in one storage pass, then recipients are processed in ascending
+/// `AgentId` order. Caller-owned scratch can be passed to [`phase8_welfare_distribution_storage_with_scratch`]
+/// to retain bucket capacity across ticks.
 pub fn phase8_welfare_distribution_storage(
     storage: &mut SegmentedAgentStorage,
     settlements: &mut [SettlementState],
     starvation_threshold: f32,
     welfare_payment: Money,
+) -> Result<Vec<SettlementWelfareResolution>, Phase8Error> {
+    let mut scratch = Phase8WelfareScratch::with_capacity(settlements.len());
+    phase8_welfare_distribution_storage_with_scratch(
+        storage,
+        settlements,
+        starvation_threshold,
+        welfare_payment,
+        &mut scratch,
+    )
+}
+
+/// Executes Phase 8 using caller-owned, reusable welfare eligibility scratch.
+pub fn phase8_welfare_distribution_storage_with_scratch(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    starvation_threshold: f32,
+    welfare_payment: Money,
+    scratch: &mut Phase8WelfareScratch,
+) -> Result<Vec<SettlementWelfareResolution>, Phase8Error> {
+    phase8_welfare_distribution_storage_impl(
+        storage,
+        settlements,
+        starvation_threshold,
+        welfare_payment,
+        Some(scratch),
+    )
+}
+
+/// Reference implementation that retains the original per-settlement full-storage scan.
+pub fn phase8_welfare_distribution_storage_full_scan(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    starvation_threshold: f32,
+    welfare_payment: Money,
+) -> Result<Vec<SettlementWelfareResolution>, Phase8Error> {
+    phase8_welfare_distribution_storage_impl(
+        storage,
+        settlements,
+        starvation_threshold,
+        welfare_payment,
+        None,
+    )
+}
+
+fn phase8_welfare_distribution_storage_impl(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    starvation_threshold: f32,
+    welfare_payment: Money,
+    scratch: Option<&mut Phase8WelfareScratch>,
 ) -> Result<Vec<SettlementWelfareResolution>, Phase8Error> {
     if !starvation_threshold.is_finite() || starvation_threshold <= 0.0 {
         return Err(Phase8Error::InvalidStarvationThreshold(
@@ -3106,20 +3242,38 @@ pub fn phase8_welfare_distribution_storage(
         return Err(Phase8Error::NegativeWelfarePayment(welfare_payment));
     }
 
-    // Canonical settlement ordering: GroupId ascending
-    let mut group_ids: Vec<GroupId> = settlements.iter().map(|s| s.group_id).collect();
-    group_ids.sort();
+    // Canonical settlement ordering: GroupId ascending, with source indices for commit.
+    let mut group_ids: Vec<(GroupId, usize)> = settlements
+        .iter()
+        .enumerate()
+        .map(|(index, settlement)| (settlement.group_id, index))
+        .collect();
+    group_ids.sort_by_key(|&(group_id, _)| group_id);
 
     for w in group_ids.windows(2) {
-        if w[0] == w[1] {
-            return Err(Phase8Error::DuplicateSettlement(w[0]));
+        if w[0].0 == w[1].0 {
+            return Err(Phase8Error::DuplicateSettlement(w[0].0));
         }
     }
 
     let n = storage.len();
+    let mut scratch = scratch;
+    if let Some(scratch) = scratch.as_deref_mut() {
+        scratch.begin(&group_ids);
+    }
+
     let mut seen_agents = HashSet::with_capacity(n);
+    let track_agent_order = scratch.is_some() && !group_ids.is_empty();
+    let mut ids_in_ascending_order = true;
+    let mut previous_agent_id = None;
     for i in 0..n {
         let aid = storage.agent_ids[i];
+        if track_agent_order {
+            if previous_agent_id.is_some_and(|previous| previous > aid) {
+                ids_in_ascending_order = false;
+            }
+            previous_agent_id = Some(aid);
+        }
         if !seen_agents.insert(aid) {
             return Err(Phase8Error::DuplicateAgent(aid));
         }
@@ -3144,10 +3298,17 @@ pub fn phase8_welfare_distribution_storage(
                 wealth: w,
             });
         }
+        if track_agent_order && let Some(scratch) = scratch.as_deref_mut() {
+            scratch.index_slot(storage, i, starvation_threshold);
+        }
+    }
+    if let Some(scratch) = scratch.as_deref_mut() {
+        scratch.finish(n, ids_in_ascending_order);
     }
 
     struct PlannedSoAWelfare {
         group_id: GroupId,
+        settlement_index: usize,
         treasury_before: Money,
         treasury_after: Money,
         eligible_count: usize,
@@ -3161,11 +3322,8 @@ pub fn phase8_welfare_distribution_storage(
     let mut planned_settlements = Vec::with_capacity(group_ids.len());
 
     // Stage A: Planning and validation across all settlements
-    for gid in group_ids {
-        let settlement = settlements
-            .iter()
-            .find(|s| s.group_id == gid)
-            .ok_or(Phase8Error::MissingSettlement(gid))?;
+    for &(gid, settlement_index) in &group_ids {
+        let settlement = &settlements[settlement_index];
 
         if settlement.treasury < 0 {
             return Err(Phase8Error::NegativeTreasury {
@@ -3176,21 +3334,24 @@ pub fn phase8_welfare_distribution_storage(
 
         let treasury_before = settlement.treasury;
 
-        // Collect eligible agents for this settlement:
-        // living, health > 0, food < starvation_threshold, group_id == settlement.group_id
-        let mut eligible: Vec<(AgentId, usize)> = Vec::new();
-        for i in 0..n {
-            if storage.economy.group_id[i] == gid
-                && storage.demography.alive[i]
-                && storage.demography.health[i] > 0.0
-                && storage.economy.food[i] < starvation_threshold
-            {
-                eligible.push((storage.agent_ids[i], i));
+        let full_scan_eligible;
+        let eligible = if let Some(scratch) = scratch.as_deref() {
+            scratch.recipients(gid)
+        } else {
+            let mut scanned_eligible = Vec::new();
+            for slot in 0..n {
+                if storage.economy.group_id[slot] == gid
+                    && storage.demography.alive[slot]
+                    && storage.demography.health[slot] > 0.0
+                    && storage.economy.food[slot] < starvation_threshold
+                {
+                    scanned_eligible.push((storage.agent_ids[slot], slot));
+                }
             }
-        }
-
-        // Canonical ordering: strictly ascending AgentId
-        eligible.sort_by_key(|&(aid, _slot)| aid);
+            scanned_eligible.sort_by_key(|&(agent_id, _)| agent_id);
+            full_scan_eligible = scanned_eligible;
+            full_scan_eligible.as_slice()
+        };
 
         let eligible_count = eligible.len();
 
@@ -3205,7 +3366,7 @@ pub fn phase8_welfare_distribution_storage(
             let mut recs = Vec::with_capacity(eligible_count);
             let mut payouts = Vec::with_capacity(eligible_count);
             if welfare_payment == 0 && eligible_count > 0 {
-                for &(aid, slot) in &eligible {
+                for &(aid, slot) in eligible {
                     recs.push(WelfareRecipientResolution {
                         agent_id: aid,
                         payout: 0,
@@ -3231,7 +3392,7 @@ pub fn phase8_welfare_distribution_storage(
                 let mut recs = Vec::with_capacity(eligible_count);
                 let mut payouts = Vec::with_capacity(eligible_count);
 
-                for &(aid, slot) in &eligible {
+                for &(aid, slot) in eligible {
                     storage.economy.wealth[slot]
                         .checked_add(welfare_payment)
                         .ok_or(Phase8Error::WealthOverflow(aid))?;
@@ -3316,6 +3477,7 @@ pub fn phase8_welfare_distribution_storage(
 
         planned_settlements.push(PlannedSoAWelfare {
             group_id: gid,
+            settlement_index,
             treasury_before,
             treasury_after,
             eligible_count,
@@ -3331,11 +3493,7 @@ pub fn phase8_welfare_distribution_storage(
     let mut resolutions = Vec::with_capacity(planned_settlements.len());
     for plan in planned_settlements {
         if plan.total_distributed > 0 || !plan.slot_payouts.is_empty() {
-            let settlement = settlements
-                .iter_mut()
-                .find(|s| s.group_id == plan.group_id)
-                .expect("settlement existence checked during planning");
-            settlement.treasury -= plan.total_distributed;
+            settlements[plan.settlement_index].treasury -= plan.total_distributed;
 
             for (slot, payout) in plan.slot_payouts {
                 storage.economy.wealth[slot] += payout;
@@ -3368,6 +3526,22 @@ pub fn phase8_welfare_distribution_storage_with_config(
         settlements,
         config.interaction.starvation_threshold,
         config.economy.welfare_payment,
+    )
+}
+
+/// Convenience wrapper for Phase 8 using configuration and caller-owned scratch.
+pub fn phase8_welfare_distribution_storage_with_config_and_scratch(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &mut [SettlementState],
+    config: &crate::config::SimConfig,
+    scratch: &mut Phase8WelfareScratch,
+) -> Result<Vec<SettlementWelfareResolution>, Phase8Error> {
+    phase8_welfare_distribution_storage_with_scratch(
+        storage,
+        settlements,
+        config.interaction.starvation_threshold,
+        config.economy.welfare_payment,
+        scratch,
     )
 }
 

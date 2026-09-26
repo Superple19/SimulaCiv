@@ -38,10 +38,12 @@ use crate::phases::{
     phase9_mortality_commitment,
 };
 use crate::resolution::{
-    Phase6AError, Phase6BError, Phase7Error, Phase8Error, phase6a_work_resolution,
-    phase6a_work_resolution_storage, phase6b_targeted_resolution,
+    Phase6AError, Phase6BError, Phase7Error, Phase8Error, Phase8WelfareScratch,
+    phase6a_work_resolution, phase6a_work_resolution_storage, phase6b_targeted_resolution,
     phase6b_targeted_resolution_storage, phase7_market_clearance_storage_with_config,
-    phase7_market_clearance_with_config, phase8_welfare_distribution_with_config,
+    phase7_market_clearance_with_config, phase8_welfare_distribution_storage_full_scan,
+    phase8_welfare_distribution_storage_with_config_and_scratch,
+    phase8_welfare_distribution_with_config,
 };
 use crate::snapshot::{
     CanonicalSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotError, SnapshotMetadata, encode_snapshot,
@@ -502,6 +504,32 @@ pub fn run_native_soa_day_with_storage(
     choices_scratch: &mut Vec<PrimaryActionChoice>,
     intents_scratch: &mut Vec<Intent>,
 ) -> Result<DayOutcome, M0RunError> {
+    let mut phase8_scratch = Phase8WelfareScratch::with_capacity(world.settlements.len());
+    run_native_soa_day_with_storage_and_phase8_scratch(
+        world,
+        config,
+        context,
+        options,
+        storage,
+        features_scratch,
+        choices_scratch,
+        intents_scratch,
+        &mut phase8_scratch,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_native_soa_day_with_storage_and_phase8_scratch(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    storage: &mut SegmentedAgentStorage,
+    features_scratch: &mut Vec<AgentFeatures>,
+    choices_scratch: &mut Vec<PrimaryActionChoice>,
+    intents_scratch: &mut Vec<Intent>,
+    phase8_scratch: &mut Phase8WelfareScratch,
+) -> Result<DayOutcome, M0RunError> {
     // 1. Capture logical day coordinate
     let executed_day = world.current_day.as_u32();
     let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
@@ -550,8 +578,12 @@ pub fn run_native_soa_day_with_storage(
     storage.sync_from_agents(&world.agents);
 
     // 11. Phase 8: Institutional Welfare Distribution (Native Segmented SoA)
-    let welfare_resolutions = storage
-        .phase8_welfare_distribution_with_config(&mut world.settlements, &effective_config)?;
+    let welfare_resolutions = phase8_welfare_distribution_storage_with_config_and_scratch(
+        storage,
+        &mut world.settlements,
+        &effective_config,
+        phase8_scratch,
+    )?;
     storage.write_back_to_agents(&mut world.agents);
 
     // 12. Phase 9: Mortality Status Commitment (Native Segmented SoA)
@@ -684,8 +716,9 @@ pub fn run_native_soa_days(
     let mut features_scratch = Vec::with_capacity(world.agents.len());
     let mut choices_scratch = Vec::with_capacity(world.agents.len());
     let mut intents_scratch = Vec::with_capacity(world.agents.len());
+    let mut phase8_scratch = Phase8WelfareScratch::with_capacity(world.settlements.len());
     for _ in 0..days {
-        let outcome = run_native_soa_day_with_storage(
+        let outcome = run_native_soa_day_with_storage_and_phase8_scratch(
             world,
             config,
             context,
@@ -694,6 +727,7 @@ pub fn run_native_soa_days(
             &mut features_scratch,
             &mut choices_scratch,
             &mut intents_scratch,
+            &mut phase8_scratch,
         )?;
         outcomes.push(outcome);
     }
@@ -759,6 +793,8 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
     let mut choices_scratch = Vec::with_capacity(agent_count);
     let mut intents_scratch = Vec::with_capacity(agent_count);
     let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    let mut phase8_scratch =
+        Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
@@ -769,6 +805,7 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
         &mut intents_scratch,
         &mut metrics_scratch,
         Phase4RuntimeScratch::PreIndexed(candidate_index),
+        Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
     )
 }
 
@@ -790,6 +827,8 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
     let mut choices_scratch = Vec::with_capacity(agent_count);
     let mut intents_scratch = Vec::with_capacity(agent_count);
     let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    let mut phase8_scratch =
+        Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
@@ -800,6 +839,7 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
         &mut intents_scratch,
         &mut metrics_scratch,
         Phase4RuntimeScratch::FullScan(candidate_scratch),
+        Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
     )
 }
 
@@ -833,6 +873,8 @@ pub fn run_hybrid_authority_day_with_scratch(
         None => hybrid_world.world.agents.len(),
     };
     let mut candidate_scratch = Vec::with_capacity(agent_count);
+    let mut phase8_scratch =
+        Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
     run_hybrid_authority_day_with_all_scratch(
         hybrid_world,
         config,
@@ -843,12 +885,18 @@ pub fn run_hybrid_authority_day_with_scratch(
         intents_scratch,
         metrics_scratch,
         Phase4RuntimeScratch::FullScan(&mut candidate_scratch),
+        Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
     )
 }
 
 enum Phase4RuntimeScratch<'a> {
     FullScan(&'a mut Vec<AgentId>),
     PreIndexed(&'a mut Phase4CandidateIndexScratch),
+}
+
+enum Phase8RuntimeScratch<'a> {
+    FullScan,
+    OnePass(&'a mut Phase8WelfareScratch),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -862,6 +910,7 @@ fn run_hybrid_authority_day_with_all_scratch(
     intents_scratch: &mut Vec<Intent>,
     metrics_scratch: &mut AgentDynamicSoAScratch,
     phase4_scratch: Phase4RuntimeScratch<'_>,
+    phase8_scratch: Phase8RuntimeScratch<'_>,
 ) -> Result<DayOutcome, M0RunError> {
     if !hybrid_world.is_hybrid() {
         return run_m0_day_with_scratch(
@@ -966,8 +1015,22 @@ fn run_hybrid_authority_day_with_all_scratch(
     // ZERO SYNC: storage holds authoritative state mutated directly by phases 6A, 6B, 7.
 
     // 11. Phase 8: Institutional Welfare Distribution (Native Segmented SoA directly on storage)
-    let welfare_resolutions = storage
-        .phase8_welfare_distribution_with_config(&mut world.settlements, &effective_config)?;
+    let welfare_resolutions = match phase8_scratch {
+        Phase8RuntimeScratch::FullScan => phase8_welfare_distribution_storage_full_scan(
+            storage,
+            &mut world.settlements,
+            effective_config.interaction.starvation_threshold,
+            effective_config.economy.welfare_payment,
+        )?,
+        Phase8RuntimeScratch::OnePass(scratch) => {
+            phase8_welfare_distribution_storage_with_config_and_scratch(
+                storage,
+                &mut world.settlements,
+                &effective_config,
+                scratch,
+            )?
+        }
+    };
 
     // ZERO WRITE-BACK: storage remains the authority.
 
@@ -1100,6 +1163,30 @@ pub fn run_hybrid_authority_days(
     days: u32,
     options: &DayExecutionOptions,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
+    run_hybrid_authority_days_with_phase8_mode(hybrid_world, config, context, days, options, true)
+}
+
+/// Executes multiple days using the reference repeated full-storage Phase 8 scan.
+///
+/// This path is retained for differential and benchmark comparisons with production execution.
+pub fn run_hybrid_authority_days_with_phase8_full_scan(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<DayOutcome>, M0RunError> {
+    run_hybrid_authority_days_with_phase8_mode(hybrid_world, config, context, days, options, false)
+}
+
+fn run_hybrid_authority_days_with_phase8_mode(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+    use_one_pass_phase8: bool,
+) -> Result<Vec<DayOutcome>, M0RunError> {
     let agent_count = match &hybrid_world.segmented_storage {
         Some(s) => s.len(),
         None => hybrid_world.world.agents.len(),
@@ -1114,6 +1201,8 @@ pub fn run_hybrid_authority_days(
     } else {
         Phase4CandidateIndexScratch::default()
     };
+    let mut phase8_scratch =
+        Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
 
     for _ in 0..days {
         let outcome = run_hybrid_authority_day_with_all_scratch(
@@ -1126,6 +1215,11 @@ pub fn run_hybrid_authority_days(
             &mut intents_scratch,
             &mut metrics_scratch,
             Phase4RuntimeScratch::PreIndexed(&mut candidate_index),
+            if use_one_pass_phase8 {
+                Phase8RuntimeScratch::OnePass(&mut phase8_scratch)
+            } else {
+                Phase8RuntimeScratch::FullScan
+            },
         )?;
         outcomes.push(outcome);
     }
@@ -1180,6 +1274,33 @@ pub fn run_hybrid_scope_isolated_day_with_scratch(
     choices_scratch: &mut Vec<PrimaryActionChoice>,
     intents_scratch: &mut Vec<Intent>,
     metrics_scratch: &mut AgentDynamicSoAScratch,
+) -> Result<DayOutcome, M0RunError> {
+    let mut phase8_scratch =
+        Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
+    run_hybrid_scope_isolated_day_with_phase8_scratch(
+        hybrid_world,
+        config,
+        context,
+        options,
+        features_scratch,
+        choices_scratch,
+        intents_scratch,
+        metrics_scratch,
+        &mut phase8_scratch,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_hybrid_scope_isolated_day_with_phase8_scratch(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    features_scratch: &mut Vec<AgentFeatures>,
+    choices_scratch: &mut Vec<PrimaryActionChoice>,
+    intents_scratch: &mut Vec<Intent>,
+    metrics_scratch: &mut AgentDynamicSoAScratch,
+    phase8_scratch: &mut Phase8WelfareScratch,
 ) -> Result<DayOutcome, M0RunError> {
     if !hybrid_world.is_hybrid() {
         return run_m0_day_with_scratch(
@@ -1255,8 +1376,12 @@ pub fn run_hybrid_scope_isolated_day_with_scratch(
     storage.sync_from_agents(&world.agents);
 
     // 11. Phase 8: Institutional Welfare Distribution (Native Segmented SoA directly on storage)
-    let welfare_resolutions = storage
-        .phase8_welfare_distribution_with_config(&mut world.settlements, &effective_config)?;
+    let welfare_resolutions = phase8_welfare_distribution_storage_with_config_and_scratch(
+        storage,
+        &mut world.settlements,
+        &effective_config,
+        phase8_scratch,
+    )?;
 
     // ZERO WRITE-BACK: storage is authority!
 
@@ -1397,9 +1522,11 @@ pub fn run_hybrid_scope_isolated_days(
     let mut choices_scratch = Vec::with_capacity(agent_count);
     let mut intents_scratch = Vec::with_capacity(agent_count);
     let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    let mut phase8_scratch =
+        Phase8WelfareScratch::with_capacity(hybrid_world.world.settlements.len());
 
     for _ in 0..days {
-        let outcome = run_hybrid_scope_isolated_day_with_scratch(
+        let outcome = run_hybrid_scope_isolated_day_with_phase8_scratch(
             hybrid_world,
             config,
             context,
@@ -1408,6 +1535,7 @@ pub fn run_hybrid_scope_isolated_days(
             &mut choices_scratch,
             &mut intents_scratch,
             &mut metrics_scratch,
+            &mut phase8_scratch,
         )?;
         outcomes.push(outcome);
     }

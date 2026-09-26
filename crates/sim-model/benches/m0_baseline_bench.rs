@@ -49,15 +49,17 @@ use sim_model::phases::{
 use sim_model::resolution::{
     phase6a_work_resolution, phase6a_work_resolution_storage, phase6b_targeted_resolution,
     phase6b_targeted_resolution_storage, phase7_market_clearance_storage_with_config,
-    phase7_market_clearance_with_config, phase8_welfare_distribution_storage_with_config,
-    phase8_welfare_distribution_with_config,
+    phase7_market_clearance_with_config, phase8_welfare_distribution_storage_full_scan,
+    phase8_welfare_distribution_storage_with_config,
+    phase8_welfare_distribution_storage_with_scratch, phase8_welfare_distribution_with_config,
 };
 use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext,
     run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
-    run_hybrid_authority_days, run_hybrid_scope_isolated_days, run_m0_day, run_m0_days,
-    run_native_soa_day, run_native_soa_days,
+    run_hybrid_authority_days, run_hybrid_authority_days_with_phase8_full_scan,
+    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
+    run_native_soa_days,
 };
 use sim_model::snapshot::{
     SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot, restore_snapshot,
@@ -66,7 +68,7 @@ use sim_model::state::SettlementState;
 use sim_model::state::{AgentDynamicSoAScratch, HybridWorldState, WorldState};
 use sim_model::storage::{SegmentedAgentStorage, WorldStorage, canonical_state_hash_from_storage};
 use sim_model::subsystems::Subsystem;
-use sim_model::{SimConfig, initialize_world};
+use sim_model::{Phase8WelfareScratch, SimConfig, initialize_world};
 
 const GATE_CONFIG_TOML: &str = r#"
 [world]
@@ -7024,6 +7026,346 @@ fn measure_m2_30_phase4_candidate_index(base_config: &SimConfig, context: &M0Run
     measure_m2_30_post_index_top_phases(base_config, context, workload_families[1], 50);
 }
 
+#[derive(Clone, Copy)]
+struct M232ScalingRow {
+    family: &'static str,
+    population: u64,
+    settlement_count: u32,
+    phase8_old: M2292Median,
+    index_probe: M2292Median,
+    phase8_new: M2292Median,
+    full_tick: [M2292Median; 2],
+}
+
+fn m2_32_phase8_sample(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    config: &SimConfig,
+    scratch: &mut Phase8WelfareScratch,
+    one_pass: bool,
+) -> f64 {
+    let mut sample_storage = storage.clone();
+    let mut sample_settlements = settlements.to_vec();
+    let started = Instant::now();
+    let result = if one_pass {
+        phase8_welfare_distribution_storage_with_scratch(
+            &mut sample_storage,
+            &mut sample_settlements,
+            config.interaction.starvation_threshold,
+            config.economy.welfare_payment,
+            scratch,
+        )
+    } else {
+        phase8_welfare_distribution_storage_full_scan(
+            &mut sample_storage,
+            &mut sample_settlements,
+            config.interaction.starvation_threshold,
+            config.economy.welfare_payment,
+        )
+    };
+    std::hint::black_box(result.unwrap());
+    started.elapsed().as_nanos() as f64 / 1000.0
+}
+
+fn m2_32_phase8_index_probe_sample(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    config: &SimConfig,
+    scratch: &mut Phase8WelfareScratch,
+) -> f64 {
+    let mut probe_storage = storage.clone();
+    probe_storage
+        .food_mut()
+        .fill(config.interaction.starvation_threshold);
+    m2_32_phase8_sample(&probe_storage, settlements, config, scratch, true)
+}
+
+fn m2_32_time_full_tick(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    ticks: u32,
+    one_pass: bool,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(base_world.clone());
+    let started = Instant::now();
+    let outcomes = if one_pass {
+        run_hybrid_authority_days(&mut world, config, context, ticks, options)
+    } else {
+        run_hybrid_authority_days_with_phase8_full_scan(&mut world, config, context, ticks, options)
+    };
+    std::hint::black_box(outcomes.unwrap());
+    started.elapsed().as_nanos() as f64 / ticks as f64 / 1000.0
+}
+
+fn m2_32_assert_full_tick_parity(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+) {
+    let mut full_scan = HybridWorldState::hybrid(base_world.clone());
+    let mut one_pass = HybridWorldState::hybrid(base_world.clone());
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: true,
+    };
+    let baseline = run_hybrid_authority_days_with_phase8_full_scan(
+        &mut full_scan,
+        config,
+        context,
+        3,
+        &options,
+    )
+    .unwrap();
+    let optimized = run_hybrid_authority_days(&mut one_pass, config, context, 3, &options).unwrap();
+    assert_eq!(baseline, optimized);
+    assert_eq!(
+        full_scan.canonical_state_hash().unwrap(),
+        one_pass.canonical_state_hash().unwrap()
+    );
+}
+
+fn measure_m2_32_phase8_one_pass(base_config: &SimConfig, context: &M0RunContext) {
+    const POPULATIONS: [u64; 8] = [100, 250, 500, 1000, 2500, 5000, 10000, 20000];
+    const SAMPLES: usize = 7;
+    const WARMUPS: usize = 2;
+    const TICKS_PER_SAMPLE: u32 = 3;
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+    let workload_families = ["Fixed settlements (2)", "Fixed group size (~200)"];
+    let mut rows = Vec::with_capacity(POPULATIONS.len() * workload_families.len());
+
+    println!("\n=================================================================");
+    println!("M2-32 Phase8 Repeated Scan vs One-Pass Group Buckets");
+    println!(
+        "Method: 2 warm-ups + 7 median/MAD samples; full-tick samples average 3 production days."
+    );
+    println!(
+        "Phase8 scratch is retained between samples; runner scratch spans each 3-day full-tick sample."
+    );
+    println!(
+        "The index-build probe uses threshold-equal food to retain the scan but produce no recipients."
+    );
+    println!("=================================================================");
+
+    for (family_index, family) in workload_families.iter().enumerate() {
+        let mut phase8_scratch = Phase8WelfareScratch::with_capacity(100);
+        for &population in &POPULATIONS {
+            let mut config = base_config.clone();
+            config.world.initial_population = population;
+            config.world.settlement_count = if family_index == 0 {
+                2
+            } else {
+                population.div_ceil(200) as u32
+            };
+            config.environment.carrying_capacity = 1000.0 * population as f32;
+            config.world.initial_settlement_resource = 200.0 * population as f32;
+            let base_world = initialize_world(&config).unwrap();
+            if population == 10000 {
+                m2_32_assert_full_tick_parity(&base_world, &config, context);
+            }
+            let base_storage = SegmentedAgentStorage::from_agents(&base_world.agents);
+            let mut baseline_storage = base_storage.clone();
+            let mut baseline_settlements = base_world.settlements.clone();
+            let eligible_count = phase8_welfare_distribution_storage_full_scan(
+                &mut baseline_storage,
+                &mut baseline_settlements,
+                config.interaction.starvation_threshold,
+                config.economy.welfare_payment,
+            )
+            .unwrap()
+            .iter()
+            .map(|result| result.eligible_count)
+            .sum::<usize>();
+
+            let mut index_probe_storage = base_storage.clone();
+            index_probe_storage
+                .food_mut()
+                .fill(config.interaction.starvation_threshold);
+            for _ in 0..WARMUPS {
+                let _ = m2_32_phase8_sample(
+                    &base_storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut phase8_scratch,
+                    false,
+                );
+                let _ = m2_32_phase8_index_probe_sample(
+                    &index_probe_storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut phase8_scratch,
+                );
+                let _ = m2_32_phase8_sample(
+                    &base_storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut phase8_scratch,
+                    true,
+                );
+                let _ = m2_32_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    TICKS_PER_SAMPLE,
+                    false,
+                );
+                let _ = m2_32_time_full_tick(
+                    &base_world,
+                    &config,
+                    context,
+                    &options,
+                    TICKS_PER_SAMPLE,
+                    true,
+                );
+            }
+
+            let mut old_samples = Vec::with_capacity(SAMPLES);
+            let mut probe_samples = Vec::with_capacity(SAMPLES);
+            let mut new_samples = Vec::with_capacity(SAMPLES);
+            let mut full_tick_samples: [Vec<f64>; 2] =
+                std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+            for sample in 0..SAMPLES {
+                old_samples.push(m2_32_phase8_sample(
+                    &base_storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut phase8_scratch,
+                    false,
+                ));
+                probe_samples.push(m2_32_phase8_index_probe_sample(
+                    &index_probe_storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut phase8_scratch,
+                ));
+                new_samples.push(m2_32_phase8_sample(
+                    &base_storage,
+                    &base_world.settlements,
+                    &config,
+                    &mut phase8_scratch,
+                    true,
+                ));
+                for offset in 0..2 {
+                    let path = (sample + offset) % 2;
+                    full_tick_samples[path].push(m2_32_time_full_tick(
+                        &base_world,
+                        &config,
+                        context,
+                        &options,
+                        TICKS_PER_SAMPLE,
+                        path == 1,
+                    ));
+                }
+            }
+
+            let row = M232ScalingRow {
+                family,
+                population,
+                settlement_count: config.world.settlement_count,
+                phase8_old: m2_29_2_summary(old_samples),
+                index_probe: m2_29_2_summary(probe_samples),
+                phase8_new: m2_29_2_summary(new_samples),
+                full_tick: [
+                    m2_29_2_summary(full_tick_samples[0].clone()),
+                    m2_29_2_summary(full_tick_samples[1].clone()),
+                ],
+            };
+            let old_slot_visits = population as usize * row.settlement_count as usize;
+            let new_slot_visits = phase8_scratch.last_slot_inspections();
+            let old_ticks_per_second = 1_000_000.0 / row.full_tick[0].median_us;
+            let new_ticks_per_second = 1_000_000.0 / row.full_tick[1].median_us;
+            println!(
+                "{:<26} N={:<5} K={:<3} R={:<5} inspections(old/new)={:>9}/{:<7} Phase8(old/index/new)={:>8.2}±{:>5.2}/{:>8.2}±{:>5.2}/{:>8.2}±{:>5.2}us full(old/new)={:>9.2}±{:>5.2}/{:>9.2}±{:>5.2}us speedup={:>5.2}x ticks/s={:>7.1}/{:>7.1}",
+                family,
+                population,
+                row.settlement_count,
+                eligible_count,
+                old_slot_visits,
+                new_slot_visits,
+                row.phase8_old.median_us,
+                row.phase8_old.mad_us,
+                row.index_probe.median_us,
+                row.index_probe.mad_us,
+                row.phase8_new.median_us,
+                row.phase8_new.mad_us,
+                row.full_tick[0].median_us,
+                row.full_tick[0].mad_us,
+                row.full_tick[1].median_us,
+                row.full_tick[1].mad_us,
+                row.full_tick[0].median_us / row.full_tick[1].median_us,
+                old_ticks_per_second,
+                new_ticks_per_second,
+            );
+            rows.push(row);
+        }
+    }
+
+    for family in workload_families {
+        for (from_n, to_n, divisor) in [(1000, 10000, 10.0f64), (10000, 20000, 2.0f64)] {
+            let before = rows
+                .iter()
+                .find(|row| row.family == family && row.population == from_n)
+                .unwrap();
+            let after = rows
+                .iter()
+                .find(|row| row.family == family && row.population == to_n)
+                .unwrap();
+            for (name, small, large) in [
+                (
+                    "Phase8 old",
+                    before.phase8_old.median_us,
+                    after.phase8_old.median_us,
+                ),
+                (
+                    "Phase8 one-pass",
+                    before.phase8_new.median_us,
+                    after.phase8_new.median_us,
+                ),
+                (
+                    "Full tick old",
+                    before.full_tick[0].median_us,
+                    after.full_tick[0].median_us,
+                ),
+                (
+                    "Full tick new",
+                    before.full_tick[1].median_us,
+                    after.full_tick[1].median_us,
+                ),
+            ] {
+                let ratio = large / small.max(0.001);
+                println!(
+                    "{family:<26} {name:<16} N={from_n}->{to_n}: {small:.2}->{large:.2}us ratio={ratio:.2}x alpha={:.3}",
+                    ratio.ln() / divisor.ln(),
+                );
+            }
+        }
+        for population in [10000, 20000] {
+            let row = rows
+                .iter()
+                .find(|row| row.family == family && row.population == population)
+                .unwrap();
+            println!(
+                "{family:<26} N={population:<5} full-tick old/new={:.2}/{:.2}us speedup={:.3}x Phase8 share old/new={:.2}/{:.2}%",
+                row.full_tick[0].median_us,
+                row.full_tick[1].median_us,
+                row.full_tick[0].median_us / row.full_tick[1].median_us,
+                row.phase8_old.median_us / row.full_tick[0].median_us * 100.0,
+                row.phase8_new.median_us / row.full_tick[1].median_us * 100.0,
+            );
+        }
+    }
+    println!(
+        "Allocation attribution: no global allocator instrumentation; per-group candidate bucket capacities persist in Phase8WelfareScratch, while returned resolution/planning vectors remain owned outputs."
+    );
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -7194,6 +7536,9 @@ fn main() {
 
     // 22. M2-30 Phase4 Group/Action Candidate Pre-Index Gate
     measure_m2_30_phase4_candidate_index(&config, &context);
+
+    // 23. M2-32 Phase8 Group-Aware One-Pass Welfare Eligibility Gate
+    measure_m2_32_phase8_one_pass(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");
