@@ -2,8 +2,11 @@ use crate::config::SimConfig;
 use crate::features::{AgentFeatures, FeatureVector};
 use crate::state::{AgentState, WorldState};
 use crate::subsystems::Subsystem;
+use rayon::ThreadPool;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, RngCoordinate, coordinate_prng_f32};
+use std::num::NonZeroUsize;
 
 /// Canonical six primary actions available to an agent during Phase 4 action selection.
 /// The mapping between enum variant and canonical index is explicit and fixed:
@@ -387,11 +390,6 @@ pub fn phase4_primary_action_selection_storage_into(
         out.reserve(needed - out.capacity());
     }
 
-    let coops = &storage.personality.cooperation;
-    let aggrs = &storage.personality.aggression;
-    let risks = &storage.personality.risk_tolerance;
-    let alives = &storage.demography.alive;
-    let healths = &storage.demography.health;
     let agent_ids = &storage.agent_ids;
     let n = storage.len();
 
@@ -421,51 +419,129 @@ pub fn phase4_primary_action_selection_storage_into(
             }
         };
 
-        if !alives[slot] || healths[slot] <= 0.0 {
-            return Err(DecisionError::IneligibleAgent(af.agent_id));
-        }
-
-        let mut utilities = [0.0f32; 6];
-        for (m, action) in Action::ALL.iter().enumerate() {
-            let mut u_base = config.decision.action_biases[m];
-            for k in 0..5 {
-                let term = config.decision.base_weight_matrix[m][k] * af.features.values[k];
-                u_base += term;
-            }
-
-            let trait_mod = match action {
-                Action::Work | Action::BuyFood | Action::SellFood | Action::Idle => 0.0f32,
-                Action::GiveFood => config.decision.trait_weight_cooperation * coops[slot],
-                Action::StealFood => {
-                    let aggression_term = config.decision.trait_weight_aggression * aggrs[slot];
-                    let risk_term = config.decision.trait_weight_risk_tolerance * risks[slot];
-                    aggression_term + risk_term
-                }
-            };
-
-            utilities[m] = u_base + trait_mod;
-        }
-
-        let probabilities = stable_softmax(&utilities, config.decision.decision_temperature);
-
-        let coord = RngCoordinate::new(
-            config.world.master_seed,
-            config.world.replicate_id,
-            current_day.as_u32(),
-            4,
-            Subsystem::Decision.id(),
-            af.agent_id.as_u32(),
-            0,
-        );
-        let u = coordinate_prng_f32(&coord);
-        let action = select_action(&probabilities, u);
-
-        out.push(PrimaryActionChoice {
-            agent_id: af.agent_id,
-            action,
-        });
+        out.push(select_storage_choice_for_slot(
+            af,
+            slot,
+            current_day,
+            config,
+            storage,
+        )?);
     }
 
     out.sort_by_key(|c| c.agent_id);
+    Ok(())
+}
+
+#[inline]
+fn select_storage_choice_for_slot(
+    af: &AgentFeatures,
+    slot: usize,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    storage: &crate::storage::SegmentedAgentStorage,
+) -> Result<PrimaryActionChoice, DecisionError> {
+    let coops = &storage.personality.cooperation;
+    let aggrs = &storage.personality.aggression;
+    let risks = &storage.personality.risk_tolerance;
+    let alives = storage.alive();
+    let healths = storage.health();
+    if !alives[slot] || healths[slot] <= 0.0 {
+        return Err(DecisionError::IneligibleAgent(af.agent_id));
+    }
+
+    let mut utilities = [0.0f32; 6];
+    for (m, action) in Action::ALL.iter().enumerate() {
+        let mut u_base = config.decision.action_biases[m];
+        for k in 0..5 {
+            let term = config.decision.base_weight_matrix[m][k] * af.features.values[k];
+            u_base += term;
+        }
+
+        let trait_mod = match action {
+            Action::Work | Action::BuyFood | Action::SellFood | Action::Idle => 0.0f32,
+            Action::GiveFood => config.decision.trait_weight_cooperation * coops[slot],
+            Action::StealFood => {
+                let aggression_term = config.decision.trait_weight_aggression * aggrs[slot];
+                let risk_term = config.decision.trait_weight_risk_tolerance * risks[slot];
+                aggression_term + risk_term
+            }
+        };
+
+        utilities[m] = u_base + trait_mod;
+    }
+
+    let probabilities = stable_softmax(&utilities, config.decision.decision_temperature);
+
+    let coord = RngCoordinate::new(
+        config.world.master_seed,
+        config.world.replicate_id,
+        current_day.as_u32(),
+        4,
+        Subsystem::Decision.id(),
+        af.agent_id.as_u32(),
+        0,
+    );
+    let u = coordinate_prng_f32(&coord);
+    let action = select_action(&probabilities, u);
+
+    Ok(PrimaryActionChoice {
+        agent_id: af.agent_id,
+        action,
+    })
+}
+
+/// Experimental Rayon Phase4 Selection path. Results and first-error precedence follow the
+/// original feature input order; successful choices are then sorted by AgentId exactly as serial.
+pub fn phase4_primary_action_selection_storage_into_rayon(
+    storage: &crate::storage::SegmentedAgentStorage,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    agent_features: &[AgentFeatures],
+    out: &mut Vec<PrimaryActionChoice>,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<(), DecisionError> {
+    out.clear();
+    if out.capacity() < agent_features.len() {
+        out.reserve(agent_features.len() - out.capacity());
+    }
+
+    let chunk_size = chunk_size.get();
+    let mut chunks = pool.install(|| {
+        agent_features
+            .par_chunks(chunk_size)
+            .enumerate()
+            .map(|(chunk_index, features)| {
+                let mut choices = Vec::with_capacity(features.len());
+                let mut first_error = None;
+                for af in features {
+                    let result = storage
+                        .slot_of(af.agent_id)
+                        .ok_or(DecisionError::MissingAgent(af.agent_id))
+                        .and_then(|slot| {
+                            select_storage_choice_for_slot(af, slot, current_day, config, storage)
+                        });
+                    match result {
+                        Ok(choice) => choices.push(choice),
+                        Err(error) => {
+                            first_error = Some(error);
+                            break;
+                        }
+                    }
+                }
+                (chunk_index, choices, first_error)
+            })
+            .collect::<Vec<_>>()
+    });
+
+    chunks.sort_unstable_by_key(|(chunk_index, _, _)| *chunk_index);
+    for (_, choices, first_error) in chunks {
+        out.extend(choices);
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+    }
+
+    out.sort_by_key(|choice| choice.agent_id);
     Ok(())
 }

@@ -29,7 +29,8 @@ pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,
     phase4_primary_action_selection, phase4_primary_action_selection_into,
     phase4_primary_action_selection_storage_into,
-    phase4_primary_action_selection_storage_into_baseline, select_action, stable_softmax,
+    phase4_primary_action_selection_storage_into_baseline,
+    phase4_primary_action_selection_storage_into_rayon, select_action, stable_softmax,
 };
 pub use events::{
     Event, EventBuffer, EventError, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
@@ -59,7 +60,8 @@ pub use intents::{
     Intent, IntentError, Phase4CandidateIndexScratch, generate_intents,
     generate_intents_storage_into, generate_intents_storage_into_baseline,
     generate_intents_storage_into_variant_c, generate_intents_storage_into_variant_d,
-    generate_intents_storage_with_candidate_index, generate_intents_storage_with_scratch,
+    generate_intents_storage_with_candidate_index,
+    generate_intents_storage_with_candidate_index_rayon, generate_intents_storage_with_scratch,
     get_give_food_candidates, get_steal_food_candidates, phase4_generate_intents,
     phase4_generate_intents_into, phase4_generate_intents_storage_into,
 };
@@ -107,9 +109,10 @@ pub use runner::{
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
     run_hybrid_authority_days_with_phase5_baseline,
     run_hybrid_authority_days_with_phase6b_baseline,
-    run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_day,
-    run_hybrid_scope_isolated_day_with_scratch, run_hybrid_scope_isolated_days, run_m0_day,
-    run_m0_days, run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,
+    run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_authority_days_with_rayon_phase4,
+    run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_day_with_scratch,
+    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
+    run_native_soa_day_with_storage, run_native_soa_days,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,

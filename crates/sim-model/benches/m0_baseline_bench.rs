@@ -8,6 +8,9 @@
 //! 5. Population scaling (N = 10, 50, 100, 500, 1000)
 //! 6. Correctness verification against M1 frozen graduation hashes
 
+use rayon::ThreadPool;
+use rayon::ThreadPoolBuilder;
+use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use sim_core::prng::{RngCoordinate, coordinate_prng_f32};
@@ -15,7 +18,8 @@ use sim_core::{AgentId, GroupId, Money, SimulationDay};
 use sim_model::decision::{
     Action, PrimaryActionChoice, phase4_primary_action_selection,
     phase4_primary_action_selection_into, phase4_primary_action_selection_storage_into,
-    phase4_primary_action_selection_storage_into_baseline, select_action, stable_softmax,
+    phase4_primary_action_selection_storage_into_baseline,
+    phase4_primary_action_selection_storage_into_rayon, select_action, stable_softmax,
 };
 use sim_model::events::{
     Event, EventBuffer, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
@@ -34,7 +38,8 @@ use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical
 use sim_model::intents::{
     Intent, Phase4CandidateIndexScratch, generate_intents_storage_into_baseline,
     generate_intents_storage_into_variant_c, generate_intents_storage_into_variant_d,
-    generate_intents_storage_with_candidate_index, generate_intents_storage_with_scratch,
+    generate_intents_storage_with_candidate_index,
+    generate_intents_storage_with_candidate_index_rayon, generate_intents_storage_with_scratch,
     phase4_generate_intents, phase4_generate_intents_into, phase4_generate_intents_storage_into,
 };
 use sim_model::metrics::{
@@ -68,8 +73,9 @@ use sim_model::runner::{
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
     run_hybrid_authority_days_with_phase5_baseline,
     run_hybrid_authority_days_with_phase6b_baseline,
-    run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_scope_isolated_days, run_m0_day,
-    run_m0_days, run_native_soa_day, run_native_soa_days,
+    run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_authority_days_with_rayon_phase4,
+    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
+    run_native_soa_days,
 };
 use sim_model::snapshot::{
     SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot, restore_snapshot,
@@ -8993,6 +8999,583 @@ fn measure_m2_36_phase6b_slot_cache(base_config: &SimConfig, context: &M0RunCont
     );
 }
 
+#[derive(Clone, Copy)]
+struct M238Row {
+    family: &'static str,
+    population: u64,
+    groups: u32,
+    threads: usize,
+    chunk: usize,
+    selection: [M2292Median; 2],
+    intent: [M2292Median; 2],
+    combined_p4: [M2292Median; 2],
+    full_tick: [M2292Median; 2],
+}
+
+fn m2_38_inputs(
+    base_config: &SimConfig,
+    context: &M0RunContext,
+    population: u64,
+    groups: u32,
+) -> (
+    SimConfig,
+    WorldState,
+    SegmentedAgentStorage,
+    Vec<AgentFeatures>,
+    Vec<PrimaryActionChoice>,
+) {
+    let (config, initial_world, _) =
+        m2_35_production_intents(base_config, context, population, groups);
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+    let mut world = initial_world.clone();
+    phase1_resource_regrowth(&mut world, &effective_config);
+    let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+    storage.phase2_degradation_with_config(&effective_config);
+    let mut features = Vec::with_capacity(storage.len());
+    let mut phase3_scratch = Phase3ScarcityScratch::with_capacity(world.settlements.len());
+    phase3_observation_and_features_storage_with_scratch(
+        &storage,
+        &world.settlements,
+        &effective_config,
+        &mut features,
+        &mut phase3_scratch,
+    )
+    .unwrap();
+    let mut choices = Vec::with_capacity(storage.len());
+    phase4_primary_action_selection_storage_into(
+        &storage,
+        world.current_day,
+        &effective_config,
+        &features,
+        &mut choices,
+    )
+    .unwrap();
+    (config, initial_world, storage, features, choices)
+}
+
+fn m2_38_selection_sample(
+    storage: &SegmentedAgentStorage,
+    config: &SimConfig,
+    features: &[AgentFeatures],
+    rayon: bool,
+    pool: &ThreadPool,
+    chunk: usize,
+) -> f64 {
+    let mut choices = Vec::with_capacity(features.len());
+    let started = Instant::now();
+    if rayon {
+        phase4_primary_action_selection_storage_into_rayon(
+            storage,
+            SimulationDay(0),
+            config,
+            features,
+            &mut choices,
+            pool,
+            NonZeroUsize::new(chunk).unwrap(),
+        )
+        .unwrap();
+    } else {
+        phase4_primary_action_selection_storage_into(
+            storage,
+            SimulationDay(0),
+            config,
+            features,
+            &mut choices,
+        )
+        .unwrap();
+    }
+    std::hint::black_box(choices);
+    started.elapsed().as_nanos() as f64 / 1000.0
+}
+
+fn m2_38_intent_sample(
+    storage: &SegmentedAgentStorage,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    rayon: bool,
+    pool: &ThreadPool,
+    chunk: usize,
+) -> f64 {
+    let mut index =
+        Phase4CandidateIndexScratch::with_capacity(config.world.settlement_count as usize);
+    let mut intents = Vec::with_capacity(choices.len());
+    let started = Instant::now();
+    if rayon {
+        generate_intents_storage_with_candidate_index_rayon(
+            storage,
+            SimulationDay(0),
+            config,
+            choices,
+            &mut index,
+            &mut intents,
+            pool,
+            NonZeroUsize::new(chunk).unwrap(),
+        )
+        .unwrap();
+    } else {
+        generate_intents_storage_with_candidate_index(
+            storage,
+            SimulationDay(0),
+            config,
+            choices,
+            &mut index,
+            &mut intents,
+        )
+        .unwrap();
+    }
+    std::hint::black_box(intents);
+    started.elapsed().as_nanos() as f64 / 1000.0
+}
+
+fn m2_38_combined_sample(
+    storage: &SegmentedAgentStorage,
+    config: &SimConfig,
+    features: &[AgentFeatures],
+    rayon: bool,
+    pool: &ThreadPool,
+    chunk: usize,
+) -> f64 {
+    let mut choices = Vec::with_capacity(features.len());
+    let mut intents = Vec::with_capacity(features.len());
+    let mut index =
+        Phase4CandidateIndexScratch::with_capacity(config.world.settlement_count as usize);
+    let started = Instant::now();
+    if rayon {
+        phase4_primary_action_selection_storage_into_rayon(
+            storage,
+            SimulationDay(0),
+            config,
+            features,
+            &mut choices,
+            pool,
+            NonZeroUsize::new(chunk).unwrap(),
+        )
+        .unwrap();
+        generate_intents_storage_with_candidate_index_rayon(
+            storage,
+            SimulationDay(0),
+            config,
+            &choices,
+            &mut index,
+            &mut intents,
+            pool,
+            NonZeroUsize::new(chunk).unwrap(),
+        )
+        .unwrap();
+    } else {
+        phase4_primary_action_selection_storage_into(
+            storage,
+            SimulationDay(0),
+            config,
+            features,
+            &mut choices,
+        )
+        .unwrap();
+        generate_intents_storage_with_candidate_index(
+            storage,
+            SimulationDay(0),
+            config,
+            &choices,
+            &mut index,
+            &mut intents,
+        )
+        .unwrap();
+    }
+    std::hint::black_box((choices, intents));
+    started.elapsed().as_nanos() as f64 / 1000.0
+}
+
+fn m2_38_full_tick_sample(
+    initial_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    rayon: bool,
+    pool: &ThreadPool,
+    chunk: usize,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(initial_world.clone());
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+    let started = Instant::now();
+    let outcomes = if rayon {
+        run_hybrid_authority_days_with_rayon_phase4(
+            &mut world,
+            config,
+            context,
+            3,
+            &options,
+            pool,
+            NonZeroUsize::new(chunk).unwrap(),
+        )
+    } else {
+        run_hybrid_authority_days(&mut world, config, context, 3, &options)
+    };
+    std::hint::black_box(outcomes.unwrap());
+    started.elapsed().as_nanos() as f64 / 3.0 / 1000.0
+}
+
+fn measure_m2_38_deterministic_rayon_phase4(base_config: &SimConfig, context: &M0RunContext) {
+    const POPULATIONS: [u64; 5] = [1000, 5000, 10000, 20000, 50000];
+    const THREADS: [usize; 5] = [1, 2, 4, 6, 12];
+    const CHUNKS: [usize; 5] = [64, 128, 256, 512, 1024];
+    const WARMUPS: usize = 2;
+    const SAMPLES: usize = 7;
+
+    let pools = THREADS.map(|threads| {
+        (
+            threads,
+            ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .expect("M2-38 Rayon thread pool"),
+        )
+    });
+    let mut cells = Vec::with_capacity(250);
+    for family in 0..2 {
+        for population in POPULATIONS {
+            let groups = if family == 0 {
+                2
+            } else {
+                population.div_ceil(200) as u32
+            };
+            for threads in THREADS {
+                for chunk in CHUNKS {
+                    cells.push((family, population, groups, threads, chunk));
+                }
+            }
+        }
+    }
+    let mut ordered_cells = Vec::with_capacity(cells.len());
+    for order in 0..cells.len() {
+        ordered_cells.push(cells[(order * 73) % cells.len()]);
+    }
+    println!("\nM2-38 Deterministic Rayon Phase4 Gate");
+    println!("Host: 6 physical / 12 logical cores (M2-37 host); thread pools prebuilt and reused.");
+    println!(
+        "Method: 2 warmups, 7 samples, median/MAD; 3-day full tick, events+metrics on, snapshots off."
+    );
+    println!(
+        "Cells: deterministic 73-step permutation of 250 workload/population/thread/chunk combinations."
+    );
+    println!(
+        "family,N,K,threads,chunk,selection_serial_us,selection_rayon_us,intent_serial_us,intent_rayon_us,p4_serial_us,p4_rayon_us,tick_serial_us,tick_rayon_us"
+    );
+
+    let mut rows = Vec::with_capacity(ordered_cells.len());
+    for (cell_index, (family_index, population, groups, threads, chunk)) in
+        ordered_cells.into_iter().enumerate()
+    {
+        let family = if family_index == 0 { "A" } else { "B" };
+        let (config, initial_world, storage, features, choices) =
+            m2_38_inputs(base_config, context, population, groups);
+        let pool = &pools.iter().find(|(count, _)| *count == threads).unwrap().1;
+        let mut selection_samples = [Vec::with_capacity(SAMPLES), Vec::with_capacity(SAMPLES)];
+        let mut intent_samples = [Vec::with_capacity(SAMPLES), Vec::with_capacity(SAMPLES)];
+        let mut p4_samples = [Vec::with_capacity(SAMPLES), Vec::with_capacity(SAMPLES)];
+        let mut tick_samples = [Vec::with_capacity(SAMPLES), Vec::with_capacity(SAMPLES)];
+
+        for sample in 0..(WARMUPS + SAMPLES) {
+            let reverse = (cell_index + sample) % 2 == 1;
+            let pair = |serial: &mut Vec<f64>, rayon: &mut Vec<f64>, f: &dyn Fn(bool) -> f64| {
+                if reverse {
+                    let parallel = f(true);
+                    let sequential = f(false);
+                    if sample >= WARMUPS {
+                        rayon.push(parallel);
+                        serial.push(sequential);
+                    }
+                } else {
+                    let sequential = f(false);
+                    let parallel = f(true);
+                    if sample >= WARMUPS {
+                        serial.push(sequential);
+                        rayon.push(parallel);
+                    }
+                }
+            };
+            let [selection_serial, selection_rayon] = &mut selection_samples;
+            pair(selection_serial, selection_rayon, &|use_rayon| {
+                m2_38_selection_sample(&storage, &config, &features, use_rayon, pool, chunk)
+            });
+            let [intent_serial, intent_rayon] = &mut intent_samples;
+            pair(intent_serial, intent_rayon, &|use_rayon| {
+                m2_38_intent_sample(&storage, &config, &choices, use_rayon, pool, chunk)
+            });
+            let [p4_serial, p4_rayon] = &mut p4_samples;
+            pair(p4_serial, p4_rayon, &|use_rayon| {
+                m2_38_combined_sample(&storage, &config, &features, use_rayon, pool, chunk)
+            });
+            let [tick_serial, tick_rayon] = &mut tick_samples;
+            pair(tick_serial, tick_rayon, &|use_rayon| {
+                m2_38_full_tick_sample(&initial_world, &config, context, use_rayon, pool, chunk)
+            });
+        }
+
+        let selection = [
+            m2_29_2_summary(std::mem::take(&mut selection_samples[0])),
+            m2_29_2_summary(std::mem::take(&mut selection_samples[1])),
+        ];
+        let intent = [
+            m2_29_2_summary(std::mem::take(&mut intent_samples[0])),
+            m2_29_2_summary(std::mem::take(&mut intent_samples[1])),
+        ];
+        let combined_p4 = [
+            m2_29_2_summary(std::mem::take(&mut p4_samples[0])),
+            m2_29_2_summary(std::mem::take(&mut p4_samples[1])),
+        ];
+        let full_tick = [
+            m2_29_2_summary(std::mem::take(&mut tick_samples[0])),
+            m2_29_2_summary(std::mem::take(&mut tick_samples[1])),
+        ];
+        println!(
+            "{family},{population},{groups},{threads},{chunk},{:.2}±{:.2},{:.2}±{:.2},{:.2}±{:.2},{:.2}±{:.2},{:.2}±{:.2},{:.2}±{:.2},{:.2}±{:.2},{:.2}±{:.2}",
+            selection[0].median_us,
+            selection[0].mad_us,
+            selection[1].median_us,
+            selection[1].mad_us,
+            intent[0].median_us,
+            intent[0].mad_us,
+            intent[1].median_us,
+            intent[1].mad_us,
+            combined_p4[0].median_us,
+            combined_p4[0].mad_us,
+            combined_p4[1].median_us,
+            combined_p4[1].mad_us,
+            full_tick[0].median_us,
+            full_tick[0].mad_us,
+            full_tick[1].median_us,
+            full_tick[1].mad_us,
+        );
+        rows.push(M238Row {
+            family,
+            population,
+            groups,
+            threads,
+            chunk,
+            selection,
+            intent,
+            combined_p4,
+            full_tick,
+        });
+    }
+
+    println!(
+        "\nM2-38 best configurations by family/population; µs medians (Rayon / paired serial), speedup, ticks/s:"
+    );
+    println!(
+        "family,N,K,best_sel(t/c),speedup,best_intent(t/c),speedup,best_P4(t/c),P4_speedup,best_tick(t/c),tick_speedup,ticks_per_sec"
+    );
+    for family in ["A", "B"] {
+        for population in POPULATIONS {
+            let candidates = rows
+                .iter()
+                .filter(|row| row.family == family && row.population == population)
+                .collect::<Vec<_>>();
+            let best_selection = candidates
+                .iter()
+                .min_by(|a, b| {
+                    a.selection[1]
+                        .median_us
+                        .total_cmp(&b.selection[1].median_us)
+                })
+                .unwrap();
+            let best_intent = candidates
+                .iter()
+                .min_by(|a, b| a.intent[1].median_us.total_cmp(&b.intent[1].median_us))
+                .unwrap();
+            let best_p4 = candidates
+                .iter()
+                .min_by(|a, b| {
+                    a.combined_p4[1]
+                        .median_us
+                        .total_cmp(&b.combined_p4[1].median_us)
+                })
+                .unwrap();
+            let best_tick = candidates
+                .iter()
+                .min_by(|a, b| {
+                    a.full_tick[1]
+                        .median_us
+                        .total_cmp(&b.full_tick[1].median_us)
+                })
+                .unwrap();
+            println!(
+                "{family},{population},{},{}/{}:{:.2}/{:.2},{:.3}x,{}/{}:{:.2}/{:.2},{:.3}x,{}/{}:{:.2}/{:.2},{:.3}x,{}/{}:{:.2}/{:.2},{:.3}x,{:.1}",
+                best_tick.groups,
+                best_selection.threads,
+                best_selection.chunk,
+                best_selection.selection[1].median_us,
+                best_selection.selection[0].median_us,
+                best_selection.selection[0].median_us / best_selection.selection[1].median_us,
+                best_intent.threads,
+                best_intent.chunk,
+                best_intent.intent[1].median_us,
+                best_intent.intent[0].median_us,
+                best_intent.intent[0].median_us / best_intent.intent[1].median_us,
+                best_p4.threads,
+                best_p4.chunk,
+                best_p4.combined_p4[1].median_us,
+                best_p4.combined_p4[0].median_us,
+                best_p4.combined_p4[0].median_us / best_p4.combined_p4[1].median_us,
+                best_tick.threads,
+                best_tick.chunk,
+                best_tick.full_tick[1].median_us,
+                best_tick.full_tick[0].median_us,
+                best_tick.full_tick[0].median_us / best_tick.full_tick[1].median_us,
+                1_000_000.0 / best_tick.full_tick[1].median_us,
+            );
+        }
+    }
+
+    println!("\nCrossover (first N with measured speedup > 1.0; combined P4 / full tick):");
+    for family in ["A", "B"] {
+        for threads in THREADS {
+            for chunk in CHUNKS {
+                let first = POPULATIONS.iter().find_map(|population| {
+                    rows.iter()
+                        .find(|row| {
+                            row.family == family
+                                && row.population == *population
+                                && row.threads == threads
+                                && row.chunk == chunk
+                        })
+                        .filter(|row| {
+                            row.combined_p4[1].median_us < row.combined_p4[0].median_us
+                                && row.full_tick[1].median_us < row.full_tick[0].median_us
+                        })
+                        .map(|row| row.population)
+                });
+                println!(
+                    "{family},threads={threads},chunk={chunk},first_P4_and_tick_gain_N={}",
+                    first.map_or("none".to_string(), |n| n.to_string())
+                );
+            }
+        }
+    }
+
+    println!("\nOne-thread Rayon overhead by component (best Rayon chunk for each component):");
+    for family in ["A", "B"] {
+        for population in POPULATIONS {
+            let one_thread = rows
+                .iter()
+                .filter(|row| {
+                    row.family == family && row.population == population && row.threads == 1
+                })
+                .collect::<Vec<_>>();
+            let best_selection = one_thread
+                .iter()
+                .min_by(|a, b| {
+                    a.selection[1]
+                        .median_us
+                        .total_cmp(&b.selection[1].median_us)
+                })
+                .unwrap();
+            let best_intent = one_thread
+                .iter()
+                .min_by(|a, b| a.intent[1].median_us.total_cmp(&b.intent[1].median_us))
+                .unwrap();
+            let best_p4 = one_thread
+                .iter()
+                .min_by(|a, b| {
+                    a.combined_p4[1]
+                        .median_us
+                        .total_cmp(&b.combined_p4[1].median_us)
+                })
+                .unwrap();
+            let best_tick = one_thread
+                .iter()
+                .min_by(|a, b| {
+                    a.full_tick[1]
+                        .median_us
+                        .total_cmp(&b.full_tick[1].median_us)
+                })
+                .unwrap();
+            println!(
+                "{family},N={population},selection={:.2}%@{},intent={:.2}%@{},combined_P4={:.2}%@{},full_tick={:.2}%@{}",
+                (best_selection.selection[1].median_us / best_selection.selection[0].median_us
+                    - 1.0)
+                    * 100.0,
+                best_selection.chunk,
+                (best_intent.intent[1].median_us / best_intent.intent[0].median_us - 1.0) * 100.0,
+                best_intent.chunk,
+                (best_p4.combined_p4[1].median_us / best_p4.combined_p4[0].median_us - 1.0) * 100.0,
+                best_p4.chunk,
+                (best_tick.full_tick[1].median_us / best_tick.full_tick[0].median_us - 1.0) * 100.0,
+                best_tick.chunk
+            );
+        }
+    }
+
+    println!("\nSMT comparison (six physical threads vs twelve logical threads; same chunk size):");
+    for family in ["A", "B"] {
+        for population in POPULATIONS {
+            for chunk in CHUNKS {
+                let six = rows
+                    .iter()
+                    .find(|row| {
+                        row.family == family
+                            && row.population == population
+                            && row.threads == 6
+                            && row.chunk == chunk
+                    })
+                    .unwrap();
+                let twelve = rows
+                    .iter()
+                    .find(|row| {
+                        row.family == family
+                            && row.population == population
+                            && row.threads == 12
+                            && row.chunk == chunk
+                    })
+                    .unwrap();
+                println!(
+                    "{family},N={population},chunk={chunk},6t/12t P4={:.2}/{:.2}us,tick={:.2}/{:.2}us",
+                    six.combined_p4[1].median_us,
+                    twelve.combined_p4[1].median_us,
+                    six.full_tick[1].median_us,
+                    twelve.full_tick[1].median_us
+                );
+            }
+        }
+    }
+
+    println!(
+        "\nAmdahl: M2-37's 33–37% share and 1.29–1.41x 6-thread scenario modeled P2+P3+P4 Selection+P4 Intent+P9; this gate measures only P4."
+    );
+    for family in ["A", "B"] {
+        for population in [10000, 20000, 50000] {
+            let row = rows
+                .iter()
+                .filter(|row| row.family == family && row.population == population)
+                .min_by(|a, b| {
+                    a.full_tick[1]
+                        .median_us
+                        .total_cmp(&b.full_tick[1].median_us)
+                })
+                .unwrap();
+            let share = row.combined_p4[0].median_us / row.full_tick[0].median_us;
+            let p4_speedup = row.combined_p4[0].median_us / row.combined_p4[1].median_us;
+            let predicted = 1.0 / ((1.0 - share) + share / p4_speedup);
+            let measured = row.full_tick[0].median_us / row.full_tick[1].median_us;
+            println!(
+                "{family},N={population},best={}/{} P4_share={:.1}%,P4_speedup={:.3}x,Amdahl_P4_model={:.3}x,measured_tick={:.3}x,gap={:.3}x",
+                row.threads,
+                row.chunk,
+                share * 100.0,
+                p4_speedup,
+                predicted,
+                measured,
+                measured - predicted
+            );
+        }
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -9175,6 +9758,9 @@ fn main() {
 
     // 26. M2-36 Phase6B Stable Slot Cache and Scratch Gate
     measure_m2_36_phase6b_slot_cache(&config, &context);
+
+    // 27. M2-38 Deterministic Rayon Phase4 Selection and Indexed Intent Gate
+    measure_m2_38_deterministic_rayon_phase4(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

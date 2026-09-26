@@ -18,6 +18,7 @@ use crate::config::SimConfig;
 use crate::decision::{
     DecisionError, PrimaryActionChoice, phase4_primary_action_selection_into,
     phase4_primary_action_selection_storage_into,
+    phase4_primary_action_selection_storage_into_rayon,
 };
 use crate::events::{
     Event, EventBuffer, EventError, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
@@ -31,7 +32,8 @@ use crate::features::{
 };
 use crate::intents::{
     Intent, IntentError, Phase4CandidateIndexScratch,
-    generate_intents_storage_with_candidate_index, generate_intents_storage_with_scratch,
+    generate_intents_storage_with_candidate_index,
+    generate_intents_storage_with_candidate_index_rayon, generate_intents_storage_with_scratch,
     phase4_generate_intents_into,
 };
 use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe_with_scratch};
@@ -58,8 +60,10 @@ use crate::snapshot::{
 };
 use crate::state::{AgentDynamicSoAScratch, HybridWorldState, WorldState};
 use crate::storage::SegmentedAgentStorage;
+use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, SimulationDay};
+use std::num::NonZeroUsize;
 
 /// Default model version string used for canonical snapshot metadata.
 pub const DEFAULT_MODEL_VERSION: &str = "0.1.0";
@@ -829,6 +833,7 @@ pub fn run_hybrid_authority_day_with_candidate_index_scratch(
         &mut intents_scratch,
         &mut metrics_scratch,
         Phase4RuntimeScratch::PreIndexed(candidate_index),
+        Phase4ExecutionMode::Serial,
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
         Phase5RuntimeMode::OwnedFast,
@@ -873,6 +878,7 @@ pub fn run_hybrid_authority_day_with_candidate_scratch(
         &mut intents_scratch,
         &mut metrics_scratch,
         Phase4RuntimeScratch::FullScan(candidate_scratch),
+        Phase4ExecutionMode::Serial,
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
         Phase5RuntimeMode::OwnedFast,
@@ -929,6 +935,7 @@ pub fn run_hybrid_authority_day_with_scratch(
         intents_scratch,
         metrics_scratch,
         Phase4RuntimeScratch::FullScan(&mut candidate_scratch),
+        Phase4ExecutionMode::Serial,
         Phase8RuntimeScratch::OnePass(&mut phase8_scratch),
         Phase3RuntimeScratch::Indexed(&mut phase3_scratch),
         Phase5RuntimeMode::OwnedFast,
@@ -941,6 +948,15 @@ pub fn run_hybrid_authority_day_with_scratch(
 enum Phase4RuntimeScratch<'a> {
     FullScan(&'a mut Vec<AgentId>),
     PreIndexed(&'a mut Phase4CandidateIndexScratch),
+}
+
+#[derive(Clone, Copy)]
+enum Phase4ExecutionMode<'a> {
+    Serial,
+    Rayon {
+        pool: &'a ThreadPool,
+        chunk_size: NonZeroUsize,
+    },
 }
 
 enum Phase8RuntimeScratch<'a> {
@@ -976,6 +992,7 @@ fn run_hybrid_authority_day_with_all_scratch(
     intents_scratch: &mut Vec<Intent>,
     metrics_scratch: &mut AgentDynamicSoAScratch,
     phase4_scratch: Phase4RuntimeScratch<'_>,
+    phase4_mode: Phase4ExecutionMode<'_>,
     phase8_scratch: Phase8RuntimeScratch<'_>,
     phase3_scratch: Phase3RuntimeScratch<'_>,
     phase5_mode: Phase5RuntimeMode,
@@ -1044,13 +1061,26 @@ fn run_hybrid_authority_day_with_all_scratch(
 
     // 6. Phase 4: Intent Generation (Primary Action Selection & Intent Formulation directly on storage)
     choices_scratch.clear();
-    phase4_primary_action_selection_storage_into(
-        storage,
-        world.current_day,
-        &effective_config,
-        features_scratch,
-        choices_scratch,
-    )?;
+    match phase4_mode {
+        Phase4ExecutionMode::Serial => phase4_primary_action_selection_storage_into(
+            storage,
+            world.current_day,
+            &effective_config,
+            features_scratch,
+            choices_scratch,
+        )?,
+        Phase4ExecutionMode::Rayon { pool, chunk_size } => {
+            phase4_primary_action_selection_storage_into_rayon(
+                storage,
+                world.current_day,
+                &effective_config,
+                features_scratch,
+                choices_scratch,
+                pool,
+                chunk_size,
+            )?
+        }
+    }
 
     intents_scratch.clear();
     match phase4_scratch {
@@ -1064,16 +1094,28 @@ fn run_hybrid_authority_day_with_all_scratch(
                 intents_scratch,
             )?;
         }
-        Phase4RuntimeScratch::PreIndexed(candidate_index) => {
-            generate_intents_storage_with_candidate_index(
+        Phase4RuntimeScratch::PreIndexed(candidate_index) => match phase4_mode {
+            Phase4ExecutionMode::Serial => generate_intents_storage_with_candidate_index(
                 storage,
                 world.current_day,
                 &effective_config,
                 choices_scratch,
                 candidate_index,
                 intents_scratch,
-            )?;
-        }
+            )?,
+            Phase4ExecutionMode::Rayon { pool, chunk_size } => {
+                generate_intents_storage_with_candidate_index_rayon(
+                    storage,
+                    world.current_day,
+                    &effective_config,
+                    choices_scratch,
+                    candidate_index,
+                    intents_scratch,
+                    pool,
+                    chunk_size,
+                )?;
+            }
+        },
     }
 
     // 7. Phase 5: Locality Partitioning
@@ -1286,6 +1328,37 @@ pub fn run_hybrid_authority_days(
         options,
         true,
         true,
+        Phase4ExecutionMode::Serial,
+        Phase5RuntimeMode::OwnedFast,
+        Phase6BRuntimeMode::StorageFast,
+    )
+}
+
+/// Executes Hybrid days with an experimental, caller-pooled Rayon Phase4 path.
+/// Existing runners remain serial; chunk merging preserves canonical input order.
+pub fn run_hybrid_authority_days_with_rayon_phase4(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<Vec<DayOutcome>, M0RunError> {
+    if !hybrid_world.is_hybrid() {
+        return Err(M0RunError::InvariantViolation(
+            "Rayon Phase4 experiment requires Hybrid Storage Authority".to_string(),
+        ));
+    }
+    run_hybrid_authority_days_with_phase_modes(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        true,
+        true,
+        Phase4ExecutionMode::Rayon { pool, chunk_size },
         Phase5RuntimeMode::OwnedFast,
         Phase6BRuntimeMode::StorageFast,
     )
@@ -1308,6 +1381,7 @@ pub fn run_hybrid_authority_days_with_phase5_baseline(
         options,
         true,
         true,
+        Phase4ExecutionMode::Serial,
         Phase5RuntimeMode::CanonicalBaseline,
         Phase6BRuntimeMode::StorageFast,
     )
@@ -1329,6 +1403,7 @@ pub fn run_hybrid_authority_days_with_phase6b_baseline(
         options,
         true,
         true,
+        Phase4ExecutionMode::Serial,
         Phase5RuntimeMode::OwnedFast,
         Phase6BRuntimeMode::CanonicalBaseline,
     )
@@ -1352,6 +1427,7 @@ pub fn run_hybrid_authority_days_with_phase8_full_scan(
         options,
         true,
         false,
+        Phase4ExecutionMode::Serial,
         Phase5RuntimeMode::OwnedFast,
         Phase6BRuntimeMode::StorageFast,
     )
@@ -1375,6 +1451,7 @@ pub fn run_hybrid_authority_days_with_phase3_linear_scan(
         options,
         false,
         true,
+        Phase4ExecutionMode::Serial,
         Phase5RuntimeMode::OwnedFast,
         Phase6BRuntimeMode::StorageFast,
     )
@@ -1389,6 +1466,7 @@ fn run_hybrid_authority_days_with_phase_modes(
     options: &DayExecutionOptions,
     use_direct_phase3: bool,
     use_one_pass_phase8: bool,
+    phase4_mode: Phase4ExecutionMode<'_>,
     phase5_mode: Phase5RuntimeMode,
     phase6b_mode: Phase6BRuntimeMode,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
@@ -1434,6 +1512,7 @@ fn run_hybrid_authority_days_with_phase_modes(
             &mut intents_scratch,
             &mut metrics_scratch,
             Phase4RuntimeScratch::PreIndexed(&mut candidate_index),
+            phase4_mode,
             if use_one_pass_phase8 {
                 Phase8RuntimeScratch::OnePass(&mut phase8_scratch)
             } else {
