@@ -46,8 +46,11 @@ use sim_model::resolution::{
 };
 use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext, run_m0_day,
+    run_m0_days, run_native_soa_day, run_native_soa_days,
 };
-use sim_model::snapshot::{SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot};
+use sim_model::snapshot::{
+    SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot, restore_snapshot,
+};
 use sim_model::state::SettlementState;
 use sim_model::state::{AgentDynamicSoAScratch, WorldState};
 use sim_model::storage::{SegmentedAgentStorage, WorldStorage, canonical_state_hash_from_storage};
@@ -2996,6 +2999,233 @@ fn measure_phase8_native_soa(base_config: &SimConfig, context: &M0RunContext) {
     }
 }
 
+fn measure_m2_native_soa_multi_phase_gate(base_config: &SimConfig, context: &M0RunContext) {
+    println!("\n=================================================================");
+    println!("M2-26 Native SoA Multi-Phase Integration Gate Benchmark");
+    println!("=================================================================");
+
+    // Part 1: 500-Day Canonical Trajectory Determinism Parity (AoS vs Native SoA)
+    println!("\nPart 1: 500-Day Canonical Trajectory Determinism Parity (AoS vs Native SoA)");
+
+    let mut world_aos = initialize_world(base_config).expect("world initializes");
+    let mut world_soa = world_aos.clone();
+
+    let mut all_events_aos = Vec::new();
+    let mut metrics_aos = Vec::new();
+    let mut all_events_soa = Vec::new();
+    let mut metrics_soa = Vec::new();
+
+    let start_500_aos = Instant::now();
+    for d in 0..500 {
+        let options = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: d == 199,
+        };
+        let out = run_m0_day(&mut world_aos, base_config, context, &options).expect("AoS succeeds");
+        if let Some(m) = out.metrics {
+            metrics_aos.push(m);
+        }
+        all_events_aos.extend(out.events);
+    }
+    let elapsed_500_aos = start_500_aos.elapsed();
+
+    let start_500_soa = Instant::now();
+    for d in 0..500 {
+        let options = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: d == 199,
+        };
+        let out = run_native_soa_day(&mut world_soa, base_config, context, &options)
+            .expect("Native SoA succeeds");
+        if let Some(m) = out.metrics {
+            metrics_soa.push(m);
+        }
+        all_events_soa.extend(out.events);
+    }
+    let elapsed_500_soa = start_500_soa.elapsed();
+
+    let hash_state_aos = canonical_state_hash(&world_aos).unwrap().to_hex();
+    let hash_state_soa = canonical_state_hash(&world_soa).unwrap().to_hex();
+    assert_eq!(hash_state_aos, hash_state_soa);
+    assert_eq!(hash_state_soa, EXPECTED_STATE_HASH);
+
+    let hash_metrics_aos = canonical_metrics_hash(&metrics_aos).unwrap().to_hex();
+    let hash_metrics_soa = canonical_metrics_hash(&metrics_soa).unwrap().to_hex();
+    assert_eq!(hash_metrics_aos, hash_metrics_soa);
+    assert_eq!(hash_metrics_soa, EXPECTED_METRICS_HASH);
+
+    let hash_events_aos = canonical_event_hash(&all_events_aos).unwrap().to_hex();
+    let hash_events_soa = canonical_event_hash(&all_events_soa).unwrap().to_hex();
+    assert_eq!(hash_events_aos, hash_events_soa);
+    assert_eq!(hash_events_soa, EXPECTED_EVENT_HASH);
+
+    println!(
+        "CanonicalStateHash:   {} (100% BIT-EXACT MATCH)",
+        hash_state_soa
+    );
+    println!(
+        "CanonicalMetricsHash: {} (100% BIT-EXACT MATCH)",
+        hash_metrics_soa
+    );
+    println!(
+        "CanonicalEventHash:   {} (100% BIT-EXACT MATCH)",
+        hash_events_soa
+    );
+    println!(
+        "500-Day AoS Runtime:        {:.3} ms ({:.2} us/day)",
+        elapsed_500_aos.as_secs_f64() * 1000.0,
+        (elapsed_500_aos.as_nanos() as f64) / 500.0 / 1000.0
+    );
+    println!(
+        "500-Day Native SoA Runtime: {:.3} ms ({:.2} us/day)",
+        elapsed_500_soa.as_secs_f64() * 1000.0,
+        (elapsed_500_soa.as_nanos() as f64) / 500.0 / 1000.0
+    );
+
+    // Part 2: Snapshot Parity at Day 100, Day 250, Day 500
+    println!("\nPart 2: Snapshot Parity at Day 100, 250, 500");
+    for &target_day in &[100u32, 250, 500] {
+        let mut w_aos = initialize_world(base_config).unwrap();
+        let mut w_soa = w_aos.clone();
+
+        let prior_days = target_day - 1;
+        let opt_no_snap = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: false,
+        };
+        if prior_days > 0 {
+            let _ =
+                run_m0_days(&mut w_aos, base_config, context, prior_days, &opt_no_snap).unwrap();
+            let _ = run_native_soa_days(&mut w_soa, base_config, context, prior_days, &opt_no_snap)
+                .unwrap();
+        }
+
+        let opt_snap = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: true,
+        };
+        let out_aos = run_m0_day(&mut w_aos, base_config, context, &opt_snap).unwrap();
+        let out_soa = run_native_soa_day(&mut w_soa, base_config, context, &opt_snap).unwrap();
+
+        let snap_aos = out_aos.snapshot.unwrap();
+        let snap_soa = out_soa.snapshot.unwrap();
+        assert_eq!(
+            snap_aos, snap_soa,
+            "Snapshot bytes mismatch at day {}",
+            target_day
+        );
+
+        let rest_aos = restore_snapshot(&snap_aos).unwrap();
+        let rest_soa = restore_snapshot(&snap_soa).unwrap();
+        assert_eq!(rest_aos.world, rest_soa.world);
+        assert_eq!(
+            canonical_state_hash(&rest_aos.world).unwrap(),
+            canonical_state_hash(&rest_soa.world).unwrap()
+        );
+
+        println!(
+            "  Day {:>3} Snapshot & Restored State Hash: 100% BIT-EXACT MATCH",
+            target_day
+        );
+    }
+
+    // Part 3: Population Scaling Multi-Phase Pipeline Comparison
+    println!("\nPart 3: Population Scaling Multi-Phase Pipeline Comparison (50 Days)");
+    println!(
+        "{:<8} | {:>14} | {:>14} | {:>14} | {:>8} | {:>8} | {:>10} | {:>10}",
+        "Pop (N)",
+        "A: AoS (ms)",
+        "B: Hybrid (ms)",
+        "C: Native (ms)",
+        "C vs A",
+        "C vs B",
+        "A (day/s)",
+        "C (day/s)"
+    );
+    println!("{:-<100}", "");
+
+    let populations = [100u64, 250, 500, 1000];
+    let days = 50u32;
+    let opt_bench = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+
+    for &pop in &populations {
+        let mut cfg = base_config.clone();
+        cfg.world.initial_population = pop;
+        cfg.environment.carrying_capacity = 1000.0 * pop as f32;
+        cfg.world.initial_settlement_resource = 200.0 * pop as f32;
+
+        let base_world = initialize_world(&cfg).unwrap();
+
+        // Pipeline A: Full AoS
+        let mut w_a = base_world.clone();
+        let start_a = Instant::now();
+        let _ = run_m0_days(&mut w_a, &cfg, context, days, &opt_bench).unwrap();
+        let el_a = start_a.elapsed();
+
+        // Pipeline B: Hybrid (AoS with Native Phase 2, 3, 10)
+        let mut w_b = base_world.clone();
+        let mut seg_b = SegmentedAgentStorage::from_agents(&w_b.agents);
+        let mut feats_b = Vec::with_capacity(w_b.agents.len());
+        let mut choices_b = Vec::with_capacity(w_b.agents.len());
+        let mut intents_b = Vec::with_capacity(w_b.agents.len());
+        let start_b = Instant::now();
+        for _ in 0..days {
+            let d = w_b.current_day.as_u32();
+            let next_d = d + 1;
+            phase1_resource_regrowth(&mut w_b, &cfg);
+            seg_b.phase2_degradation_with_config(&cfg);
+            seg_b.write_back_to_agents(&mut w_b.agents);
+            feats_b.clear();
+            seg_b
+                .phase3_features_into(&w_b.settlements, &cfg, &mut feats_b)
+                .unwrap();
+            choices_b.clear();
+            phase4_primary_action_selection_into(&w_b, &cfg, &feats_b, &mut choices_b).unwrap();
+            intents_b.clear();
+            phase4_generate_intents_into(&w_b, &cfg, &choices_b, &mut intents_b).unwrap();
+            let p = phase5_partition_intents(&intents_b).unwrap();
+            let _ = phase6a_work_resolution(&mut w_b, &p).unwrap();
+            let _ = phase6b_targeted_resolution(&mut w_b, &cfg, &p).unwrap();
+            let _ = phase7_market_clearance_with_config(&mut w_b, &p, &cfg.economy).unwrap();
+            let _ = phase8_welfare_distribution_with_config(&mut w_b, &cfg).unwrap();
+            let _ = phase9_mortality_commitment(&mut w_b).unwrap();
+            let m = phase10_observe_storage(&seg_b, &w_b.settlements, d).unwrap();
+            let _ = m;
+            w_b.current_day = SimulationDay(next_d);
+        }
+        let el_b = start_b.elapsed();
+
+        // Pipeline C: Native SoA (Phase 2, 3, 8, 9, 10 Native)
+        let mut w_c = base_world.clone();
+        let start_c = Instant::now();
+        let _ = run_native_soa_days(&mut w_c, &cfg, context, days, &opt_bench).unwrap();
+        let el_c = start_c.elapsed();
+
+        let ms_a = el_a.as_secs_f64() * 1000.0;
+        let ms_b = el_b.as_secs_f64() * 1000.0;
+        let ms_c = el_c.as_secs_f64() * 1000.0;
+
+        let speedup_c_a = ms_a / ms_c.max(0.001);
+        let speedup_c_b = ms_b / ms_c.max(0.001);
+
+        let dps_a = (days as f64) / el_a.as_secs_f64();
+        let dps_c = (days as f64) / el_c.as_secs_f64();
+
+        println!(
+            "{:<8} | {:>14.2} | {:>14.2} | {:>14.2} | {:>7.2}x | {:>7.2}x | {:>10.1} | {:>10.1}",
+            pop, ms_a, ms_b, ms_c, speedup_c_a, speedup_c_b, dps_a, dps_c
+        );
+    }
+}
+
 // =========================================================================
 // M2-23 Hot Phase Profiling & Candidate Migration Synthetic Benchmark
 // =========================================================================
@@ -3615,7 +3845,10 @@ fn main() {
     // 15. M2-25 Phase 8 Native Segmented SoA Migration Benchmark
     measure_phase8_native_soa(&config, &context);
 
-    // 16. M2-23 Hot Phase Profiling & Candidate Migration Synthetic Benchmark
+    // 16. M2-26 Native SoA Multi-Phase Integration Gate Benchmark
+    measure_m2_native_soa_multi_phase_gate(&config, &context);
+
+    // 17. M2-23 Hot Phase Profiling & Candidate Migration Synthetic Benchmark
     measure_candidate_phases_profiling(&config, &context);
 
     println!("\n=================================================================");

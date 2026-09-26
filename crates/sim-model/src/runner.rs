@@ -39,6 +39,7 @@ use crate::snapshot::{
     CanonicalSnapshot, SNAPSHOT_SCHEMA_VERSION, SnapshotError, SnapshotMetadata, encode_snapshot,
 };
 use crate::state::{AgentDynamicSoAScratch, WorldState};
+use crate::storage::SegmentedAgentStorage;
 use serde::{Deserialize, Serialize};
 use sim_core::SimulationDay;
 
@@ -449,6 +450,242 @@ pub fn run_m0_days(
             &mut choices_scratch,
             &mut intents_scratch,
             &mut metrics_scratch,
+        )?;
+        outcomes.push(outcome);
+    }
+    Ok(outcomes)
+}
+
+/// Executes exactly one full deterministic simulation day using native Segmented SoA kernels
+/// for Phase 2 (degradation), Phase 3 (observation & features), Phase 8 (welfare distribution),
+/// Phase 9 (mortality commitment), and Phase 10 (metrics aggregation).
+pub fn run_native_soa_day(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+) -> Result<DayOutcome, M0RunError> {
+    let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+    let mut features_scratch = Vec::with_capacity(world.agents.len());
+    let mut choices_scratch = Vec::with_capacity(world.agents.len());
+    let mut intents_scratch = Vec::with_capacity(world.agents.len());
+    run_native_soa_day_with_storage(
+        world,
+        config,
+        context,
+        options,
+        &mut storage,
+        &mut features_scratch,
+        &mut choices_scratch,
+        &mut intents_scratch,
+    )
+}
+
+/// Executes exactly one full deterministic simulation day reusing external `SegmentedAgentStorage`
+/// and scratch buffers across Native Segmented SoA phases.
+#[allow(clippy::too_many_arguments)]
+pub fn run_native_soa_day_with_storage(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    storage: &mut SegmentedAgentStorage,
+    features_scratch: &mut Vec<AgentFeatures>,
+    choices_scratch: &mut Vec<PrimaryActionChoice>,
+    intents_scratch: &mut Vec<Intent>,
+) -> Result<DayOutcome, M0RunError> {
+    // 1. Capture logical day coordinate
+    let executed_day = world.current_day.as_u32();
+    let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
+
+    // 2. Prepare effective config with deterministic context coordinates
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+
+    // 3. Phase 1: Environment Regrowth
+    phase1_resource_regrowth(world, &effective_config);
+
+    // 4. Phase 2: Biological Degradation (Native Segmented SoA)
+    storage.phase2_degradation_with_config(&effective_config);
+    storage.write_back_to_agents(&mut world.agents);
+
+    // 5. Phase 3: Observation & Normalized Feature Extraction (Native Segmented SoA)
+    features_scratch.clear();
+    storage.phase3_features_into(&world.settlements, &effective_config, features_scratch)?;
+
+    // 6. Phase 4: Intent Generation (Primary Action Selection & Intent Formulation)
+    choices_scratch.clear();
+    phase4_primary_action_selection_into(
+        world,
+        &effective_config,
+        features_scratch,
+        choices_scratch,
+    )?;
+    intents_scratch.clear();
+    phase4_generate_intents_into(world, &effective_config, choices_scratch, intents_scratch)?;
+
+    // 7. Phase 5: Locality Partitioning
+    let partitions = phase5_partition_intents(intents_scratch)?;
+
+    // 8. Phase 6A: Work Resolution
+    let work_resolutions = phase6a_work_resolution(world, &partitions)?;
+
+    // 9. Phase 6B: Targeted Interaction Resolution
+    let targeted_resolutions = phase6b_targeted_resolution(world, &effective_config, &partitions)?;
+
+    // 10. Phase 7: Settlement Market Clearance
+    let market_resolutions =
+        phase7_market_clearance_with_config(world, &partitions, &effective_config.economy)?;
+
+    // Synchronize mutated fields (food, wealth) from phases 6A, 6B, 7 into segmented storage
+    storage.sync_from_agents(&world.agents);
+
+    // 11. Phase 8: Institutional Welfare Distribution (Native Segmented SoA)
+    let welfare_resolutions = storage
+        .phase8_welfare_distribution_with_config(&mut world.settlements, &effective_config)?;
+    storage.write_back_to_agents(&mut world.agents);
+
+    // 12. Phase 9: Mortality Status Commitment (Native Segmented SoA)
+    let mortality_resolution = storage.phase9_mortality_commitment()?;
+    storage.write_back_to_agents(&mut world.agents);
+
+    // 13. Staged Event Buffer Assembly
+    let mut event_buffer = if options.events_enabled {
+        let estimated_cap = world.agents.len().saturating_mul(2) + world.settlements.len() + 4;
+        EventBuffer::with_capacity(estimated_cap)
+    } else {
+        EventBuffer::new()
+    };
+    if options.events_enabled {
+        let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+
+        for w in &work_resolutions {
+            let work_events = events_from_work_resolution(executed_day, w);
+            let count = work_events.len() as u64;
+            if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == w.group_id.0)
+            {
+                entry.1 += count;
+            } else {
+                phase6_counts.push((w.group_id.0, count));
+            }
+            event_buffer.push_all(work_events);
+        }
+        for t in &targeted_resolutions {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, t);
+            let offset = if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(gid, _)| *gid == t.group_id.0)
+            {
+                let prev = entry.1;
+                entry.1 += targeted_events.len() as u64;
+                prev
+            } else {
+                phase6_counts.push((t.group_id.0, targeted_events.len() as u64));
+                0
+            };
+            if offset > 0 {
+                for te in &mut targeted_events {
+                    te.key.local_sequence += offset;
+                }
+            }
+            event_buffer.push_all(targeted_events);
+        }
+        for m in &market_resolutions {
+            event_buffer.push_all(events_from_market_resolution(executed_day, m));
+        }
+        for wel in &welfare_resolutions {
+            event_buffer.push_all(events_from_welfare_resolution(executed_day, wel));
+        }
+        event_buffer.push_all(events_from_mortality_resolution(
+            executed_day,
+            &mortality_resolution,
+        ));
+    }
+
+    // 14. Phase 10: Macroscopic Metrics Observation (Native Segmented SoA)
+    let metrics_opt = if options.metrics_enabled {
+        let metrics = storage.phase10_metrics(&world.settlements, executed_day)?;
+        if options.events_enabled {
+            event_buffer.push(event_from_daily_metrics(&metrics));
+        }
+        Some(metrics)
+    } else {
+        None
+    };
+
+    // 15. Phase 11: Canonical Snapshot
+    let snapshot_opt = if options.snapshot_boundary {
+        let snapshot_metadata = SnapshotMetadata::new(
+            next_day,
+            context.master_seed,
+            context.replicate_id,
+            DEFAULT_MODEL_VERSION,
+            DEFAULT_CONFIG_VERSION,
+        );
+        let snapshot = encode_snapshot(world, &snapshot_metadata)?;
+
+        if options.events_enabled {
+            let snapshot_event = EventRecord::new(
+                EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: snapshot_metadata.day,
+                    master_seed: snapshot_metadata.master_seed,
+                    replicate_id: snapshot_metadata.replicate_id,
+                    schema_version: SNAPSHOT_SCHEMA_VERSION,
+                }),
+            );
+            event_buffer.push(snapshot_event);
+        }
+
+        Some(snapshot)
+    } else {
+        None
+    };
+
+    // 16. Phase 11: Canonical Event Flush
+    let flushed_events = if options.events_enabled {
+        phase11_flush_events(&mut event_buffer)?
+    } else {
+        Vec::new()
+    };
+
+    // 17. Day Complete: advance authoritative scheduler day cursor
+    world.current_day = SimulationDay(next_day);
+
+    Ok(DayOutcome {
+        executed_day,
+        metrics: metrics_opt,
+        events: flushed_events,
+        snapshot: snapshot_opt,
+    })
+}
+
+/// Executes multiple consecutive simulation days sequentially using native Segmented SoA kernels.
+pub fn run_native_soa_days(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<DayOutcome>, M0RunError> {
+    let mut outcomes = Vec::with_capacity(days as usize);
+    let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
+    let mut features_scratch = Vec::with_capacity(world.agents.len());
+    let mut choices_scratch = Vec::with_capacity(world.agents.len());
+    let mut intents_scratch = Vec::with_capacity(world.agents.len());
+    for _ in 0..days {
+        let outcome = run_native_soa_day_with_storage(
+            world,
+            config,
+            context,
+            options,
+            &mut storage,
+            &mut features_scratch,
+            &mut choices_scratch,
+            &mut intents_scratch,
         )?;
         outcomes.push(outcome);
     }
