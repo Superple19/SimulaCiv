@@ -1684,6 +1684,20 @@ struct PlannedSettlementMarket {
     seller_updates: Vec<SellerMarketUpdate>,
 }
 
+/// Floors a non-negative monetary value only when the result is representable as `Money`.
+fn phase7_money_from_nonnegative_f64(value: f64) -> Result<Money, Phase7Error> {
+    let floored = value.floor();
+    if !value.is_finite() || value < 0.0 || floored >= Money::MAX as f64 {
+        return Err(Phase7Error::FinancialOverflow);
+    }
+    Ok(floored as Money)
+}
+
+/// Applies the frozen f32-to-f64 buyer-debit conversion without saturating to `i64::MAX`.
+fn phase7_buyer_debit(bought: f32, food_price: Money) -> Result<Money, Phase7Error> {
+    phase7_money_from_nonnegative_f64((bought as f64) * (food_price as f64))
+}
+
 /// Resolves Phase 7 Fixed-Price Pooled Settlement Market Clearance and Tax Settlement.
 ///
 /// Execution order:
@@ -1704,21 +1718,23 @@ struct PlannedSettlementMarket {
 ///      - Else (supply deficit):
 ///        `buyer_share = effective_demand / total_effective_demand`,
 ///        `bought = buyer_share * total_effective_supply`, `sold = effective_supply`.
-///    - Buyer debit: `gross_f64 = bought as f64 * food_price as f64`, `debit = floor(gross_f64) as Money`,
+///    - Buyer debit: widen the already-computed `bought` value and `food_price` to `f64`,
+///      floor through a checked `Money` conversion, and reject any debit above buyer wealth.
 ///      `TotalRevenue = sum(debit)`.
-///    - Tax withholding: `tax_f64 = TotalRevenue as f64 * tax_rate as f64`,
-///      `tax_withheld = floor(tax_f64) as Money`, `net_pool_proceeds = TotalRevenue - tax_withheld`.
+///    - Tax withholding: calculate in `f64`, checked-convert to `Money`, and compute
+///      `net_pool_proceeds = TotalRevenue - tax_withheld` with checked subtraction.
 ///    - Seller base proceeds: for participating sellers (`sold > 0.0`),
 ///      `seller_share_f32 = sold / total_sold`,
 ///      `seller_base_f64 = net_pool_proceeds as f64 * seller_share_f32 as f64`,
-///      `seller_net_base = floor(seller_base_f64) as Money`.
+///      `seller_net_base` uses a checked `Money` conversion.
 ///    - Signed reconciliation:
 ///      `seller_base_total = sum(seller_net_base)`,
 ///      `proceeds_balance = net_pool_proceeds - seller_base_total`.
 ///      - If `proceeds_balance > 0`: cycle through participating sellers in ascending `AgentId` adding `+1`.
 ///      - If `proceeds_balance < 0`: cycle through participating sellers with `seller_net > 0` subtracting `-1`.
 ///    - Verify financial invariants: `sum(seller_net) == net_pool_proceeds` and `TotalRevenue == sum(seller_net) + tax_withheld`.
-/// 4. Atomic execution across all settlements: execute `Command::MarketClearance` only if all partitions pass Stage A.
+/// 4. Atomic execution across all settlements: validate every monetary update in Stage A and execute
+///    `Command::MarketClearance` only after all partitions pass.
 pub fn phase7_market_clearance(
     world: &mut WorldState,
     partitions: &[SettlementIntentPartition],
@@ -1858,7 +1874,7 @@ pub fn phase7_market_clearance(
                             wealth: agent.wealth,
                         });
                     }
-                    raw_sellers.push((*agent_id, *submitted_supply, agent.food));
+                    raw_sellers.push((*agent_id, *submitted_supply, agent.food, agent.wealth));
                 }
                 _ => {}
             }
@@ -1866,7 +1882,7 @@ pub fn phase7_market_clearance(
 
         // Canonical participant ordering: strictly ascending AgentId
         raw_buyers.sort_by_key(|&(agent_id, _, _)| agent_id);
-        raw_sellers.sort_by_key(|&(agent_id, _, _)| agent_id);
+        raw_sellers.sort_by_key(|&(agent_id, _, _, _)| agent_id);
 
         let mut planned_buyers: Vec<BuyerMarketResolution> = Vec::with_capacity(raw_buyers.len());
         let mut total_effective_demand = 0.0f32;
@@ -1888,7 +1904,7 @@ pub fn phase7_market_clearance(
         let mut planned_sellers: Vec<SellerMarketResolution> =
             Vec::with_capacity(raw_sellers.len());
         let mut total_effective_supply = 0.0f32;
-        for &(agent_id, submitted_supply, live_food) in &raw_sellers {
+        for &(agent_id, submitted_supply, live_food, _) in &raw_sellers {
             let effective_supply = submitted_supply.min(live_food);
             total_effective_supply += effective_supply;
             planned_sellers.push(SellerMarketResolution {
@@ -1930,19 +1946,20 @@ pub fn phase7_market_clearance(
 
                 // Buyer debit conversion
                 let mut rev: Money = 0;
-                for b in &mut planned_buyers {
-                    let gross_f64 = (b.bought_units as f64) * (food_price as f64);
-                    if !gross_f64.is_finite() || gross_f64 < 0.0 {
-                        return Err(Phase7Error::InvariantViolation(
-                            "gross debit non-finite or negative".into(),
+                for (b, &(_, _, wealth)) in planned_buyers.iter_mut().zip(&raw_buyers) {
+                    let debit = phase7_buyer_debit(b.bought_units, food_price)?;
+                    if debit > wealth {
+                        return Err(Phase7Error::CommandExecution(
+                            CommandExecutionError::InsufficientBuyerWealth {
+                                agent_id: b.agent_id,
+                                wealth,
+                                debit,
+                            },
                         ));
                     }
-                    let debit = gross_f64.floor() as Money;
-                    if debit < 0 {
-                        return Err(Phase7Error::InvariantViolation(
-                            "negative buyer debit".into(),
-                        ));
-                    }
+                    wealth
+                        .checked_sub(debit)
+                        .ok_or(Phase7Error::FinancialOverflow)?;
                     b.debit = debit;
                     rev = rev
                         .checked_add(debit)
@@ -1951,17 +1968,7 @@ pub fn phase7_market_clearance(
 
                 // Tax withholding
                 let tax_f64 = (rev as f64) * (tax_rate as f64);
-                if !tax_f64.is_finite() || tax_f64 < 0.0 {
-                    return Err(Phase7Error::InvariantViolation(
-                        "tax calculation non-finite or negative".into(),
-                    ));
-                }
-                let tax = tax_f64.floor() as Money;
-                if tax < 0 {
-                    return Err(Phase7Error::InvariantViolation(
-                        "negative tax withheld".into(),
-                    ));
-                }
+                let tax = phase7_money_from_nonnegative_f64(tax_f64)?;
                 let net = rev.checked_sub(tax).ok_or(Phase7Error::FinancialOverflow)?;
 
                 // Seller base proceeds
@@ -1976,12 +1983,7 @@ pub fn phase7_market_clearance(
                     if s.sold_units > 0.0 {
                         let seller_share_f32 = s.sold_units / total_sold;
                         let seller_base_f64 = (net as f64) * (seller_share_f32 as f64);
-                        if !seller_base_f64.is_finite() || seller_base_f64 < 0.0 {
-                            return Err(Phase7Error::InvariantViolation(
-                                "seller base proceeds non-finite or negative".into(),
-                            ));
-                        }
-                        let base = seller_base_f64.floor() as Money;
+                        let base = phase7_money_from_nonnegative_f64(seller_base_f64)?;
                         s.seller_share_f32 = seller_share_f32;
                         s.seller_net_base = base;
                         s.seller_net = base;
@@ -2056,7 +2058,19 @@ pub fn phase7_market_clearance(
 
         // Validate financial conservation invariant
         let mut total_payout: Money = 0;
-        for s in &planned_sellers {
+        for (s, &(_, _, live_food, wealth)) in planned_sellers.iter().zip(&raw_sellers) {
+            if !s.sold_units.is_finite()
+                || s.sold_units < 0.0
+                || s.sold_units > live_food
+                || s.seller_net < 0
+            {
+                return Err(Phase7Error::InvariantViolation(
+                    "invalid planned seller update".into(),
+                ));
+            }
+            wealth
+                .checked_add(s.seller_net)
+                .ok_or(Phase7Error::FinancialOverflow)?;
             total_payout = total_payout
                 .checked_add(s.seller_net)
                 .ok_or(Phase7Error::FinancialOverflow)?;
@@ -2310,7 +2324,7 @@ pub fn phase7_market_clearance_storage(
                             wealth,
                         });
                     }
-                    raw_sellers.push((*agent_id, *submitted_supply, food));
+                    raw_sellers.push((*agent_id, *submitted_supply, food, wealth));
                 }
                 _ => {}
             }
@@ -2318,7 +2332,7 @@ pub fn phase7_market_clearance_storage(
 
         // Canonical participant ordering: strictly ascending AgentId
         raw_buyers.sort_by_key(|&(agent_id, _, _)| agent_id);
-        raw_sellers.sort_by_key(|&(agent_id, _, _)| agent_id);
+        raw_sellers.sort_by_key(|&(agent_id, _, _, _)| agent_id);
 
         let mut planned_buyers: Vec<BuyerMarketResolution> = Vec::with_capacity(raw_buyers.len());
         let mut total_effective_demand = 0.0f32;
@@ -2340,7 +2354,7 @@ pub fn phase7_market_clearance_storage(
         let mut planned_sellers: Vec<SellerMarketResolution> =
             Vec::with_capacity(raw_sellers.len());
         let mut total_effective_supply = 0.0f32;
-        for &(agent_id, submitted_supply, live_food) in &raw_sellers {
+        for &(agent_id, submitted_supply, live_food, _) in &raw_sellers {
             let effective_supply = submitted_supply.min(live_food);
             total_effective_supply += effective_supply;
             planned_sellers.push(SellerMarketResolution {
@@ -2379,9 +2393,20 @@ pub fn phase7_market_clearance_storage(
                 }
 
                 let mut rev: Money = 0;
-                for b in &mut planned_buyers {
-                    let cost_f64 = (b.bought_units as f64) * (food_price as f64);
-                    let debit = cost_f64.floor() as Money;
+                for (b, &(_, _, wealth)) in planned_buyers.iter_mut().zip(&raw_buyers) {
+                    let debit = phase7_buyer_debit(b.bought_units, food_price)?;
+                    if debit > wealth {
+                        return Err(Phase7Error::CommandExecution(
+                            CommandExecutionError::InsufficientBuyerWealth {
+                                agent_id: b.agent_id,
+                                wealth,
+                                debit,
+                            },
+                        ));
+                    }
+                    wealth
+                        .checked_sub(debit)
+                        .ok_or(Phase7Error::FinancialOverflow)?;
                     b.debit = debit;
                     rev = rev
                         .checked_add(debit)
@@ -2389,7 +2414,7 @@ pub fn phase7_market_clearance_storage(
                 }
 
                 let tax_f64 = (rev as f64) * (tax_rate as f64);
-                let tax = tax_f64.floor() as Money;
+                let tax = phase7_money_from_nonnegative_f64(tax_f64)?;
                 let net = rev.checked_sub(tax).ok_or(Phase7Error::FinancialOverflow)?;
 
                 let mut total_sold = 0.0f32;
@@ -2403,7 +2428,7 @@ pub fn phase7_market_clearance_storage(
                     if s.sold_units > 0.0 {
                         let seller_share_f32 = s.sold_units / total_sold;
                         let seller_base_f64 = (net as f64) * (seller_share_f32 as f64);
-                        let base = seller_base_f64.floor() as Money;
+                        let base = phase7_money_from_nonnegative_f64(seller_base_f64)?;
                         s.seller_share_f32 = seller_share_f32;
                         s.seller_net_base = base;
                         s.seller_net = base;
@@ -2476,7 +2501,19 @@ pub fn phase7_market_clearance_storage(
             };
 
         let mut total_payout: Money = 0;
-        for s in &planned_sellers {
+        for (s, &(_, _, live_food, wealth)) in planned_sellers.iter().zip(&raw_sellers) {
+            if !s.sold_units.is_finite()
+                || s.sold_units < 0.0
+                || s.sold_units > live_food
+                || s.seller_net < 0
+            {
+                return Err(Phase7Error::InvariantViolation(
+                    "invalid planned seller update".into(),
+                ));
+            }
+            wealth
+                .checked_add(s.seller_net)
+                .ok_or(Phase7Error::FinancialOverflow)?;
             total_payout = total_payout
                 .checked_add(s.seller_net)
                 .ok_or(Phase7Error::FinancialOverflow)?;
@@ -2552,7 +2589,9 @@ pub fn phase7_market_clearance_storage(
                 .slot_of(b.agent_id)
                 .expect("buyer verified in Stage A");
             storage.economy.food[slot] += b.bought;
-            storage.economy.wealth[slot] -= b.debit;
+            storage.economy.wealth[slot] = storage.economy.wealth[slot]
+                .checked_sub(b.debit)
+                .expect("buyer debit validated in Stage A");
         }
 
         for s in &plan.seller_updates {
@@ -2560,7 +2599,9 @@ pub fn phase7_market_clearance_storage(
                 .slot_of(s.agent_id)
                 .expect("seller verified in Stage A");
             storage.economy.food[slot] -= s.sold;
-            storage.economy.wealth[slot] += s.seller_net;
+            storage.economy.wealth[slot] = storage.economy.wealth[slot]
+                .checked_add(s.seller_net)
+                .expect("seller credit validated in Stage A");
         }
 
         let settlement = settlements
@@ -2568,7 +2609,10 @@ pub fn phase7_market_clearance_storage(
             .find(|s| s.group_id == plan.group_id)
             .expect("settlement verified in Stage A");
 
-        settlement.treasury += plan.tax_withheld;
+        settlement.treasury = settlement
+            .treasury
+            .checked_add(plan.tax_withheld)
+            .expect("treasury credit validated in Stage A");
     }
 
     let resolutions = planned_settlements

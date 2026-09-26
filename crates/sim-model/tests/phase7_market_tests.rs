@@ -1,8 +1,10 @@
 use sim_core::{AgentId, DenseSlot, GroupId, Money, SimulationDay};
 use sim_model::{
-    AgentState, Intent, Phase7Error, SettlementIntentPartition, SettlementState, SimConfig,
-    WorldState, initialize_world, phase5_partition_intents, phase6b_targeted_resolution,
-    phase7_market_clearance, phase7_market_clearance_with_config, phase7_market_resolution,
+    AgentState, CommandExecutionError, Intent, Phase7Error, SegmentedAgentStorage,
+    SettlementIntentPartition, SettlementMarketResolution, SettlementState, SimConfig, WorldState,
+    initialize_world, phase5_partition_intents, phase6b_targeted_resolution,
+    phase7_market_clearance, phase7_market_clearance_storage, phase7_market_clearance_with_config,
+    phase7_market_resolution,
 };
 
 fn make_test_agent(
@@ -51,6 +53,69 @@ fn make_test_world(agents: Vec<AgentState>, settlements: Vec<SettlementState>) -
         settlements,
         initial_money_supply,
     }
+}
+
+fn run_market_paths(
+    world: &WorldState,
+    partitions: &[SettlementIntentPartition],
+    food_price: Money,
+    tax_rate: f32,
+) -> (
+    Vec<SettlementMarketResolution>,
+    Vec<AgentState>,
+    Vec<SettlementState>,
+) {
+    let mut aos_world = world.clone();
+    let mut soa_storage = SegmentedAgentStorage::from_agents(&world.agents);
+    let mut soa_settlements = world.settlements.clone();
+
+    let aos_resolutions =
+        phase7_market_clearance(&mut aos_world, partitions, food_price, tax_rate).unwrap();
+    let soa_resolutions = phase7_market_clearance_storage(
+        &mut soa_storage,
+        &mut soa_settlements,
+        partitions,
+        food_price,
+        tax_rate,
+    )
+    .unwrap();
+
+    assert_eq!(aos_resolutions, soa_resolutions);
+    assert_eq!(aos_world.agents, soa_storage.to_agents());
+    assert_eq!(aos_world.settlements, soa_settlements);
+    (aos_resolutions, aos_world.agents, aos_world.settlements)
+}
+
+fn assert_market_error_is_atomic(
+    world: &WorldState,
+    partitions: &[SettlementIntentPartition],
+    food_price: Money,
+    tax_rate: f32,
+    expected_error: Phase7Error,
+) {
+    let before = world.clone();
+    let mut aos_world = world.clone();
+    assert_eq!(
+        phase7_market_clearance(&mut aos_world, partitions, food_price, tax_rate).unwrap_err(),
+        expected_error
+    );
+    assert_eq!(aos_world, before);
+
+    let mut soa_storage = SegmentedAgentStorage::from_agents(&world.agents);
+    let mut soa_settlements = world.settlements.clone();
+    assert_eq!(
+        phase7_market_clearance_storage(
+            &mut soa_storage,
+            &mut soa_settlements,
+            partitions,
+            food_price,
+            tax_rate,
+        )
+        .unwrap_err(),
+        expected_error
+    );
+    assert_eq!(soa_storage.to_agents(), before.agents);
+    assert_eq!(soa_settlements, before.settlements);
 }
 
 // -----------------------------------------------------------------------------
@@ -1700,4 +1765,254 @@ fn test_36_existing_phases_and_convenience_alias() {
 
     let res = phase7_market_resolution(&mut world, &[partition], 100, 0.1).unwrap();
     assert_eq!(res[0].total_sold, 5.0);
+}
+
+#[test]
+fn test_37_large_money_rounding_cannot_overspend() {
+    let wealth = (1_i64 << 62) - 1;
+    let rounded_affordability = wealth as f32;
+    let world = make_test_world(
+        vec![
+            make_test_agent(0, 0, 0.0, wealth, true, 1.0),
+            make_test_agent(1, 0, f32::MAX, 0, true, 1.0),
+        ],
+        vec![make_test_settlement(0, 0.0, 0)],
+    );
+    let partition = SettlementIntentPartition {
+        group_id: GroupId(0),
+        intents: vec![
+            Intent::BuyFood {
+                agent_id: AgentId(0),
+                group_id: GroupId(0),
+                requested_demand: rounded_affordability,
+            },
+            Intent::SellFood {
+                agent_id: AgentId(1),
+                group_id: GroupId(0),
+                submitted_supply: f32::MAX,
+            },
+        ],
+    };
+
+    assert_market_error_is_atomic(
+        &world,
+        &[partition],
+        1,
+        0.0,
+        Phase7Error::CommandExecution(CommandExecutionError::InsufficientBuyerWealth {
+            agent_id: AgentId(0),
+            wealth,
+            debit: 1_i64 << 62,
+        }),
+    );
+}
+
+#[test]
+fn test_38_exact_affordability_spends_to_zero() {
+    let world = make_test_world(
+        vec![
+            make_test_agent(0, 0, 0.0, 500, true, 1.0),
+            make_test_agent(1, 0, 10.0, 0, true, 1.0),
+        ],
+        vec![make_test_settlement(0, 0.0, 0)],
+    );
+    let partition = SettlementIntentPartition {
+        group_id: GroupId(0),
+        intents: vec![
+            Intent::BuyFood {
+                agent_id: AgentId(0),
+                group_id: GroupId(0),
+                requested_demand: 5.0,
+            },
+            Intent::SellFood {
+                agent_id: AgentId(1),
+                group_id: GroupId(0),
+                submitted_supply: 10.0,
+            },
+        ],
+    };
+
+    let (resolutions, agents, _) = run_market_paths(&world, &[partition], 100, 0.0);
+
+    assert_eq!(resolutions[0].buyers[0].bought_units, 5.0);
+    assert_eq!(resolutions[0].buyers[0].debit, 500);
+    assert_eq!(agents[0].wealth, 0);
+}
+
+#[test]
+fn test_39_one_subunit_short_never_overspends() {
+    let world = make_test_world(
+        vec![
+            make_test_agent(0, 0, 0.0, 499, true, 1.0),
+            make_test_agent(1, 0, 10.0, 0, true, 1.0),
+        ],
+        vec![make_test_settlement(0, 0.0, 0)],
+    );
+    let partition = SettlementIntentPartition {
+        group_id: GroupId(0),
+        intents: vec![
+            Intent::BuyFood {
+                agent_id: AgentId(0),
+                group_id: GroupId(0),
+                requested_demand: 5.0,
+            },
+            Intent::SellFood {
+                agent_id: AgentId(1),
+                group_id: GroupId(0),
+                submitted_supply: 10.0,
+            },
+        ],
+    };
+
+    let (resolutions, agents, _) = run_market_paths(&world, &[partition], 100, 0.0);
+
+    assert_eq!(resolutions[0].buyers[0].bought_units, 4.0);
+    assert_eq!(resolutions[0].buyers[0].debit, 400);
+    assert_eq!(agents[0].wealth, 99);
+    assert!(agents[0].wealth >= 0);
+}
+
+#[test]
+fn test_40_maximum_money_conversion_stays_in_range() {
+    let world = make_test_world(
+        vec![
+            make_test_agent(0, 0, 0.0, Money::MAX, true, 1.0),
+            make_test_agent(1, 0, f32::MAX, 0, true, 1.0),
+        ],
+        vec![make_test_settlement(0, 0.0, 0)],
+    );
+    let partition = SettlementIntentPartition {
+        group_id: GroupId(0),
+        intents: vec![
+            Intent::BuyFood {
+                agent_id: AgentId(0),
+                group_id: GroupId(0),
+                requested_demand: f32::MAX,
+            },
+            Intent::SellFood {
+                agent_id: AgentId(1),
+                group_id: GroupId(0),
+                submitted_supply: f32::MAX,
+            },
+        ],
+    };
+
+    assert_market_error_is_atomic(&world, &[partition], 1, 0.0, Phase7Error::FinancialOverflow);
+}
+
+#[test]
+fn test_41_phase7_failure_in_later_settlement_is_atomic() {
+    let later_buyer_wealth = (1_i64 << 62) - 2;
+    let world = make_test_world(
+        vec![
+            make_test_agent(0, 0, 0.0, 1, true, 1.0),
+            make_test_agent(1, 0, 10.0, 0, true, 1.0),
+            make_test_agent(2, 1, 0.0, later_buyer_wealth, true, 1.0),
+            make_test_agent(3, 1, f32::MAX, 0, true, 1.0),
+        ],
+        vec![
+            make_test_settlement(0, 0.0, 0),
+            make_test_settlement(1, 0.0, 0),
+        ],
+    );
+    let before = world.clone();
+    let partitions = vec![
+        SettlementIntentPartition {
+            group_id: GroupId(0),
+            intents: vec![
+                Intent::BuyFood {
+                    agent_id: AgentId(0),
+                    group_id: GroupId(0),
+                    requested_demand: 1.0,
+                },
+                Intent::SellFood {
+                    agent_id: AgentId(1),
+                    group_id: GroupId(0),
+                    submitted_supply: 1.0,
+                },
+            ],
+        },
+        SettlementIntentPartition {
+            group_id: GroupId(1),
+            intents: vec![
+                Intent::BuyFood {
+                    agent_id: AgentId(2),
+                    group_id: GroupId(1),
+                    requested_demand: later_buyer_wealth as f32,
+                },
+                Intent::SellFood {
+                    agent_id: AgentId(3),
+                    group_id: GroupId(1),
+                    submitted_supply: f32::MAX,
+                },
+            ],
+        },
+    ];
+
+    let mut aos_world = world.clone();
+    assert!(matches!(
+        phase7_market_clearance(&mut aos_world, &partitions, 1, 0.0),
+        Err(Phase7Error::CommandExecution(
+            CommandExecutionError::InsufficientBuyerWealth {
+                agent_id: AgentId(2),
+                wealth,
+                debit,
+            }
+        )) if wealth == later_buyer_wealth && debit == (1_i64 << 62)
+    ));
+    assert_eq!(aos_world, before);
+
+    let mut soa_storage = SegmentedAgentStorage::from_agents(&world.agents);
+    let mut soa_settlements = world.settlements.clone();
+    assert!(matches!(
+        phase7_market_clearance_storage(
+            &mut soa_storage,
+            &mut soa_settlements,
+            &partitions,
+            1,
+            0.0,
+        ),
+        Err(Phase7Error::CommandExecution(
+            CommandExecutionError::InsufficientBuyerWealth {
+                agent_id: AgentId(2),
+                wealth,
+                debit,
+            }
+        )) if wealth == later_buyer_wealth && debit == (1_i64 << 62)
+    ));
+    assert_eq!(soa_storage.to_agents(), before.agents);
+    assert_eq!(soa_settlements, before.settlements);
+}
+
+#[test]
+fn test_42_seller_credit_can_reach_money_maximum() {
+    let world = make_test_world(
+        vec![
+            make_test_agent(0, 0, 0.0, 100, true, 1.0),
+            make_test_agent(1, 0, 10.0, Money::MAX - 100, true, 1.0),
+        ],
+        vec![make_test_settlement(0, 0.0, 0)],
+    );
+    let partition = SettlementIntentPartition {
+        group_id: GroupId(0),
+        intents: vec![
+            Intent::BuyFood {
+                agent_id: AgentId(0),
+                group_id: GroupId(0),
+                requested_demand: 1.0,
+            },
+            Intent::SellFood {
+                agent_id: AgentId(1),
+                group_id: GroupId(0),
+                submitted_supply: 1.0,
+            },
+        ],
+    };
+
+    let (resolutions, agents, _) = run_market_paths(&world, &[partition], 100, 0.0);
+
+    assert_eq!(resolutions[0].buyers[0].debit, 100);
+    assert_eq!(agents[0].wealth, 0);
+    assert_eq!(resolutions[0].sellers[0].seller_net, 100);
+    assert_eq!(agents[1].wealth, Money::MAX);
 }
