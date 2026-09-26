@@ -934,6 +934,7 @@ pub fn generate_intents_storage_with_scratch(
     out: &mut Vec<Intent>,
 ) -> Result<(), IntentError> {
     out.clear();
+    candidate_scratch.clear();
     let n = choices.len();
     if out.capacity() < n {
         out.reserve(n - out.capacity());

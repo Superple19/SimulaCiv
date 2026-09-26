@@ -27,7 +27,7 @@ use crate::events::{
 };
 use crate::features::{AgentFeatures, Phase3Error, phase3_observation_and_features_into};
 use crate::intents::{
-    Intent, IntentError, phase4_generate_intents_into, phase4_generate_intents_storage_into,
+    Intent, IntentError, generate_intents_storage_with_scratch, phase4_generate_intents_into,
 };
 use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe_with_scratch};
 use crate::partitioning::{Phase5Error, phase5_partition_intents};
@@ -47,7 +47,7 @@ use crate::snapshot::{
 use crate::state::{AgentDynamicSoAScratch, HybridWorldState, WorldState};
 use crate::storage::SegmentedAgentStorage;
 use serde::{Deserialize, Serialize};
-use sim_core::SimulationDay;
+use sim_core::{AgentId, SimulationDay};
 
 /// Default model version string used for canonical snapshot metadata.
 pub const DEFAULT_MODEL_VERSION: &str = "0.1.0";
@@ -732,6 +732,37 @@ pub fn run_hybrid_authority_day(
     )
 }
 
+/// Executes one Hybrid Authority day while reusing caller-owned Phase 4 candidate storage.
+///
+/// In Hybrid mode, Phase 4 clears the candidate buffer before use and retains its capacity.
+pub fn run_hybrid_authority_day_with_candidate_scratch(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    candidate_scratch: &mut Vec<AgentId>,
+) -> Result<DayOutcome, M0RunError> {
+    let agent_count = match &hybrid_world.segmented_storage {
+        Some(s) => s.len(),
+        None => hybrid_world.world.agents.len(),
+    };
+    let mut features_scratch = Vec::with_capacity(agent_count);
+    let mut choices_scratch = Vec::with_capacity(agent_count);
+    let mut intents_scratch = Vec::with_capacity(agent_count);
+    let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    run_hybrid_authority_day_with_all_scratch(
+        hybrid_world,
+        config,
+        context,
+        options,
+        &mut features_scratch,
+        &mut choices_scratch,
+        &mut intents_scratch,
+        &mut metrics_scratch,
+        candidate_scratch,
+    )
+}
+
 /// Executes exactly one full deterministic simulation day under Hybrid Storage Authority
 /// reusing caller-provided scratch buffers.
 #[allow(clippy::too_many_arguments)]
@@ -744,6 +775,48 @@ pub fn run_hybrid_authority_day_with_scratch(
     choices_scratch: &mut Vec<PrimaryActionChoice>,
     intents_scratch: &mut Vec<Intent>,
     metrics_scratch: &mut AgentDynamicSoAScratch,
+) -> Result<DayOutcome, M0RunError> {
+    if !hybrid_world.is_hybrid() {
+        return run_m0_day_with_scratch(
+            &mut hybrid_world.world,
+            config,
+            context,
+            options,
+            features_scratch,
+            choices_scratch,
+            intents_scratch,
+            metrics_scratch,
+        );
+    }
+    let agent_count = match &hybrid_world.segmented_storage {
+        Some(s) => s.len(),
+        None => hybrid_world.world.agents.len(),
+    };
+    let mut candidate_scratch = Vec::with_capacity(agent_count);
+    run_hybrid_authority_day_with_all_scratch(
+        hybrid_world,
+        config,
+        context,
+        options,
+        features_scratch,
+        choices_scratch,
+        intents_scratch,
+        metrics_scratch,
+        &mut candidate_scratch,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_hybrid_authority_day_with_all_scratch(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    features_scratch: &mut Vec<AgentFeatures>,
+    choices_scratch: &mut Vec<PrimaryActionChoice>,
+    intents_scratch: &mut Vec<Intent>,
+    metrics_scratch: &mut AgentDynamicSoAScratch,
+    candidate_scratch: &mut Vec<AgentId>,
 ) -> Result<DayOutcome, M0RunError> {
     if !hybrid_world.is_hybrid() {
         return run_m0_day_with_scratch(
@@ -798,11 +871,12 @@ pub fn run_hybrid_authority_day_with_scratch(
     )?;
 
     intents_scratch.clear();
-    phase4_generate_intents_storage_into(
+    generate_intents_storage_with_scratch(
         storage,
         world.current_day,
         &effective_config,
         choices_scratch,
+        candidate_scratch,
         intents_scratch,
     )?;
 
@@ -976,9 +1050,14 @@ pub fn run_hybrid_authority_days(
     let mut choices_scratch = Vec::with_capacity(agent_count);
     let mut intents_scratch = Vec::with_capacity(agent_count);
     let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(agent_count);
+    let mut candidate_scratch = if hybrid_world.is_hybrid() {
+        Vec::with_capacity(agent_count)
+    } else {
+        Vec::new()
+    };
 
     for _ in 0..days {
-        let outcome = run_hybrid_authority_day_with_scratch(
+        let outcome = run_hybrid_authority_day_with_all_scratch(
             hybrid_world,
             config,
             context,
@@ -987,6 +1066,7 @@ pub fn run_hybrid_authority_days(
             &mut choices_scratch,
             &mut intents_scratch,
             &mut metrics_scratch,
+            &mut candidate_scratch,
         )?;
         outcomes.push(outcome);
     }

@@ -53,8 +53,10 @@ use sim_model::resolution::{
 };
 use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext,
-    run_hybrid_authority_days, run_hybrid_scope_isolated_days, run_m0_day, run_m0_days,
-    run_native_soa_day, run_native_soa_days,
+    run_hybrid_authority_day, run_hybrid_authority_day_with_candidate_scratch,
+    run_hybrid_authority_day_with_scratch, run_hybrid_authority_days,
+    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
+    run_native_soa_days,
 };
 use sim_model::snapshot::{
     SNAPSHOT_SCHEMA_VERSION, SnapshotMetadata, encode_snapshot, restore_snapshot,
@@ -5739,6 +5741,621 @@ fn measure_m2_29_post_soa_profiling(base_config: &SimConfig, context: &M0RunCont
     );
 }
 
+#[derive(Clone, Copy)]
+struct M2292Median {
+    median_us: f64,
+    mad_us: f64,
+}
+
+#[derive(Clone, Copy)]
+struct M2292ScratchRow {
+    family: &'static str,
+    population: u64,
+    selection: M2292Median,
+    intent_ephemeral: M2292Median,
+    intent_persistent: M2292Median,
+    candidate_scan: M2292Median,
+    full_tick: [M2292Median; 3],
+}
+
+fn m2_29_2_median_us(mut samples: Vec<f64>) -> f64 {
+    samples.sort_by(|a, b| a.total_cmp(b));
+    samples[samples.len() / 2]
+}
+
+fn m2_29_2_summary(samples: Vec<f64>) -> M2292Median {
+    let median_us = m2_29_2_median_us(samples.clone());
+    let mad_us = m2_29_2_median_us(
+        samples
+            .into_iter()
+            .map(|sample| (sample - median_us).abs())
+            .collect(),
+    );
+    M2292Median { median_us, mad_us }
+}
+
+fn m2_29_2_candidate_scan(
+    storage: &SegmentedAgentStorage,
+    choices: &[PrimaryActionChoice],
+    choice_groups: &[GroupId],
+    config: &SimConfig,
+    candidate_scratch: &mut Vec<AgentId>,
+) -> usize {
+    let alives = storage.alive();
+    let healths = storage.health();
+    let foods = storage.food();
+    let group_ids = storage.group_ids();
+    let agent_ids = storage.agent_ids();
+    let storage_is_sorted = agent_ids.windows(2).all(|w| w[0] <= w[1]);
+    let mut total_candidates = 0usize;
+
+    for (choice, &group_id) in choices.iter().zip(choice_groups) {
+        match choice.action {
+            Action::GiveFood => {
+                candidate_scratch.clear();
+                for slot in 0..storage.len() {
+                    if group_ids[slot] == group_id
+                        && alives[slot]
+                        && healths[slot] > 0.0
+                        && agent_ids[slot] != choice.agent_id
+                        && foods[slot] < config.interaction.starvation_threshold
+                    {
+                        candidate_scratch.push(agent_ids[slot]);
+                    }
+                }
+            }
+            Action::StealFood => {
+                candidate_scratch.clear();
+                for slot in 0..storage.len() {
+                    if group_ids[slot] == group_id
+                        && alives[slot]
+                        && healths[slot] > 0.0
+                        && agent_ids[slot] != choice.agent_id
+                        && foods[slot] > 0.0
+                    {
+                        candidate_scratch.push(agent_ids[slot]);
+                    }
+                }
+            }
+            _ => continue,
+        }
+        if !storage_is_sorted {
+            candidate_scratch.sort_unstable();
+        }
+        total_candidates += candidate_scratch.len();
+    }
+
+    std::hint::black_box(candidate_scratch.as_slice());
+    total_candidates
+}
+
+fn m2_29_2_measure_phase4(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+) -> (
+    M2292Median,
+    M2292Median,
+    M2292Median,
+    M2292Median,
+    usize,
+    u64,
+) {
+    const SAMPLES: usize = 7;
+    const REPEATS: usize = 3;
+
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.master_seed;
+    effective_config.world.replicate_id = context.replicate_id;
+
+    let mut phase2_world = base_world.clone();
+    phase1_resource_regrowth(&mut phase2_world, &effective_config);
+    let mut storage = SegmentedAgentStorage::from_agents(&phase2_world.agents);
+    storage.phase2_degradation_with_config(&effective_config);
+
+    let mut features = Vec::with_capacity(storage.len());
+    storage
+        .phase3_features_into(&phase2_world.settlements, &effective_config, &mut features)
+        .unwrap();
+    let mut choices = Vec::with_capacity(storage.len());
+    phase4_primary_action_selection_storage_into(
+        &storage,
+        phase2_world.current_day,
+        &effective_config,
+        &features,
+        &mut choices,
+    )
+    .unwrap();
+
+    let targeted_initiators = choices
+        .iter()
+        .filter(|choice| matches!(choice.action, Action::GiveFood | Action::StealFood))
+        .count();
+    let scanned_slots = targeted_initiators as u64 * storage.len() as u64;
+    let choice_groups: Vec<GroupId> = choices
+        .iter()
+        .map(|choice| {
+            let slot = storage.slot_of(choice.agent_id).unwrap();
+            storage.group_ids()[slot]
+        })
+        .collect();
+
+    let mut selected = Vec::with_capacity(storage.len());
+    for _ in 0..2 {
+        phase4_primary_action_selection_storage_into(
+            &storage,
+            phase2_world.current_day,
+            &effective_config,
+            &features,
+            &mut selected,
+        )
+        .unwrap();
+    }
+    assert_eq!(selected, choices);
+    let mut selection_samples = Vec::with_capacity(SAMPLES);
+    for _ in 0..SAMPLES {
+        let started = Instant::now();
+        for _ in 0..REPEATS {
+            phase4_primary_action_selection_storage_into(
+                &storage,
+                phase2_world.current_day,
+                &effective_config,
+                &features,
+                &mut selected,
+            )
+            .unwrap();
+        }
+        selection_samples.push(started.elapsed().as_nanos() as f64 / REPEATS as f64 / 1000.0);
+    }
+    assert_eq!(selected, choices);
+
+    let mut ephemeral_intents = Vec::with_capacity(storage.len());
+    phase4_generate_intents_storage_into(
+        &storage,
+        phase2_world.current_day,
+        &effective_config,
+        &choices,
+        &mut ephemeral_intents,
+    )
+    .unwrap();
+    let mut persistent_candidates = Vec::with_capacity(storage.len());
+    let mut persistent_intents = Vec::with_capacity(storage.len());
+    generate_intents_storage_with_scratch(
+        &storage,
+        phase2_world.current_day,
+        &effective_config,
+        &choices,
+        &mut persistent_candidates,
+        &mut persistent_intents,
+    )
+    .unwrap();
+    assert_eq!(ephemeral_intents, persistent_intents);
+    for _ in 0..2 {
+        generate_intents_storage_with_scratch(
+            &storage,
+            phase2_world.current_day,
+            &effective_config,
+            &choices,
+            &mut persistent_candidates,
+            &mut persistent_intents,
+        )
+        .unwrap();
+        assert_eq!(ephemeral_intents, persistent_intents);
+    }
+
+    let mut intent_buffer = Vec::with_capacity(storage.len());
+    let mut ephemeral_samples = Vec::with_capacity(SAMPLES);
+    let mut persistent_samples = Vec::with_capacity(SAMPLES);
+    for sample in 0..SAMPLES {
+        for path in 0..2 {
+            let persistent_first = sample % 2 == 1;
+            let use_persistent = (path == 0) == persistent_first;
+            let started = Instant::now();
+            for _ in 0..REPEATS {
+                if use_persistent {
+                    generate_intents_storage_with_scratch(
+                        &storage,
+                        phase2_world.current_day,
+                        &effective_config,
+                        &choices,
+                        &mut persistent_candidates,
+                        &mut intent_buffer,
+                    )
+                    .unwrap();
+                } else {
+                    phase4_generate_intents_storage_into(
+                        &storage,
+                        phase2_world.current_day,
+                        &effective_config,
+                        &choices,
+                        &mut intent_buffer,
+                    )
+                    .unwrap();
+                }
+                std::hint::black_box(intent_buffer.as_slice());
+            }
+            let time_us = started.elapsed().as_nanos() as f64 / REPEATS as f64 / 1000.0;
+            if use_persistent {
+                persistent_samples.push(time_us);
+            } else {
+                ephemeral_samples.push(time_us);
+            }
+        }
+    }
+
+    let mut scan_candidates = Vec::with_capacity(storage.len());
+    let _ = m2_29_2_candidate_scan(
+        &storage,
+        &choices,
+        &choice_groups,
+        &effective_config,
+        &mut scan_candidates,
+    );
+    let mut candidate_samples = Vec::with_capacity(SAMPLES);
+    for _ in 0..SAMPLES {
+        let started = Instant::now();
+        let candidates = m2_29_2_candidate_scan(
+            &storage,
+            &choices,
+            &choice_groups,
+            &effective_config,
+            &mut scan_candidates,
+        );
+        std::hint::black_box(candidates);
+        candidate_samples.push(started.elapsed().as_nanos() as f64 / 1000.0);
+    }
+
+    (
+        m2_29_2_summary(selection_samples),
+        m2_29_2_summary(ephemeral_samples),
+        m2_29_2_summary(persistent_samples),
+        m2_29_2_summary(candidate_samples),
+        targeted_initiators,
+        scanned_slots,
+    )
+}
+
+fn m2_29_2_assert_path_parity(base_world: &WorldState, config: &SimConfig, context: &M0RunContext) {
+    let mut production = HybridWorldState::hybrid(base_world.clone());
+    let mut benchmark = HybridWorldState::hybrid(base_world.clone());
+    let mut persistent = HybridWorldState::hybrid(base_world.clone());
+    let count = base_world.agents.len();
+    let mut features = Vec::with_capacity(count);
+    let mut choices = Vec::with_capacity(count);
+    let mut intents = Vec::with_capacity(count);
+    let mut metrics = AgentDynamicSoAScratch::with_capacity(count);
+    let mut candidates = Vec::with_capacity(count);
+    let mut outcomes_production = Vec::new();
+    let mut outcomes_benchmark = Vec::new();
+    let mut outcomes_persistent = Vec::new();
+
+    for day in 0..3 {
+        let options = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: day == 1,
+        };
+        outcomes_production
+            .push(run_hybrid_authority_day(&mut production, config, context, &options).unwrap());
+        outcomes_benchmark.push(
+            run_hybrid_authority_day_with_scratch(
+                &mut benchmark,
+                config,
+                context,
+                &options,
+                &mut features,
+                &mut choices,
+                &mut intents,
+                &mut metrics,
+            )
+            .unwrap(),
+        );
+        outcomes_persistent.push(
+            run_hybrid_authority_day_with_candidate_scratch(
+                &mut persistent,
+                config,
+                context,
+                &options,
+                &mut candidates,
+            )
+            .unwrap(),
+        );
+    }
+
+    assert_eq!(outcomes_production, outcomes_benchmark);
+    assert_eq!(outcomes_production, outcomes_persistent);
+    let expected_hash = production.canonical_state_hash().unwrap();
+    assert_eq!(expected_hash, benchmark.canonical_state_hash().unwrap());
+    assert_eq!(expected_hash, persistent.canonical_state_hash().unwrap());
+}
+
+fn m2_29_2_time_production_ticks(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    ticks: usize,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(base_world.clone());
+    let started = Instant::now();
+    for _ in 0..ticks {
+        std::hint::black_box(
+            run_hybrid_authority_day(&mut world, config, context, options).unwrap(),
+        );
+    }
+    started.elapsed().as_nanos() as f64 / ticks as f64 / 1000.0
+}
+
+fn m2_29_2_time_benchmark_ticks(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    ticks: usize,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(base_world.clone());
+    let count = base_world.agents.len();
+    let started = Instant::now();
+    for _ in 0..ticks {
+        let mut features = Vec::with_capacity(count);
+        let mut choices = Vec::with_capacity(count);
+        let mut intents = Vec::with_capacity(count);
+        let mut metrics = AgentDynamicSoAScratch::with_capacity(count);
+        std::hint::black_box(
+            run_hybrid_authority_day_with_scratch(
+                &mut world,
+                config,
+                context,
+                options,
+                &mut features,
+                &mut choices,
+                &mut intents,
+                &mut metrics,
+            )
+            .unwrap(),
+        );
+    }
+    started.elapsed().as_nanos() as f64 / ticks as f64 / 1000.0
+}
+
+fn m2_29_2_time_persistent_ticks(
+    base_world: &WorldState,
+    config: &SimConfig,
+    context: &M0RunContext,
+    options: &DayExecutionOptions,
+    ticks: usize,
+) -> f64 {
+    let mut world = HybridWorldState::hybrid(base_world.clone());
+    let mut candidates = Vec::with_capacity(base_world.agents.len());
+    let started = Instant::now();
+    for _ in 0..ticks {
+        std::hint::black_box(
+            run_hybrid_authority_day_with_candidate_scratch(
+                &mut world,
+                config,
+                context,
+                options,
+                &mut candidates,
+            )
+            .unwrap(),
+        );
+    }
+    started.elapsed().as_nanos() as f64 / ticks as f64 / 1000.0
+}
+
+fn measure_m2_29_2_scratch_fidelity(base_config: &SimConfig, context: &M0RunContext) {
+    const POPULATIONS: [u64; 7] = [100, 250, 500, 1000, 2500, 5000, 10000];
+    const SAMPLES: usize = 7;
+    const TICKS_PER_SAMPLE: usize = 3;
+    const WARMUP_TICKS: usize = 2;
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+    let workload_families = ["Fixed settlements (2)", "Fixed group size (~200)"];
+    let mut rows = Vec::with_capacity(POPULATIONS.len() * workload_families.len());
+
+    println!("\n=================================================================");
+    println!("M2-29.2 Phase4 Scratch Lifetime Fidelity & Scaling");
+    println!(
+        "Method: 7 median samples; each full-tick sample averages 3 ticks after 2 warm-up ticks."
+    );
+    println!("Each A/B/C path starts from the same deterministic initialized world/config/seed.");
+    println!("=================================================================");
+
+    for (family_index, family) in workload_families.iter().enumerate() {
+        for &population in &POPULATIONS {
+            let mut config = base_config.clone();
+            config.world.initial_population = population;
+            config.world.settlement_count = if family_index == 0 {
+                2
+            } else {
+                population.div_ceil(200) as u32
+            };
+            config.environment.carrying_capacity = 1000.0 * population as f32;
+            config.world.initial_settlement_resource = 200.0 * population as f32;
+            let base_world = initialize_world(&config).unwrap();
+            let settlement_count = config.world.settlement_count;
+
+            m2_29_2_assert_path_parity(&base_world, &config, context);
+            for _ in 0..WARMUP_TICKS {
+                let _ = m2_29_2_time_production_ticks(&base_world, &config, context, &options, 1);
+                let _ = m2_29_2_time_benchmark_ticks(&base_world, &config, context, &options, 1);
+                let _ = m2_29_2_time_persistent_ticks(&base_world, &config, context, &options, 1);
+            }
+
+            let (
+                selection_us,
+                intent_ephemeral_us,
+                intent_persistent_us,
+                candidate_scan_us,
+                targeted_initiators,
+                scanned_slots,
+            ) = m2_29_2_measure_phase4(&base_world, &config, context);
+
+            let mut full_samples: [Vec<f64>; 3] =
+                std::array::from_fn(|_| Vec::with_capacity(SAMPLES));
+            for sample in 0..SAMPLES {
+                for offset in 0..3 {
+                    let path = (sample + offset) % 3;
+                    let time_us = match path {
+                        0 => m2_29_2_time_production_ticks(
+                            &base_world,
+                            &config,
+                            context,
+                            &options,
+                            TICKS_PER_SAMPLE,
+                        ),
+                        1 => m2_29_2_time_benchmark_ticks(
+                            &base_world,
+                            &config,
+                            context,
+                            &options,
+                            TICKS_PER_SAMPLE,
+                        ),
+                        _ => m2_29_2_time_persistent_ticks(
+                            &base_world,
+                            &config,
+                            context,
+                            &options,
+                            TICKS_PER_SAMPLE,
+                        ),
+                    };
+                    full_samples[path].push(time_us);
+                }
+            }
+
+            let row = M2292ScratchRow {
+                family,
+                population,
+                selection: selection_us,
+                intent_ephemeral: intent_ephemeral_us,
+                intent_persistent: intent_persistent_us,
+                candidate_scan: candidate_scan_us,
+                full_tick: [
+                    m2_29_2_summary(full_samples[0].clone()),
+                    m2_29_2_summary(full_samples[1].clone()),
+                    m2_29_2_summary(full_samples[2].clone()),
+                ],
+            };
+            rows.push(row);
+
+            println!(
+                "{:<26} N={:<5} groups={:<3} avg/group={:>6.1} targeted={:<5} scans={:<12} P4-select={:>8.2}±{:>5.2}us P4-intent(ephemeral/reuse)={:>8.2}±{:>5.2}/{:>8.2}±{:>5.2}us candidate-scan={:>8.2}±{:>5.2}us full(A/B/C)={:>8.2}±{:>5.2}/{:>8.2}±{:>5.2}/{:>8.2}±{:>5.2}us",
+                family,
+                population,
+                settlement_count,
+                population as f64 / settlement_count as f64,
+                targeted_initiators,
+                scanned_slots,
+                selection_us.median_us,
+                selection_us.mad_us,
+                intent_ephemeral_us.median_us,
+                intent_ephemeral_us.mad_us,
+                intent_persistent_us.median_us,
+                intent_persistent_us.mad_us,
+                candidate_scan_us.median_us,
+                candidate_scan_us.mad_us,
+                row.full_tick[0].median_us,
+                row.full_tick[0].mad_us,
+                row.full_tick[1].median_us,
+                row.full_tick[1].mad_us,
+                row.full_tick[2].median_us,
+                row.full_tick[2].mad_us,
+            );
+        }
+    }
+
+    println!(
+        "\nCandidate allocation attribution (AgentId size={} bytes):",
+        std::mem::size_of::<AgentId>()
+    );
+    println!(
+        "A Production Current: capacity=active population; one Vec allocation/request per tick, no reallocation within tick, dropped at return; request bytes ~= active population * AgentId size."
+    );
+    println!(
+        "B Production-equivalent benchmark: feature/choice/intent/metrics/candidate scratch are all created per tick and dropped on return, matching the one-day production runner."
+    );
+    println!(
+        "C Persistent candidate scratch: one capacity-N allocation per runner/caller scratch, clear at Phase4 entry and before each target scan, no per-tick allocation/reallocation while population <= initial N."
+    );
+    println!(
+        "No global allocator instrumentation was added; counts/bytes come from Vec::with_capacity and the max candidate bound <= storage.len()."
+    );
+    for population in POPULATIONS {
+        let request_bytes = population as usize * std::mem::size_of::<AgentId>();
+        println!(
+            "N={population:<5} capacity={population:<5} AgentIds; A/B=1 allocation, 0 reallocations, {request_bytes} requested bytes/tick; C=1 setup allocation of {request_bytes} bytes, then 0/tick."
+        );
+    }
+
+    println!(
+        "\nScaling from N=1000 to N=10000 (ratio and alpha=ln(ratio)/ln(10)); candidate scan loops inspect every storage slot per GiveFood/StealFood initiator:"
+    );
+    for family in workload_families {
+        let at_1k = rows
+            .iter()
+            .find(|row| row.family == family && row.population == 1000)
+            .unwrap();
+        let at_10k = rows
+            .iter()
+            .find(|row| row.family == family && row.population == 10000)
+            .unwrap();
+        let metrics = [
+            (
+                "Phase4 Selection",
+                at_1k.selection.median_us,
+                at_10k.selection.median_us,
+            ),
+            (
+                "Phase4 Intent ephemeral",
+                at_1k.intent_ephemeral.median_us,
+                at_10k.intent_ephemeral.median_us,
+            ),
+            (
+                "Phase4 Intent persistent",
+                at_1k.intent_persistent.median_us,
+                at_10k.intent_persistent.median_us,
+            ),
+            (
+                "Candidate discovery",
+                at_1k.candidate_scan.median_us,
+                at_10k.candidate_scan.median_us,
+            ),
+            (
+                "Full tick A",
+                at_1k.full_tick[0].median_us,
+                at_10k.full_tick[0].median_us,
+            ),
+            (
+                "Full tick B",
+                at_1k.full_tick[1].median_us,
+                at_10k.full_tick[1].median_us,
+            ),
+            (
+                "Full tick C",
+                at_1k.full_tick[2].median_us,
+                at_10k.full_tick[2].median_us,
+            ),
+        ];
+        for (metric, t_1k, t_10k) in metrics {
+            let ratio = t_10k / t_1k.max(0.001);
+            let alpha = ratio.ln() / 10.0f64.ln();
+            println!(
+                "{:<26} {:<26} T1k={:>9.2}us T10k={:>9.2}us ratio={:>7.2}x alpha={:>5.3}",
+                family, metric, t_1k, t_10k, ratio, alpha
+            );
+        }
+        println!(
+            "{:<26} Phase4 Intent / Full tick A share: N=1000 {:>5.1}%, N=10000 {:>5.1}%",
+            family,
+            at_1k.intent_ephemeral.median_us / at_1k.full_tick[0].median_us * 100.0,
+            at_10k.intent_ephemeral.median_us / at_10k.full_tick[0].median_us * 100.0,
+        );
+    }
+}
+
 fn main() {
     println!("=================================================================");
     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
@@ -5903,6 +6520,9 @@ fn main() {
 
     // 20. M2-29 Post-SoA Hot-Path Profiling & SIMD Target Selection Benchmark
     measure_m2_29_post_soa_profiling(&config, &context);
+
+    // 21. M2-29.2 Scratch Lifetime Fidelity & Workload Scaling Benchmark
+    measure_m2_29_2_scratch_fidelity(&config, &context);
 
     println!("\n=================================================================");
     println!("Benchmark Completed Successfully.");

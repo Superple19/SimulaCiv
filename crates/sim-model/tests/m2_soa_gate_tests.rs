@@ -9,7 +9,8 @@
 
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash, canonical_state_hash};
 use sim_model::runner::{
-    DayExecutionOptions, M0RunContext, run_hybrid_authority_day, run_hybrid_authority_days,
+    DayExecutionOptions, M0RunContext, run_hybrid_authority_day,
+    run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_days,
     run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_days, run_m0_day, run_m0_days,
     run_native_soa_day, run_native_soa_days,
 };
@@ -832,5 +833,51 @@ trait_weight_risk_tolerance = 1.0
         assert_eq!(intents_a, intents_c, "Pop {}: Intents A != C", pop);
         assert_eq!(intents_a, intents_d, "Pop {}: Intents A != D", pop);
         assert_eq!(intents_a, intents_e, "Pop {}: Intents A != E", pop);
+    }
+}
+
+#[test]
+fn test_08_phase4_candidate_scratch_reuse_preserves_runner_outputs() {
+    let mut config = make_config();
+    config.world.initial_population = 100;
+    config.world.settlement_count = 5;
+    config.decision.action_biases = [0.0, 0.0, 0.0, 8.0, 8.0, 0.0];
+    let context = make_context();
+
+    let mut initial_world = initialize_world(&config).unwrap();
+    for (index, agent) in initial_world.agents.iter_mut().enumerate() {
+        if index % 5 == 0 {
+            agent.food = 2.0;
+        } else if index % 7 == 0 {
+            agent.food = 0.0;
+        }
+    }
+
+    let mut production_path = HybridWorldState::hybrid(initial_world.clone());
+    let mut persistent_path = HybridWorldState::hybrid(initial_world);
+    let mut candidate_scratch = Vec::with_capacity(config.world.initial_population as usize);
+
+    for day in 0..40 {
+        let options = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: day == 19 || day == 39,
+        };
+        let production_outcome =
+            run_hybrid_authority_day(&mut production_path, &config, &context, &options).unwrap();
+        let persistent_outcome = run_hybrid_authority_day_with_candidate_scratch(
+            &mut persistent_path,
+            &config,
+            &context,
+            &options,
+            &mut candidate_scratch,
+        )
+        .unwrap();
+
+        assert_eq!(production_outcome, persistent_outcome);
+        assert_eq!(
+            production_path.canonical_state_hash().unwrap(),
+            persistent_path.canonical_state_hash().unwrap()
+        );
     }
 }
