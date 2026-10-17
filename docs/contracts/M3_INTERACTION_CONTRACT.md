@@ -270,3 +270,92 @@ Model multi-hop spread over the graph within one tick and define intra-tick orde
 Report in the M2-40 format, answer the central research question, and decide whether a new architecture (M4) is needed.
 
 Stopping after M3-02 still provides a complete answer to the central research question. M3-03 onward deepens that answer.
+
+## 9. M3-01 Optimized path and serial baseline
+
+**Status: DRAFT — NOT FROZEN**
+
+### 9.1 Scope and reference authority
+
+M3-01 runs the frozen M3 semantics on the Hybrid / `SegmentedAgentStorage` authority path, serially. It does not change the M3-00 single-threaded `WorldState` reference; M3-00 remains the oracle for M3 in the same way that M0 remains the oracle for M2. The optimized M3 path must match M3-00 State, Metrics, and Events digests exactly for identical configuration, seed, replicate, execution options, and horizon. It is an explicit M3 path; the existing M2 runner and its default remain unchanged.
+
+### 9.2 Relationship graph execution projection
+
+The canonical `RelationshipGraph` remains keyed by ascending `AgentId` and its CSR hash remains the M3 State-digest input from §2.1. The storage path may build a transient projection whose rows are indexed by the current SoA storage slot and whose neighbor entries are storage slots resolved with `SegmentedAgentStorage::slot_of(AgentId)`. These are column indices into the storage arrays; they must not be inferred from `AgentId`, the `DenseSlot` value, or physical vector order. Preserve each canonical row's ascending `AgentId` neighbor order when mapping its neighbors to slots.
+
+Build the projection after the authoritative storage and its `AgentId`-to-slot map are ready, before the first M3 Phase 4 intent generation. Reuse it while that mapping remains unchanged. Rebuild it after any slot-map, agent-order, or identity change, whenever storage is replaced or rebuilt, and after snapshot restore. Restore reconstructs storage from the snapshot's `WorldState`; regenerate the relationship graph as required by §2.1, then rebuild the slot projection against the restored storage map.
+
+The projection and its scratch are transient runtime data. They are excluded from `WorldState`, `SegmentedAgentStorage` serialization, State/Metric/Event digests, and snapshots. Only the canonical CSR graph hash enters the M3 State digest.
+
+### 9.3 Phase 4 storage targeting
+
+Use the existing serial storage Phase 4 action-selection path unchanged. For `GiveFood` and `StealFood`, use the slot projection to visit only the initiator's graph neighbors, reading live `alive`, `health`, `food`, and `AgentId` columns. Apply exactly §2.3's filters, exclude self, and retain ascending `AgentId` candidate order even when slots are shuffled:
+
+- `GiveFood`: alive, health greater than zero, and food below `starvation_threshold`.
+- `StealFood`: alive, health greater than zero, and food greater than zero.
+
+Do not apply a same-settlement filter or fall back to another candidate source. Keep §2.3's coordinate tuple, subsystem, `DrawIndex = 1`, `floor(u * C)` selection, and upper clamp unchanged. Preserve all non-target intent fields and action-selection semantics from the M3-00 reference.
+
+### 9.4 Phase 6B storage resolution
+
+Resolve M3 interactions as one global keyed stream using §2.4's M3 `ResolutionKey` and tie-break order. During structural validation, resolve each initiator and non-null target through `storage.slot_of` once and retain those slots in transient reusable scratch; do not linearly scan all agent storage for each entry. Keep M3 zero-target classification and global keyed ordering, then re-read live storage fields immediately before each serial commit. Preserve M3's live eligibility rules, cross-settlement target allowance, theft RNG coordinate, and sequential-commit effects. In particular, the M2 StorageFast same-settlement target check does not apply to M3.
+
+Reuse validation, global-key, and slot scratch across days, following the caller-owned Phase6B scratch lifetime in `run_hybrid_authority_days`. Return the same per-initiator-group resolution shape as M3-00: groups ascending, zero-target entries first in ascending initiator `AgentId`, then that group's subsequence of the global keyed stream. This keeps the existing event converter and Phase 6A local-sequence offset applicable without changing EventKey semantics.
+
+### 9.5 Phases that retain the M2 storage path
+
+The M3 storage runner retains the existing phase order. Only Phase 4 targeted-intent generation and Phase 6B resolution use M3-specific storage paths; Phase 4 action selection remains the existing serial storage implementation.
+
+| Phase | M3-01 behavior | Why the existing settlement-scoped path remains valid |
+|---|---|---|
+| 1–3 | Existing resource regrowth, storage degradation, and storage feature extraction. | These phases do not select or resolve graph targets. Phase 3's scarcity input remains based on each agent's current group. |
+| 5 | Existing partitioning by the intent's initiator `group_id`, with canonical group and per-group intent ordering. | A targeted intent retains its initiator group as provenance; its target group does not define its Phase 5 partition. |
+| 6A | Existing storage work resolver. | It accepts only `Work` intents and allocates each group's own settlement resource; it has no target-agent operation. |
+| 7 | Existing storage market resolver. | It selects only `BuyFood` and `SellFood` participants belonging to the partition's group. It runs after global Phase 6B and reads the resulting live food and wealth. |
+| 8 | Existing one-pass storage welfare path and reusable eligibility buckets. | It groups recipients by their current agent `group_id`, tests current food after Phase 6B, and debits only that group's treasury. Cross-settlement transfers are already committed before this phase. |
+| 9 | Existing storage mortality commitment. | It evaluates each agent's current health and alive flag without settlement-local interaction assumptions. |
+| 10–11 | Existing storage metrics, event staging/flush, and snapshot encoding. | M3 appends its separate metrics fields and uses the M3 State digest specified below; the frozen event schema and snapshot schema remain unchanged. |
+
+### 9.6 M3 metrics and canonical digests on storage
+
+Use `SegmentedAgentStorage::phase10_metrics` for the frozen M1 `DailyMetrics` fields. Append the graph's fixed `(cross_partition_edge_count, total_directed_edge_count)` pair and that day's cross-partition interaction count exactly as §2.6 specifies. Count each Phase 4 targeted intent with a non-null target whose intent group differs from the target's live storage group; include entries regardless of their later Phase 6B outcome. The pair and count are digest data, not simulation state.
+
+For M3 State hashing, encode the authoritative SoA values with the same M1 field order and validation as the existing storage canonical-state encoder, use the `SIMCIV_M3_STATE_V1` domain, and append the canonical CSR hash. Do not hash a stale `WorldState` copy between snapshot boundaries. Encode the M3 Metrics records under `SIMCIV_M3_METRICS_V1` using §2.6. Hash Events with the existing canonical Events encoding and domain: §2.4 freezes the event schema and adds no M3 event domain tag. Emit Phase 6B events through the existing `events_from_targeted_resolution` conversion and Phase 6A offset logic.
+
+### 9.7 Parity gates
+
+Accept M3-01 only after the serial storage path has exact State, Metrics, and Events digest equality with the M3-00 reference for:
+
+- the committed M3 golden configuration;
+- larger differential runs with several seeds, populations from the hundreds through the low thousands, `k ∈ {4, 8, 16}`, `p_local ∈ {0, 0.5, 1}`, and multiple settlement counts; all configurations must satisfy §2.2 capacity validation;
+- snapshot pause/resume, with the relationship graph regenerated and slot projection rebuilt after restore;
+- shuffled or permuted physical `DenseSlot` / storage-slot layouts representing the same logical state.
+
+The existing M2 path must continue to pass the frozen State, Metrics, and Events digests in §2.5 and existing snapshot checks unchanged. M3 goldens remain separate.
+
+### 9.8 Measurement protocol
+
+Record host CPU, physical/logical core counts, OS, and Rust toolchain. Measure populations `N ∈ {10k, 50k, 100k}` with approximately 200 agents per settlement (`K ≈ N / 200`), across the 15 combinations `p_local ∈ {0, 0.25, 0.5, 0.75, 1}` and `k ∈ {4, 8, 16}`. Use only configurations satisfying §2.2 capacity rules.
+
+Follow the M2-40 sampling method: initialize outside the timed run; run two warmups and seven timed samples per cell; reuse runner scratch over three consecutive days per sample; keep metrics and events enabled and snapshots disabled. Report median ± MAD per day/tick and per-phase time for Phases 1–11; split Phase 4 into action selection and intent/projection work, and Phase 6B into validation/slot lookup, global key/sort, and sequential commit. Time graph generation and the initial slot-projection build separately so their one-time cost is visible. `p_local = 1` is the baseline for the global stream's cost. M2 Serial timings at the same `N` are context only, not a like-for-like comparison, because M2 uses same-settlement targeting and settlement-local Phase 6B ordering.
+
+Report path: [`docs/performance/M3_01_SERIAL_BASELINE.md`](../performance/M3_01_SERIAL_BASELINE.md).
+
+### 9.9 Conflict-density measurement
+
+For a day `d`, let `E_d` be its keyed Phase 6B entries (`target = Some`). Each entry touches its initiator and target. The conflict fraction is the number of entries that share either endpoint with at least one *other* entry in `E_d`, divided by `|E_d|`. The mean contention is the arithmetic mean, over distinct agents touched by `E_d`, of the number of entries in `E_d` touching each agent. If `E_d` is empty, both values are not applicable for that day. Record these values by configuration as predictors for M3-02. They are measurement-only and are excluded from all digests.
+
+### 9.10 Explicit non-goals
+
+- Rayon or any other parallelism.
+- Changing production-runner defaults or the existing M2 paths.
+- Changing M3-00 reference semantics, event schema, snapshot schema, or canonical M2 behavior.
+
+### 9.11 Open questions
+
+| Question | Status | Why it remains open |
+|---|---|---|
+| Which public API provides explicit opt-in to the M3 Hybrid / Segmented SoA serial path while the existing M2 runner continues to reject M3 configurations? | **BLOCKING** | The current runner exposes M2 Serial/Rayon modes and a separate M3-00 reference runner; it does not define an optimized M3 entry point. |
+| Which benchmark action mix/configuration should produce representative keyed GiveFood/StealFood volume across the requested `p_local` matrix? | **BLOCKING for benchmark interpretation** | The M2-40 profile fixes population/group workloads and sampling, but the requested M3 measurement matrix does not specify an action distribution. |
+| How should projection invalidation detect every slot-map change: explicit generation/version, owner-managed rebuild, or another mechanism? | **NON-BLOCKING** | Correctness requires rebuilding on every mapping change; the current storage exposes `slot_of` and rebuild operations but no slot-map generation counter. A conservative rebuild remains valid. |
+| Which exact seed/population/settlement combinations and differential horizons should be selected from the required ranges? | **NON-BLOCKING** | The required coverage classes are specified, while the final test matrix can be selected without changing the semantics or gates. |
