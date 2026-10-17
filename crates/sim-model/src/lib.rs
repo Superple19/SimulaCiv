@@ -59,13 +59,15 @@ pub use hashing::{
 };
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
-    Intent, IntentError, Phase4CandidateIndexScratch, generate_intents,
+    CrossPartitionCountError, Intent, IntentError, Phase4CandidateIndexScratch,
+    count_cross_partition_interactions_per_day, generate_intents, generate_intents_m3_into,
     generate_intents_storage_into, generate_intents_storage_into_baseline,
     generate_intents_storage_into_variant_c, generate_intents_storage_into_variant_d,
     generate_intents_storage_with_candidate_index,
     generate_intents_storage_with_candidate_index_rayon, generate_intents_storage_with_scratch,
-    get_give_food_candidates, get_steal_food_candidates, phase4_generate_intents,
-    phase4_generate_intents_into, phase4_generate_intents_storage_into,
+    get_give_food_candidates, get_give_food_candidates_m3, get_steal_food_candidates,
+    get_steal_food_candidates_m3, phase4_generate_intents, phase4_generate_intents_into,
+    phase4_generate_intents_storage_into,
 };
 pub use metrics::{
     DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, compute_wealth_gini_from_slices,

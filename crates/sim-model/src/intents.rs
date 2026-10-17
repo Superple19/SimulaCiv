@@ -1,5 +1,6 @@
 use crate::config::SimConfig;
 use crate::decision::{Action, PrimaryActionChoice};
+use crate::relationship_graph::RelationshipGraph;
 use crate::state::{AgentState, WorldState};
 use crate::subsystems::Subsystem;
 use rayon::ThreadPool;
@@ -162,6 +163,128 @@ pub fn get_steal_food_candidates(thief: &AgentState, world: &WorldState) -> Vec<
     candidates
 }
 
+/// Filters the initiator's graph neighbors for GiveFood in ascending AgentId order.
+pub fn get_give_food_candidates_m3(
+    giver: &AgentState,
+    world: &WorldState,
+    graph: &RelationshipGraph,
+    config: &SimConfig,
+) -> Vec<AgentId> {
+    let agents_by_id = world_agent_lookup(world);
+    get_give_food_candidates_m3_with_lookup(giver, graph, config, &agents_by_id)
+}
+
+/// Filters the initiator's graph neighbors for StealFood in ascending AgentId order.
+pub fn get_steal_food_candidates_m3(
+    thief: &AgentState,
+    world: &WorldState,
+    graph: &RelationshipGraph,
+) -> Vec<AgentId> {
+    let agents_by_id = world_agent_lookup(world);
+    get_steal_food_candidates_m3_with_lookup(thief, graph, &agents_by_id)
+}
+
+fn get_give_food_candidates_m3_with_lookup(
+    giver: &AgentState,
+    graph: &RelationshipGraph,
+    config: &SimConfig,
+    agents_by_id: &HashMap<AgentId, &AgentState>,
+) -> Vec<AgentId> {
+    graph
+        .neighbors_of(giver.agent_id)
+        .into_iter()
+        .flatten()
+        .filter_map(|&agent_id| {
+            let candidate = agents_by_id.get(&agent_id)?;
+            (candidate.alive
+                && candidate.health > 0.0
+                && agent_id != giver.agent_id
+                && candidate.food < config.interaction.starvation_threshold)
+                .then_some(agent_id)
+        })
+        .collect()
+}
+
+fn get_steal_food_candidates_m3_with_lookup(
+    thief: &AgentState,
+    graph: &RelationshipGraph,
+    agents_by_id: &HashMap<AgentId, &AgentState>,
+) -> Vec<AgentId> {
+    graph
+        .neighbors_of(thief.agent_id)
+        .into_iter()
+        .flatten()
+        .filter_map(|&agent_id| {
+            let candidate = agents_by_id.get(&agent_id)?;
+            (candidate.alive
+                && candidate.health > 0.0
+                && agent_id != thief.agent_id
+                && candidate.food > 0.0)
+                .then_some(agent_id)
+        })
+        .collect()
+}
+
+fn world_agent_lookup(world: &WorldState) -> HashMap<AgentId, &AgentState> {
+    let mut agents_by_id = HashMap::with_capacity(world.agents.len());
+    for agent in &world.agents {
+        agents_by_id.entry(agent.agent_id).or_insert(agent);
+    }
+    agents_by_id
+}
+
+/// Error returned when a targeted intent references an agent absent from the world.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CrossPartitionCountError {
+    MissingTargetAgent(AgentId),
+}
+
+impl std::fmt::Display for CrossPartitionCountError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingTargetAgent(id) => {
+                write!(f, "cross-partition count target does not exist: {id}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CrossPartitionCountError {}
+
+/// Counts targeted GiveFood and StealFood intents crossing group boundaries for one day.
+pub fn count_cross_partition_interactions_per_day(
+    intents: &[Intent],
+    world: &WorldState,
+) -> Result<u64, CrossPartitionCountError> {
+    let agents_by_id = world_agent_lookup(world);
+    let mut count = 0u64;
+    for intent in intents {
+        let (initiator_group_id, target_agent_id) = match intent {
+            Intent::GiveFood {
+                group_id,
+                target_agent_id: Some(target_agent_id),
+                ..
+            }
+            | Intent::StealFood {
+                group_id,
+                target_agent_id: Some(target_agent_id),
+                ..
+            } => (*group_id, *target_agent_id),
+            _ => continue,
+        };
+        let target_group_id = agents_by_id
+            .get(&target_agent_id)
+            .ok_or(CrossPartitionCountError::MissingTargetAgent(
+                target_agent_id,
+            ))?
+            .group_id;
+        if initiator_group_id != target_group_id {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
 /// Generates immutable Intent records for all primary action choices into a reusable buffer.
 ///
 /// Enforces:
@@ -179,11 +302,34 @@ pub fn generate_intents_into(
     choices: &[PrimaryActionChoice],
     out: &mut Vec<Intent>,
 ) -> Result<(), IntentError> {
+    generate_intents_with_graph(world, config, choices, out, None)
+}
+
+/// Generates Phase 4 intents with graph-neighbor target selection for the M3 reference profile.
+pub fn generate_intents_m3_into(
+    world: &WorldState,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    graph: &RelationshipGraph,
+    out: &mut Vec<Intent>,
+) -> Result<(), IntentError> {
+    generate_intents_with_graph(world, config, choices, out, Some(graph))
+}
+
+fn generate_intents_with_graph(
+    world: &WorldState,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    out: &mut Vec<Intent>,
+    graph: Option<&RelationshipGraph>,
+) -> Result<(), IntentError> {
     out.clear();
     let n = choices.len();
     if out.capacity() < n {
         out.reserve(n - out.capacity());
     }
+
+    let agents_by_id = graph.map(|_| world_agent_lookup(world));
 
     let mut seen_choice_agents = if n > 32 {
         Some(HashSet::with_capacity(n))
@@ -201,11 +347,11 @@ pub fn generate_intents_into(
             return Err(IntentError::DuplicateChoice(choice.agent_id));
         }
 
-        let agent = world
-            .agents
-            .iter()
-            .find(|a| a.agent_id == choice.agent_id)
-            .ok_or(IntentError::MissingAgent(choice.agent_id))?;
+        let agent = match &agents_by_id {
+            Some(agents_by_id) => agents_by_id.get(&choice.agent_id).copied(),
+            None => world.agents.iter().find(|a| a.agent_id == choice.agent_id),
+        }
+        .ok_or(IntentError::MissingAgent(choice.agent_id))?;
 
         if !agent.is_behaviorally_eligible() {
             return Err(IntentError::IneligibleAgent(choice.agent_id));
@@ -238,7 +384,12 @@ pub fn generate_intents_into(
                 }
             }
             Action::GiveFood => {
-                let candidates = get_give_food_candidates(agent, world, config);
+                let candidates = match (graph, &agents_by_id) {
+                    (Some(graph), Some(agents_by_id)) => {
+                        get_give_food_candidates_m3_with_lookup(agent, graph, config, agents_by_id)
+                    }
+                    _ => get_give_food_candidates(agent, world, config),
+                };
                 let target_agent_id = if candidates.is_empty() {
                     None
                 } else {
@@ -265,7 +416,12 @@ pub fn generate_intents_into(
                 }
             }
             Action::StealFood => {
-                let candidates = get_steal_food_candidates(agent, world);
+                let candidates = match (graph, &agents_by_id) {
+                    (Some(graph), Some(agents_by_id)) => {
+                        get_steal_food_candidates_m3_with_lookup(agent, graph, agents_by_id)
+                    }
+                    _ => get_steal_food_candidates(agent, world),
+                };
                 let target_agent_id = if candidates.is_empty() {
                     None
                 } else {
