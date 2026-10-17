@@ -1,5 +1,7 @@
 # SimulaCiv
 
+[![CI](https://github.com/Superple19/SimulaCiv/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Superple19/SimulaCiv/actions/workflows/ci.yml)
+
 **A deterministic, high-performance runtime for large-scale discrete simulation.**
 
 SimulaCiv explores how simulations can remain reproducible, scalable, and mechanically inspectable as workload size and interaction complexity increase.
@@ -9,6 +11,8 @@ The current reference workload is an agent-based synthetic society. The project 
 ## Status
 
 **M2 graduated — `v0.3.0-m2`.** M3 implementation has not started; the direction below is research scope, not a frozen M3 specification.
+
+Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
 
 | Milestone | Status | Result |
 |---|---|---|
