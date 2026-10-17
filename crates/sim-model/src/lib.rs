@@ -50,12 +50,14 @@ pub use features::{
     phase3_observation_and_features_with_scratch,
 };
 pub use hashing::{
-    CanonicalHash, CanonicalHashError, DOMAIN_EVENTS, DOMAIN_METRICS, DOMAIN_STATE,
-    EVENT_CATEGORY_OBSERVATION, EVENT_CATEGORY_STATE_TRANSITION, OBSERVATION_EVENT_DAILY_METRICS,
-    OBSERVATION_EVENT_SNAPSHOT_EMITTED, STATE_EVENT_FOOD_TRANSFERRED, STATE_EVENT_MARKET_CLEARED,
-    STATE_EVENT_MORTALITY_COMMITTED, STATE_EVENT_WELFARE_DISTRIBUTED, STATE_EVENT_WORK_RESOLVED,
-    canonical_event_bytes, canonical_event_hash, canonical_metrics_bytes, canonical_metrics_hash,
-    canonical_state_bytes, canonical_state_hash,
+    CanonicalHash, CanonicalHashError, DOMAIN_EVENTS, DOMAIN_M3_METRICS, DOMAIN_M3_STATE,
+    DOMAIN_METRICS, DOMAIN_STATE, EVENT_CATEGORY_OBSERVATION, EVENT_CATEGORY_STATE_TRANSITION,
+    OBSERVATION_EVENT_DAILY_METRICS, OBSERVATION_EVENT_SNAPSHOT_EMITTED,
+    STATE_EVENT_FOOD_TRANSFERRED, STATE_EVENT_MARKET_CLEARED, STATE_EVENT_MORTALITY_COMMITTED,
+    STATE_EVENT_WELFARE_DISTRIBUTED, STATE_EVENT_WORK_RESOLVED, canonical_event_bytes,
+    canonical_event_hash, canonical_m3_metrics_bytes, canonical_m3_metrics_hash,
+    canonical_m3_state_bytes, canonical_m3_state_hash, canonical_metrics_bytes,
+    canonical_metrics_hash, canonical_state_bytes, canonical_state_hash,
 };
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
@@ -70,10 +72,11 @@ pub use intents::{
     phase4_generate_intents_storage_into,
 };
 pub use metrics::{
-    DailyMetrics, Phase10Error, compute_wealth_gini_dynamic, compute_wealth_gini_from_slices,
-    compute_wealth_gini_soa, phase10_metrics, phase10_metrics_observation, phase10_observe,
-    phase10_observe_compact_aos, phase10_observe_segmented, phase10_observe_soa_fresh,
-    phase10_observe_storage, phase10_observe_storage_with_scratch, phase10_observe_with_config,
+    DailyMetrics, M3DailyMetrics, Phase10Error, compute_wealth_gini_dynamic,
+    compute_wealth_gini_from_slices, compute_wealth_gini_soa, phase10_metrics,
+    phase10_metrics_observation, phase10_observe, phase10_observe_compact_aos,
+    phase10_observe_segmented, phase10_observe_soa_fresh, phase10_observe_storage,
+    phase10_observe_storage_with_scratch, phase10_observe_with_config,
     phase10_observe_with_scratch,
 };
 pub use partitioning::{
@@ -111,16 +114,16 @@ pub use resolution::{
 };
 pub use runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, DayOutcome, M0RunContext,
-    M0RunError, Phase4Backend, Phase4ExecutionPolicy, run_hybrid_authority_day,
-    run_hybrid_authority_day_with_candidate_index_scratch,
+    M0RunError, M3DayOutcome, M3ReferenceContext, Phase4Backend, Phase4ExecutionPolicy,
+    run_hybrid_authority_day, run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
     run_hybrid_authority_days_with_phase4_policy, run_hybrid_authority_days_with_phase5_baseline,
     run_hybrid_authority_days_with_phase6b_baseline,
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_authority_days_with_rayon_phase4,
     run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_day_with_scratch,
-    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_native_soa_day,
-    run_native_soa_day_with_storage, run_native_soa_days,
+    run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_m3_reference_day,
+    run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,

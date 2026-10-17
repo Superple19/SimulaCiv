@@ -26,6 +26,15 @@ pub struct DailyMetrics {
     pub total_treasury: Money,
 }
 
+/// M3 daily metrics append interaction topology counts to the frozen M1 record.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct M3DailyMetrics {
+    pub metrics: DailyMetrics,
+    pub cross_partition_edge_count: u64,
+    pub total_directed_edge_count: u64,
+    pub cross_partition_interaction_count: u64,
+}
+
 /// Explicit errors returned during Phase 10 Metrics Observation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Phase10Error {

@@ -14,7 +14,7 @@
 //! - Phase 10: Macroscopic Metrics & Observation Hook
 //! - Phase 11: Canonical Snapshot & Event Stream Flush
 
-use crate::config::SimConfig;
+use crate::config::{SimConfig, SimulationProfile};
 use crate::decision::{
     DecisionError, PrimaryActionChoice, phase4_primary_action_selection_into,
     phase4_primary_action_selection_storage_into,
@@ -31,12 +31,13 @@ use crate::features::{
     phase3_observation_and_features_storage_with_scratch,
 };
 use crate::intents::{
-    Intent, IntentError, Phase4CandidateIndexScratch,
+    CrossPartitionCountError, Intent, IntentError, Phase4CandidateIndexScratch,
+    count_cross_partition_interactions_per_day, generate_intents_m3_into,
     generate_intents_storage_with_candidate_index,
     generate_intents_storage_with_candidate_index_rayon, generate_intents_storage_with_scratch,
     phase4_generate_intents_into,
 };
-use crate::metrics::{DailyMetrics, Phase10Error, phase10_observe_with_scratch};
+use crate::metrics::{DailyMetrics, M3DailyMetrics, Phase10Error, phase10_observe_with_scratch};
 use crate::partitioning::{
     Phase5Error, Phase5PartitionScratch, phase5_partition_intents_baseline,
     phase5_partition_intents_from_vec_with_scratch,
@@ -45,10 +46,12 @@ use crate::phases::{
     Phase9Error, phase1_resource_regrowth, phase2_biological_degradation,
     phase9_mortality_commitment,
 };
+use crate::relationship_graph::{RelationshipGraph, RelationshipGraphError};
 use crate::resolution::{
     Phase6AError, Phase6BError, Phase6BResolutionScratch, Phase7Error, Phase8Error,
     Phase8WelfareScratch, phase6a_work_resolution, phase6a_work_resolution_storage,
-    phase6b_targeted_resolution, phase6b_targeted_resolution_storage_baseline,
+    phase6b_targeted_resolution, phase6b_targeted_resolution_m3,
+    phase6b_targeted_resolution_storage_baseline,
     phase6b_targeted_resolution_storage_ordered_with_scratch,
     phase7_market_clearance_storage_with_config, phase7_market_clearance_with_config,
     phase8_welfare_distribution_storage_full_scan,
@@ -118,6 +121,66 @@ pub struct DayOutcome {
     pub snapshot: Option<CanonicalSnapshot>,
 }
 
+/// Runtime-only graph and run coordinates for the M3 reference profile.
+#[derive(Debug, Clone)]
+pub struct M3ReferenceContext {
+    run_context: M0RunContext,
+    relationship_graph: RelationshipGraph,
+}
+
+impl M3ReferenceContext {
+    /// Builds the static relationship graph for the initialized population.
+    pub fn new(
+        world: &WorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+    ) -> Result<Self, M0RunError> {
+        ensure_m3_profile(config)?;
+        config.validate().map_err(|error| {
+            M0RunError::InvariantViolation(format!("invalid M3 configuration: {error}"))
+        })?;
+        let degree_k = config.interaction.relationship_degree_k.ok_or_else(|| {
+            M0RunError::InvariantViolation("M3 profile requires relationship_degree_k".into())
+        })?;
+        let degree_k = u32::try_from(degree_k).map_err(|_| {
+            M0RunError::InvariantViolation("M3 relationship_degree_k is outside u32 range".into())
+        })?;
+        let p_local = config
+            .interaction
+            .p_local
+            .ok_or_else(|| M0RunError::InvariantViolation("M3 profile requires p_local".into()))?;
+        let memberships: Vec<_> = world
+            .agents
+            .iter()
+            .map(|agent| (agent.agent_id, agent.group_id))
+            .collect();
+        let relationship_graph = RelationshipGraph::generate(
+            &memberships,
+            run_context.master_seed,
+            run_context.replicate_id,
+            degree_k,
+            p_local,
+        )?;
+        Ok(Self {
+            run_context: *run_context,
+            relationship_graph,
+        })
+    }
+
+    pub fn relationship_graph(&self) -> &RelationshipGraph {
+        &self.relationship_graph
+    }
+}
+
+/// Observation output of one completed M3 reference day.
+#[derive(Debug, Clone, PartialEq)]
+pub struct M3DayOutcome {
+    pub executed_day: u32,
+    pub metrics: Option<M3DailyMetrics>,
+    pub events: Vec<EventRecord>,
+    pub snapshot: Option<CanonicalSnapshot>,
+}
+
 /// Unified error enum for M0 daily orchestration failures.
 #[derive(Debug, Clone, PartialEq)]
 pub enum M0RunError {
@@ -159,6 +222,38 @@ impl std::fmt::Display for M0RunError {
 }
 
 impl std::error::Error for M0RunError {}
+
+fn ensure_m2_profile(config: &SimConfig) -> Result<(), M0RunError> {
+    if config.profile == SimulationProfile::M3 {
+        Err(M0RunError::InvariantViolation(
+            "profile = \"m3\" requires the M3 reference runner".into(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn ensure_m3_profile(config: &SimConfig) -> Result<(), M0RunError> {
+    if config.profile == SimulationProfile::M3 {
+        Ok(())
+    } else {
+        Err(M0RunError::InvariantViolation(
+            "M3 reference runner requires profile = \"m3\"".into(),
+        ))
+    }
+}
+
+impl From<CrossPartitionCountError> for M0RunError {
+    fn from(error: CrossPartitionCountError) -> Self {
+        Self::InvariantViolation(error.to_string())
+    }
+}
+
+impl From<RelationshipGraphError> for M0RunError {
+    fn from(error: RelationshipGraphError) -> Self {
+        Self::InvariantViolation(error.to_string())
+    }
+}
 
 impl From<Phase3Error> for M0RunError {
     fn from(err: Phase3Error) -> Self {
@@ -283,6 +378,7 @@ pub fn run_m0_day_with_scratch(
     intents_scratch: &mut Vec<Intent>,
     metrics_scratch: &mut AgentDynamicSoAScratch,
 ) -> Result<DayOutcome, M0RunError> {
+    ensure_m2_profile(config)?;
     // 1. Capture logical day coordinate
     let executed_day = world.current_day.as_u32();
     let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
@@ -443,6 +539,157 @@ pub fn run_m0_day_with_scratch(
     })
 }
 
+/// Executes one full M3 reference day, replacing only Phase 4 targeting and Phase 6B ordering.
+pub fn run_m3_reference_day(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M3ReferenceContext,
+    options: &DayExecutionOptions,
+) -> Result<M3DayOutcome, M0RunError> {
+    ensure_m3_profile(config)?;
+    let executed_day = world.current_day.as_u32();
+    let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.run_context.master_seed;
+    effective_config.world.replicate_id = context.run_context.replicate_id;
+
+    phase1_resource_regrowth(world, &effective_config);
+    phase2_biological_degradation(world, &effective_config);
+    let mut features = Vec::with_capacity(world.agents.len());
+    phase3_observation_and_features_into(world, &effective_config, &mut features)?;
+
+    let mut choices = Vec::with_capacity(world.agents.len());
+    phase4_primary_action_selection_into(world, &effective_config, &features, &mut choices)?;
+    let mut intents = Vec::with_capacity(world.agents.len());
+    generate_intents_m3_into(
+        world,
+        &effective_config,
+        &choices,
+        &context.relationship_graph,
+        &mut intents,
+    )?;
+    let cross_partition_interaction_count =
+        count_cross_partition_interactions_per_day(&intents, world)?;
+
+    let partitions = phase5_partition_intents_baseline(&intents)?;
+    let work_resolutions = phase6a_work_resolution(world, &partitions)?;
+    let targeted_resolutions =
+        phase6b_targeted_resolution_m3(world, &effective_config, &partitions)?;
+    let market_resolutions =
+        phase7_market_clearance_with_config(world, &partitions, &effective_config.economy)?;
+    let welfare_resolutions = phase8_welfare_distribution_with_config(world, &effective_config)?;
+    let mortality_resolution = phase9_mortality_commitment(world)?;
+
+    let mut event_buffer = if options.events_enabled {
+        let estimated_cap = world.agents.len().saturating_mul(2) + world.settlements.len() + 4;
+        EventBuffer::with_capacity(estimated_cap)
+    } else {
+        EventBuffer::new()
+    };
+    if options.events_enabled {
+        let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+        for work in &work_resolutions {
+            let work_events = events_from_work_resolution(executed_day, work);
+            let count = work_events.len() as u64;
+            if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(group_id, _)| *group_id == work.group_id.0)
+            {
+                entry.1 += count;
+            } else {
+                phase6_counts.push((work.group_id.0, count));
+            }
+            event_buffer.push_all(work_events);
+        }
+        for targeted in &targeted_resolutions {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, targeted);
+            let offset = if let Some(entry) = phase6_counts
+                .iter_mut()
+                .find(|(group_id, _)| *group_id == targeted.group_id.0)
+            {
+                let previous = entry.1;
+                entry.1 += targeted_events.len() as u64;
+                previous
+            } else {
+                phase6_counts.push((targeted.group_id.0, targeted_events.len() as u64));
+                0
+            };
+            if offset > 0 {
+                for event in &mut targeted_events {
+                    event.key.local_sequence += offset;
+                }
+            }
+            event_buffer.push_all(targeted_events);
+        }
+        for market in &market_resolutions {
+            event_buffer.push_all(events_from_market_resolution(executed_day, market));
+        }
+        for welfare in &welfare_resolutions {
+            event_buffer.push_all(events_from_welfare_resolution(executed_day, welfare));
+        }
+        event_buffer.push_all(events_from_mortality_resolution(
+            executed_day,
+            &mortality_resolution,
+        ));
+    }
+
+    let metrics = if options.metrics_enabled {
+        let mut metrics_scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
+        let base = phase10_observe_with_scratch(world, executed_day, &mut metrics_scratch)?;
+        if options.events_enabled {
+            event_buffer.push(event_from_daily_metrics(&base));
+        }
+        let (cross_partition_edge_count, total_directed_edge_count) =
+            context.relationship_graph.edge_ratio_counts();
+        Some(M3DailyMetrics {
+            metrics: base,
+            cross_partition_edge_count,
+            total_directed_edge_count,
+            cross_partition_interaction_count,
+        })
+    } else {
+        None
+    };
+
+    let snapshot = if options.snapshot_boundary {
+        let metadata = SnapshotMetadata::new(
+            next_day,
+            context.run_context.master_seed,
+            context.run_context.replicate_id,
+            DEFAULT_MODEL_VERSION,
+            DEFAULT_CONFIG_VERSION,
+        );
+        let snapshot = encode_snapshot(world, &metadata)?;
+        if options.events_enabled {
+            event_buffer.push(EventRecord::new(
+                EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: metadata.day,
+                    master_seed: metadata.master_seed,
+                    replicate_id: metadata.replicate_id,
+                    schema_version: SNAPSHOT_SCHEMA_VERSION,
+                }),
+            ));
+        }
+        Some(snapshot)
+    } else {
+        None
+    };
+
+    let events = if options.events_enabled {
+        phase11_flush_events(&mut event_buffer)?
+    } else {
+        Vec::new()
+    };
+    world.current_day = SimulationDay(next_day);
+    Ok(M3DayOutcome {
+        executed_day,
+        metrics,
+        events,
+        snapshot,
+    })
+}
+
 /// Executes multiple consecutive simulation days sequentially.
 ///
 /// Invariants:
@@ -457,6 +704,7 @@ pub fn run_m0_days(
     days: u32,
     options: &DayExecutionOptions,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
+    ensure_m2_profile(config)?;
     let mut outcomes = Vec::with_capacity(days as usize);
     let mut features_scratch = Vec::with_capacity(world.agents.len());
     let mut choices_scratch = Vec::with_capacity(world.agents.len());
@@ -545,6 +793,7 @@ fn run_native_soa_day_with_storage_and_phase_scratch(
     phase3_scratch: &mut Phase3ScarcityScratch,
     phase8_scratch: &mut Phase8WelfareScratch,
 ) -> Result<DayOutcome, M0RunError> {
+    ensure_m2_profile(config)?;
     // 1. Capture logical day coordinate
     let executed_day = world.current_day.as_u32();
     let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
@@ -732,6 +981,7 @@ pub fn run_native_soa_days(
     days: u32,
     options: &DayExecutionOptions,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
+    ensure_m2_profile(config)?;
     let mut outcomes = Vec::with_capacity(days as usize);
     let mut storage = SegmentedAgentStorage::from_agents(&world.agents);
     let mut features_scratch = Vec::with_capacity(world.agents.len());
@@ -1068,6 +1318,7 @@ fn run_hybrid_authority_day_with_all_scratch(
     phase6b_mode: Phase6BRuntimeMode,
     phase6b_scratch: Option<&mut Phase6BResolutionScratch>,
 ) -> Result<DayOutcome, M0RunError> {
+    ensure_m2_profile(config)?;
     if !hybrid_world.is_hybrid() {
         return run_m0_day_with_scratch(
             &mut hybrid_world.world,
@@ -1561,6 +1812,7 @@ fn run_hybrid_authority_days_with_phase_modes(
     phase5_mode: Phase5RuntimeMode,
     phase6b_mode: Phase6BRuntimeMode,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
+    ensure_m2_profile(config)?;
     let agent_count = match &hybrid_world.segmented_storage {
         Some(s) => s.len(),
         None => hybrid_world.world.agents.len(),
@@ -1703,6 +1955,7 @@ fn run_hybrid_scope_isolated_day_with_phase8_scratch(
     phase3_scratch: &mut Phase3ScarcityScratch,
     phase8_scratch: &mut Phase8WelfareScratch,
 ) -> Result<DayOutcome, M0RunError> {
+    ensure_m2_profile(config)?;
     if !hybrid_world.is_hybrid() {
         return run_m0_day_with_scratch(
             &mut hybrid_world.world,
@@ -1920,6 +2173,7 @@ pub fn run_hybrid_scope_isolated_days(
     days: u32,
     options: &DayExecutionOptions,
 ) -> Result<Vec<DayOutcome>, M0RunError> {
+    ensure_m2_profile(config)?;
     let agent_count = match &hybrid_world.segmented_storage {
         Some(s) => s.len(),
         None => hybrid_world.world.agents.len(),

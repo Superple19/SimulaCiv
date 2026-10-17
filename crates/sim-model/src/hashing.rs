@@ -7,6 +7,8 @@
 
 use crate::events::{Event, EventKey, EventRecord, ObservationEvent, StateTransitionEvent};
 use crate::metrics::DailyMetrics;
+use crate::metrics::M3DailyMetrics;
+use crate::relationship_graph::RelationshipGraph;
 use crate::resolution::TargetedActionKind;
 use crate::state::WorldState;
 use serde::{Deserialize, Serialize};
@@ -21,6 +23,12 @@ pub const DOMAIN_METRICS: &[u8] = b"SIMCIV_METRICS_V1";
 
 /// Exact ASCII domain prefix for canonical event preimages.
 pub const DOMAIN_EVENTS: &[u8] = b"SIMCIV_EVENTS_V1";
+
+/// Exact ASCII domain prefix for canonical M3 state preimages.
+pub const DOMAIN_M3_STATE: &[u8] = b"SIMCIV_M3_STATE_V1";
+
+/// Exact ASCII domain prefix for canonical M3 metrics preimages.
+pub const DOMAIN_M3_METRICS: &[u8] = b"SIMCIV_M3_METRICS_V1";
 
 /// 256-bit canonical hash value produced by the determinism oracles.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -243,6 +251,34 @@ pub fn canonical_state_hash(world: &WorldState) -> Result<CanonicalHash, Canonic
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
+/// Encodes M1 canonical state fields followed by the canonical M3 relationship CSR hash.
+pub fn canonical_m3_state_bytes(
+    world: &WorldState,
+    graph: &RelationshipGraph,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let m1_bytes = canonical_state_bytes(world)?;
+    let fields = &m1_bytes[DOMAIN_STATE.len()..];
+    let capacity = DOMAIN_M3_STATE
+        .len()
+        .checked_add(fields.len())
+        .and_then(|n| n.checked_add(32))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3_STATE);
+    bytes.extend_from_slice(fields);
+    bytes.extend_from_slice(graph.csr_hash());
+    Ok(bytes)
+}
+
+/// Computes the canonical M3 state digest, including the relationship graph hash.
+pub fn canonical_m3_state_hash(
+    world: &WorldState,
+    graph: &RelationshipGraph,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3_state_bytes(world, graph)?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
 // =========================================================================
 // 2. CanonicalMetricsHash
 // =========================================================================
@@ -314,6 +350,56 @@ pub fn canonical_metrics_hash(
     metrics: &[DailyMetrics],
 ) -> Result<CanonicalHash, CanonicalHashError> {
     let bytes = canonical_metrics_bytes(metrics)?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
+/// Encodes M3 metric records in M1 day order with the frozen M3 counters appended.
+pub fn canonical_m3_metrics_bytes(
+    metrics: &[M3DailyMetrics],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let count = u32::try_from(metrics.len()).map_err(|_| CanonicalHashError::LengthOverflow)?;
+    let mut sorted: Vec<&M3DailyMetrics> = metrics.iter().collect();
+    sorted.sort_by_key(|metric| metric.metrics.day);
+    for window in sorted.windows(2) {
+        if window[0].metrics.day == window[1].metrics.day {
+            return Err(CanonicalHashError::DuplicateMetricDay(
+                window[0].metrics.day,
+            ));
+        }
+    }
+
+    let m1_metrics: Vec<DailyMetrics> =
+        sorted.iter().map(|metric| metric.metrics.clone()).collect();
+    let m1_bytes = canonical_metrics_bytes(&m1_metrics)?;
+    let capacity = DOMAIN_M3_METRICS
+        .len()
+        .checked_add(4)
+        .and_then(|n| n.checked_add(sorted.len().checked_mul(60)?))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3_METRICS);
+    bytes.extend_from_slice(&count.to_le_bytes());
+    for (index, metric) in sorted.into_iter().enumerate() {
+        let start = index
+            .checked_mul(36)
+            .and_then(|offset| DOMAIN_METRICS.len().checked_add(4)?.checked_add(offset))
+            .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+        let end = start
+            .checked_add(36)
+            .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+        bytes.extend_from_slice(&m1_bytes[start..end]);
+        bytes.extend_from_slice(&metric.cross_partition_edge_count.to_le_bytes());
+        bytes.extend_from_slice(&metric.total_directed_edge_count.to_le_bytes());
+        bytes.extend_from_slice(&metric.cross_partition_interaction_count.to_le_bytes());
+    }
+    Ok(bytes)
+}
+
+/// Computes the canonical M3 metrics digest.
+pub fn canonical_m3_metrics_hash(
+    metrics: &[M3DailyMetrics],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3_metrics_bytes(metrics)?;
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
