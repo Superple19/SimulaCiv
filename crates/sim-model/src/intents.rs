@@ -285,6 +285,36 @@ pub fn count_cross_partition_interactions_per_day(
     Ok(count)
 }
 
+/// Counts cross-partition targeted intents using the target's current storage group.
+pub fn count_cross_partition_interactions_storage_per_day(
+    intents: &[Intent],
+    storage: &crate::storage::SegmentedAgentStorage,
+) -> Result<u64, CrossPartitionCountError> {
+    let mut count = 0u64;
+    for intent in intents {
+        let (initiator_group_id, target_agent_id) = match intent {
+            Intent::GiveFood {
+                group_id,
+                target_agent_id: Some(target_agent_id),
+                ..
+            }
+            | Intent::StealFood {
+                group_id,
+                target_agent_id: Some(target_agent_id),
+                ..
+            } => (*group_id, *target_agent_id),
+            _ => continue,
+        };
+        let slot = storage.slot_of(target_agent_id).ok_or(
+            CrossPartitionCountError::MissingTargetAgent(target_agent_id),
+        )?;
+        if initiator_group_id != storage.group_ids()[slot] {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
 /// Generates immutable Intent records for all primary action choices into a reusable buffer.
 ///
 /// Enforces:
@@ -314,6 +344,134 @@ pub fn generate_intents_m3_into(
     out: &mut Vec<Intent>,
 ) -> Result<(), IntentError> {
     generate_intents_with_graph(world, config, choices, out, Some(graph))
+}
+
+/// Reusable Phase 4 projection from canonical graph rows to current SoA storage slots.
+#[derive(Debug, Default)]
+pub struct M3Phase4SlotProjection {
+    row_offsets: Vec<usize>,
+    neighbor_slots: Vec<usize>,
+    max_degree: usize,
+    storage_is_sorted: bool,
+}
+
+impl M3Phase4SlotProjection {
+    pub fn new(
+        graph: &RelationshipGraph,
+        storage: &crate::storage::SegmentedAgentStorage,
+    ) -> Result<Self, IntentError> {
+        let mut projection = Self::default();
+        projection.rebuild(graph, storage)?;
+        Ok(projection)
+    }
+
+    /// Rebuilds the transient projection after storage construction, replacement, or restore.
+    pub fn rebuild(
+        &mut self,
+        graph: &RelationshipGraph,
+        storage: &crate::storage::SegmentedAgentStorage,
+    ) -> Result<(), IntentError> {
+        self.row_offsets.clear();
+        self.row_offsets.resize(storage.len() + 1, 0);
+        self.neighbor_slots.clear();
+
+        if graph.source_ids().len() != storage.len() {
+            let unmatched = graph
+                .source_ids()
+                .iter()
+                .find(|&&agent_id| storage.slot_of(agent_id).is_none())
+                .copied()
+                .or_else(|| {
+                    storage
+                        .agent_ids()
+                        .iter()
+                        .find(|&&agent_id| graph.neighbors_of(agent_id).is_none())
+                        .copied()
+                })
+                .or_else(|| storage.agent_ids().first().copied())
+                .or_else(|| graph.source_ids().first().copied())
+                .expect("different graph and storage lengths imply a non-empty side");
+            return Err(IntentError::MissingAgent(unmatched));
+        }
+        for &source_id in graph.source_ids() {
+            if storage.slot_of(source_id).is_none() {
+                return Err(IntentError::MissingAgent(source_id));
+            }
+        }
+
+        for slot in 0..storage.len() {
+            let agent_id = storage.agent_ids()[slot];
+            let neighbors = graph
+                .neighbors_of(agent_id)
+                .ok_or(IntentError::MissingAgent(agent_id))?;
+            self.row_offsets[slot + 1] = self.row_offsets[slot] + neighbors.len();
+        }
+
+        self.neighbor_slots.reserve(self.row_offsets[storage.len()]);
+        for &agent_id in storage.agent_ids() {
+            let neighbors = graph
+                .neighbors_of(agent_id)
+                .ok_or(IntentError::MissingAgent(agent_id))?;
+            for &neighbor_id in neighbors {
+                let slot = storage
+                    .slot_of(neighbor_id)
+                    .ok_or(IntentError::MissingAgent(neighbor_id))?;
+                self.neighbor_slots.push(slot);
+            }
+        }
+
+        self.max_degree = self
+            .row_offsets
+            .windows(2)
+            .map(|pair| pair[1] - pair[0])
+            .max()
+            .unwrap_or(0);
+        self.storage_is_sorted = storage
+            .agent_ids()
+            .windows(2)
+            .all(|pair| pair[0] <= pair[1]);
+
+        #[cfg(debug_assertions)]
+        self.debug_verify_sample(graph, storage);
+
+        Ok(())
+    }
+
+    fn neighbors_of_slot(&self, slot: usize) -> &[usize] {
+        &self.neighbor_slots[self.row_offsets[slot]..self.row_offsets[slot + 1]]
+    }
+
+    #[cfg(debug_assertions)]
+    fn debug_verify_sample(
+        &self,
+        graph: &RelationshipGraph,
+        storage: &crate::storage::SegmentedAgentStorage,
+    ) {
+        let source_count = graph.source_ids().len();
+        if source_count == 0 {
+            return;
+        }
+        for graph_row in [0, source_count / 2, source_count - 1] {
+            let source_id = graph.source_ids()[graph_row];
+            let source_slot = storage
+                .slot_of(source_id)
+                .expect("projection source must exist in storage");
+            let graph_neighbors = graph
+                .neighbors_of(source_id)
+                .expect("projection source row was just built");
+            let projected_neighbors = self.neighbors_of_slot(source_slot);
+            debug_assert_eq!(projected_neighbors.len(), graph_neighbors.len());
+            if graph_neighbors.is_empty() {
+                continue;
+            }
+            for neighbor_index in [0, graph_neighbors.len() / 2, graph_neighbors.len() - 1] {
+                let expected_slot = storage
+                    .slot_of(graph_neighbors[neighbor_index])
+                    .expect("projected neighbor must exist in storage");
+                debug_assert_eq!(projected_neighbors[neighbor_index], expected_slot);
+            }
+        }
+    }
 }
 
 fn generate_intents_with_graph(
@@ -1188,6 +1346,7 @@ impl Phase4CandidateIndexScratch {
 enum Phase4CandidateSource<'a> {
     FullScan(&'a mut Vec<sim_core::AgentId>, bool),
     PreIndexed(&'a Phase4CandidateIndexScratch),
+    M3Projected(&'a M3Phase4SlotProjection, &'a mut Vec<sim_core::AgentId>),
 }
 
 impl Phase4CandidateSource<'_> {
@@ -1196,10 +1355,11 @@ impl Phase4CandidateSource<'_> {
         storage: &crate::storage::SegmentedAgentStorage,
         action: Action,
         initiator: sim_core::AgentId,
-        group_id: sim_core::GroupId,
+        initiator_slot: usize,
         current_day: sim_core::SimulationDay,
         config: &SimConfig,
     ) -> Option<sim_core::AgentId> {
+        let group_id = storage.group_ids()[initiator_slot];
         let (candidate_ids, exclude_start, exclude_end) = match self {
             Self::FullScan(candidate_scratch, storage_is_sorted) => {
                 candidate_scratch.clear();
@@ -1247,6 +1407,30 @@ impl Phase4CandidateSource<'_> {
                 let exclude_start = candidates.partition_point(|id| *id < initiator);
                 let exclude_end = candidates.partition_point(|id| *id <= initiator);
                 (candidates, exclude_start, exclude_end)
+            }
+            Self::M3Projected(projection, candidate_scratch) => {
+                candidate_scratch.clear();
+                let alive = storage.alive();
+                let health = storage.health();
+                let food = storage.food();
+                let agent_ids = storage.agent_ids();
+                for &candidate_slot in projection.neighbors_of_slot(initiator_slot) {
+                    let candidate_id = agent_ids[candidate_slot];
+                    let eligible = candidate_id != initiator
+                        && alive[candidate_slot]
+                        && health[candidate_slot] > 0.0
+                        && match action {
+                            Action::GiveFood => {
+                                food[candidate_slot] < config.interaction.starvation_threshold
+                            }
+                            Action::StealFood => food[candidate_slot] > 0.0,
+                            _ => unreachable!("candidate targets only apply to targeted actions"),
+                        };
+                    if eligible {
+                        candidate_scratch.push(candidate_id);
+                    }
+                }
+                (candidate_scratch.as_slice(), 0, 0)
             }
         };
 
@@ -1306,7 +1490,7 @@ fn intent_for_valid_storage_choice(
                 storage,
                 Action::GiveFood,
                 agent_id,
-                group_id,
+                slot,
                 current_day,
                 config,
             );
@@ -1323,7 +1507,7 @@ fn intent_for_valid_storage_choice(
                 storage,
                 Action::StealFood,
                 agent_id,
-                group_id,
+                slot,
                 current_day,
                 config,
             );
@@ -1394,6 +1578,28 @@ pub fn generate_intents_storage_with_candidate_index(
         config,
         choices,
         Phase4CandidateSource::PreIndexed(candidate_index),
+        out,
+    )
+}
+
+/// Generates Phase 4 M3 intents from the caller-owned storage-slot graph projection.
+pub fn generate_intents_m3_storage_into(
+    storage: &crate::storage::SegmentedAgentStorage,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    projection: &M3Phase4SlotProjection,
+    candidate_scratch: &mut Vec<sim_core::AgentId>,
+    out: &mut Vec<Intent>,
+) -> Result<(), IntentError> {
+    candidate_scratch.clear();
+    candidate_scratch.reserve(projection.max_degree);
+    generate_intents_storage_impl(
+        storage,
+        current_day,
+        config,
+        choices,
+        Phase4CandidateSource::M3Projected(projection, candidate_scratch),
         out,
     )
 }
@@ -1642,8 +1848,10 @@ fn generate_intents_storage_impl(
     out: &mut Vec<Intent>,
 ) -> Result<(), IntentError> {
     out.clear();
-    if let Phase4CandidateSource::FullScan(candidate_scratch, _) = &mut candidate_source {
-        candidate_scratch.clear();
+    match &mut candidate_source {
+        Phase4CandidateSource::FullScan(candidate_scratch, _)
+        | Phase4CandidateSource::M3Projected(_, candidate_scratch) => candidate_scratch.clear(),
+        Phase4CandidateSource::PreIndexed(_) => {}
     }
     let n = choices.len();
     if out.capacity() < n {
@@ -1672,6 +1880,7 @@ fn generate_intents_storage_impl(
     let is_storage_sorted = match &candidate_source {
         Phase4CandidateSource::FullScan(_, is_sorted) => *is_sorted,
         Phase4CandidateSource::PreIndexed(index) => index.storage_is_sorted(),
+        Phase4CandidateSource::M3Projected(projection, _) => projection.storage_is_sorted,
     };
     let mut cursor = 0;
 
