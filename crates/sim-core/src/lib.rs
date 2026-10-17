@@ -1,4 +1,5 @@
 //! Core primitive types and deterministic coordinate PRNG for SimulaCiv.
+#![deny(clippy::disallowed_methods)]
 
 pub mod primitives;
 pub mod prng;

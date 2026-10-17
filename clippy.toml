@@ -1,0 +1,19 @@
+# `sqrt` remains allowed because Rust guarantees its IEEE 754 rounded result.
+disallowed-methods = [
+    { path = "f32::exp", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f64::exp", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f32::ln", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f64::ln", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f32::powf", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f64::powf", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f32::powi", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f64::powi", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f32::sin", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f64::sin", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f32::cos", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f64::cos", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f32::tan", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f64::tan", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f32::tanh", reason = "platform libm implementations are not cross-platform stable" },
+    { path = "f64::tanh", reason = "platform libm implementations are not cross-platform stable" },
+]

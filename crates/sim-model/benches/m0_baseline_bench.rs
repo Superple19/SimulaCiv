@@ -7,6 +7,8 @@
 //! 4. Snapshot emission overhead
 //! 5. Population scaling (N = 10, 50, 100, 500, 1000)
 //! 6. Correctness verification against M1 frozen graduation hashes
+// Benchmark-only logarithms compute reported scaling exponents; simulation source remains denied.
+#![allow(clippy::disallowed_methods)]
 
 use rayon::ThreadPool;
 use rayon::ThreadPoolBuilder;

@@ -1,4 +1,5 @@
 //! Domain models, subsystem mappings, configuration, Day 0 initialization, and Phase 1-3 execution for SimulaCiv.
+#![deny(clippy::disallowed_methods)]
 
 pub mod commands;
 pub mod config;

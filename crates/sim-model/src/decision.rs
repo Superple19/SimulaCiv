@@ -183,7 +183,7 @@ pub fn stable_softmax(utilities: &[f32; 6], temperature: f32) -> [f32; 6] {
     for m in 0..6 {
         let shifted = utilities[m] - u_max;
         let scaled = shifted / temperature;
-        exp_values[m] = scaled.exp();
+        exp_values[m] = libm::expf(scaled);
     }
 
     let mut denominator = 0.0f32;

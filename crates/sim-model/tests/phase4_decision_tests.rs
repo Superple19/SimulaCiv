@@ -271,6 +271,26 @@ fn test_stable_softmax_uniform_golden() {
 }
 
 #[test]
+fn test_libm_expf_softmax_range_golden_bits() {
+    // Scaled softmax inputs after max-shift and division by decision temperature.
+    let scaled_inputs = [
+        -60.0f32, -40.0, -30.0, -20.0, -10.0, -5.0, -2.0, -1.0, -0.5, -0.125, -0.0625, 0.0,
+    ];
+    let expected_bits = [
+        0x142d70c9, 0x229cbc92, 0x29d2b706, 0x310da433, 0x383e6bce, 0x3bdcc9ff, 0x3e0a9555,
+        0x3ebc5ab2, 0x3f1b4598, 0x3f61eb51, 0x3f707d60, 0x3f800000,
+    ];
+
+    for (&scaled, &expected) in scaled_inputs.iter().zip(&expected_bits) {
+        assert_eq!(
+            libm::expf(scaled).to_bits(),
+            expected,
+            "libm::expf({scaled}) bit pattern"
+        );
+    }
+}
+
+#[test]
 fn test_stable_softmax_large_offset_numerical_stability() {
     // Large positive offset should not overflow into Inf / NaN due to max subtraction
     let large_utilities = [1000.0, 999.0, 998.0, 997.0, 996.0, 995.0];
