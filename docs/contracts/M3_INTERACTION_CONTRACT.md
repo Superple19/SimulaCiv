@@ -232,3 +232,41 @@ No open questions remain in the frozen M3-00 reference.
 This freeze sets the contract status to FROZEN, records the M3 amendment that adds `RelationshipGraph` subsystem ID `6` for `profile = "m3"` only, and preserves IDs `0`–`5` and the M1 manifest for `profile = "m2"`. It freezes the M3-00 workload and single-threaded semantic reference without changing code, tests, goldens, snapshots, the M1 manifest, or CI.
 
 This freeze authorizes the M3-00 implementation task to be requested; it does not start that task. The `RelationshipGraph` PRNG test vector and separate M3 State, Metrics, and Events goldens are deliverables of the M3-00 implementation task, not of this freeze. M3-01 onward remains out of scope.
+
+## 8. M3 stage plan (PLANNED — not frozen)
+
+This plan is non-frozen. Each stage has its own contract section and must pass through **DRAFT → review → FROZEN** before that stage's implementation begins.
+
+### M3-00 — Reference workload — COMPLETE
+
+Single-threaded reference with the relationship graph, neighbor targeting, global Phase 6B resolution, and separate M3 goldens.
+
+### M3-01 — Optimized path and serial baseline
+
+Port M3 to the Segmented SoA path with index-based neighbor and target lookup. Do not add parallelism.
+
+**Gate:** exact digest parity with the M3-00 reference, including larger differential runs with hundreds to thousands of agents beyond the small golden. Measure per-phase time across `p_local ∈ {0, 0.25, 0.5, 0.75, 1}` and `k ∈ {4, 8, 16}`; use `p_local = 1` as the baseline for the global stream's cost. Also record conflict density: the fraction of keyed Phase 6B entries that share an initiator or target with another entry on the same day, as a predictor for M3-02.
+
+### M3-02 — Deterministic parallel Phase 6B
+
+The primary approach is conflict-based scheduling (the Deterministic Reservations family): entries touching disjoint agents may run in parallel; entries sharing an agent retain global-stream order. A settlement-partition fast path is valid only when every interaction is settlement-local (`p_local = 1`). Serial remains the default; parallel execution is an explicit opt-in.
+
+**Gate:** bit-identical digests to the reference. Report speedup versus `p_local` and where partition-based parallelism stops paying off, including the cause.
+
+### M3-03 — Spatial migration
+
+Settlement membership changes and partitions change daily. The round-robin fast path no longer applies.
+
+### M3-04 — Dynamic topology
+
+Edges are created and removed. The graph must be persisted in snapshots starting in this stage.
+
+### M3-05 — Propagation
+
+Model multi-hop spread over the graph within one tick and define intra-tick ordering.
+
+### M3 audit and graduation
+
+Report in the M2-40 format, answer the central research question, and decide whether a new architecture (M4) is needed.
+
+Stopping after M3-02 still provides a complete answer to the central research question. M3-03 onward deepens that answer.
