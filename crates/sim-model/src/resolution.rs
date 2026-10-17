@@ -1531,6 +1531,383 @@ pub fn phase6b_targeted_resolution_m3(
     Ok(settlement_resolutions)
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ValidatedM3StorageInteraction {
+    group_id: GroupId,
+    initiator_agent_id: AgentId,
+    target_agent_id: Option<AgentId>,
+    initiator_slot: usize,
+    target_slot: Option<usize>,
+    action_kind: TargetedActionKind,
+    requested_amount: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct M3StorageKeyedItem {
+    bucket_index: usize,
+    key: u64,
+    initiator_agent_id: AgentId,
+    target_agent_id: AgentId,
+    initiator_slot: usize,
+    target_slot: usize,
+    action_kind: TargetedActionKind,
+    requested_amount: f32,
+}
+
+#[derive(Debug, Default)]
+struct M3StorageResolutionBucket {
+    zero_target: Vec<TargetedResolution>,
+    keyed_stream: Vec<TargetedResolution>,
+}
+
+/// Transient reusable validation, global-order, and output scratch for M3 storage Phase 6B.
+#[derive(Debug, Default)]
+pub struct M3Phase6BStorageScratch {
+    validated: Vec<ValidatedM3StorageInteraction>,
+    group_ids: Vec<GroupId>,
+    keyed: Vec<M3StorageKeyedItem>,
+    buckets: Vec<M3StorageResolutionBucket>,
+    seen_groups: HashSet<GroupId>,
+}
+
+impl M3Phase6BStorageScratch {
+    /// Reserves validation and global-key staging for the largest expected day.
+    pub fn with_capacity(targeted_intents: usize) -> Self {
+        Self {
+            validated: Vec::with_capacity(targeted_intents),
+            group_ids: Vec::new(),
+            keyed: Vec::with_capacity(targeted_intents),
+            buckets: Vec::new(),
+            seen_groups: HashSet::new(),
+        }
+    }
+
+    fn clear(&mut self) {
+        self.validated.clear();
+        self.group_ids.clear();
+        self.keyed.clear();
+        self.seen_groups.clear();
+        for bucket in &mut self.buckets {
+            bucket.zero_target.clear();
+            bucket.keyed_stream.clear();
+        }
+    }
+}
+
+/// Resolves M3 Phase 6B against storage using one global keyed stream and cached agent slots.
+pub fn phase6b_targeted_resolution_storage_m3_with_scratch(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    scratch: &mut M3Phase6BStorageScratch,
+) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    scratch.clear();
+    if !config.interaction.theft_success_probability.is_finite()
+        || config.interaction.theft_success_probability < 0.0
+        || config.interaction.theft_success_probability > 1.0
+    {
+        return Err(Phase6BError::InvalidTheftSuccessProbability(
+            config.interaction.theft_success_probability,
+        ));
+    }
+
+    // Validate in caller order to preserve the reference resolver's error precedence.
+    for partition in partitions {
+        if !scratch.seen_groups.insert(partition.group_id) {
+            return Err(Phase6BError::DuplicatePartition(partition.group_id));
+        }
+        if !settlements.iter().any(|s| s.group_id == partition.group_id) {
+            return Err(Phase6BError::MissingSettlement(partition.group_id));
+        }
+
+        for intent in &partition.intents {
+            let (agent_id, group_id, target_agent_id, requested_amount, action_kind) = match *intent
+            {
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                } => (
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                    TargetedActionKind::GiveFood,
+                ),
+                Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                } => (
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                    TargetedActionKind::StealFood,
+                ),
+                _ => continue,
+            };
+
+            if group_id != partition.group_id {
+                return Err(Phase6BError::PartitionGroupMismatch {
+                    agent_id,
+                    intent_group_id: group_id,
+                    partition_group_id: partition.group_id,
+                });
+            }
+            if !requested_amount.is_finite() || requested_amount < 0.0 {
+                return Err(Phase6BError::InvalidRequestedAmount {
+                    agent_id,
+                    requested_amount,
+                });
+            }
+            let initiator_slot = storage
+                .slot_of(agent_id)
+                .ok_or(Phase6BError::MissingInitiator(agent_id))?;
+            let target_slot = match target_agent_id {
+                Some(target_id) => Some(
+                    storage
+                        .slot_of(target_id)
+                        .ok_or(Phase6BError::MissingTarget(target_id))?,
+                ),
+                None => None,
+            };
+            scratch.validated.push(ValidatedM3StorageInteraction {
+                group_id,
+                initiator_agent_id: agent_id,
+                target_agent_id,
+                initiator_slot,
+                target_slot,
+                action_kind,
+                requested_amount,
+            });
+        }
+    }
+
+    scratch
+        .group_ids
+        .extend(partitions.iter().map(|partition| partition.group_id));
+    scratch.group_ids.sort_unstable();
+    while scratch.buckets.len() < scratch.group_ids.len() {
+        scratch.buckets.push(M3StorageResolutionBucket::default());
+    }
+
+    // The reference collects keyed entries after sorting partitions by GroupId; stable sorting
+    // staged interactions here also preserves its tie order for duplicate initiators.
+    scratch.validated.sort_by_key(|item| item.group_id);
+    for item in &scratch.validated {
+        let bucket_index = scratch
+            .group_ids
+            .binary_search(&item.group_id)
+            .expect("validated interactions belong to a partition");
+        match (item.target_agent_id, item.target_slot) {
+            (None, None) => scratch.buckets[bucket_index]
+                .zero_target
+                .push(TargetedResolution {
+                    group_id: item.group_id,
+                    initiator_agent_id: item.initiator_agent_id,
+                    target_agent_id: None,
+                    action_kind: item.action_kind,
+                    resolution_key: None,
+                    theft_success_draw: None,
+                    outcome: TargetedOutcome::ZeroTarget,
+                }),
+            (Some(target_agent_id), Some(target_slot)) => scratch.keyed.push(M3StorageKeyedItem {
+                bucket_index,
+                key: compute_m3_resolution_key(
+                    config.world.master_seed,
+                    config.world.replicate_id,
+                    current_day.as_u32(),
+                    target_agent_id.as_u32(),
+                    item.initiator_agent_id.as_u32(),
+                    item.action_kind.action_kind(),
+                ),
+                initiator_agent_id: item.initiator_agent_id,
+                target_agent_id,
+                initiator_slot: item.initiator_slot,
+                target_slot,
+                action_kind: item.action_kind,
+                requested_amount: item.requested_amount,
+            }),
+            _ => unreachable!("validated target and slot fields must agree"),
+        }
+    }
+
+    let group_count = scratch.group_ids.len();
+    for bucket in &mut scratch.buckets[..group_count] {
+        bucket
+            .zero_target
+            .sort_by_key(|record| (record.initiator_agent_id, record.action_kind));
+    }
+    scratch.keyed.sort_by(|a, b| {
+        compare_keyed_interactions(
+            a.key,
+            a.target_agent_id,
+            a.initiator_agent_id,
+            a.action_kind,
+            b.key,
+            b.target_agent_id,
+            b.initiator_agent_id,
+            b.action_kind,
+        )
+    });
+
+    for index in 0..scratch.keyed.len() {
+        let item = scratch.keyed[index];
+        let group_id = scratch.group_ids[item.bucket_index];
+        let result = if !storage.demography.alive[item.initiator_slot]
+            || storage.demography.health[item.initiator_slot] <= 0.0
+            || storage.economy.group_id[item.initiator_slot] != group_id
+        {
+            TargetedResolution {
+                group_id,
+                initiator_agent_id: item.initiator_agent_id,
+                target_agent_id: Some(item.target_agent_id),
+                action_kind: item.action_kind,
+                resolution_key: Some(item.key),
+                theft_success_draw: None,
+                outcome: TargetedOutcome::InitiatorIneligible,
+            }
+        } else {
+            match item.action_kind {
+                TargetedActionKind::GiveFood => {
+                    let target_valid = storage.demography.alive[item.target_slot]
+                        && storage.demography.health[item.target_slot] > 0.0
+                        && item.target_agent_id != item.initiator_agent_id
+                        && storage.economy.food[item.target_slot]
+                            < config.interaction.starvation_threshold
+                        && storage.economy.food[item.initiator_slot] > 0.0;
+                    if !target_valid {
+                        TargetedResolution {
+                            group_id,
+                            initiator_agent_id: item.initiator_agent_id,
+                            target_agent_id: Some(item.target_agent_id),
+                            action_kind: item.action_kind,
+                            resolution_key: Some(item.key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::TargetIneligible,
+                        }
+                    } else {
+                        let amount = item
+                            .requested_amount
+                            .min(storage.economy.food[item.initiator_slot]);
+                        if amount <= 0.0 {
+                            TargetedResolution {
+                                group_id,
+                                initiator_agent_id: item.initiator_agent_id,
+                                target_agent_id: Some(item.target_agent_id),
+                                action_kind: item.action_kind,
+                                resolution_key: Some(item.key),
+                                theft_success_draw: None,
+                                outcome: TargetedOutcome::Applied { amount: 0.0 },
+                            }
+                        } else {
+                            storage.economy.food[item.initiator_slot] -= amount;
+                            storage.economy.food[item.target_slot] += amount;
+                            TargetedResolution {
+                                group_id,
+                                initiator_agent_id: item.initiator_agent_id,
+                                target_agent_id: Some(item.target_agent_id),
+                                action_kind: item.action_kind,
+                                resolution_key: Some(item.key),
+                                theft_success_draw: None,
+                                outcome: TargetedOutcome::Applied { amount },
+                            }
+                        }
+                    }
+                }
+                TargetedActionKind::StealFood => {
+                    let target_valid = storage.demography.alive[item.target_slot]
+                        && storage.demography.health[item.target_slot] > 0.0
+                        && item.target_agent_id != item.initiator_agent_id
+                        && storage.economy.food[item.target_slot] > 0.0;
+                    if !target_valid {
+                        TargetedResolution {
+                            group_id,
+                            initiator_agent_id: item.initiator_agent_id,
+                            target_agent_id: Some(item.target_agent_id),
+                            action_kind: item.action_kind,
+                            resolution_key: Some(item.key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::TargetIneligible,
+                        }
+                    } else {
+                        let coordinate = RngCoordinate::new(
+                            config.world.master_seed,
+                            config.world.replicate_id,
+                            current_day.as_u32(),
+                            6,
+                            Subsystem::TheftSuccess.id(),
+                            item.initiator_agent_id.as_u32(),
+                            0,
+                        );
+                        let draw = coordinate_prng_f32(&coordinate);
+                        let theft_succeeded = draw < config.interaction.theft_success_probability;
+                        if !theft_succeeded {
+                            TargetedResolution {
+                                group_id,
+                                initiator_agent_id: item.initiator_agent_id,
+                                target_agent_id: Some(item.target_agent_id),
+                                action_kind: item.action_kind,
+                                resolution_key: Some(item.key),
+                                theft_success_draw: Some(draw),
+                                outcome: TargetedOutcome::TheftFailed,
+                            }
+                        } else {
+                            let amount = item
+                                .requested_amount
+                                .min(storage.economy.food[item.target_slot]);
+                            if amount <= 0.0 {
+                                TargetedResolution {
+                                    group_id,
+                                    initiator_agent_id: item.initiator_agent_id,
+                                    target_agent_id: Some(item.target_agent_id),
+                                    action_kind: item.action_kind,
+                                    resolution_key: Some(item.key),
+                                    theft_success_draw: Some(draw),
+                                    outcome: TargetedOutcome::Applied { amount: 0.0 },
+                                }
+                            } else {
+                                storage.economy.food[item.target_slot] -= amount;
+                                storage.economy.food[item.initiator_slot] += amount;
+                                TargetedResolution {
+                                    group_id,
+                                    initiator_agent_id: item.initiator_agent_id,
+                                    target_agent_id: Some(item.target_agent_id),
+                                    action_kind: item.action_kind,
+                                    resolution_key: Some(item.key),
+                                    theft_success_draw: Some(draw),
+                                    outcome: TargetedOutcome::Applied { amount },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        scratch.buckets[item.bucket_index].keyed_stream.push(result);
+    }
+
+    let mut resolutions = Vec::with_capacity(group_count);
+    for (index, &group_id) in scratch.group_ids.iter().enumerate() {
+        let bucket = &scratch.buckets[index];
+        let mut all = bucket.zero_target.clone();
+        all.extend(bucket.keyed_stream.iter().cloned());
+        resolutions.push(SettlementTargetedResolution {
+            group_id,
+            zero_target: bucket.zero_target.clone(),
+            keyed_stream: bucket.keyed_stream.clone(),
+            resolutions: all,
+        });
+    }
+
+    Ok(resolutions)
+}
+
 /// Executes Phase 6B: Targeted Interaction Resolution directly against authoritative [`SegmentedAgentStorage`].
 pub fn phase6b_targeted_resolution_storage_baseline(
     storage: &mut SegmentedAgentStorage,
