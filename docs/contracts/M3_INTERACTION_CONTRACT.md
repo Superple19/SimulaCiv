@@ -273,17 +273,17 @@ Stopping after M3-02 still provides a complete answer to the central research qu
 
 ## 9. M3-01 Optimized path and serial baseline
 
-**Status: DRAFT — NOT FROZEN**
+**Status: FROZEN**
 
 ### 9.1 Scope and reference authority
 
-M3-01 runs the frozen M3 semantics on the Hybrid / `SegmentedAgentStorage` authority path, serially. It does not change the M3-00 single-threaded `WorldState` reference; M3-00 remains the oracle for M3 in the same way that M0 remains the oracle for M2. The optimized M3 path must match M3-00 State, Metrics, and Events digests exactly for identical configuration, seed, replicate, execution options, and horizon. It is an explicit M3 path; the existing M2 runner and its default remain unchanged.
+M3-01 runs the frozen M3 semantics on the Hybrid / `SegmentedAgentStorage` authority path, serially. Its public explicit opt-in entry point is `run_m3_storage_days`, not a new `Phase4ExecutionPolicy` variant or a mode on an M2 runner. It requires `profile = "m3"`; existing M2 runners continue to reject that profile. It does not change the M3-00 single-threaded `WorldState` reference; M3-00 remains the oracle for M3 in the same way that M0 remains the oracle for M2. The optimized M3 path must match M3-00 State, Metrics, and Events digests exactly for identical configuration, seed, replicate, execution options, and horizon. Existing M2 defaults remain unchanged.
 
 ### 9.2 Relationship graph execution projection
 
 The canonical `RelationshipGraph` remains keyed by ascending `AgentId` and its CSR hash remains the M3 State-digest input from §2.1. The storage path may build a transient projection whose rows are indexed by the current SoA storage slot and whose neighbor entries are storage slots resolved with `SegmentedAgentStorage::slot_of(AgentId)`. These are column indices into the storage arrays; they must not be inferred from `AgentId`, the `DenseSlot` value, or physical vector order. Preserve each canonical row's ascending `AgentId` neighbor order when mapping its neighbors to slots.
 
-Build the projection after the authoritative storage and its `AgentId`-to-slot map are ready, before the first M3 Phase 4 intent generation. Reuse it while that mapping remains unchanged. Rebuild it after any slot-map, agent-order, or identity change, whenever storage is replaced or rebuilt, and after snapshot restore. Restore reconstructs storage from the snapshot's `WorldState`; regenerate the relationship graph as required by §2.1, then rebuild the slot projection against the restored storage map.
+M3-01 storage never adds, removes, or reorders agents. Build the projection once per storage instance after its `AgentId`-to-slot map is ready and before the first M3 Phase 4 intent generation. Rebuild it whenever storage is constructed, rebuilt, replaced, or restored from a snapshot. Restore reconstructs storage from the snapshot's `WorldState`; regenerate the relationship graph as required by §2.1, then build the slot projection against the restored storage map. In debug builds, verify projected source and neighbor slots against `slot_of` for a deterministic sample: the first, middle, and last source rows and the first, middle, and last neighbor of each sampled non-empty row. A slot-map version counter is deferred to M3-03, when membership changes begin.
 
 The projection and its scratch are transient runtime data. They are excluded from `WorldState`, `SegmentedAgentStorage` serialization, State/Metric/Event digests, and snapshots. Only the canonical CSR graph hash enters the M3 State digest.
 
@@ -327,17 +327,18 @@ For M3 State hashing, encode the authoritative SoA values with the same M1 field
 Accept M3-01 only after the serial storage path has exact State, Metrics, and Events digest equality with the M3-00 reference for:
 
 - the committed M3 golden configuration;
-- larger differential runs with several seeds, populations from the hundreds through the low thousands, `k ∈ {4, 8, 16}`, `p_local ∈ {0, 0.5, 1}`, and multiple settlement counts; all configurations must satisfy §2.2 capacity validation;
+- the following 100-day CI differential matrix against M3-00, using `replicate_id = 7` and master seeds `{0, 1, 81985529216486895}` for `N = 300`: `K ∈ {3, 10}`, `k ∈ {4, 8, 16}`, and `p_local ∈ {0, 0.5, 1}`. With round-robin initialization, group sizes are 100 for `K=3` and 30 for `K=10`; all cells satisfy §2.2, so no combinations are skipped;
+- for `N ∈ {1,000, 3,000}`, a 100-day CI differential using master seed `81985529216486895`, `replicate_id=7`, `k=8`, `p_local ∈ {0, 0.5, 1}`, and `K = floor(N / 17)` (58 and 176 respectively), so every settlement has at least 17 agents;
 - snapshot pause/resume, with the relationship graph regenerated and slot projection rebuilt after restore;
 - shuffled or permuted physical `DenseSlot` / storage-slot layouts representing the same logical state.
 
-The existing M2 path must continue to pass the frozen State, Metrics, and Events digests in §2.5 and existing snapshot checks unchanged. M3 goldens remain separate.
+The existing M2 path must continue to pass the frozen State, Metrics, and Events digests in §2.5 and existing snapshot checks unchanged. M3 goldens remain separate. Run one additional 100-day release-mode differential at `N=10,000`, `K=50`, master seed `81985529216486895`, `replicate_id=7`, `k=8`, and `p_local=0.5`; record it in the performance report, not CI.
 
 ### 9.8 Measurement protocol
 
-Record host CPU, physical/logical core counts, OS, and Rust toolchain. Measure populations `N ∈ {10k, 50k, 100k}` with approximately 200 agents per settlement (`K ≈ N / 200`), across the 15 combinations `p_local ∈ {0, 0.25, 0.5, 0.75, 1}` and `k ∈ {4, 8, 16}`. Use only configurations satisfying §2.2 capacity rules.
+Record host CPU, physical/logical core counts, OS, and Rust toolchain. Use the M2-40 fixed-group-size workload and benchmark configuration unchanged, except for `profile = "m3"`, `relationship_degree_k`, and `p_local`; preserve its action weights and biases without tuning. Measure populations `N ∈ {10k, 50k, 100k}` with approximately 200 agents per settlement (`K ≈ N / 200`), across the 15 combinations `p_local ∈ {0, 0.25, 0.5, 0.75, 1}` and `k ∈ {4, 8, 16}`. Use only configurations satisfying §2.2 capacity rules.
 
-Follow the M2-40 sampling method: initialize outside the timed run; run two warmups and seven timed samples per cell; reuse runner scratch over three consecutive days per sample; keep metrics and events enabled and snapshots disabled. Report median ± MAD per day/tick and per-phase time for Phases 1–11; split Phase 4 into action selection and intent/projection work, and Phase 6B into validation/slot lookup, global key/sort, and sequential commit. Time graph generation and the initial slot-projection build separately so their one-time cost is visible. `p_local = 1` is the baseline for the global stream's cost. M2 Serial timings at the same `N` are context only, not a like-for-like comparison, because M2 uses same-settlement targeting and settlement-local Phase 6B ordering.
+Follow the M2-40 sampling method: initialize outside the timed run; run two warmups and seven timed samples per cell; reuse runner scratch over three consecutive days per sample; keep metrics and events enabled and snapshots disabled. Report median ± MAD per day/tick and per-phase time for Phases 1–11; split Phase 4 into action selection and intent/projection work, and Phase 6B into validation/slot lookup, global key/sort, and sequential commit. Time graph generation and the initial slot-projection build separately so their one-time cost is visible. For each measured cell, record the mean daily count of keyed Phase 6B entries and cross-partition interactions over the three days of each timed sample. `p_local = 1` is the baseline for the global stream's cost. M2 Serial timings at the same `N` are context only, not a like-for-like comparison, because M2 uses same-settlement targeting and settlement-local Phase 6B ordering.
 
 Report path: [`docs/performance/M3_01_SERIAL_BASELINE.md`](../performance/M3_01_SERIAL_BASELINE.md).
 
@@ -351,11 +352,15 @@ For a day `d`, let `E_d` be its keyed Phase 6B entries (`target = Some`). Each e
 - Changing production-runner defaults or the existing M2 paths.
 - Changing M3-00 reference semantics, event schema, snapshot schema, or canonical M2 behavior.
 
-### 9.11 Open questions
+### 9.11 Frozen decision register
 
-| Question | Status | Why it remains open |
-|---|---|---|
-| Which public API provides explicit opt-in to the M3 Hybrid / Segmented SoA serial path while the existing M2 runner continues to reject M3 configurations? | **BLOCKING** | The current runner exposes M2 Serial/Rayon modes and a separate M3-00 reference runner; it does not define an optimized M3 entry point. |
-| Which benchmark action mix/configuration should produce representative keyed GiveFood/StealFood volume across the requested `p_local` matrix? | **BLOCKING for benchmark interpretation** | The M2-40 profile fixes population/group workloads and sampling, but the requested M3 measurement matrix does not specify an action distribution. |
-| How should projection invalidation detect every slot-map change: explicit generation/version, owner-managed rebuild, or another mechanism? | **NON-BLOCKING** | Correctness requires rebuilding on every mapping change; the current storage exposes `slot_of` and rebuild operations but no slot-map generation counter. A conservative rebuild remains valid. |
-| Which exact seed/population/settlement combinations and differential horizons should be selected from the required ranges? | **NON-BLOCKING** | The required coverage classes are specified, while the final test matrix can be selected without changing the semantics or gates. |
+| ID | Decision | Status | Frozen resolution |
+|---|---|---|---|
+| Q1 | M3-01 optimized serial API | **FROZEN** | Expose `run_m3_storage_days` as a separate public opt-in for `profile = "m3"` on Hybrid / `SegmentedAgentStorage` authority. Do not add an M3 variant to `Phase4ExecutionPolicy` or route M3 through M2 runners. Existing M2 runners reject M3; M3-00 reference runner remains unchanged. |
+| Q2 | Benchmark model and action mix | **FROZEN** | Keep the M2-40 fixed-group-size configuration and action weights/biases unchanged; add only the M3 profile fields and the requested `k` / `p_local` values. For each measured cell record the mean daily keyed Phase 6B count and cross-partition interaction count. |
+| Q3 | Projection lifetime and invalidation | **FROZEN** | M3-01 storage never adds, removes, or reorders agents. Build the projection once per storage instance; rebuild on construction, rebuild, replacement, or snapshot restore. Debug builds verify the deterministic sample specified in §9.2 against `slot_of`. Defer a slot-map version counter to M3-03. |
+| Q4 | Differential matrix | **FROZEN** | Run the §9.7 CI matrix: `N=300`, `replicate_id=7`, master seeds `{0, 1, 81985529216486895}`, `K ∈ {3,10}`, `k ∈ {4,8,16}`, `p_local ∈ {0,0.5,1}`, 100 days; and `N ∈ {1,000,3,000}`, `replicate_id=7`, seed `81985529216486895`, `K=floor(N/17)`, `k=8`, `p_local ∈ {0,0.5,1}`, 100 days. Skip and list any cell failing §2.2; none fail for the specified round-robin populations. Run the `N=10,000` release differential once and record it in the performance report, not CI. |
+
+### 9.12 Freeze record
+
+This freeze resolves the §9 API, benchmark workload, projection lifecycle, and differential-matrix questions. It freezes the M3-01 optimized serial-path contract and authorizes the M3-01 implementation task to be requested; it does not start that task.
