@@ -9,7 +9,7 @@ use crate::storage::SegmentedAgentStorage;
 use crate::subsystems::Subsystem;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, K_PRIME, Money, RngCoordinate, coordinate_prng_f32, mix64};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Outcome of a single agent's Work intent during Phase 6A.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -649,6 +649,30 @@ pub fn compute_resolution_key(
     mix64(h4)
 }
 
+/// Computes the Phase 6B resolution key for the M3 global stream, omitting `group_id` from W2.
+#[inline]
+pub fn compute_m3_resolution_key(
+    master_seed: u64,
+    replicate_id: u32,
+    day: u32,
+    target_agent_id: u32,
+    initiator_agent_id: u32,
+    action_kind: u64,
+) -> u64 {
+    let w0 = master_seed;
+    let w1 = ((replicate_id as u64) << 32) | (day as u64);
+    let w2 = (6u64 << 48) | (5u64 << 32);
+    let w3 = ((target_agent_id as u64) << 32) | (initiator_agent_id as u64);
+    let w4 = action_kind;
+
+    let h0 = w0.wrapping_add(K_PRIME);
+    let h1 = mix64(h0 ^ w1);
+    let h2 = mix64(h1 ^ w2);
+    let h3 = mix64(h2 ^ w3);
+    let h4 = mix64(h3 ^ w4);
+    mix64(h4)
+}
+
 /// Standalone canonical comparator for keyed interactions, supporting collision tie-break verification.
 ///
 /// Primary sort: ResolutionKey ascending.
@@ -680,6 +704,22 @@ struct PlannedKeyedItem {
     target_agent_id: AgentId,
     action_kind: TargetedActionKind,
     requested_amount: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PlannedM3KeyedItem {
+    group_id: GroupId,
+    key: u64,
+    initiator_agent_id: AgentId,
+    target_agent_id: AgentId,
+    action_kind: TargetedActionKind,
+    requested_amount: f32,
+}
+
+#[derive(Debug, Default)]
+struct M3TargetedResolutionBucket {
+    zero_target: Vec<TargetedResolution>,
+    keyed_stream: Vec<TargetedResolution>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1115,6 +1155,376 @@ pub fn phase6b_targeted_resolution(
             zero_target: zero_target_records,
             keyed_stream: keyed_resolutions,
             resolutions: all_resolutions,
+        });
+    }
+
+    Ok(settlement_resolutions)
+}
+
+/// Executes reference Phase 6B with one global M3 keyed stream across all partitions.
+pub fn phase6b_targeted_resolution_m3(
+    world: &mut WorldState,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    if !config.interaction.theft_success_probability.is_finite()
+        || config.interaction.theft_success_probability < 0.0
+        || config.interaction.theft_success_probability > 1.0
+    {
+        return Err(Phase6BError::InvalidTheftSuccessProbability(
+            config.interaction.theft_success_probability,
+        ));
+    }
+
+    let mut seen_groups = HashSet::new();
+    for partition in partitions {
+        if !seen_groups.insert(partition.group_id) {
+            return Err(Phase6BError::DuplicatePartition(partition.group_id));
+        }
+
+        if !world
+            .settlements
+            .iter()
+            .any(|settlement| settlement.group_id == partition.group_id)
+        {
+            return Err(Phase6BError::MissingSettlement(partition.group_id));
+        }
+
+        for intent in &partition.intents {
+            match *intent {
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                }
+                | Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                } => {
+                    if group_id != partition.group_id {
+                        return Err(Phase6BError::PartitionGroupMismatch {
+                            agent_id,
+                            intent_group_id: group_id,
+                            partition_group_id: partition.group_id,
+                        });
+                    }
+
+                    if !requested_amount.is_finite() || requested_amount < 0.0 {
+                        return Err(Phase6BError::InvalidRequestedAmount {
+                            agent_id,
+                            requested_amount,
+                        });
+                    }
+
+                    if !world.agents.iter().any(|agent| agent.agent_id == agent_id) {
+                        return Err(Phase6BError::MissingInitiator(agent_id));
+                    }
+
+                    if let Some(target_id) = target_agent_id
+                        && !world.agents.iter().any(|agent| agent.agent_id == target_id)
+                    {
+                        return Err(Phase6BError::MissingTarget(target_id));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut sorted_partitions: Vec<&SettlementIntentPartition> = partitions.iter().collect();
+    sorted_partitions.sort_by_key(|partition| partition.group_id);
+
+    let mut buckets = BTreeMap::new();
+    for partition in &sorted_partitions {
+        buckets.insert(partition.group_id, M3TargetedResolutionBucket::default());
+    }
+
+    let mut keyed_items = Vec::new();
+    for partition in &sorted_partitions {
+        let bucket = buckets
+            .get_mut(&partition.group_id)
+            .expect("bucket created for structurally validated partition");
+        for intent in &partition.intents {
+            match *intent {
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id: None,
+                    ..
+                } => bucket.zero_target.push(TargetedResolution {
+                    group_id,
+                    initiator_agent_id: agent_id,
+                    target_agent_id: None,
+                    action_kind: TargetedActionKind::GiveFood,
+                    resolution_key: None,
+                    theft_success_draw: None,
+                    outcome: TargetedOutcome::ZeroTarget,
+                }),
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id: Some(target_agent_id),
+                    requested_amount,
+                } => keyed_items.push(PlannedM3KeyedItem {
+                    group_id,
+                    key: compute_m3_resolution_key(
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        world.current_day.as_u32(),
+                        target_agent_id.as_u32(),
+                        agent_id.as_u32(),
+                        TargetedActionKind::GiveFood.action_kind(),
+                    ),
+                    initiator_agent_id: agent_id,
+                    target_agent_id,
+                    action_kind: TargetedActionKind::GiveFood,
+                    requested_amount,
+                }),
+                Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id: None,
+                    ..
+                } => bucket.zero_target.push(TargetedResolution {
+                    group_id,
+                    initiator_agent_id: agent_id,
+                    target_agent_id: None,
+                    action_kind: TargetedActionKind::StealFood,
+                    resolution_key: None,
+                    theft_success_draw: None,
+                    outcome: TargetedOutcome::ZeroTarget,
+                }),
+                Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id: Some(target_agent_id),
+                    requested_amount,
+                } => keyed_items.push(PlannedM3KeyedItem {
+                    group_id,
+                    key: compute_m3_resolution_key(
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        world.current_day.as_u32(),
+                        target_agent_id.as_u32(),
+                        agent_id.as_u32(),
+                        TargetedActionKind::StealFood.action_kind(),
+                    ),
+                    initiator_agent_id: agent_id,
+                    target_agent_id,
+                    action_kind: TargetedActionKind::StealFood,
+                    requested_amount,
+                }),
+                _ => {}
+            }
+        }
+    }
+
+    for bucket in buckets.values_mut() {
+        bucket
+            .zero_target
+            .sort_by_key(|record| (record.initiator_agent_id, record.action_kind));
+    }
+    keyed_items.sort_by(|a, b| {
+        compare_keyed_interactions(
+            a.key,
+            a.target_agent_id,
+            a.initiator_agent_id,
+            a.action_kind,
+            b.key,
+            b.target_agent_id,
+            b.initiator_agent_id,
+            b.action_kind,
+        )
+    });
+
+    for item in keyed_items {
+        let group_id = item.group_id;
+        let initiator_id = item.initiator_agent_id;
+        let target_id = item.target_agent_id;
+        let bucket = buckets
+            .get_mut(&group_id)
+            .expect("bucket created for structurally validated partition");
+
+        let initiator_idx = world
+            .agents
+            .iter()
+            .position(|agent| agent.agent_id == initiator_id)
+            .expect("initiator verified in structural validation");
+        let initiator = &world.agents[initiator_idx];
+        if !initiator.alive || initiator.health <= 0.0 || initiator.group_id != group_id {
+            bucket.keyed_stream.push(TargetedResolution {
+                group_id,
+                initiator_agent_id: initiator_id,
+                target_agent_id: Some(target_id),
+                action_kind: item.action_kind,
+                resolution_key: Some(item.key),
+                theft_success_draw: None,
+                outcome: TargetedOutcome::InitiatorIneligible,
+            });
+            continue;
+        }
+
+        match item.action_kind {
+            TargetedActionKind::GiveFood => {
+                let target_idx = world
+                    .agents
+                    .iter()
+                    .position(|agent| agent.agent_id == target_id)
+                    .expect("target verified in structural validation");
+                let target = &world.agents[target_idx];
+                let giver = &world.agents[initiator_idx];
+                let target_valid = target.alive
+                    && target.health > 0.0
+                    && target.agent_id != giver.agent_id
+                    && target.food < config.interaction.starvation_threshold
+                    && giver.food > 0.0;
+
+                if !target_valid {
+                    bucket.keyed_stream.push(TargetedResolution {
+                        group_id,
+                        initiator_agent_id: initiator_id,
+                        target_agent_id: Some(target_id),
+                        action_kind: TargetedActionKind::GiveFood,
+                        resolution_key: Some(item.key),
+                        theft_success_draw: None,
+                        outcome: TargetedOutcome::TargetIneligible,
+                    });
+                    continue;
+                }
+
+                let actual_given = item.requested_amount.min(giver.food);
+                if actual_given <= 0.0 {
+                    bucket.keyed_stream.push(TargetedResolution {
+                        group_id,
+                        initiator_agent_id: initiator_id,
+                        target_agent_id: Some(target_id),
+                        action_kind: TargetedActionKind::GiveFood,
+                        resolution_key: Some(item.key),
+                        theft_success_draw: None,
+                        outcome: TargetedOutcome::Applied { amount: 0.0 },
+                    });
+                    continue;
+                }
+
+                Command::ModifyFood {
+                    from: initiator_id,
+                    to: target_id,
+                    amount: actual_given,
+                }
+                .execute(world)
+                .expect("command execution must succeed on validated state");
+
+                bucket.keyed_stream.push(TargetedResolution {
+                    group_id,
+                    initiator_agent_id: initiator_id,
+                    target_agent_id: Some(target_id),
+                    action_kind: TargetedActionKind::GiveFood,
+                    resolution_key: Some(item.key),
+                    theft_success_draw: None,
+                    outcome: TargetedOutcome::Applied {
+                        amount: actual_given,
+                    },
+                });
+            }
+            TargetedActionKind::StealFood => {
+                let target_idx = world
+                    .agents
+                    .iter()
+                    .position(|agent| agent.agent_id == target_id)
+                    .expect("target verified in structural validation");
+                let target = &world.agents[target_idx];
+                let thief = &world.agents[initiator_idx];
+                let target_valid = target.alive
+                    && target.health > 0.0
+                    && target.agent_id != thief.agent_id
+                    && target.food > 0.0;
+
+                if !target_valid {
+                    bucket.keyed_stream.push(TargetedResolution {
+                        group_id,
+                        initiator_agent_id: initiator_id,
+                        target_agent_id: Some(target_id),
+                        action_kind: TargetedActionKind::StealFood,
+                        resolution_key: Some(item.key),
+                        theft_success_draw: None,
+                        outcome: TargetedOutcome::TargetIneligible,
+                    });
+                    continue;
+                }
+
+                let coordinate = RngCoordinate::new(
+                    config.world.master_seed,
+                    config.world.replicate_id,
+                    world.current_day.as_u32(),
+                    6,
+                    Subsystem::TheftSuccess.id(),
+                    initiator_id.as_u32(),
+                    0,
+                );
+                let draw = coordinate_prng_f32(&coordinate);
+                let theft_succeeded = draw < config.interaction.theft_success_probability;
+                if !theft_succeeded {
+                    bucket.keyed_stream.push(TargetedResolution {
+                        group_id,
+                        initiator_agent_id: initiator_id,
+                        target_agent_id: Some(target_id),
+                        action_kind: TargetedActionKind::StealFood,
+                        resolution_key: Some(item.key),
+                        theft_success_draw: Some(draw),
+                        outcome: TargetedOutcome::TheftFailed,
+                    });
+                    continue;
+                }
+
+                let actual_stolen = item.requested_amount.min(world.agents[target_idx].food);
+                if actual_stolen <= 0.0 {
+                    bucket.keyed_stream.push(TargetedResolution {
+                        group_id,
+                        initiator_agent_id: initiator_id,
+                        target_agent_id: Some(target_id),
+                        action_kind: TargetedActionKind::StealFood,
+                        resolution_key: Some(item.key),
+                        theft_success_draw: Some(draw),
+                        outcome: TargetedOutcome::Applied { amount: 0.0 },
+                    });
+                    continue;
+                }
+
+                Command::ModifyFood {
+                    from: target_id,
+                    to: initiator_id,
+                    amount: actual_stolen,
+                }
+                .execute(world)
+                .expect("command execution must succeed on validated state");
+
+                bucket.keyed_stream.push(TargetedResolution {
+                    group_id,
+                    initiator_agent_id: initiator_id,
+                    target_agent_id: Some(target_id),
+                    action_kind: TargetedActionKind::StealFood,
+                    resolution_key: Some(item.key),
+                    theft_success_draw: Some(draw),
+                    outcome: TargetedOutcome::Applied {
+                        amount: actual_stolen,
+                    },
+                });
+            }
+        }
+    }
+
+    let mut settlement_resolutions = Vec::with_capacity(buckets.len());
+    for (group_id, bucket) in buckets {
+        let mut resolutions = bucket.zero_target.clone();
+        resolutions.extend(bucket.keyed_stream.iter().cloned());
+        settlement_resolutions.push(SettlementTargetedResolution {
+            group_id,
+            zero_target: bucket.zero_target,
+            keyed_stream: bucket.keyed_stream,
+            resolutions,
         });
     }
 
