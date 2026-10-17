@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 use sim_core::Money;
 
+/// Runtime semantics profile selected by the input configuration.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SimulationProfile {
+    #[default]
+    M2,
+    M3,
+}
+
 /// Run and world initialization configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorldConfig {
@@ -56,6 +65,10 @@ pub struct InteractionConfig {
     pub theft_amount: f32,
     pub theft_success_probability: f32,
     pub starvation_threshold: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relationship_degree_k: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub p_local: Option<f32>,
 }
 
 /// Utility decision model weights and action biases.
@@ -72,6 +85,8 @@ pub struct DecisionConfig {
 /// Master configuration container for the SimulaCiv M0 reference model.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SimConfig {
+    #[serde(default)]
+    pub profile: SimulationProfile,
     pub world: WorldConfig,
     pub traits: TraitConfig,
     pub environment: EnvironmentConfig,
@@ -129,6 +144,11 @@ pub enum ConfigValidationError {
     },
     InvalidStarvationThreshold(f32),
     InvalidDecisionTemperature(f32),
+    M3SettingsRequireM3Profile,
+    MissingRelationshipDegreeK,
+    MissingLocalityProbability,
+    InvalidRelationshipDegree(i64),
+    InvalidLocalityProbability(f32),
 }
 
 impl std::fmt::Display for ConfigValidationError {
@@ -235,6 +255,24 @@ impl std::fmt::Display for ConfigValidationError {
             Self::InvalidDecisionTemperature(t) => {
                 write!(f, "decision_temperature must be > 0.0, got {}", t)
             }
+            Self::M3SettingsRequireM3Profile => {
+                write!(f, "M3 interaction settings require profile = \"m3\"")
+            }
+            Self::MissingRelationshipDegreeK => {
+                write!(
+                    f,
+                    "profile = \"m3\" requires interaction.relationship_degree_k"
+                )
+            }
+            Self::MissingLocalityProbability => {
+                write!(f, "profile = \"m3\" requires interaction.p_local")
+            }
+            Self::InvalidRelationshipDegree(k) => {
+                write!(f, "relationship_degree_k must be within [0, 16], got {}", k)
+            }
+            Self::InvalidLocalityProbability(p) => {
+                write!(f, "p_local must be finite and within [0.0, 1.0], got {}", p)
+            }
         }
     }
 }
@@ -290,6 +328,32 @@ impl SimConfig {
 
     /// Validates all configuration invariants according to the SimulaCiv M0 specification.
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
+        match self.profile {
+            SimulationProfile::M2 => {
+                if self.interaction.relationship_degree_k.is_some()
+                    || self.interaction.p_local.is_some()
+                {
+                    return Err(ConfigValidationError::M3SettingsRequireM3Profile);
+                }
+            }
+            SimulationProfile::M3 => {
+                let k = self
+                    .interaction
+                    .relationship_degree_k
+                    .ok_or(ConfigValidationError::MissingRelationshipDegreeK)?;
+                let p_local = self
+                    .interaction
+                    .p_local
+                    .ok_or(ConfigValidationError::MissingLocalityProbability)?;
+                if !(0..=16).contains(&k) {
+                    return Err(ConfigValidationError::InvalidRelationshipDegree(k));
+                }
+                if !p_local.is_finite() || !(0.0..=1.0).contains(&p_local) {
+                    return Err(ConfigValidationError::InvalidLocalityProbability(p_local));
+                }
+            }
+        }
+
         // 1. Non-finite floating-point checks
         check_finite("initial_health", self.world.initial_health)?;
         check_finite("initial_food", self.world.initial_food)?;

@@ -12,6 +12,7 @@ pub mod intents;
 pub mod metrics;
 pub mod partitioning;
 pub mod phases;
+pub mod relationship_graph;
 pub mod resolution;
 pub mod runner;
 pub mod snapshot;
@@ -24,7 +25,7 @@ pub use commands::{
 };
 pub use config::{
     ConfigError, ConfigValidationError, DecisionConfig, EconomyConfig, EnvironmentConfig,
-    InteractionConfig, SimConfig, TraitConfig, WorldConfig,
+    InteractionConfig, SimConfig, SimulationProfile, TraitConfig, WorldConfig,
 };
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,
@@ -85,6 +86,9 @@ pub use phases::{
     phase2_biological_degradation_with_scratch, phase9_mortality_commitment,
     phase9_mortality_commitment_storage, phase9_mortality_commitment_with_config,
     phase9_mortality_resolution, update_biological_degradation,
+};
+pub use relationship_graph::{
+    M3_RELATIONSHIP_GRAPH_SUBSYSTEM_ID, RelationshipGraph, RelationshipGraphError,
 };
 pub use resolution::{
     BuyerMarketResolution, Phase6AError, Phase6BError, Phase6BResolutionScratch, Phase7Error,
