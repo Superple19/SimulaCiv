@@ -655,6 +655,15 @@ struct Phase9bPlan {
     result: Phase9bResult,
 }
 
+#[derive(Clone, Copy)]
+struct M3pPhase9bStateView<'a> {
+    world: &'a WorldState,
+    relationship_graph: &'a RelationshipGraph,
+    next_agent_id: u64,
+    relationship_degree_k: u32,
+    p_local_bits: u32,
+}
+
 #[derive(Debug)]
 enum Phase9bGraphUpdate {
     Replace(RelationshipGraph),
@@ -679,6 +688,8 @@ pub(crate) struct Phase9bRunParameters<'a> {
     pub(crate) config: &'a SimConfig,
     pub(crate) run_context: &'a M0RunContext,
     pub(crate) day: u32,
+    pub(crate) relationship_degree_k: u32,
+    pub(crate) p_local_bits: u32,
 }
 
 fn apply_phase9b(
@@ -781,6 +792,8 @@ pub(crate) fn apply_phase9b_storage_incremental(
         config,
         run_context,
         day,
+        relationship_degree_k,
+        p_local_bits,
     } = parameters;
     let source_len = storage.len();
     let planning_world = WorldState {
@@ -789,14 +802,16 @@ pub(crate) fn apply_phase9b_storage_incremental(
         settlements: world.settlements.clone(),
         initial_money_supply: world.initial_money_supply,
     };
-    let planning_state = M3pReferenceState::from_parts(
-        planning_world,
-        relationship_graph.clone(),
-        *next_agent_id,
-        config,
-        run_context,
-    )?;
-    let plan = plan_phase9b(&planning_state, config, run_context, day, Some(scratch))?;
+    // The public incremental runner validates the complete state before its day loop; within
+    // that loop structural changes are limited to this function's checked topology append.
+    let state_view = M3pPhase9bStateView {
+        world: &planning_world,
+        relationship_graph,
+        next_agent_id: *next_agent_id,
+        relationship_degree_k,
+        p_local_bits,
+    };
+    let plan = plan_phase9b_from_view(&state_view, config, run_context, day, Some(scratch))?;
     if !plan.result.compacted && plan.agents.len() < source_len {
         return Err(invariant(
             "M3P storage Phase 9b removed agents without compaction",
@@ -875,6 +890,30 @@ fn plan_phase9b(
     day: u32,
     incremental_scratch: Option<&mut M3pIncrementalTopologyScratch>,
 ) -> Result<Phase9bPlan, M0RunError> {
+    let state_view = M3pPhase9bStateView {
+        world: &state.world,
+        relationship_graph: &state.relationship_graph,
+        next_agent_id: state.next_agent_id,
+        relationship_degree_k: state.relationship_degree_k,
+        p_local_bits: state.p_local_bits,
+    };
+    plan_phase9b_from_view(&state_view, config, run_context, day, incremental_scratch)
+}
+
+fn plan_phase9b_from_view(
+    state: &M3pPhase9bStateView<'_>,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    day: u32,
+    incremental_scratch: Option<&mut M3pIncrementalTopologyScratch>,
+) -> Result<Phase9bPlan, M0RunError> {
+    let M3pPhase9bStateView {
+        world,
+        relationship_graph,
+        next_agent_id,
+        relationship_degree_k,
+        p_local_bits,
+    } = *state;
     let population_config = config
         .population
         .as_ref()
@@ -911,8 +950,7 @@ fn plan_phase9b(
         ),
     };
     sampling_index.fill_members(
-        state
-            .world
+        world
             .agents
             .iter()
             .filter(|agent| agent.alive)
@@ -920,13 +958,11 @@ fn plan_phase9b(
     );
     let live_population = u64::try_from(sampling_index.members.len())
         .map_err(|_| invariant("M3P live population count overflow"))?;
-    let candidate_index =
-        sampling_index.build(f32::from_bits(state.p_local_bits), *run_context, day)?;
+    let candidate_index = sampling_index.build(f32::from_bits(p_local_bits), *run_context, day)?;
 
     eligible_parents.clear();
     eligible_parents.extend(
-        state
-            .world
+        world
             .agents
             .iter()
             .filter(|agent| {
@@ -959,12 +995,11 @@ fn plan_phase9b(
 
     let birth_count = u64::try_from(successful_parents.len())
         .map_err(|_| invariant("M3P daily birth count overflow"))?;
-    let next_agent_id = state
-        .next_agent_id
+    let planned_next_agent_id = next_agent_id
         .checked_add(birth_count)
         .filter(|next| *next <= AGENT_ID_EXHAUSTED)
         .ok_or_else(|| invariant("M3P AgentId space exhausted"))?;
-    if birth_count > 0 && state.next_agent_id >= AGENT_ID_EXHAUSTED {
+    if birth_count > 0 && next_agent_id >= AGENT_ID_EXHAUSTED {
         return Err(invariant("M3P AgentId space exhausted"));
     }
     validate_live_population_after_births(live_population, birth_count)?;
@@ -972,7 +1007,7 @@ fn plan_phase9b(
     let mut legacy_agent_slots = BTreeMap::new();
     if let Some(agent_slots) = agent_slots_scratch.as_mut() {
         agent_slots.clear();
-        for (slot, agent) in state.world.agents.iter().enumerate() {
+        for (slot, agent) in world.agents.iter().enumerate() {
             agent_slots.push((agent.agent_id, slot));
         }
         agent_slots.sort_unstable_by_key(|&(agent_id, _)| agent_id);
@@ -980,7 +1015,7 @@ fn plan_phase9b(
             return Err(invariant("duplicate AgentId during M3P Phase 9b planning"));
         }
     } else {
-        for (slot, agent) in state.world.agents.iter().enumerate() {
+        for (slot, agent) in world.agents.iter().enumerate() {
             if legacy_agent_slots.insert(agent.agent_id, slot).is_some() {
                 return Err(invariant("duplicate AgentId during M3P Phase 9b planning"));
             }
@@ -990,13 +1025,13 @@ fn plan_phase9b(
     let mut planned_agents = if let Some(planned_agents) = planned_agents_scratch {
         let mut reusable = std::mem::take(planned_agents);
         reusable.clear();
-        reusable.extend_from_slice(&state.world.agents);
+        reusable.extend_from_slice(&world.agents);
         reusable
     } else {
-        state.world.agents.clone()
+        world.agents.clone()
     };
     let mut births = Vec::with_capacity(successful_parents.len());
-    let degree_k = state.relationship_degree_k as usize;
+    let degree_k = relationship_degree_k as usize;
 
     for (offset, parent_id) in successful_parents.iter().copied().enumerate() {
         let slot = if let Some(agent_slots) = agent_slots_scratch.as_ref() {
@@ -1018,8 +1053,7 @@ fn plan_phase9b(
         {
             return Err(invariant("M3P birth parent failed Phase 9b validation"));
         }
-        let child_id_u64 = state
-            .next_agent_id
+        let child_id_u64 = next_agent_id
             .checked_add(offset as u64)
             .ok_or_else(|| invariant("M3P AgentId space exhausted"))?;
         let child_id = AgentId(
@@ -1053,9 +1087,8 @@ fn plan_phase9b(
     let use_incremental_append = newborn_rows_scratch.is_some() && !compacted;
     let mut rows = BTreeMap::new();
     if !use_incremental_append {
-        for &source_id in state.relationship_graph.source_ids() {
-            let neighbors = state
-                .relationship_graph
+        for &source_id in relationship_graph.source_ids() {
+            let neighbors = relationship_graph
                 .neighbors_of(source_id)
                 .ok_or_else(|| invariant("M3P graph source row is missing"))?;
             rows.insert(source_id, neighbors.to_vec());
@@ -1174,7 +1207,7 @@ fn plan_phase9b(
             let row_ends: &mut Vec<usize> = csr_row_ends_scratch
                 .as_mut()
                 .expect("incremental append requires row-offset scratch");
-            Phase9bGraphUpdate::Append(state.relationship_graph.plan_append_rows(
+            Phase9bGraphUpdate::Append(relationship_graph.plan_append_rows(
                 rows,
                 candidate_index.members,
                 row_ends,
@@ -1188,12 +1221,12 @@ fn plan_phase9b(
             .collect();
         Phase9bGraphUpdate::Replace(RelationshipGraph::from_canonical_rows(rows, &memberships)?)
     } else {
-        Phase9bGraphUpdate::Replace(state.relationship_graph.clone())
+        Phase9bGraphUpdate::Replace(relationship_graph.clone())
     };
     let next_agent_id = if births.is_empty() {
-        state.next_agent_id
-    } else {
         next_agent_id
+    } else {
+        planned_next_agent_id
     };
     if let Phase9bGraphUpdate::Replace(graph) = &graph_update {
         validate_state_parts(&planned_agents, graph, next_agent_id)?;

@@ -1615,6 +1615,8 @@ fn run_m3p_storage_day_inner(
                 config: &effective_config,
                 run_context: &context.run_context,
                 day: executed_day,
+                relationship_degree_k: context.relationship_degree_k,
+                p_local_bits: context.p_local_bits,
             },
             scratch,
         )?
