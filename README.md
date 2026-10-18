@@ -10,7 +10,7 @@ The current reference workload is an agent-based synthetic society. The project 
 
 ## Status
 
-**M2 graduated — `v0.3.0-m2`. M3-00 through M3-08 are complete ([interim audit](docs/performance/M3_INTERIM_AUDIT.md), [M3-08 population dynamics](docs/performance/M3_08_POPULATION_DYNAMICS.md)); M3-09 propagation is planned.** Spatial migration is deferred without a stage number.
+**M2 graduated — `v0.3.0-m2`. M3-00 through M3-09 are complete ([interim audit](docs/performance/M3_INTERIM_AUDIT.md), [M3-08 population dynamics](docs/performance/M3_08_POPULATION_DYNAMICS.md), [M3-09 incremental topology](docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md)); M3-10 feature switches and M3-11 propagation are planned.** Spatial migration is deferred without a stage number.
 
 Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
 
@@ -19,7 +19,7 @@ Canonical State, Metrics, and Events digests and snapshots are verified on Linux
 | M0 — `v0.1.0-m0` | Complete | Deterministic executable reference semantics and replay gate |
 | M1 — `v0.2.0-m1` | Complete | Frozen semantic contracts and machine-readable contract manifest |
 | M2 — `v0.3.0-m2` | Graduated | High-performance runtime with canonical parity |
-| M3 | In progress — M3-00 through M3-08 complete; M3-09 planned | Reference and optimized relationship-graph paths, deterministic parallel Phase 6B, opt-in search reduction, indexed settlement lookups, M3P births and dynamic graph cleanup, exact digest parity, [serial baseline](docs/performance/M3_01_SERIAL_BASELINE.md), [parallel Phase 6B profile](docs/performance/M3_02_PARALLEL_PHASE6B.md), [search-reduction report](docs/performance/M3_02B_SEARCH_REDUCTION.md), [settlement-index measurements](docs/performance/M3_SETTLEMENT_INDEX.md), [residual-scaling diagnosis](docs/performance/M3_07_SCALE_RESIDUAL.md), and [M3-08 population dynamics](docs/performance/M3_08_POPULATION_DYNAMICS.md); M3-00 goldens verified on Linux, Windows, and macOS; M3P sustained gate covered by workspace tests |
+| M3 | In progress — M3-00 through M3-09 complete; M3-10/11 planned | Reference and optimized relationship-graph paths, deterministic parallel Phase 6B, opt-in search reduction, indexed settlement lookups, M3P births and dynamic graph cleanup, incremental topology maintenance, exact digest parity, [serial baseline](docs/performance/M3_01_SERIAL_BASELINE.md), [parallel Phase 6B profile](docs/performance/M3_02_PARALLEL_PHASE6B.md), [search-reduction report](docs/performance/M3_02B_SEARCH_REDUCTION.md), [settlement-index measurements](docs/performance/M3_SETTLEMENT_INDEX.md), [residual-scaling diagnosis](docs/performance/M3_07_SCALE_RESIDUAL.md), [M3-08 population dynamics](docs/performance/M3_08_POPULATION_DYNAMICS.md), and [M3-09 incremental topology](docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md); M3-00 goldens verified on Linux, Windows, and macOS; M3P sustained gate covered by workspace tests |
 
 The M2 production path uses authoritative Segmented SoA storage. Serial remains the default; deterministic Phase4 Rayon execution is an explicit opt-in, and Auto policy remains experimental. Canonical State, Metrics, Events, and Day 100/250/500 snapshots were validated for exact parity. The measured workloads scale near-linearly through 100k agents; the 200k high-K results remain follow-up evidence. Timings depend on workload and host.
 
@@ -72,7 +72,9 @@ The model represents a synthetic population with biological, economic, group, an
 - **M3-06 (formerly M3-K) — Settlement lookup indexing:** complete ([measurements](docs/performance/M3_SETTLEMENT_INDEX.md)).
 - **M3-07 — Residual scaling diagnosis:** complete; controlled scale rerun and access-pattern analysis ([report](docs/performance/M3_07_SCALE_RESIDUAL.md)).
 - **M3-08 (formerly M3-P) — Population dynamics:** complete; births, dynamic graph cleanup, snapshots, sustained CI gate, and [performance profile](docs/performance/M3_08_POPULATION_DYNAMICS.md).
-- **M3-09 (formerly M3-05) — Propagation:** planned; model multi-hop spread with explicit intra-tick ordering.
+- **M3-09 — Incremental topology maintenance:** complete; append newborn CSR and Phase 4 projection rows on non-compaction days ([performance report](docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md)).
+- **M3-10 — Feature switches:** planned; define explicit profile/runtime switch behavior before implementation.
+- **M3-11 (formerly M3-05) — Propagation:** planned; model multi-hop spread with explicit intra-tick ordering.
 - **Spatial migration (formerly M3-03):** deferred without a stage number.
 - **M3 audit and graduation:** answer the research question and assess whether M4 needs a new architecture.
 

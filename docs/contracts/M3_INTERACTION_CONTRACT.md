@@ -250,7 +250,7 @@ The identifiers below put the stages in execution order. Existing filenames and 
 | M3-K — Settlement lookup indexing | M3-06 | Complete |
 | Residual-scaling diagnosis | M3-07 | Complete, measurement-only stage |
 | M3-P — Population dynamics | M3-08 | Complete; dynamic topology is absorbed here |
-| Incremental topology maintenance | M3-09 | Planned; §14 |
+| Incremental topology maintenance | M3-09 | Complete; §14 |
 | Feature switches | M3-10 | Planned |
 | M3-05 — Propagation | M3-11 | Planned |
 | M3-03 — Spatial migration | Deferred, unnumbered | Deferred follow-up |
@@ -300,9 +300,9 @@ The frozen M3-08 contract in [§13](#13-m3-08-formerly-m3-p-population-dynamics)
 
 Spatial migration, previously listed as M3-03, remains a deferred follow-up and is not part of M3-08's planned scope.
 
-### M3-09 — Incremental topology maintenance — PLANNED
+### M3-09 — Incremental topology maintenance — COMPLETE
 
-Avoid rebuilding the full M3P CSR graph and Phase 4 slot projection on birth days while retaining the current M3P behavior. The draft contract is in [§14](#14-m3-09-incremental-topology-maintenance).
+The frozen [§14](#14-m3-09-incremental-topology-maintenance) incremental storage path appends newborn CSR and Phase 4 projection rows on non-compaction days while preserving exact M3P parity. The full-tick and Phase 9b before/after results are in [M3-09 Incremental Topology](../performance/M3_09_INCREMENTAL_TOPOLOGY.md).
 
 ### M3-10 — Feature switches — PLANNED
 
