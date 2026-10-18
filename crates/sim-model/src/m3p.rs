@@ -667,6 +667,7 @@ pub(crate) struct M3pIncrementalTopologyScratch {
     pub(crate) newborn_rows: Vec<(AgentId, GroupId, Vec<AgentId>)>,
     pub(crate) projection_row_ends: Vec<usize>,
     pub(crate) projection_neighbor_slots: Vec<usize>,
+    sampling_index: M3pCandidateIndexScratch,
 }
 
 pub(crate) struct Phase9bRunParameters<'a> {
@@ -866,27 +867,29 @@ fn plan_phase9b(
     config: &SimConfig,
     run_context: &M0RunContext,
     day: u32,
-    mut incremental_scratch: Option<&mut M3pIncrementalTopologyScratch>,
+    incremental_scratch: Option<&mut M3pIncrementalTopologyScratch>,
 ) -> Result<Phase9bPlan, M0RunError> {
     let population_config = config
         .population
         .as_ref()
         .ok_or_else(|| invariant("M3P profile requires [population] settings"))?;
-    let fixed_pool: Vec<_> = state
-        .world
-        .agents
-        .iter()
-        .filter(|agent| agent.alive)
-        .map(|agent| (agent.agent_id, agent.group_id))
-        .collect();
-    let live_population = u64::try_from(fixed_pool.len())
+    let mut local_sampling_index = M3pCandidateIndexScratch::default();
+    let (sampling_index, mut newborn_rows_scratch) = match incremental_scratch {
+        Some(scratch) => (&mut scratch.sampling_index, Some(&mut scratch.newborn_rows)),
+        None => (&mut local_sampling_index, None),
+    };
+    sampling_index.fill_members(
+        state
+            .world
+            .agents
+            .iter()
+            .filter(|agent| agent.alive)
+            .map(|agent| (agent.agent_id, agent.group_id)),
+    );
+    let live_population = u64::try_from(sampling_index.members.len())
         .map_err(|_| invariant("M3P live population count overflow"))?;
-    let candidate_index = M3pCandidateIndex::new(
-        fixed_pool,
-        f32::from_bits(state.p_local_bits),
-        *run_context,
-        day,
-    )?;
+    let candidate_index =
+        sampling_index.build(f32::from_bits(state.p_local_bits), *run_context, day)?;
 
     let mut eligible_parents: Vec<_> = state
         .world
@@ -988,7 +991,7 @@ fn plan_phase9b(
     }
 
     let compacted = day.is_multiple_of(population_config.compaction_interval_days);
-    let use_incremental_append = incremental_scratch.is_some() && !compacted;
+    let use_incremental_append = newborn_rows_scratch.is_some() && !compacted;
     let mut rows = BTreeMap::new();
     if !use_incremental_append {
         for &source_id in state.relationship_graph.source_ids() {
@@ -999,8 +1002,8 @@ fn plan_phase9b(
             rows.insert(source_id, neighbors.to_vec());
         }
     }
-    if let Some(scratch) = incremental_scratch.as_deref_mut() {
-        scratch.newborn_rows.clear();
+    if let Some(rows) = newborn_rows_scratch.as_mut() {
+        rows.clear();
     }
     for birth in &births {
         let row = build_newborn_row(
@@ -1011,10 +1014,9 @@ fn plan_phase9b(
             &candidate_index,
         )?;
         if use_incremental_append {
-            incremental_scratch
-                .as_deref_mut()
+            newborn_rows_scratch
+                .as_mut()
                 .expect("incremental append requires scratch")
-                .newborn_rows
                 .push((birth.child, birth.group, row));
         } else if rows.insert(birth.child, row).is_some() {
             return Err(invariant("duplicate M3P newborn graph source"));
@@ -1099,8 +1101,8 @@ fn plan_phase9b(
             .collect();
         Phase9bGraphUpdate::Replace(RelationshipGraph::from_canonical_rows(rows, &memberships)?)
     } else if use_incremental_append {
-        let scratch = incremental_scratch
-            .as_deref()
+        let rows = &**newborn_rows_scratch
+            .as_ref()
             .expect("incremental append requires scratch");
         if births.is_empty() {
             Phase9bGraphUpdate::Unchanged
@@ -1108,7 +1110,7 @@ fn plan_phase9b(
             Phase9bGraphUpdate::Append(
                 state
                     .relationship_graph
-                    .plan_append_rows(&scratch.newborn_rows, &candidate_index.members)?,
+                    .plan_append_rows(rows, candidate_index.members)?,
             )
         }
     } else if !births.is_empty() {
@@ -1171,45 +1173,59 @@ fn build_newborn_row(
     Ok(row)
 }
 
-#[derive(Debug)]
-struct M3pCandidateIndex {
+#[derive(Debug, Default)]
+struct M3pCandidateIndexScratch {
     members: Vec<(AgentId, GroupId)>,
     group_ranks: BTreeMap<GroupId, Vec<usize>>,
-    p_local: f32,
-    run_context: M0RunContext,
-    day: u32,
 }
 
-impl M3pCandidateIndex {
-    fn new(
-        mut members: Vec<(AgentId, GroupId)>,
+impl M3pCandidateIndexScratch {
+    fn fill_members(&mut self, members: impl Iterator<Item = (AgentId, GroupId)>) {
+        self.members.clear();
+        self.members.extend(members);
+    }
+
+    fn build(
+        &mut self,
         p_local: f32,
         run_context: M0RunContext,
         day: u32,
-    ) -> Result<Self, M0RunError> {
-        members.sort_unstable_by_key(|&(agent_id, _)| agent_id);
-        if members.len() as u64 >= M3P_MAX_LIVE_POPULATION {
+    ) -> Result<M3pCandidateIndex<'_>, M0RunError> {
+        self.members.sort_unstable_by_key(|&(agent_id, _)| agent_id);
+        if self.members.len() as u64 >= M3P_MAX_LIVE_POPULATION {
             return Err(invariant("M3P live population must be below 2^24"));
         }
-        if let Some(pair) = members.windows(2).find(|pair| pair[0].0 == pair[1].0) {
+        if let Some(pair) = self.members.windows(2).find(|pair| pair[0].0 == pair[1].0) {
             return Err(invariant(format!(
                 "duplicate M3P candidate AgentId {}",
                 pair[0].0
             )));
         }
-        let mut group_ranks = BTreeMap::<GroupId, Vec<usize>>::new();
-        for (rank, &(_, group_id)) in members.iter().enumerate() {
-            group_ranks.entry(group_id).or_default().push(rank);
+        for ranks in self.group_ranks.values_mut() {
+            ranks.clear();
         }
-        Ok(Self {
-            members,
-            group_ranks,
+        for (rank, &(_, group_id)) in self.members.iter().enumerate() {
+            self.group_ranks.entry(group_id).or_default().push(rank);
+        }
+        Ok(M3pCandidateIndex {
+            members: &self.members,
+            group_ranks: &self.group_ranks,
             p_local,
             run_context,
             day,
         })
     }
+}
 
+struct M3pCandidateIndex<'a> {
+    members: &'a [(AgentId, GroupId)],
+    group_ranks: &'a BTreeMap<GroupId, Vec<usize>>,
+    p_local: f32,
+    run_context: M0RunContext,
+    day: u32,
+}
+
+impl M3pCandidateIndex<'_> {
     fn sample_target(
         &self,
         source_id: AgentId,
