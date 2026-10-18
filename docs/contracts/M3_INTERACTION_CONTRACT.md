@@ -249,8 +249,10 @@ The identifiers below put the stages in execution order. Existing filenames and 
 | M3-S — Scale limit search | M3-05 | Complete, measurement-only stage |
 | M3-K — Settlement lookup indexing | M3-06 | Complete |
 | Residual-scaling diagnosis | M3-07 | Complete, measurement-only stage |
-| M3-P — Population dynamics | M3-08 | Planned; dynamic topology is absorbed here |
-| M3-05 — Propagation | M3-09 | Planned |
+| M3-P — Population dynamics | M3-08 | Complete; dynamic topology is absorbed here |
+| Incremental topology maintenance | M3-09 | Planned; §14 |
+| Feature switches | M3-10 | Planned |
+| M3-05 — Propagation | M3-11 | Planned |
 | M3-03 — Spatial migration | Deferred, unnumbered | Deferred follow-up |
 | M3-04 — Dynamic topology | M3-08 | Absorbed into population dynamics |
 
@@ -298,7 +300,15 @@ The frozen M3-08 contract in [§13](#13-m3-08-formerly-m3-p-population-dynamics)
 
 Spatial migration, previously listed as M3-03, remains a deferred follow-up and is not part of M3-08's planned scope.
 
-### M3-09 (formerly M3-05) — Propagation — PLANNED
+### M3-09 — Incremental topology maintenance — PLANNED
+
+Avoid rebuilding the full M3P CSR graph and Phase 4 slot projection on birth days while retaining the current M3P behavior. The draft contract is in [§14](#14-m3-09-incremental-topology-maintenance).
+
+### M3-10 — Feature switches — PLANNED
+
+Specify feature-switch behavior in a separate contract section before implementation.
+
+### M3-11 (formerly M3-05) — Propagation — PLANNED
 
 Model multi-hop spread over the graph within one tick and define intra-tick ordering.
 
@@ -306,7 +316,7 @@ Model multi-hop spread over the graph within one tick and define intra-tick orde
 
 Report in the M2-40 format, answer the central research question, and decide whether a new architecture (M4) is needed.
 
-M3-04 and M3-05 extend the measured answer for sustained workloads and scale limits. M3-08 and M3-09 deepen the research question with population dynamics and propagation; M3-07 diagnoses residual scaling after indexed settlement lookups.
+M3-04 and M3-05 extend the measured answer for sustained workloads and scale limits. M3-08 through M3-11 deepen the research question with population dynamics, incremental topology maintenance, feature switches, and propagation; M3-07 diagnoses residual scaling after indexed settlement lookups.
 
 ## 9. M3-01 Optimized path and serial baseline
 
@@ -813,3 +823,77 @@ M3-08 proceeds in three implementation stages, mirroring the M3-00 reference-fir
 ### 13.13 Freeze record
 
 This freeze records the m3p birth schedule and rule, checked monotonic identity allocation, graph attachment and cleanup behavior, storage compaction order, snapshot v2 validation, separate digest/event/metric schemas, implementation stages, and acceptance gates. Amendment A-1 clarifies that Phase 9b graph sampling uses one fixed pre-birth candidate pool. Amendment A-2 records the M3P-only Birth and Cleanup event tags and payload encoding used by `canonical_m3p_event_bytes`. The existing §2.2 rank-index mapping supports the fixed candidate pool with source/pool separation; the static M2/M3 generator remains unchanged. This freeze authorizes the M3-08 implementation task to be requested; it does not start implementation.
+
+## 14. M3-09 Incremental topology maintenance
+
+**Status: DRAFT — NOT FROZEN**
+
+This draft proposes removing repeated full-population graph/projection work on M3P birth days. It is based on `apply_phase9b_storage`, `plan_phase9b`, `M3pCandidateIndex::new`, and `build_newborn_row` in `crates/sim-model/src/m3p.rs`; `M3pStorageRunContext::refresh_after_phase9b` and `run_m3p_storage_day` in `crates/sim-model/src/runner.rs`; `M3Phase4SlotProjection::rebuild` in `crates/sim-model/src/intents.rs`; and `RelationshipGraph::from_canonical_rows` / `hash_csr` in `crates/sim-model/src/relationship_graph.rs`.
+
+### 14.1 Goal and authority
+
+Add a separate explicit opt-in storage entry point, provisionally `run_m3p_storage_days_incremental_topology`, with its own caller-owned context if needed. The current `run_m3p_reference_day` and `run_m3p_storage_days` remain unchanged and remain the oracles. For every day, the opt-in path must match the existing M3P reference and storage paths in State, Metrics, and Events digests; intents; Phase 6B resolutions; events; snapshot bytes; and errors, including error precedence. No M3P semantic, RNG-coordinate, ordering, or validation change is authorized by this draft.
+
+### 14.2 Structures and incremental candidates
+
+The current storage Phase 9b path materializes `storage.to_agents()`, clones the relationship graph, and calls the same `plan_phase9b` used by the reference path. `plan_phase9b` constructs a new fixed candidate pool and `M3pCandidateIndex`, plans births and graph rows, then calls `RelationshipGraph::from_canonical_rows` whenever births or compaction changed the graph. On birth days, `M3pStorageRunContext::refresh_after_phase9b` then calls `M3Phase4SlotProjection::rebuild`. The M3-08 measurements report a 165 ms M3P tick versus 31.6 ms for M3 at equal live population (103,241 agents; 5.23×). They report about 96 ms for normal-day Phase 9b at 100k live agents, including roughly 37 ms for CSR reconstruction, 17.5 ms for projection reconstruction, 9.8 ms for graph attachment, and 7.5 ms for birth planning for about ten births per day ([M3-08 Population Dynamics](../performance/M3_08_POPULATION_DYNAMICS.md), “Equal-live-population tick comparison” and “Phase 9b breakdown”). These measurements motivate the proposal and are not performance guarantees.
+
+#### a. Canonical CSR
+
+On non-compaction days, §13.6 keeps all existing source rows unchanged. `plan_phase9b` allocates child IDs monotonically above every previously allocated ID and admits successful parents in ascending `AgentId`; therefore new child source IDs are strictly greater than every existing source ID and are already in ascending order. `build_newborn_row` sorts each new row by target `AgentId`. A proposed fast path appends each child ID, its row-offset end, and its sorted neighbor IDs to the CSR arrays instead of copying every row through a `BTreeMap` and rebuilding with `from_canonical_rows`.
+
+The proposal is equivalent if it appends exactly the rows `build_newborn_row` produced, leaves all old rows byte-for-byte unchanged, updates cross-partition and total-edge counts with checked arithmetic, and preserves the canonical source and neighbor ordering. Compaction continues to use the full canonical rebuild in §13.6.
+
+#### b. Phase 4 slot projection
+
+On a non-compaction birth day, `apply_phase9b_storage` appends newborns with `storage.push`; existing slots do not move. `M3Phase4SlotProjection` stores per-slot row offsets and neighbor slots. Since no existing row gains an edge to a newborn (§13.6), the proposed path appends projection rows for the new storage slots only, translating each newborn row's target IDs through the current slot map. Existing projection rows remain unchanged. This is equivalent when each new row uses the canonical CSR row, each appended slot matches the storage append order, and offsets and neighbor slots are checked before commit. Compaction still rebuilds the full projection after rebuilding storage in ascending `AgentId` order.
+
+#### c. Sampling indexes for newborn attachment and edge replacement
+
+The exact §13 A-1 candidate pool is the set of agents alive immediately after Phase 9 on day D, before any Phase 9b births; newborns on D are excluded. It is sorted by ascending `AgentId` and indexed into per-`GroupId` rank lists. For each sample, the local pool is the source's group and the cross pool is its complement; exclude the source and already chosen neighbors, then apply the frozen locality and target coordinates and rank mapping. This same fixed pool is used for newborn edges and, on compaction days, dead-edge replacement.
+
+Today `plan_phase9b` scans for this pool and `M3pCandidateIndex::new` sorts it and constructs `group_ranks` on every day. A proposal may maintain an `AgentId`-ordered membership/rank index and apply the deaths committed by Phase 9 before sampling, or build the same index once per Phase 9b call from an already available ordered membership view. Either way, the candidate pool must equal the post-Phase-9, pre-birth set exactly; group ranks and the global complement must preserve the same sorted-rank mapping, and the index must not admit same-day births.
+
+#### d. Birth-planning scans and temporary storage
+
+`plan_phase9b` currently scans all agents to collect the fixed live pool, scans all agents again for parents satisfying `alive && health >= birth_min_health && food >= birth_food_threshold`, sorts eligible parents to define RNG draw order, builds a full `AgentId -> slot` `BTreeMap`, clones the full agent vector into `planned_agents`, and copies all CSR rows into a `BTreeMap` of row vectors. It draws for every eligible parent in ascending `AgentId`, then applies the successful-birth cap; stopping draws as soon as the cap is reached is not the current operation order. The eligibility scan cannot be omitted unless an equivalent live/eligible index is maintained: every eligible parent's coordinate draw and the population-cap calculation must remain exact. A proposed implementation may reuse caller-owned buffers for pool members, parent IDs, successful parents, row deltas, and validation scratch; it may combine scans only if it still evaluates the same predicates, visits every eligible parent, and draws in ascending parent ID. On the storage path, it may resolve successful parents through the existing `SegmentedAgentStorage::slot_of` map instead of rebuilding a full slot `BTreeMap`, only if missing/duplicate validation and error precedence remain identical. Any staged optimization must preserve full-batch validation and failure atomicity before changing food, allocator state, graph, storage, or projection.
+
+#### e. Compaction
+
+On compaction days, retain the full §13.6 behavior: process edges in the frozen source/edge order, replace or drop dead-target edges, remove dead agents, sort surviving records and rows by `AgentId`, then rebuild storage, slot map, CSR, and projection. Incremental structures must equal the current full-rebuild result after every day, including immediately after compaction.
+
+### 14.3 CSR hash options
+
+`hash_csr` in `crates/sim-model/src/relationship_graph.rs` hashes the domain tag, then the source count, then every canonical source row and neighbor. Because source count precedes the rows, appending a row changes bytes before the appended data; a cached SHA-256 state cannot be extended to produce the frozen hash. `canonical_m3p_state_bytes_from_storage` consumes the CSR hash, and `encode_m3p_snapshot` stores it. Recomputing the frozen hash costs O(V + E) per digest or snapshot request.
+
+**Option (i) — preserve the frozen hash and compute lazily (recommended proposal).** Mark the cached hash dirty after graph mutation and recompute the exact §2.1 preimage only when a State digest or snapshot requests it. This preserves M3P State digests, the 32-byte snapshot field, snapshot bytes, and M2/M3 hashes. It saves work only when no hash or snapshot is requested; a request still costs O(V + E). The implementation must resolve how to preserve the current `csr_hash()` borrowing API or replace it behind the new opt-in path.
+
+**Option (ii) — amend the M3P hash to an append-friendly encoding.** A revised canonical encoding could put the source count after rows or use a specified streaming/chained hash. This changes the CSR hash and therefore M3P State digests; it changes the stored 32-byte CSR hash and thus M3P snapshot bytes even if the snapshot field layout stays the same. It requires amending the frozen M3P hash contract and replacing the M3P State golden values; an on-wire format change would also require a snapshot schema decision. M2 and M3 hashes remain untouched.
+
+**Repository-state note:** the task context described the M3P goldens as committed but not pushed. At review, both golden commits (`4ed645f` and replacement `a18dbba`) were already ancestors of the locally observed `origin/main` (`c7def1f`). Thus option (ii) would now change already-pushed M3P expectations, not merely replace unpublished local goldens. Had the goldens still been local, they could have been replaced before publication; after publication, changing them is an explicit compatibility change requiring a contract amendment and review. The recommendation is option (i), so the M3P goldens and snapshot schema remain unchanged.
+
+### 14.4 Invariant checks
+
+In debug builds, on deterministic sampled birth and compaction days, rebuild the canonical CSR and Phase 4 projection into temporary values and assert equality with the incremental structures, including source IDs, row offsets, neighbors, edge counts, CSR hash, projection offsets, and neighbor slots. A test-only differential gate compares the incremental and current full-rebuild structures every day. These checks are verification-only and must not affect release results or ordering.
+
+### 14.5 Correctness gates
+
+The opt-in path must pass per-day differential equality against both current M3P oracles for the committed M3P golden configuration and the 36-cell M3P matrix. Also require the unlimited-birth test (`births_max_per_day = 0`), shuffled initial storage slots, snapshot pause/resume across a compaction day, and the 1,000-day sustained gate. Compare intents, resolutions, errors, digests, events, snapshot bytes, graph CSR, and slot projection as applicable; do not re-bless existing M2, M3, or M3P goldens to make the gate pass.
+
+### 14.6 Measurement protocol
+
+Use the accepted sustained configuration in [M3-08 Population Dynamics](../performance/M3_08_POPULATION_DYNAMICS.md), `N ∈ {10,000, 100,000}`, compaction interval 50, and days 100–400. The primary result is uninstrumented whole-tick time with the same warmup, sampling, and scratch-reuse method as that report. Per-phase and Phase 9b substage times are secondary and must report instrumentation overhead. Repeat the equal-live-population M3P-versus-M3 storage comparison from the day-400 checkpoint. Report, but do not gate, normal-day Phase 9b time and the M3P/M3 whole-tick ratio. Record compaction-day results separately.
+
+### 14.7 Non-goals
+
+This stage does not change birth eligibility, probability, resource transfer, ID assignment, candidate pools, edge sampling, dead-edge cleanup, or compaction timing. It does not change snapshot schema under recommended option (i), and does not modify M2 or existing M3 paths. A changed CSR hash or graph semantic requires a separate explicit contract amendment.
+
+### 14.8 Open questions
+
+| ID | Question | Blocking? | Proposal for review |
+|---|---|---|---|
+| OQ-1 | Keep the frozen CSR hash and compute it lazily, or amend it to an append-friendly encoding? | **Blocking for freeze** | Preserve the frozen hash and use lazy recomputation. Option (ii) now changes already-pushed M3P State expectations and snapshot hash bytes. |
+| OQ-2 | What private scratch/context shape can stage and validate CSR/projection deltas before mutation while preserving Phase 9b failure atomicity? | **Blocking for freeze** | Use a separate opt-in context and validate all fallible row, slot, count, and ID work before applying deltas. |
+| OQ-3 | Should the candidate rank index be maintained by applying Phase 9 death deltas or rebuilt once per Phase 9b call from an existing ordered membership index? | **Non-blocking** | Measure both only if the simpler reuse of current membership data does not meet the stage's target. Both must materialize the exact §13 A-1 pool. |
+| OQ-4 | Which deterministic day sample should trigger debug full-rebuild assertions? | **Non-blocking** | Always check compaction days and use a documented fixed-period sample for birth days. The test-only gate still compares every day. |
+| OQ-5 | Should the provisional public function be named `run_m3p_storage_days_incremental_topology` or use another explicit opt-in name? | **Non-blocking** | Keep it separate from the current M3P oracle runners and do not add an automatic policy. |
