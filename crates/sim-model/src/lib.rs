@@ -56,8 +56,9 @@ pub use hashing::{
     STATE_EVENT_FOOD_TRANSFERRED, STATE_EVENT_MARKET_CLEARED, STATE_EVENT_MORTALITY_COMMITTED,
     STATE_EVENT_WELFARE_DISTRIBUTED, STATE_EVENT_WORK_RESOLVED, canonical_event_bytes,
     canonical_event_hash, canonical_m3_metrics_bytes, canonical_m3_metrics_hash,
-    canonical_m3_state_bytes, canonical_m3_state_hash, canonical_metrics_bytes,
-    canonical_metrics_hash, canonical_state_bytes, canonical_state_hash,
+    canonical_m3_state_bytes, canonical_m3_state_bytes_from_storage, canonical_m3_state_hash,
+    canonical_m3_state_hash_from_storage, canonical_metrics_bytes, canonical_metrics_hash,
+    canonical_state_bytes, canonical_state_hash,
 };
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
@@ -117,8 +118,9 @@ pub use resolution::{
 };
 pub use runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, DayOutcome, M0RunContext,
-    M0RunError, M3DayOutcome, M3ReferenceContext, Phase4Backend, Phase4ExecutionPolicy,
-    run_hybrid_authority_day, run_hybrid_authority_day_with_candidate_index_scratch,
+    M0RunError, M3DayOutcome, M3ReferenceContext, M3StorageRunContext, Phase4Backend,
+    Phase4ExecutionPolicy, run_hybrid_authority_day,
+    run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
     run_hybrid_authority_days_with_phase4_policy, run_hybrid_authority_days_with_phase5_baseline,
@@ -126,7 +128,7 @@ pub use runner::{
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_authority_days_with_rayon_phase4,
     run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_day_with_scratch,
     run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_m3_reference_day,
-    run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,
+    run_m3_storage_days, run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,

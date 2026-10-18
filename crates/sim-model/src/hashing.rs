@@ -11,9 +11,10 @@ use crate::metrics::M3DailyMetrics;
 use crate::relationship_graph::RelationshipGraph;
 use crate::resolution::TargetedActionKind;
 use crate::state::WorldState;
+use crate::storage::SegmentedAgentStorage;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sim_core::{AgentId, GroupId, Money};
+use sim_core::{AgentId, GroupId, Money, SimulationDay};
 
 /// Exact ASCII domain prefix for canonical state preimages.
 pub const DOMAIN_STATE: &[u8] = b"SIMCIV_STATE_V1";
@@ -276,6 +277,38 @@ pub fn canonical_m3_state_hash(
     graph: &RelationshipGraph,
 ) -> Result<CanonicalHash, CanonicalHashError> {
     let bytes = canonical_m3_state_bytes(world, graph)?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
+/// Encodes authoritative storage state under the M3 domain, followed by the canonical CSR hash.
+pub fn canonical_m3_state_bytes_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let m1_bytes = storage.canonical_state_bytes(current_day, settlements)?;
+    let fields = &m1_bytes[DOMAIN_STATE.len()..];
+    let capacity = DOMAIN_M3_STATE
+        .len()
+        .checked_add(fields.len())
+        .and_then(|n| n.checked_add(32))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3_STATE);
+    bytes.extend_from_slice(fields);
+    bytes.extend_from_slice(graph.csr_hash());
+    Ok(bytes)
+}
+
+/// Computes the M3 state digest directly from authoritative segmented storage.
+pub fn canonical_m3_state_hash_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3_state_bytes_from_storage(storage, current_day, settlements, graph)?;
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
