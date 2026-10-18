@@ -1144,7 +1144,12 @@ fn plan_phase9b(
             .iter()
             .map(|agent| (agent.agent_id, agent.group_id))
             .collect();
-        Phase9bGraphUpdate::Replace(RelationshipGraph::from_canonical_rows(rows, &memberships)?)
+        let next_graph = if newborn_rows_scratch.is_some() {
+            RelationshipGraph::from_canonical_rows_dirty(rows, &memberships)?
+        } else {
+            RelationshipGraph::from_canonical_rows(rows, &memberships)?
+        };
+        Phase9bGraphUpdate::Replace(next_graph)
     } else if use_incremental_append {
         let rows = &**newborn_rows_scratch
             .as_ref()

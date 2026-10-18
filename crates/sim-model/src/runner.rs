@@ -642,6 +642,11 @@ fn assert_m3p_incremental_topology_matches_full_rebuild(
         graph, &rebuilt_graph,
         "incremental CSR differs from rebuild"
     );
+    assert_eq!(
+        graph.csr_hash(),
+        rebuilt_graph.csr_hash(),
+        "incremental CSR hash differs from rebuild"
+    );
     let rebuilt_projection = M3Phase4SlotProjection::new(&rebuilt_graph, storage)
         .expect("incremental M3P projection rebuild validates");
     assert_eq!(

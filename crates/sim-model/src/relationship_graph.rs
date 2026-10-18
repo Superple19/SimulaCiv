@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use sha2::{Digest, Sha256};
 use sim_core::{AgentId, GroupId, RngCoordinate, coordinate_prng_f32};
@@ -8,15 +9,28 @@ pub const M3_RELATIONSHIP_GRAPH_SUBSYSTEM_ID: u16 = 6;
 const MAX_EXACT_F32_POPULATION: usize = 1 << 24;
 
 /// Canonically ordered directed relationship graph in CSR form.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct RelationshipGraph {
     source_ids: Vec<AgentId>,
     row_offsets: Vec<usize>,
     neighbors: Vec<AgentId>,
     cross_partition_edges: u64,
     total_edges: u64,
-    csr_hash: [u8; 32],
+    // An empty cell is the dirty marker; hash only when a digest or snapshot requests it.
+    csr_hash: OnceLock<[u8; 32]>,
 }
+
+impl PartialEq for RelationshipGraph {
+    fn eq(&self, other: &Self) -> bool {
+        self.source_ids == other.source_ids
+            && self.row_offsets == other.row_offsets
+            && self.neighbors == other.neighbors
+            && self.cross_partition_edges == other.cross_partition_edges
+            && self.total_edges == other.total_edges
+    }
+}
+
+impl Eq for RelationshipGraph {}
 
 #[derive(Debug)]
 pub(crate) struct RelationshipGraphAppendPlan {
@@ -230,7 +244,7 @@ impl RelationshipGraph {
             neighbors,
             cross_partition_edges,
             total_edges,
-            csr_hash,
+            csr_hash: OnceLock::from(csr_hash),
         })
     }
 
@@ -240,6 +254,21 @@ impl RelationshipGraph {
     pub(crate) fn from_canonical_rows(
         rows: Vec<(AgentId, Vec<AgentId>)>,
         memberships: &[(AgentId, GroupId)],
+    ) -> Result<Self, RelationshipGraphError> {
+        Self::from_canonical_rows_with_hash(rows, memberships, true)
+    }
+
+    pub(crate) fn from_canonical_rows_dirty(
+        rows: Vec<(AgentId, Vec<AgentId>)>,
+        memberships: &[(AgentId, GroupId)],
+    ) -> Result<Self, RelationshipGraphError> {
+        Self::from_canonical_rows_with_hash(rows, memberships, false)
+    }
+
+    fn from_canonical_rows_with_hash(
+        rows: Vec<(AgentId, Vec<AgentId>)>,
+        memberships: &[(AgentId, GroupId)],
+        compute_hash: bool,
     ) -> Result<Self, RelationshipGraphError> {
         if rows.len() != memberships.len() {
             return Err(RelationshipGraphError::RankInvariantViolation);
@@ -300,7 +329,10 @@ impl RelationshipGraph {
 
         let total_edges = u64::try_from(neighbors.len())
             .map_err(|_| RelationshipGraphError::EdgeCountOverflow)?;
-        let csr_hash = hash_csr(&source_ids, &row_offsets, &neighbors);
+        let csr_hash = OnceLock::new();
+        if compute_hash {
+            let _ = csr_hash.set(hash_csr(&source_ids, &row_offsets, &neighbors));
+        }
         Ok(Self {
             source_ids,
             row_offsets,
@@ -393,7 +425,7 @@ impl RelationshipGraph {
         }
         self.cross_partition_edges = plan.cross_partition_edges;
         self.total_edges = plan.total_edges;
-        self.csr_hash = hash_csr(&self.source_ids, &self.row_offsets, &self.neighbors);
+        let _ = self.csr_hash.take();
     }
 
     pub fn source_ids(&self) -> &[AgentId] {
@@ -418,7 +450,8 @@ impl RelationshipGraph {
     }
 
     pub fn csr_hash(&self) -> &[u8; 32] {
-        &self.csr_hash
+        self.csr_hash
+            .get_or_init(|| hash_csr(&self.source_ids, &self.row_offsets, &self.neighbors))
     }
 }
 
