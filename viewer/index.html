@@ -9,8 +9,8 @@
     @media (prefers-color-scheme: dark) { :root { --bg:#111722; --card:#1a2331; --fg:#e6ecf6; --muted:#a5b1c3; --line:#344255; --accent:#8eacff; } }
     * { box-sizing:border-box; }
     body { margin:0; background:var(--bg); color:var(--fg); }
-    header, main { max-width:1500px; margin:auto; padding:18px; }
-    header { padding-bottom:8px; }
+    header, main, #status-bar { max-width:1500px; margin:auto; padding:12px 18px; }
+    header { padding-bottom:5px; }
     h1 { margin:0 0 4px; font-size:1.55rem; }
     h2 { margin:0 0 12px; font-size:1.05rem; }
     p { margin:5px 0 12px; color:var(--muted); }
@@ -19,33 +19,69 @@
     button, .file-button { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--card); color:var(--fg); cursor:pointer; }
     input[type=file] { display:none; }
     input[type=range] { min-width:180px; flex:1; }
-    .drop { border:2px dashed var(--line); border-radius:10px; padding:12px; color:var(--muted); text-align:center; }
+    .drop { border:2px dashed var(--line); border-radius:8px; padding:7px 10px; color:var(--muted); text-align:center; }
     .drop.over { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 10%, var(--card)); }
     .warning { display:none; margin:12px 0; padding:10px 12px; border-radius:8px; background:#a62c2c; color:white; }
-    .trace-list, .summaries { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:12px; margin:14px 0; }
-    .summary, .chart, .record { min-width:0; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:13px; }
-    .summary { overflow-wrap:anywhere; }
-    .summary label { font-weight:600; }
-    .summary dl { display:grid; grid-template-columns:max-content 1fr; gap:3px 10px; margin:10px 0; font-size:.88rem; }
-    dt { color:var(--muted); } dd { margin:0; font-family:ui-monospace,monospace; overflow-wrap:anywhere; }
-    details pre, .record pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; font-size:.78rem; }
-    .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr)); gap:12px; }
-    .chart h2 { margin-bottom:4px; }
-    .legend { display:flex; flex-wrap:wrap; gap:4px 12px; color:var(--muted); font-size:.78rem; }
-    .legend span::before { content:""; display:inline-block; width:12px; height:3px; margin:0 5px 3px 0; background:var(--swatch); }
-    .legend .identical::before { background:repeating-linear-gradient(to right,var(--swatch) 0 4px,transparent 4px 7px); }
+    #status-bar { display:flex; flex-wrap:wrap; gap:6px; padding-top:4px; padding-bottom:8px; }
+    .status-pill { border:1px solid #278153; border-radius:999px; background:color-mix(in srgb,#23956a 13%,var(--card)); color:var(--fg); padding:4px 10px; font-size:.82rem; overflow-wrap:anywhere; }
+    .status-pill.differ { border-color:#bd3434; background:color-mix(in srgb,#c43b3b 14%,var(--card)); }
+    .table-wrap { overflow:auto; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+    table { border-collapse:collapse; width:100%; }
+    .trace-table { min-width:1100px; font-size:.78rem; }
+    th,td { border-bottom:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:middle; }
+    th { color:var(--muted); white-space:nowrap; background:var(--card); }
+    tbody tr:last-child td { border-bottom:0; }
+    .trace-table th:first-child,.trace-table td:first-child { text-align:center; }
+    .swatch { display:inline-block; width:12px; height:12px; border-radius:3px; background:var(--swatch); vertical-align:middle; }
+    .file-name { max-width:210px; overflow-wrap:anywhere; }
+    .config-summary { white-space:nowrap; }
+    .digest-cell { white-space:nowrap; font-family:ui-monospace,monospace; }
+    .digest-cell code { font-size:.75rem; }
+    .copy-button,.expand-button { padding:2px 5px; margin-left:3px; font-size:.72rem; }
+    .trace-details td { padding:9px 12px; }
+    .trace-details pre,.raw-records pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow:auto; font-size:.75rem; margin:5px 0; }
+    .trace-details-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:8px 18px; }
+    .section-title { margin:8px 0 5px; font-size:.95rem; }
+    #chart-legend { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; margin:4px 0 7px; color:var(--muted); font-size:.76rem; }
+    .legend-item { display:inline-flex; align-items:center; gap:5px; }
+    .legend-line { width:17px; border-top:3px solid var(--swatch); }
+    .legend-note { margin-left:auto; }
+    .charts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+    .chart { min-width:0; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:6px 8px; }
+    .chart h2 { margin:0; font-size:.85rem; }
+    .chart-note { min-height:12px; margin:0; color:var(--muted); font-size:.68rem; line-height:1.2; }
+    .chart-note:empty { display:none; }
     svg { display:block; width:100%; height:auto; overflow:visible; touch-action:pan-x pan-y; }
     .gridline { stroke:var(--line); stroke-width:1; }
     .axis-label { fill:var(--muted); font-size:11px; }
     .series-line { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
     .point { stroke:var(--card); stroke-width:1.3; cursor:crosshair; }
     .point.duplicate { fill:var(--card); stroke:var(--point-color); }
-    .digest-group { border-left:4px solid #23956a; }
-    .digest-group.mismatch { border-left-color:#c43b3b; }
-    .record { margin-top:14px; }
+    .record { margin-top:10px; }
+    .day-table-wrap { overflow:auto; border:1px solid var(--line); border-radius:8px; }
+    .day-table { min-width:1480px; font-size:.72rem; }
+    .day-table th { position:sticky; top:0; z-index:1; }
+    .day-table td { white-space:nowrap; }
+    .day-table td.actions,.day-table td.outcomes { white-space:normal; min-width:180px; }
+    .day-table td.diff { background:color-mix(in srgb,#e2a32d 22%,var(--card)); }
+    .raw-records { margin-top:7px; }
     #tooltip { position:fixed; z-index:5; display:none; pointer-events:none; padding:7px 9px; border-radius:6px; background:var(--fg); color:var(--bg); font:12px ui-monospace,monospace; white-space:pre; box-shadow:0 2px 10px #0004; }
     .empty { padding:25px; text-align:center; color:var(--muted); }
-    @media (max-width:600px) { header, main { padding:12px; } .charts { grid-template-columns:1fr; } .chart { padding:10px; } .controls { align-items:stretch; } }
+    @media (min-width:1200px) and (min-height:900px) {
+      header,main,#status-bar { padding-top:5px; padding-bottom:5px; }
+      h1 { font-size:1.35rem; }
+      header>p { margin:2px 0 5px; }
+      .toolbar { gap:6px 12px; margin:6px 0; }
+      .toolbar button,.toolbar .file-button { padding:5px 9px; }
+      .drop { padding:4px 8px; }
+      .section-title { margin:4px 0 3px; }
+      .trace-table th,.trace-table td { padding:3px 6px; }
+      .chart { padding:4px 6px; }
+      .chart h2 { font-size:.8rem; }
+      #chart-legend { margin:2px 0 4px; }
+    }
+    @media (max-width:1100px) { .charts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (max-width:600px) { header, main, #status-bar { padding:10px; } .charts { grid-template-columns:1fr; } .chart { padding:7px; } .controls { align-items:stretch; } .legend-note { width:100%; margin-left:0; } }
   </style>
 </head>
 <body>
@@ -61,14 +97,24 @@
     <div id="drop" class="drop">Drop one or more JSONL files here</div>
     <div id="warning" class="warning"></div>
   </header>
+  <section id="status-bar" aria-label="Digest comparison status"></section>
   <main>
-    <section id="summaries" class="summaries"></section>
+    <section id="trace-section" hidden>
+      <h2 class="section-title">Traces</h2>
+      <div class="table-wrap"><table class="trace-table">
+        <thead><tr><th>Show</th><th>Color</th><th>File</th><th>Runner</th><th>Config (N · K · k · p_local · preset)</th><th>State digest</th><th>Metrics digest</th><th>Events digest</th><th>Details</th></tr></thead>
+        <tbody id="trace-rows"></tbody>
+      </table></div>
+    </section>
     <div id="empty" class="empty">Choose or drop a trace file to begin.</div>
-    <section id="charts" class="charts"></section>
+    <section id="chart-section" hidden>
+      <div id="chart-legend"></div>
+      <section id="charts" class="charts"></section>
+    </section>
     <section id="record" class="record" hidden>
-      <h2>Day record</h2>
+      <h2 class="section-title">Day record</h2>
       <div class="controls"><label for="day-slider">Day <span id="day-label">0</span></label><input id="day-slider" type="range" min="0" max="0" value="0"></div>
-      <div id="day-records" class="summaries"></div>
+      <div id="day-records"></div>
     </section>
   </main>
   <div id="tooltip"></div>
@@ -142,41 +188,74 @@
       if (className) node.className=className;
       return node;
     }
-    function renderSummaries() {
-      const root=document.getElementById("summaries"); root.replaceChildren();
+    function renderDigestStatus() {
+      const root=document.getElementById("status-bar"); root.replaceChildren();
       const grouped=new Map();
       for (const trace of traces) {
         const key=configKey(trace.header.config_toml);
+        if(!key)continue;
         if (!grouped.has(key)) grouped.set(key, {traces:[], digests:new Set()});
         grouped.get(key).traces.push(trace);
         grouped.get(key).digests.add(digestKey(trace.digests));
       }
-      const mismatches=[...grouped.values()].some(group=>group.digests.size>1);
-      showWarning(mismatches ? "Traces with identical configuration have different final State, Metrics, or Events digests." : "");
       for (const group of grouped.values()) {
         if (group.traces.length<2) continue;
         const identical=group.digests.size===1;
-        const card=element("article",undefined,`summary digest-group${identical?"":" mismatch"}`);
-        card.append(element("strong",identical?"digests identical":"digest mismatch"));
-        card.append(element("p",group.traces.map(trace=>trace.name).join(" · ")));
-        root.append(card);
+        root.append(element("span",`${identical?"✓ identical":"✗ differ"}: ${group.traces.map(trace=>trace.name).join(" · ")}`,`status-pill${identical?"":" differ"}`));
       }
-      traces.forEach(trace=>{
-        const card=element("article",undefined,"summary");
-        const label=element("label");
-        const checkbox=element("input"); checkbox.type="checkbox"; checkbox.checked=trace.selected;
-        checkbox.addEventListener("change",()=>{trace.selected=checkbox.checked; render();});
-        label.append(checkbox,document.createTextNode(" "+trace.name));
-        card.append(label);
-        const dl=element("dl");
-        for (const [name,value] of [["Runner",trace.header.runner],["Host",`${trace.header.host?.os||"?"} / ${trace.header.host?.arch||"?"}`],["Commit",trace.header.commit||"unavailable"],["Final State",trace.digests.state],["Final Metrics",trace.digests.metrics],["Final Events",trace.digests.events]]) {
-          dl.append(element("dt",name),element("dd",String(value)));
-        }
-        card.append(dl);
-        const details=element("details"); details.append(element("summary","Configuration"),element("pre",trace.header.config_toml||"")); card.append(details);
-        card.style.borderTop=`4px solid ${trace.color}`;
-        root.append(card);
-      });
+    }
+    function configNumber(trace,key) {
+      const line=String(trace.header.config_toml||"").match(new RegExp(`^\\s*${key}\\s*=\\s*([^\\r\\n]+)`,"m"));
+      if(!line)return null;
+      const value=Number(line[1].trim());
+      return Number.isFinite(value)?value:null;
+    }
+    function configSummary(trace) {
+      const foodKnobs=["initial_settlement_resource","carrying_capacity","regrowth_rate","health_decay_rate","base_work_yield"].map(key=>configNumber(trace,key));
+      const baseline=[2000,10000,.1,.05,2];
+      const common=foodKnobs.every((value,index)=>value===baseline[index]);
+      const metabolic=configNumber(trace,"base_metabolic_cost");
+      const preset=common&&metabolic===1?"m2_40":common&&metabolic===.48?"sustained":"custom";
+      return `N ${configNumber(trace,"initial_population")??"?"} · K ${configNumber(trace,"settlement_count")??"?"} · k ${configNumber(trace,"relationship_degree_k")??"?"} · p_local ${configNumber(trace,"p_local")??"?"} · ${preset}`;
+    }
+    function copyDigest(value,button) {
+      const fallback=()=>{
+        const input=document.createElement("textarea");input.value=value;input.style.position="fixed";input.style.opacity="0";document.body.append(input);input.select();
+        const copied=document.execCommand("copy");input.remove();if(!copied)throw new Error("copy unavailable");
+      };
+      const copied=navigator.clipboard?.writeText ? navigator.clipboard.writeText(value).catch(fallback) : Promise.resolve().then(fallback);
+      copied.then(()=>{button.textContent="copied";setTimeout(()=>button.textContent="copy",1100);}).catch(()=>{button.textContent="failed";setTimeout(()=>button.textContent="copy",1500);});
+    }
+    function digestCell(digest,label) {
+      const cell=element("td",undefined,"digest-cell"),full=String(digest||"");
+      const code=element("code",full.slice(0,12));code.title=full;cell.append(code);
+      const button=element("button","copy","copy-button");button.type="button";button.title=`Copy full ${label} digest`;button.addEventListener("click",()=>copyDigest(full,button));cell.append(button);
+      return cell;
+    }
+    function renderTraceTable() {
+      const section=document.getElementById("trace-section"),root=document.getElementById("trace-rows");
+      section.hidden=traces.length===0;root.replaceChildren();
+      for(const trace of traces) {
+        const row=document.createElement("tr");
+        const showCell=element("td"),checkbox=document.createElement("input");checkbox.type="checkbox";checkbox.checked=trace.selected;checkbox.setAttribute("aria-label",`Show ${trace.name}`);checkbox.addEventListener("change",()=>{trace.selected=checkbox.checked;render();});showCell.append(checkbox);row.append(showCell);
+        const swatchCell=element("td"),swatch=element("span",undefined,"swatch");swatch.style.setProperty("--swatch",trace.color);swatch.title=`Trace color ${trace.color}`;swatchCell.append(swatch);row.append(swatchCell);
+        const nameCell=element("td",trace.name,"file-name");nameCell.title=trace.name;row.append(nameCell);
+        row.append(element("td",trace.header.runner||"?"),element("td",configSummary(trace),"config-summary"));
+        row.append(digestCell(trace.digests.state,"State"),digestCell(trace.digests.metrics,"Metrics"),digestCell(trace.digests.events,"Events"));
+        const detailsCell=element("td"),expand=element("button","expand","expand-button");expand.type="button";expand.setAttribute("aria-expanded","false");detailsCell.append(expand);row.append(detailsCell);
+        const detailsRow=document.createElement("tr");detailsRow.className="trace-details";detailsRow.hidden=true;
+        const detailCell=element("td");detailCell.colSpan=9;const grid=element("div",undefined,"trace-details-grid");
+        grid.append(element("pre",trace.header.config_toml||""),element("pre",`State: ${trace.digests.state||""}\nMetrics: ${trace.digests.metrics||""}\nEvents: ${trace.digests.events||""}`));detailCell.append(grid);detailsRow.append(detailCell);
+        expand.addEventListener("click",()=>{detailsRow.hidden=!detailsRow.hidden;expand.textContent=detailsRow.hidden?"expand":"collapse";expand.setAttribute("aria-expanded",String(!detailsRow.hidden));});
+        root.append(row,detailsRow);
+      }
+    }
+    function renderSharedLegend(shown) {
+      const root=document.getElementById("chart-legend");root.replaceChildren();
+      for(const trace of shown) {
+        const item=element("span",undefined,"legend-item"),line=element("span",undefined,"legend-line");line.style.setProperty("--swatch",trace.color);item.append(line,document.createTextNode(trace.name));root.append(item);
+      }
+      if(shown.length)root.append(element("span","GiveFood / StealFood: solid = Some · dashed = None","legend-note"));
     }
     function linePath(points) { return points.map((point,index)=>`${index ? "L":"M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "); }
     function niceStep(minimum, maximum, targetTicks=4) {
@@ -210,19 +289,18 @@
       if(segment.length)segments.push(segment);
       return segments;
     }
-    function appendLegend(card, definition, shown) {
-      const legend=element("div",undefined,"legend");
+    function appendChartNote(card, definition, shown) {
+      const notes=[];
       shown.forEach((trace,traceIndex)=>{
         const identicalTo=shown.slice(0,traceIndex).find(other=>sameMetricValues(trace,other,definition));
-        const span=element("span",identicalTo?`${trace.name} — identical to ${identicalTo.name}`:trace.name,identicalTo?"identical":"");
-        span.style.setProperty("--swatch",trace.color);legend.append(span);
+        if(identicalTo)notes.push(`${trace.name} identical to ${identicalTo.name}`);
       });
-      if(definition.multi) { const span=element("span","dashed = None");span.style.setProperty("--swatch","var(--muted)");legend.append(span); }
-      card.append(legend);
+      card.append(element("p",notes.join(" · "),"chart-note"));
     }
     function drawChart(container, definition, shown) {
       const card=element("article",undefined,"chart"); card.append(element("h2",definition.title));
-      const width=640,height=230,left=54,right=14,top=14,bottom=31,plotW=width-left-right,plotH=height-top-bottom;
+      appendChartNote(card,definition,shown);
+      const width=640,height=132,left=54,right=14,top=7,bottom=20,plotW=width-left-right,plotH=height-top-bottom;
       const svg=document.createElementNS("http://www.w3.org/2000/svg","svg"); svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("role","img"); svg.setAttribute("aria-label",definition.title);
       const all=shown.flatMap(t=>t.days.map(d=>d.day)); const xMin=Math.min(...all),xMax=Math.max(...all);
       const rawSeries=[];
@@ -230,7 +308,7 @@
         const values=metricSeries(definition,day);
         values.forEach(value=>{if (value.value !== null && value.value !== undefined && Number.isFinite(Number(value.value))) rawSeries.push({trace,day,name:value.name,value:Number(value.value),dash:value.dash||""});});
       }));
-      if (!rawSeries.length) { card.append(element("p","No values for this chart.")); appendLegend(card,definition,shown); container.append(card); return; }
+      if (!rawSeries.length) { card.append(element("p","No values for this chart.")); container.append(card); return; }
       const {min:yMin,max:yMax,step}=axisRange(rawSeries.map(point=>point.value),definition.zeroBaseline===true);
       const x=value=>left+(xMax===xMin ? .5 : (value-xMin)/(xMax-xMin))*plotW;
       const y=value=>top+(yMax-value)/(yMax-yMin)*plotH;
@@ -266,30 +344,78 @@
         });
       });
       card.append(svg);
-      appendLegend(card,definition,shown);container.append(card);
+      container.append(card);
+    }
+    function dayCells(day) {
+      const actions=day.action_counts||{}, outcomes=day.phase6b_outcomes||{};
+      const give=[day.give_food?.some??null,day.give_food?.none??null];
+      const steal=[day.steal_food?.some??null,day.steal_food?.none??null];
+      const outcomeEntries=[
+        ["Applied+",outcomes.applied_positive], ["Applied0",outcomes.applied_zero],
+        ["TheftFailed",outcomes.theft_failed], ["TargetIneligible",outcomes.target_ineligible],
+        ["InitiatorIneligible",outcomes.initiator_ineligible], ["ZeroTarget",outcomes.zero_target]
+      ];
+      const actionText=Object.entries(actions).map(([name,count])=>`${name} ${count}`).join(" · ");
+      const outcomeText=outcomeEntries.map(([name,count])=>`${name} ${count??0}`).join(" · ");
+      return [
+        {text:String(day.alive??"—"),compare:day.alive??null},
+        {text:String(day.food_alive?.mean??"—"),compare:day.food_alive?.mean??null},
+        {text:actionText,compare:Object.entries(actions)},
+        {text:`${give[0]??"—"} / ${give[1]??"—"}`,compare:give},
+        {text:`${steal[0]??"—"} / ${steal[1]??"—"}`,compare:steal},
+        {text:String(day.keyed_entries??"—"),compare:day.keyed_entries??null},
+        {text:outcomeText,compare:outcomeEntries.map(([,count])=>count??0)},
+        {text:String(day.conflict_fraction??"—"),compare:day.conflict_fraction??null},
+        {text:`${day.level_count??"—"} / ${day.max_level_size??"—"}`,compare:[day.level_count??null,day.max_level_size??null]},
+        {text:`${day.day_wall_time_us??"—"} µs`,compare:day.day_wall_time_us??null}
+      ];
     }
     function renderDayRecords(shown) {
       const section=document.getElementById("record"), slider=document.getElementById("day-slider");
-      if(!traces.length){section.hidden=true;return;}
+      if(!shown.length){section.hidden=true;return;}
       section.hidden=false;
       const maxDay=Math.max(0,...shown.flatMap(t=>t.days.map(d=>d.day)));
       slider.max=String(maxDay); if(Number(slider.value)>maxDay)slider.value=String(maxDay);
       const selectedDay=Number(slider.value);document.getElementById("day-label").textContent=String(selectedDay);
       const root=document.getElementById("day-records");root.replaceChildren();
-      for(const trace of shown){
-        const day=trace.days.find(record=>record.day===selectedDay); if(!day)continue;
-        const card=element("article",undefined,"summary");card.style.borderTop=`4px solid ${trace.color}`;card.append(element("h2",`${trace.name} · day ${selectedDay}`));
-        const pre=element("pre",JSON.stringify(day,null,2));card.append(pre);root.append(card);
+      const rows=shown.map(trace=>({trace,day:trace.days.find(record=>record.day===selectedDay)})).filter(row=>row.day);
+      const headings=["Trace","Alive","Food mean","Action counts","Give Some / None","Steal Some / None","Keyed","Phase 6B outcomes","Conflict","Levels / max","Wall time"];
+      const table=element("table",undefined,"day-table"),thead=document.createElement("thead"),headRow=document.createElement("tr");
+      headings.forEach(heading=>headRow.append(element("th",heading)));thead.append(headRow);table.append(thead);
+      const body=document.createElement("tbody"),values=rows.map(row=>dayCells(row.day));
+      for(let rowIndex=0;rowIndex<rows.length;rowIndex++) {
+        const {trace}=rows[rowIndex],row=document.createElement("tr");
+        const file=element("td",trace.name);file.style.borderLeft=`4px solid ${trace.color}`;row.append(file);
+        for(let column=0;column<headings.length-1;column++) {
+          const cell=values[rowIndex][column],all=values.map(other=>JSON.stringify(other[column].compare));
+          const td=element("td",cell.text);
+          if(column===2)td.classList.add("actions");
+          if(column===6)td.classList.add("outcomes");
+          if(new Set(all).size>1)td.classList.add("diff");
+          row.append(td);
+        }
+        body.append(row);
       }
+      table.append(body);const tableWrap=element("div",undefined,"day-table-wrap");tableWrap.append(table);root.append(tableWrap);
+      const raw=element("details",undefined,"raw-records");raw.append(element("summary","Raw JSON records"));
+      for(const {trace,day} of rows){raw.append(element("h3",`${trace.name} · day ${selectedDay}`),element("pre",JSON.stringify(day,null,2)));}
+      root.append(raw);
     }
     function render() {
-      renderSummaries();
+      renderDigestStatus();
+      renderTraceTable();
       const shown=selectedTraces();
-      const chartRoot=document.getElementById("charts");chartRoot.replaceChildren();
-      document.getElementById("empty").hidden=traces.length>0;
-      if(!shown.length){document.getElementById("empty").textContent="Select a trace above to display it.";}
-      else {document.getElementById("empty").textContent="Choose or drop a trace file to begin.";for(const chart of charts)drawChart(chartRoot,chart,document.getElementById("overlay").checked?shown:shown.slice(0,1));}
-      renderDayRecords(document.getElementById("overlay").checked?shown:shown.slice(0,1));
+      const chartSection=document.getElementById("chart-section"),chartRoot=document.getElementById("charts");chartRoot.replaceChildren();
+      const overlay=document.getElementById("overlay").checked?shown:shown.slice(0,1);
+      document.getElementById("empty").hidden=traces.length>0&&shown.length>0;
+      if(!shown.length){document.getElementById("empty").textContent=traces.length?"Select a trace above to display it.":"Choose or drop a trace file to begin.";}
+      chartSection.hidden=shown.length===0;
+      if(shown.length){
+        document.getElementById("empty").textContent="Choose or drop a trace file to begin.";
+        renderSharedLegend(overlay);
+        for(const chart of charts)drawChart(chartRoot,chart,overlay);
+      }
+      renderDayRecords(traces);
     }
     async function acceptFiles(fileList) {
       try { for(const file of [...fileList]) await loadFile(file); render(); }
@@ -297,7 +423,7 @@
     }
     files.addEventListener("change",event=>acceptFiles(event.target.files));
     document.getElementById("overlay").addEventListener("change",render);
-    document.getElementById("day-slider").addEventListener("input",()=>renderDayRecords(document.getElementById("overlay").checked?selectedTraces():selectedTraces().slice(0,1)));
+    document.getElementById("day-slider").addEventListener("input",()=>renderDayRecords(traces));
     document.getElementById("clear").addEventListener("click",()=>{traces.length=0;files.value="";render();});
     for(const name of ["dragenter","dragover"])drop.addEventListener(name,event=>{event.preventDefault();drop.classList.add("over");});
     for(const name of ["dragleave","drop"])drop.addEventListener(name,event=>{event.preventDefault();drop.classList.remove("over");});
