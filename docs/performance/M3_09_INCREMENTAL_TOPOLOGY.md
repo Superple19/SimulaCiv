@@ -104,3 +104,78 @@ Median µs/tick at the equal-live checkpoint. The M3-08 baseline values come fro
 ## Scope and limitations
 
 The new runner is explicit opt-in. Existing M3P reference and serial storage runners remain the oracles. M2/M3 paths, snapshot schema, M3P goldens, and event/digest encodings are unchanged. Measurements are from one host; phase timings include temporary hook overhead and should be treated as secondary evidence.
+
+## Follow-up: M3P Phase 9b materialization reduction
+
+This follow-up diagnoses the remaining normal-day Phase 9b cost and removes the full-population materialization and copy from the incremental append path. The existing M3P reference runner and serial storage runner remain unchanged behaviorally and continue to serve as the differential oracles.
+
+### Baseline diagnosis
+
+Temporary `Instant` instrumentation measured the incremental Phase 9b on three normal days (101–103) at `N=100,000`, `K=500`, `k=8`, `p_local=0.5`, using the sustained configuration. The full-state timers are in `apply_phase9b_storage_incremental`; planner substage timers are in `plan_phase9b`. Values below are the observed ranges across two short profile runs, in microseconds. The original M3-09 profile recorded about 21,871 µs for the complete normal-day Phase 9b; this diagnostic rerun was noisier.
+
+| Baseline operation | Time per normal day | Allocation or work observed |
+|---|---:|---|
+| `SegmentedAgentStorage::to_agents` | 986–1,152 | Fresh `Vec<AgentState>` allocation and copy of 100,000 records; `AgentState` is 48 bytes, about 4.8 MB |
+| `world.settlements.clone()` | 0.7–1.8 | Fresh 500-entry settlement vector, about 8 KB |
+| `relationship_graph.clone()` | 412–558 | Three CSR vectors copied and allocated: source IDs, row offsets, and neighbors; about 4.4 MB for this graph |
+| `M3pReferenceState::from_parts` / `validate_state_parts` | 22,556–31,847 | Fresh 100,000-ID validation vector, sorting, then checking roughly 800,000 edges against the sorted IDs |
+| `plan_phase9b` | 2,138–2,634 | Candidate index build, eligible-parent scan/sort, RNG draws, sorted full-population slot scratch, planned-agent copy, and newborn planning |
+| Commit | 55–348 | Copy staged food values back to storage and append any newborns |
+| **Whole Phase 9b** | **27,154–36,149** | The full graph/state validation dominated this instrumented run |
+
+The planner's reusable `sampling_index.members`, parent vectors, `agent_slots`, and `planned_agents` retain their capacities after warm-up, but the old path still filled and sorted the full slot index and copied all `AgentState` values into `planned_agents` every normal day. `births` is an owned result vector; newborn row construction and `M3pCandidateIndex::sample_target` also create small per-birth/per-edge temporary vectors. Allocator totals were not collected with a custom allocator; these allocation sizes/counts are from the concrete allocation sites and collection capacities in the code.
+
+Relevant sites: [`apply_phase9b_storage_incremental`](../../crates/sim-model/src/m3p.rs), [`plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs), [`validate_state_parts`](../../crates/sim-model/src/m3p.rs), [`SegmentedAgentStorage::to_agents`](../../crates/sim-model/src/storage.rs), [`SegmentedAgentStorage::slot_of` and `agent_at`](../../crates/sim-model/src/storage.rs), and [`M3pStorageRunContext::validate_for`](../../crates/sim-model/src/runner.rs).
+
+### Incremental append path
+
+The normal non-compaction branch now plans directly from the SoA columns. It scans live membership and birth eligibility from storage, resolves only successful parents through the existing `slot_of` map, and stages only parent food deltas, newborn records, CSR rows, and projection rows. It checks all parents and stages the graph/projection append before changing authoritative columns; capacity is reserved before the infallible append/commit sequence. Compaction days retain the canonical full rebuild path.
+
+The incremental runner validates its complete starting state before its day loop. During that loop, graph changes are limited to the checked Phase 9b append; the append plan validates source/target identities and the Phase 4 projection stage validates target slots. Thus the normal Phase 9b path no longer constructs a `WorldState` from SoA, clones the graph, repeats `validate_state_parts`, sorts a full-population slot vector, copies all agents to a planning vector, or copies that vector's food column back.
+
+One temporary profile of days 101–103 measured the revised normal-day Phase 9b at 1,269–1,482 µs (median 1,375 µs). Its main remaining work was candidate-index build (about 0.71–1.02 ms), eligibility scan and birth draws (about 0.44–0.67 ms combined), and graph/projection staging (about 0.06–0.14 ms). The full Phase 9b duration is roughly 16 times lower than the original report's 21.9 ms profile; this is a comparison of hook-timed runs on one host, not a cross-host guarantee.
+
+The public incremental runner still performs `M3pStorageRunContext::validate_for` once per API call, before its day loop. That boundary check remains outside Phase 9b and is included in the one-day full-tick measurements below. A multi-day call pays it once per call. It protects caller-owned state between separate invocations; it was not bypassed for timing.
+
+### Full-tick rerun
+
+Host and configuration match this report: AMD Ryzen 5 9600X, 6 physical / 12 logical processors, Windows 11 Pro build 26200, Rust/Cargo `1.98.1`; M2-40 sustained configuration with M3P `k=8`, `p_local=0.5`, unlimited births, and compaction interval 50. Each run executes days 0–400 as one-day public runner calls; days 0–99 warm the trajectory and days 100–400 give 301 measured ticks. Metrics and events are enabled, snapshots are off, and the runner contexts are reused. Two repeats were measured. The paired run alternates serial and incremental calls by day; the non-interleaved run completes the serial trajectory and then the incremental trajectory from the same initial configuration. Paired daily outcomes and final State/Metrics/Events digests matched exactly.
+
+All values are µs/tick, median ± MAD.
+
+| N | Run | Paired serial | Paired incremental | Non-interleaved serial | Non-interleaved incremental |
+|---:|---:|---:|---:|---:|---:|
+| 10,000 | 1 | 9,219 ± 829 | 3,357 ± 214 | 9,050 ± 928 | 4,033 ± 277 |
+| 10,000 | 2 | 9,153 ± 1,120 | 3,341 ± 209 | 9,033 ± 561 | 3,329 ± 248 |
+| 100,000 | 1 | 157,341 ± 11,501 | 52,550 ± 5,634 | 154,620 ± 10,381 | 52,625 ± 5,416 |
+| 100,000 | 2 | 153,712 ± 10,886 | 51,460 ± 6,188 | 156,480 ± 11,641 | 52,516 ± 5,479 |
+
+The paired incremental medians are 3,349 µs at 10k and 52,005 µs at 100k. The previous report's incremental medians were 5,687 µs and 74,692 µs respectively, so this rerun measured 41% and 30% lower times. The M3P serial controls were 9,186 µs and 155,527 µs in the paired rerun. These are observed differences for this host and sampling window.
+
+Final paired parity digests were identical between serial and incremental M3P:
+
+| N | State | Metrics | Events |
+|---:|---|---|---|
+| 10,000 | `c29aade66a34b2cad5678d326df6cab05e73ade5e4023c1bb61d65f49337a728` | `49659024d084fb28c89d69f900e72ebf51e2173065659d7c65a0fc342a8835d1` | `2123c4c2f5c566c7d313f44e751500d5b570abfbfdf04be22afcefda570f46d8` |
+| 100,000 | `11c58919a9cf8425a737841a50dde4eed9d4dabb6b17df101b56778058dffb47` | `27ad17a9a89c8d06d69f1470b09bd97d4a481386eece6dffbee8f1835890b757` | `3e8c3daf0b1eb0df847d58d2dddabdedca065d12338934a00a3710e9432ddf2b` |
+
+### Equal-live M3P/M3 rerun and interleaving
+
+The checkpoint is after executed day 400, at 10,341 live agents for the 10k start and 103,241 for the 100k start. Each sample uses two warmups, 11 measured samples, and three consecutive days per sample; contexts are reconstructed from the same checkpoint outside each sample timer. The paired schedule rotates M3P serial, M3P incremental, and M3 order within each sample. The non-interleaved schedule completes all samples for one runner before moving to the next. Values are µs/tick, median ± MAD.
+
+| Initial N | Schedule | M3P serial | M3P incremental | M3 | Incremental M3P / M3 |
+|---:|---|---:|---:|---:|---:|
+| 10,000 | Paired | 7,081 ± 108 | 2,756 ± 29 | 2,276 ± 101 | 1.21× |
+| 10,000 | Non-interleaved | 6,932 ± 177 | 2,605 ± 47 | 2,125 ± 24 | 1.23× |
+| 100,000 | Paired | 148,153 ± 4,807 | 40,641 ± 2,183 | 27,315 ± 970 | 1.49× |
+| 100,000 | Non-interleaved | 141,599 ± 4,609 | 39,135 ± 1,006 | 26,590 ± 1,918 | 1.47× |
+
+The prior M3-09 equal-live report recorded incremental-M3P/M3 ratios of 2.14× at 10k and 2.58× at 100k. This rerun measured 1.21–1.23× and 1.47–1.49×. The earlier equal-live timing driver was temporary and is not in the repository; the follow-up timings use the public runner APIs and include their normal validation on each three-day call. That boundary makes this a measured rerun, but limits precise attribution of the absolute difference to Phase 9b alone.
+
+For whole ticks, non-interleaved incremental medians were 9.9% higher than paired at 10k and 1.1% higher at 100k. In the equal-live comparison, non-interleaved incremental was 5.5% lower at 10k and 3.7% lower at 100k. The direction changes with measurement shape at 10k and the 100k differences are within a few percent; these runs do not show a stable cache benefit from either schedule.
+
+### Test runtime
+
+The M3-09 test matrix still covers all 36 configurations, all 300-day per-day comparisons, goldens, snapshot/compaction resume, shuffled slots, unlimited births, and the 1,000-day sustained gate. It now computes each day's reference State digest once and uses a fixed four-thread Rayon pool only to run independent matrix cells concurrently; each simulated trajectory remains on its serial M3P path. The integration target completed in 68.22 seconds under the normal Rust test schedule (a forced single test thread took 129.04 seconds). No cases or assertions were removed. The separate day-1 exhausted-ID regression for the new non-compaction append path passed in 0.01 seconds.
+
+**Inference:** the dominant avoidable Phase 9b cost was its redundant full-state materialization and graph validation, not newborn graph construction. Candidate-index construction is now the largest normal-day Phase 9b substage at 100k. Whole-tick timing still includes per-call context validation, so using a long multi-day runner call can have different cost from this one-day-call benchmark. Measurements are from one host and the substage profile is hook-timed.
