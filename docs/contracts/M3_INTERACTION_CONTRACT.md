@@ -2,9 +2,9 @@
 
 **Status: FROZEN**
 
-**Scope: M3-00 semantic reference (§1–§7), M3-01 optimized serial contract (§9), and M3-02 deterministic parallel Phase 6B contract (§10)**
+**Scope: M3-00 semantic reference (§1–§7), M3-01 optimized serial contract (§9), M3-02 deterministic parallel Phase 6B contract (§10), and M3-02b search and bookkeeping reduction contract (§11)**
 
-This document freezes M3-00 (§1–§7), M3-01 (§9), and M3-02 (§10); later M3 stages are planned in §8.
+This document freezes M3-00 (§1–§7), M3-01 (§9), M3-02 (§10), and M3-02b (§11); later M3 stages are planned in §8.
 
 The research question is: **How much interaction complexity can a deterministic simulation runtime support before its execution model or data architecture must fundamentally change?** The M3-00 reference workload deliberately breaks the assumption that a settlement is an independent interaction partition.
 
@@ -470,11 +470,11 @@ This freeze resolves the M3-02 scope, parallel entry point, CI matrix, dependenc
 
 ## 11. M3-02b Search and bookkeeping reduction
 
-**Status: DRAFT — NOT FROZEN**
+**Status: FROZEN**
 
 ### 11.1 Goal and semantic boundary
 
-Reduce Phase 4 neighbor-search work and Phase 6B resolver bookkeeping on the serial M3 storage path while preserving bit-identical State, Metrics, and Events digests, identical Phase 4 `Intent` values, identical Phase 6B `SettlementTargetedResolution` values, and identical error behavior, including error precedence and partial output where applicable. `run_m3_storage_days` remains the serial oracle. The proposed optimized path is a separate, explicit opt-in entry point, provisionally named `run_m3_storage_days_with_search_reduction`; it does not replace or alter the oracle, the M3-02 parallel entry point, or any M2 path.
+Reduce Phase 4 neighbor-search work and Phase 6B resolver bookkeeping on the serial M3 storage path while preserving bit-identical State, Metrics, and Events digests, identical Phase 4 `Intent` values, identical Phase 6B `SettlementTargetedResolution` values, and identical error behavior, including error precedence and partial output where applicable. `run_m3_storage_days` remains the serial oracle. The separate, explicit opt-in entry point is `run_m3_storage_days_with_search_reduction`; its caller-owned `M3SearchReductionRunContext` wraps `M3StorageRunContext` and the reusable M3-02b scratch. It does not replace or alter the oracle, the M3-02 parallel entry point, or any M2 path. New public API is limited to this entry point and context; existing public types and signatures remain unchanged.
 
 Do not change simulation semantics, Phase 4 RNG coordinates or target-index formula, the Phase 6B resolution key or comparator, event payload/schema/order, snapshot schema, M3 digests, or M2 behavior. Transient indexes, masks, and sidecars remain runtime scratch and are excluded from state, snapshots, and digests.
 
@@ -519,13 +519,13 @@ Do not remove structural validation. The existing public `phase6b_targeted_resol
 
 The current serial resolver uses stable `sort_by` with `compare_keyed_interactions`, ordering by `(ResolutionKey, target AgentId, initiator AgentId, action kind)`; equal tuples retain serial staging order. A deterministic radix sort may be evaluated only if it implements that exact lexicographic order and preserves the stable staging-order tie-break. A key-only sort is not equivalent when keys collide and is out of scope unless it also reproduces every comparator tie-break.
 
-**RNG and ordering:** no coordinate changes, but a changed commit order can change live-food outcomes. Exact order, including equal-tuple stability, is mandatory. **API/type change:** none required. **Bit-exact status:** only a proven comparator-equivalent implementation is in scope; any unproven ordering is out of scope.
+**RNG and ordering:** no coordinate changes, but a changed commit order can change live-food outcomes. Exact order, including equal-tuple stability, is mandatory. **API/type change:** none required. **Bit-exact status:** only a proven comparator-equivalent stable radix implementation is in scope. Key-only sorting is excluded because it cannot reproduce the frozen tie-breaks.
 
-#### e. Reduce output assembly copies
+#### e. Out of scope: remove duplicate output storage
 
-The resolver currently builds `resolutions` as `zero_target` followed by `keyed_stream`, while `SettlementTargetedResolution` exposes all three as independently owned `Vec<TargetedResolution>` fields. With that public shape and retained scratch buffers, constructing all three vectors requires copying the records. Moving the two scratch vectors into the result could avoid some clones but gives up their retained capacity and may add allocations on later days; measure it as a separate candidate if attempted.
+The resolver currently builds `resolutions` as `zero_target` followed by `keyed_stream`, while `SettlementTargetedResolution` exposes all three as independently owned `Vec<TargetedResolution>` fields. Moving scratch vectors into the result could avoid some clones, but it gives up their retained capacity and may add allocations on later days. Eliminating duplicate record storage requires changing the public result representation, such as shared backing storage or ranges into one vector.
 
-Eliminating duplicate record storage entirely would require a public API/type change, such as shared backing storage or ranges into one vector, and is out of scope for this draft. **RNG and ordering:** no RNG effect; vector contents and order must remain exact. **API/type change:** required for full de-duplication. **Bit-exact status:** value equality is straightforward, but any move-based scratch-lifetime trade-off must pass repeated-day allocation and timing checks.
+**Decision:** excluded from M3-02b. **RNG and ordering:** no RNG effect; vector contents and order would still need to remain exact. **API/type change:** required for full de-duplication, which is prohibited here. A move-only variant changes scratch lifetime and is not retained as a candidate in this stage.
 
 ### 11.3 Measurement-first rule
 
@@ -538,9 +538,11 @@ For every retained candidate, require exact Phase 4 intent and Phase 6B resoluti
 - the M3 golden configuration and the complete §9.7 100-day matrix against both the serial M3-01 oracle and M3-00 reference;
 - snapshot pause/resume parity with graph and slot projection rebuilt, and shuffled-DenseSlot parity;
 - unchanged existing M2 goldens and snapshot checks;
-- the selected M3 sustained food-supply configuration for 200 days at `N=300` and `N=3,000` in CI, comparing the same three semantic paths. The source workload is the `base_metabolic_cost=0.48` configuration in [M3 Sustained Workload](../performance/M3_SUSTAINED_WORKLOAD.md), with seed `81985529216486895`, replicate `7`, `k=8`, and its selected `p_local=0.5` setting. Choose `K` only after the §2.2 capacity issue in OQ-1 below is resolved; do not silently use `K=N/200` at `N=300`.
+- the selected M3 sustained food-supply configuration for 200 days at `N=300` and `N=3,000` in CI, comparing the same three semantic paths. Use `K=3` at `N=300` and `K=15` at `N=3,000`, seed `81985529216486895`, replicate `7`, `k=8`, `p_local=0.5`, and `base_metabolic_cost=0.48`; keep every other M2-40 setting unchanged. Round-robin groups have sizes 100 and 200 respectively. Under §2.2, local/cross capacities are 99/200 at `N=300` and 199/2,800 at `N=3,000`, so both exceed `k=8` for `p_local=0.5`.
 
 **Expected added CI work (estimate, not a measurement):** for the single sustained `p_local=0.5` cell at each population, the added `N × days` is `(300 + 3,000) × 200 = 660,000` agent-days per path. The §9.7 matrix is `54 × 300 × 100 + 3 × 1,000 × 100 + 3 × 3,000 × 100 = 2,820,000` agent-days per path. Under a roughly linear population-cost assumption this is about a **23% increase to the §9.7 differential portion**, not 23% of the whole workspace suite. Actual CI wall time is unknown and must be recorded on the slowest supported OS; this estimate is not a substitute for that measurement.
+
+The added sustained-gate test wall-time target is **at most two minutes in debug mode on the development host**. Record its actual test time in the report. After an authorized push, record the observed CI time there; this contract task does not authorize a push.
 
 ### 11.5 Measurement protocol
 
@@ -556,12 +558,21 @@ The new benchmark writes per-day JSON records under `target/` only; do not commi
 
 Record methods, retained and rejected candidates, per-stage and whole-tick medians ± MAD, search/setup versus Applied-positive work, workload counts, hook overhead, parity results, and actual added CI wall time in [`docs/performance/M3_02B_SEARCH_REDUCTION.md`](../performance/M3_02B_SEARCH_REDUCTION.md). Label estimates and inferences separately from measured facts.
 
-### 11.8 Open questions
+### 11.8 Remaining open questions
 
-| ID | Question | Status | Why it remains open |
+None. The debug runtime measurement and post-push CI timing are required implementation/report evidence, not unresolved contract decisions.
+
+### 11.9 Frozen decision register
+
+| ID | Decision | Status | Frozen resolution |
 |---|---|---|---|
-| OQ-1 | What `K` should the 200-day `N=300` sustained CI case use? | **Blocking for sustained-gate freeze** | The source report uses `K=N/200`, which gives `K=1` at `N=300`. `RelationshipGraph::validate_capacities` requires cross-partition capacity when `p_local != 1`; for `k=8`, `p_local=0.5`, and one settlement, graph construction returns `InsufficientCrossPartitionCapacity`. Select and record a valid `K` before freezing this gate. |
-| OQ-2 | Is the estimated ~23% increase to the §9.7 differential portion acceptable, and what is the numeric wall-time budget? | **Blocking for CI-gate freeze** | Current source and reports do not provide a matching three-OS CI wall-time baseline for this added sustained matrix. Measure the actual delta; the agent-day estimate assumes roughly linear cost in `N` and is not a wall-time measurement. |
-| OQ-3 | Can candidate (c)'s private slot sidecar remain correctly associated through Phase 5 without changing public intent/partition types? | **Blocking for candidate (c); non-blocking for §11** | The current public intent and partition values contain AgentIds, while Phase 5 reorders/partitions intents. The code does not define a slot-sidecar contract. Keep the candidate out unless a private mapping and its validation/error parity are demonstrated. |
+| OQ-1 | Sustained CI configuration | **FROZEN** | Use `N=300, K=3` and `N=3,000, K=15`, seed `81985529216486895`, replicate `7`, `k=8`, `p_local=0.5`, `base_metabolic_cost=0.48`, and 200 days. Both group layouts pass §2.2: local/cross capacities are 99/200 and 199/2,800, respectively, each at least `k=8`. |
+| OQ-2 | Added test and CI runtime | **FROZEN** | The sustained-gate debug test target is at most two minutes on the development host. Record actual debug test time in the report and, after an authorized push, observed CI time. Runtime measurements do not relax any parity gate. |
+| OQ-3 | Phase 4 slot sidecar | **FROZEN** | Candidate (c) is allowed only as a private sidecar created by a private Phase 5 wrapper that returns partitions and aligned slot vectors together. In debug builds, assert every non-null sidecar slot equals `storage.slot_of(agent_id)`. Keep the public M3 storage resolver's complete validation unchanged. If this cannot be implemented without changing an existing public type, reject candidate (c). |
+| D-1 | Explicit opt-in API | **FROZEN** | Add `run_m3_storage_days_with_search_reduction` and `M3SearchReductionRunContext`, wrapping `M3StorageRunContext` plus caller-owned reusable scratch. Preserve existing public type layouts and signatures; the new entry point is serial and opt-in. |
+| D-2 | Output-copy candidate | **FROZEN** | Candidate (e) is out of scope because complete de-duplication requires a public result-type change; do not implement the move-based scratch-capacity trade-off in M3-02b. |
+| D-3 | Global sort candidate | **FROZEN** | Candidate (d) is limited to a stable radix sort proven equivalent to the full frozen comparator and serial staging-order tie-break. Key-only sorting is out of scope. |
 
-This section remains a draft. A later freeze must resolve blocking questions, authorize only the selected candidates, and set the implementation and CI acceptance boundary before code changes begin.
+### 11.10 Freeze record
+
+This freeze resolves the sustained CI configuration, runtime target, private Phase 5 slot-sidecar constraints, explicit opt-in API, and candidate boundaries. It authorizes the M3-02b implementation task to proceed; it does not itself implement the optimizations.
