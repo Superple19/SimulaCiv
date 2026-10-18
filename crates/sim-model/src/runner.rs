@@ -616,6 +616,40 @@ fn m3p_storage_memberships(storage: &SegmentedAgentStorage) -> Vec<(AgentId, Gro
         .collect()
 }
 
+#[cfg(debug_assertions)]
+fn assert_m3p_incremental_topology_matches_full_rebuild(
+    storage: &SegmentedAgentStorage,
+    context: &M3pStorageRunContext,
+) {
+    let graph = &context.relationship_graph;
+    let rows = graph
+        .source_ids()
+        .iter()
+        .map(|&source_id| {
+            (
+                source_id,
+                graph
+                    .neighbors_of(source_id)
+                    .expect("canonical graph source has a row")
+                    .to_vec(),
+            )
+        })
+        .collect();
+    let rebuilt_graph =
+        RelationshipGraph::from_canonical_rows(rows, &m3p_storage_memberships(storage))
+            .expect("incremental M3P graph rebuild validates");
+    assert_eq!(
+        graph, &rebuilt_graph,
+        "incremental CSR differs from rebuild"
+    );
+    let rebuilt_projection = M3Phase4SlotProjection::new(&rebuilt_graph, storage)
+        .expect("incremental M3P projection rebuild validates");
+    assert_eq!(
+        context.phase4_projection, rebuilt_projection,
+        "incremental Phase 4 projection differs from rebuild"
+    );
+}
+
 fn m3p_world_from_storage(world: &WorldState, storage: &SegmentedAgentStorage) -> WorldState {
     let mut copy = world.clone();
     copy.agents = storage.to_agents();
@@ -1592,6 +1626,10 @@ fn run_m3p_storage_day_inner(
     };
     if incremental_topology_scratch.is_some() {
         context.refresh_incremental_after_phase9b(storage, &phase9b)?;
+        #[cfg(debug_assertions)]
+        if phase9b.compacted || executed_day.is_multiple_of(16) {
+            assert_m3p_incremental_topology_matches_full_rebuild(storage, context);
+        }
     } else {
         context.refresh_after_phase9b(storage, &phase9b)?;
     }

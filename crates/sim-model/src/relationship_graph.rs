@@ -20,7 +20,8 @@ pub struct RelationshipGraph {
 
 #[derive(Debug)]
 pub(crate) struct RelationshipGraphAppendPlan {
-    row_ends: Vec<usize>,
+    row_count: usize,
+    additional_neighbors: usize,
     cross_partition_edges: u64,
     total_edges: u64,
 }
@@ -314,6 +315,7 @@ impl RelationshipGraph {
         &self,
         rows: &[(AgentId, GroupId, Vec<AgentId>)],
         candidate_members: &[(AgentId, GroupId)],
+        row_ends: &mut Vec<usize>,
     ) -> Result<RelationshipGraphAppendPlan, RelationshipGraphError> {
         if candidate_members
             .windows(2)
@@ -322,7 +324,8 @@ impl RelationshipGraph {
             return Err(RelationshipGraphError::RankInvariantViolation);
         }
 
-        let mut row_ends = Vec::with_capacity(rows.len());
+        row_ends.clear();
+        row_ends.reserve(rows.len());
         let mut row_end = self.neighbors.len();
         let mut last_source = self.source_ids.last().copied();
         let mut total_edges = self.total_edges;
@@ -362,31 +365,28 @@ impl RelationshipGraph {
         }
 
         Ok(RelationshipGraphAppendPlan {
-            row_ends,
+            row_count: rows.len(),
+            additional_neighbors: row_end - self.neighbors.len(),
             cross_partition_edges,
             total_edges,
         })
     }
 
     pub(crate) fn reserve_appended_rows(&mut self, plan: &RelationshipGraphAppendPlan) {
-        self.source_ids.reserve(plan.row_ends.len());
-        self.row_offsets.reserve(plan.row_ends.len());
-        let additional_neighbors = plan
-            .row_ends
-            .last()
-            .copied()
-            .unwrap_or(self.neighbors.len())
-            - self.neighbors.len();
-        self.neighbors.reserve(additional_neighbors);
+        self.source_ids.reserve(plan.row_count);
+        self.row_offsets.reserve(plan.row_count);
+        self.neighbors.reserve(plan.additional_neighbors);
     }
 
     pub(crate) fn append_prevalidated_rows(
         &mut self,
         rows: &[(AgentId, GroupId, Vec<AgentId>)],
+        row_ends: &[usize],
         plan: RelationshipGraphAppendPlan,
     ) {
-        debug_assert_eq!(rows.len(), plan.row_ends.len());
-        for ((source_id, _, neighbors), &row_end) in rows.iter().zip(&plan.row_ends) {
+        debug_assert_eq!(rows.len(), plan.row_count);
+        debug_assert_eq!(rows.len(), row_ends.len());
+        for ((source_id, _, neighbors), &row_end) in rows.iter().zip(row_ends) {
             self.source_ids.push(*source_id);
             self.neighbors.extend_from_slice(neighbors);
             self.row_offsets.push(row_end);

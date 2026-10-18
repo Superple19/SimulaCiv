@@ -665,9 +665,14 @@ enum Phase9bGraphUpdate {
 #[derive(Debug, Default)]
 pub(crate) struct M3pIncrementalTopologyScratch {
     pub(crate) newborn_rows: Vec<(AgentId, GroupId, Vec<AgentId>)>,
+    pub(crate) csr_row_ends: Vec<usize>,
     pub(crate) projection_row_ends: Vec<usize>,
     pub(crate) projection_neighbor_slots: Vec<usize>,
     sampling_index: M3pCandidateIndexScratch,
+    eligible_parents: Vec<AgentId>,
+    successful_parents: Vec<AgentId>,
+    agent_slots: Vec<(AgentId, usize)>,
+    planned_agents: Vec<AgentState>,
 }
 
 pub(crate) struct Phase9bRunParameters<'a> {
@@ -839,7 +844,7 @@ pub(crate) fn apply_phase9b_storage_incremental(
                 scratch.projection_row_ends.len(),
                 scratch.projection_neighbor_slots.len(),
             );
-            relationship_graph.append_prevalidated_rows(rows, append_plan);
+            relationship_graph.append_prevalidated_rows(rows, &scratch.csr_row_ends, append_plan);
             for (slot, planned_agent) in agents.iter().take(source_len).enumerate() {
                 storage.economy.food[slot] = planned_agent.food;
             }
@@ -859,6 +864,7 @@ pub(crate) fn apply_phase9b_storage_incremental(
         }
     }
     *next_agent_id = planned_next_agent_id;
+    scratch.planned_agents = agents;
     Ok(result)
 }
 
@@ -874,9 +880,36 @@ fn plan_phase9b(
         .as_ref()
         .ok_or_else(|| invariant("M3P profile requires [population] settings"))?;
     let mut local_sampling_index = M3pCandidateIndexScratch::default();
-    let (sampling_index, mut newborn_rows_scratch) = match incremental_scratch {
-        Some(scratch) => (&mut scratch.sampling_index, Some(&mut scratch.newborn_rows)),
-        None => (&mut local_sampling_index, None),
+    let mut local_eligible_parents = Vec::new();
+    let mut local_successful_parents = Vec::new();
+    let mut local_agent_slots = Vec::new();
+    let (
+        sampling_index,
+        mut newborn_rows_scratch,
+        mut csr_row_ends_scratch,
+        eligible_parents,
+        successful_parents,
+        agent_slots,
+        planned_agents_scratch,
+    ) = match incremental_scratch {
+        Some(scratch) => (
+            &mut scratch.sampling_index,
+            Some(&mut scratch.newborn_rows),
+            Some(&mut scratch.csr_row_ends),
+            &mut scratch.eligible_parents,
+            &mut scratch.successful_parents,
+            &mut scratch.agent_slots,
+            Some(&mut scratch.planned_agents),
+        ),
+        None => (
+            &mut local_sampling_index,
+            None,
+            None,
+            &mut local_eligible_parents,
+            &mut local_successful_parents,
+            &mut local_agent_slots,
+            None,
+        ),
     };
     sampling_index.fill_members(
         state
@@ -891,21 +924,23 @@ fn plan_phase9b(
     let candidate_index =
         sampling_index.build(f32::from_bits(state.p_local_bits), *run_context, day)?;
 
-    let mut eligible_parents: Vec<_> = state
-        .world
-        .agents
-        .iter()
-        .filter(|agent| {
-            agent.alive
-                && agent.health >= population_config.birth_min_health
-                && agent.food >= population_config.birth_food_threshold
-        })
-        .map(|agent| agent.agent_id)
-        .collect();
+    eligible_parents.clear();
+    eligible_parents.extend(
+        state
+            .world
+            .agents
+            .iter()
+            .filter(|agent| {
+                agent.alive
+                    && agent.health >= population_config.birth_min_health
+                    && agent.food >= population_config.birth_food_threshold
+            })
+            .map(|agent| agent.agent_id),
+    );
     eligible_parents.sort_unstable();
 
-    let mut successful_parents = Vec::new();
-    for parent_id in eligible_parents {
+    successful_parents.clear();
+    for parent_id in eligible_parents.iter().copied() {
         let coordinate = RngCoordinate::new(
             run_context.master_seed,
             run_context.replicate_id,
@@ -935,21 +970,31 @@ fn plan_phase9b(
     }
     validate_live_population_after_births(live_population, birth_count)?;
 
-    let mut agent_slots = BTreeMap::new();
+    agent_slots.clear();
     for (slot, agent) in state.world.agents.iter().enumerate() {
-        if agent_slots.insert(agent.agent_id, slot).is_some() {
-            return Err(invariant("duplicate AgentId during M3P Phase 9b planning"));
-        }
+        agent_slots.push((agent.agent_id, slot));
+    }
+    agent_slots.sort_unstable_by_key(|&(agent_id, _)| agent_id);
+    if agent_slots.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        return Err(invariant("duplicate AgentId during M3P Phase 9b planning"));
     }
     let cost = population_config.birth_food_cost;
-    let mut planned_agents = state.world.agents.clone();
+    let mut planned_agents = if let Some(planned_agents) = planned_agents_scratch {
+        let mut reusable = std::mem::take(planned_agents);
+        reusable.clear();
+        reusable.extend_from_slice(&state.world.agents);
+        reusable
+    } else {
+        state.world.agents.clone()
+    };
     let mut births = Vec::with_capacity(successful_parents.len());
     let degree_k = state.relationship_degree_k as usize;
 
     for (offset, parent_id) in successful_parents.iter().copied().enumerate() {
-        let slot = *agent_slots
-            .get(&parent_id)
-            .ok_or_else(|| invariant("M3P birth parent is missing"))?;
+        let parent_slot = agent_slots
+            .binary_search_by_key(&parent_id, |&(agent_id, _)| agent_id)
+            .map_err(|_| invariant("M3P birth parent is missing"))?;
+        let slot = agent_slots[parent_slot].1;
         let parent = &planned_agents[slot];
         if !parent.alive
             || parent.health < population_config.birth_min_health
@@ -1107,11 +1152,14 @@ fn plan_phase9b(
         if births.is_empty() {
             Phase9bGraphUpdate::Unchanged
         } else {
-            Phase9bGraphUpdate::Append(
-                state
-                    .relationship_graph
-                    .plan_append_rows(rows, candidate_index.members)?,
-            )
+            let row_ends: &mut Vec<usize> = csr_row_ends_scratch
+                .as_mut()
+                .expect("incremental append requires row-offset scratch");
+            Phase9bGraphUpdate::Append(state.relationship_graph.plan_append_rows(
+                rows,
+                candidate_index.members,
+                row_ends,
+            )?)
         }
     } else if !births.is_empty() {
         let rows: Vec<_> = rows.into_iter().collect();

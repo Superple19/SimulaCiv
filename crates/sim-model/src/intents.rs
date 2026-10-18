@@ -348,7 +348,7 @@ pub fn generate_intents_m3_into(
 }
 
 /// Reusable Phase 4 projection from canonical graph rows to current SoA storage slots.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct M3Phase4SlotProjection {
     row_offsets: Vec<usize>,
     neighbor_slots: Vec<usize>,
