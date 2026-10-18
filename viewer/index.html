@@ -33,11 +33,15 @@
     .chart h2 { margin-bottom:4px; }
     .legend { display:flex; flex-wrap:wrap; gap:4px 12px; color:var(--muted); font-size:.78rem; }
     .legend span::before { content:""; display:inline-block; width:12px; height:3px; margin:0 5px 3px 0; background:var(--swatch); }
+    .legend .identical::before { background:repeating-linear-gradient(to right,var(--swatch) 0 4px,transparent 4px 7px); }
     svg { display:block; width:100%; height:auto; overflow:visible; touch-action:pan-x pan-y; }
     .gridline { stroke:var(--line); stroke-width:1; }
     .axis-label { fill:var(--muted); font-size:11px; }
     .series-line { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
     .point { stroke:var(--card); stroke-width:1.3; cursor:crosshair; }
+    .point.duplicate { fill:var(--card); stroke:var(--point-color); }
+    .digest-group { border-left:4px solid #23956a; }
+    .digest-group.mismatch { border-left-color:#c43b3b; }
     .record { margin-top:14px; }
     #tooltip { position:fixed; z-index:5; display:none; pointer-events:none; padding:7px 9px; border-radius:6px; background:var(--fg); color:var(--bg); font:12px ui-monospace,monospace; white-space:pre; box-shadow:0 2px 10px #0004; }
     .empty { padding:25px; text-align:center; color:var(--muted); }
@@ -76,22 +80,42 @@
     const drop = document.getElementById("drop");
     const tooltip = document.getElementById("tooltip");
     const charts = [
-      { title:"Alive population", get:d=>d.alive, format:v=>String(v) },
+      { title:"Alive population", get:d=>d.alive, zeroBaseline:true },
       { title:"Mean food of alive agents", get:d=>d.food_alive?.mean, format:v=>String(v) },
-      { title:"Keyed Phase 6B entries", get:d=>d.keyed_entries, format:v=>String(v) },
-      { title:"Applied-positive", get:d=>d.phase6b_outcomes?.applied_positive, format:v=>String(v) },
-      { title:"TheftFailed", get:d=>d.phase6b_outcomes?.theft_failed, format:v=>String(v) },
+      { title:"Keyed Phase 6B entries", get:d=>d.keyed_entries, zeroBaseline:true },
+      { title:"Applied-positive", get:d=>d.phase6b_outcomes?.applied_positive, zeroBaseline:true },
+      { title:"TheftFailed", get:d=>d.phase6b_outcomes?.theft_failed, zeroBaseline:true },
       { title:"GiveFood targets", multi:d=>[
-        {name:"Some", value:d.give_food?.some, dash:""},
-        {name:"None", value:d.give_food?.none, dash:"6 4"}
-      ] },
+        {name:"Some", value:d.give_food?.some},
+        {name:"None", value:d.give_food?.none}
+      ], zeroBaseline:true },
+      { title:"StealFood targets", multi:d=>[
+        {name:"Some", value:d.steal_food?.some},
+        {name:"None", value:d.steal_food?.none}
+      ], zeroBaseline:true },
       { title:"Conflict fraction", get:d=>d.conflict_fraction, format:v=>String(v) },
-      { title:"Dependency levels per day", get:d=>d.level_count, format:v=>String(v) },
+      { title:"Dependency levels per day", get:d=>d.level_count, zeroBaseline:true },
       { title:"Day wall time (µs)", get:d=>d.day_wall_time_us, format:v=>String(v) }
     ];
 
     function digestKey(d) { return [d?.state, d?.metrics, d?.events].join("|"); }
     function configKey(config) { return String(config || "").trim(); }
+    function metricSeries(definition, day) {
+      return definition.multi ? definition.multi(day) : [{name:"", value:definition.get(day)}];
+    }
+    function sameMetricValues(first, second, definition) {
+      if (first.days.length !== second.days.length) return false;
+      return first.days.every((day, index) => {
+        const otherDay = second.days[index];
+        if (day.day !== otherDay.day) return false;
+        const values = metricSeries(definition, day);
+        const otherValues = metricSeries(definition, otherDay);
+        return values.length === otherValues.length && values.every((entry, valueIndex) => {
+          const other = otherValues[valueIndex];
+          return entry.name === other.name && (entry.value ?? null) === (other.value ?? null);
+        });
+      });
+    }
     function loadFile(file) {
       return file.text().then(text=>{
         const rows = text.split(/\r?\n/).filter(line=>line.trim()).map((line,index)=>{
@@ -123,12 +147,21 @@
       const grouped=new Map();
       for (const trace of traces) {
         const key=configKey(trace.header.config_toml);
-        if (!grouped.has(key)) grouped.set(key, new Set());
-        grouped.get(key).add(digestKey(trace.digests));
+        if (!grouped.has(key)) grouped.set(key, {traces:[], digests:new Set()});
+        grouped.get(key).traces.push(trace);
+        grouped.get(key).digests.add(digestKey(trace.digests));
       }
-      const mismatches=[...grouped.values()].some(values=>values.size>1);
+      const mismatches=[...grouped.values()].some(group=>group.digests.size>1);
       showWarning(mismatches ? "Traces with identical configuration have different final State, Metrics, or Events digests." : "");
-      traces.forEach((trace,index)=>{
+      for (const group of grouped.values()) {
+        if (group.traces.length<2) continue;
+        const identical=group.digests.size===1;
+        const card=element("article",undefined,`summary digest-group${identical?"":" mismatch"}`);
+        card.append(element("strong",identical?"digests identical":"digest mismatch"));
+        card.append(element("p",group.traces.map(trace=>trace.name).join(" · ")));
+        root.append(card);
+      }
+      traces.forEach(trace=>{
         const card=element("article",undefined,"summary");
         const label=element("label");
         const checkbox=element("input"); checkbox.type="checkbox"; checkbox.checked=trace.selected;
@@ -146,6 +179,47 @@
       });
     }
     function linePath(points) { return points.map((point,index)=>`${index ? "L":"M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "); }
+    function niceStep(minimum, maximum, targetTicks=4) {
+      let span=maximum-minimum;
+      if (span<=0) span=Math.max(Math.abs(maximum)*0.2,1);
+      const raw=span/targetTicks;
+      const power=10**Math.floor(Math.log10(raw));
+      const fraction=raw/power;
+      return (fraction<=1?1:fraction<=2?2:fraction<=5?5:10)*power;
+    }
+    function axisRange(values, zeroBaseline) {
+      const dataMin=Math.min(...values),dataMax=Math.max(...values);
+      const nonNegative=dataMin>=0;
+      const step=niceStep(zeroBaseline?0:dataMin,dataMax);
+      const min=zeroBaseline?0:(nonNegative?Math.max(0,Math.floor(dataMin/step)*step):Math.floor(dataMin/step)*step);
+      const max=Math.ceil(dataMax/step)*step;
+      return {min,max:max>min?max:min+step,step};
+    }
+    function seriesSegments(trace, definition, part, x, y) {
+      const segments=[]; let segment=[];
+      for (const day of trace.days) {
+        const series=metricSeries(definition,day);
+        const value=definition.multi?series.find(item=>item.name===part)?.value:series[0]?.value;
+        if(value===null || value===undefined || !Number.isFinite(Number(value))) {
+          if(segment.length)segments.push(segment);
+          segment=[];
+          continue;
+        }
+        segment.push({x:x(day.day),y:y(Number(value)),day,value:Number(value),part});
+      }
+      if(segment.length)segments.push(segment);
+      return segments;
+    }
+    function appendLegend(card, definition, shown) {
+      const legend=element("div",undefined,"legend");
+      shown.forEach((trace,traceIndex)=>{
+        const identicalTo=shown.slice(0,traceIndex).find(other=>sameMetricValues(trace,other,definition));
+        const span=element("span",identicalTo?`${trace.name} — identical to ${identicalTo.name}`:trace.name,identicalTo?"identical":"");
+        span.style.setProperty("--swatch",trace.color);legend.append(span);
+      });
+      if(definition.multi) { const span=element("span","dashed = None");span.style.setProperty("--swatch","var(--muted)");legend.append(span); }
+      card.append(legend);
+    }
     function drawChart(container, definition, shown) {
       const card=element("article",undefined,"chart"); card.append(element("h2",definition.title));
       const width=640,height=230,left=54,right=14,top=14,bottom=31,plotW=width-left-right,plotH=height-top-bottom;
@@ -153,46 +227,46 @@
       const all=shown.flatMap(t=>t.days.map(d=>d.day)); const xMin=Math.min(...all),xMax=Math.max(...all);
       const rawSeries=[];
       shown.forEach(trace=>trace.days.forEach(day=>{
-        const values=definition.multi ? definition.multi(day) : [{name:"",value:definition.get(day),dash:""}];
+        const values=metricSeries(definition,day);
         values.forEach(value=>{if (value.value !== null && value.value !== undefined && Number.isFinite(Number(value.value))) rawSeries.push({trace,day,name:value.name,value:Number(value.value),dash:value.dash||""});});
       }));
-      if (!rawSeries.length) { card.append(element("p","No values for this chart.")); container.append(card); return; }
-      let yMin=Math.min(0,...rawSeries.map(point=>point.value)),yMax=Math.max(...rawSeries.map(point=>point.value));
-      if (yMin===yMax) yMax=yMin+1;
-      const yPad=(yMax-yMin)*0.06; yMin-=yPad; yMax+=yPad;
+      if (!rawSeries.length) { card.append(element("p","No values for this chart.")); appendLegend(card,definition,shown); container.append(card); return; }
+      const {min:yMin,max:yMax,step}=axisRange(rawSeries.map(point=>point.value),definition.zeroBaseline===true);
       const x=value=>left+(xMax===xMin ? .5 : (value-xMin)/(xMax-xMin))*plotW;
       const y=value=>top+(yMax-value)/(yMax-yMin)*plotH;
-      for(let tick=0;tick<=4;tick++) {
-        const value=yMin+(yMax-yMin)*tick/4, yy=y(value);
+      const tickCount=Math.round((yMax-yMin)/step);
+      for(let tick=0;tick<=tickCount;tick++) {
+        const value=Number((yMin+step*tick).toPrecision(12)), yy=y(value);
         const grid=document.createElementNS(svg.namespaceURI,"line"); grid.setAttribute("x1",left);grid.setAttribute("x2",width-right);grid.setAttribute("y1",yy);grid.setAttribute("y2",yy);grid.setAttribute("class","gridline");svg.append(grid);
-        const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",left-7);label.setAttribute("y",yy+4);label.setAttribute("text-anchor","end");label.setAttribute("class","axis-label");label.textContent=Number(value.toPrecision(4)).toString();svg.append(label);
+        const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",left-7);label.setAttribute("y",yy+4);label.setAttribute("text-anchor","end");label.setAttribute("class","axis-label");label.textContent=value.toString();svg.append(label);
       }
       const xLabel=document.createElementNS(svg.namespaceURI,"text");xLabel.setAttribute("x",left);xLabel.setAttribute("y",height-5);xLabel.setAttribute("class","axis-label");xLabel.textContent=`day ${xMin}`;svg.append(xLabel);
       const xEnd=document.createElementNS(svg.namespaceURI,"text");xEnd.setAttribute("x",width-right);xEnd.setAttribute("y",height-5);xEnd.setAttribute("text-anchor","end");xEnd.setAttribute("class","axis-label");xEnd.textContent=`day ${xMax}`;svg.append(xEnd);
       shown.forEach(trace=>{
-        const parts=definition.multi ? ["Some","None"] : [""];
+        const traceIndex=shown.indexOf(trace);
+        const identicalTo=shown.slice(0,traceIndex).find(other=>sameMetricValues(trace,other,definition));
+        const duplicate=Boolean(identicalTo);
+        const parts=definition.multi ? metricSeries(definition,trace.days[0]||{}).map(item=>item.name) : [""];
         parts.forEach((part,partIndex)=>{
-          const points=trace.days.flatMap(day=>{
-            const v=definition.multi ? definition.multi(day).find(item=>item.name===part)?.value : definition.get(day);
-            return v===null || v===undefined || !Number.isFinite(Number(v)) ? [] : [{x:x(day.day),y:y(Number(v)),day,value:v,trace,part}];
-          });
-          if (!points.length) return;
-          const path=document.createElementNS(svg.namespaceURI,"path");path.setAttribute("d",linePath(points));path.setAttribute("class","series-line");path.setAttribute("stroke",trace.color);if(partIndex)path.setAttribute("stroke-dasharray","6 4");svg.append(path);
-          for(const point of points) {
-            const circle=document.createElementNS(svg.namespaceURI,"circle");circle.setAttribute("cx",point.x);circle.setAttribute("cy",point.y);circle.setAttribute("r",points.length>500?1.8:2.7);circle.setAttribute("fill",trace.color);circle.setAttribute("class","point");
-            const exact=typeof point.value==="number" ? point.value.toString() : String(point.value);
-            circle.dataset.tip=`${trace.name}\nday ${point.day.day}${point.part?" · "+point.part:""}\n${exact}`;
-            circle.addEventListener("pointerenter",event=>{tooltip.textContent=circle.dataset.tip;tooltip.style.display="block";tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
-            circle.addEventListener("pointermove",event=>{tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
-            circle.addEventListener("pointerleave",()=>{tooltip.style.display="none";});svg.append(circle);
+          const segments=seriesSegments(trace,definition,part,x,y);
+          if (!segments.length) return;
+          for(const points of segments) {
+            const path=document.createElementNS(svg.namespaceURI,"path");path.setAttribute("d",linePath(points));path.setAttribute("class","series-line");path.setAttribute("stroke",trace.color);
+            path.setAttribute("stroke-dasharray",duplicate?(partIndex?"2 2 6 2":"2 3"):(partIndex?"6 4":""));svg.append(path);
+            for(const point of points) {
+              const circle=document.createElementNS(svg.namespaceURI,"circle");circle.setAttribute("cx",point.x);circle.setAttribute("cy",point.y);circle.setAttribute("r",points.length>500?1.8:2.7);circle.setAttribute("fill",trace.color);circle.setAttribute("class","point");
+              if(duplicate){circle.classList.add("duplicate");circle.style.setProperty("--point-color",trace.color);}
+              const exact=typeof point.value==="number" ? point.value.toString() : String(point.value);
+              circle.dataset.tip=`${trace.name}\nday ${point.day.day}${point.part?" · "+point.part:""}\n${exact}`;
+              circle.addEventListener("pointerenter",event=>{tooltip.textContent=circle.dataset.tip;tooltip.style.display="block";tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
+              circle.addEventListener("pointermove",event=>{tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
+              circle.addEventListener("pointerleave",()=>{tooltip.style.display="none";});svg.append(circle);
+            }
           }
         });
       });
       card.append(svg);
-      const legend=element("div",undefined,"legend");
-      shown.forEach(trace=>{const span=element("span",trace.name);span.style.setProperty("--swatch",trace.color);legend.append(span);});
-      if(definition.multi) { const span=element("span","dashed = None");span.style.setProperty("--swatch","var(--muted)");legend.append(span); }
-      card.append(legend);container.append(card);
+      appendLegend(card,definition,shown);container.append(card);
     }
     function renderDayRecords(shown) {
       const section=document.getElementById("record"), slider=document.getElementById("day-slider");

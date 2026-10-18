@@ -10,3 +10,5 @@ cargo run --release -p sim-model --example m3_trace -- --config sustained --n 10
 ```
 
 Use `--config <path.toml>` for a custom TOML config; the trace command overrides profile, population, settlement count, relationship degree, locality, seed, and replicate from its arguments. Parallel runs use `--runner parallel:<threads>:<chunk>`.
+
+Count charts use zero-based axes with 1/2/5-step ticks. Undefined measurements appear as line gaps; identical metric traces are marked in the legend and overlaid with a dashed line, while each same-config group reports whether its final digests match.
