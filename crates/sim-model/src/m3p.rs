@@ -681,6 +681,8 @@ pub(crate) struct M3pIncrementalTopologyScratch {
     eligible_parents: Vec<AgentId>,
     successful_parents: Vec<AgentId>,
     agent_slots: Vec<(AgentId, usize)>,
+    parent_food_updates: Vec<(usize, f32)>,
+    newborn_agents: Vec<AgentState>,
     planned_agents: Vec<AgentState>,
 }
 
@@ -690,6 +692,13 @@ pub(crate) struct Phase9bRunParameters<'a> {
     pub(crate) day: u32,
     pub(crate) relationship_degree_k: u32,
     pub(crate) p_local_bits: u32,
+}
+
+struct M3pPhase9bStorageAppendTarget<'a> {
+    storage: &'a mut SegmentedAgentStorage,
+    relationship_graph: &'a mut RelationshipGraph,
+    phase4_projection: &'a mut M3Phase4SlotProjection,
+    next_agent_id: &'a mut u64,
 }
 
 fn apply_phase9b(
@@ -795,6 +804,28 @@ pub(crate) fn apply_phase9b_storage_incremental(
         relationship_degree_k,
         p_local_bits,
     } = parameters;
+    let population_config = config
+        .population
+        .as_ref()
+        .ok_or_else(|| invariant("M3P profile requires [population] settings"))?;
+    if !day.is_multiple_of(population_config.compaction_interval_days) {
+        return apply_phase9b_storage_incremental_append(
+            M3pPhase9bStorageAppendTarget {
+                storage,
+                relationship_graph,
+                phase4_projection,
+                next_agent_id,
+            },
+            Phase9bRunParameters {
+                config,
+                run_context,
+                day,
+                relationship_degree_k,
+                p_local_bits,
+            },
+            scratch,
+        );
+    }
     let source_len = storage.len();
     let planning_world = WorldState {
         current_day: world.current_day,
@@ -881,6 +912,203 @@ pub(crate) fn apply_phase9b_storage_incremental(
     *next_agent_id = planned_next_agent_id;
     scratch.planned_agents = agents;
     Ok(result)
+}
+
+fn apply_phase9b_storage_incremental_append(
+    target: M3pPhase9bStorageAppendTarget<'_>,
+    parameters: Phase9bRunParameters<'_>,
+    scratch: &mut M3pIncrementalTopologyScratch,
+) -> Result<Phase9bResult, M0RunError> {
+    let M3pPhase9bStorageAppendTarget {
+        storage,
+        relationship_graph,
+        phase4_projection,
+        next_agent_id,
+    } = target;
+    let Phase9bRunParameters {
+        config,
+        run_context,
+        day,
+        relationship_degree_k,
+        p_local_bits,
+    } = parameters;
+    let population_config = config
+        .population
+        .as_ref()
+        .ok_or_else(|| invariant("M3P profile requires [population] settings"))?;
+    let alive = storage.alive();
+    let health = storage.health();
+    let food = storage.food();
+    let agent_ids = storage.agent_ids();
+    let group_ids = storage.group_ids();
+    scratch.sampling_index.fill_members(
+        (0..storage.len())
+            .filter_map(|slot| alive[slot].then_some((agent_ids[slot], group_ids[slot]))),
+    );
+    let live_population = u64::try_from(scratch.sampling_index.members.len())
+        .map_err(|_| invariant("M3P live population count overflow"))?;
+    let candidate_index =
+        scratch
+            .sampling_index
+            .build(f32::from_bits(p_local_bits), *run_context, day)?;
+
+    scratch.eligible_parents.clear();
+    scratch
+        .eligible_parents
+        .extend((0..storage.len()).filter_map(|slot| {
+            (alive[slot]
+                && health[slot] >= population_config.birth_min_health
+                && food[slot] >= population_config.birth_food_threshold)
+                .then_some(agent_ids[slot])
+        }));
+    scratch.eligible_parents.sort_unstable();
+
+    scratch.successful_parents.clear();
+    for parent_id in scratch.eligible_parents.iter().copied() {
+        let coordinate = RngCoordinate::new(
+            run_context.master_seed,
+            run_context.replicate_id,
+            day,
+            9,
+            M3P_BIRTH_SUBSYSTEM_ID,
+            parent_id.0,
+            0,
+        );
+        if coordinate_prng_f32(&coordinate) < population_config.birth_probability {
+            scratch.successful_parents.push(parent_id);
+        }
+    }
+    if population_config.births_max_per_day != 0 {
+        scratch
+            .successful_parents
+            .truncate(population_config.births_max_per_day as usize);
+    }
+
+    let birth_count = u64::try_from(scratch.successful_parents.len())
+        .map_err(|_| invariant("M3P daily birth count overflow"))?;
+    let planned_next_agent_id = next_agent_id
+        .checked_add(birth_count)
+        .filter(|next| *next <= AGENT_ID_EXHAUSTED)
+        .ok_or_else(|| invariant("M3P AgentId space exhausted"))?;
+    if birth_count > 0 && *next_agent_id >= AGENT_ID_EXHAUSTED {
+        return Err(invariant("M3P AgentId space exhausted"));
+    }
+    validate_live_population_after_births(live_population, birth_count)?;
+
+    let cost = population_config.birth_food_cost;
+    let degree_k = relationship_degree_k as usize;
+    let mut births = Vec::with_capacity(scratch.successful_parents.len());
+    scratch.parent_food_updates.clear();
+    scratch.newborn_agents.clear();
+    scratch.newborn_rows.clear();
+    for (offset, parent_id) in scratch.successful_parents.iter().copied().enumerate() {
+        let slot = storage
+            .slot_of(parent_id)
+            .ok_or_else(|| invariant("M3P birth parent is missing"))?;
+        let parent = storage
+            .agent_at(slot)
+            .ok_or_else(|| invariant("M3P birth parent is missing"))?;
+        if !parent.alive
+            || parent.health < population_config.birth_min_health
+            || parent.food < population_config.birth_food_threshold
+            || !parent.food.is_finite()
+            || parent.food < cost
+        {
+            return Err(invariant("M3P birth parent failed Phase 9b validation"));
+        }
+        let child_id_u64 = next_agent_id
+            .checked_add(offset as u64)
+            .ok_or_else(|| invariant("M3P AgentId space exhausted"))?;
+        let child_id = AgentId(
+            u32::try_from(child_id_u64).map_err(|_| invariant("M3P AgentId space exhausted"))?,
+        );
+        let mut parent_food = parent.food;
+        parent_food -= cost;
+        scratch.parent_food_updates.push((slot, parent_food));
+        births.push(BirthRecord {
+            parent: parent_id,
+            child: child_id,
+            group: parent.group_id,
+        });
+        scratch.newborn_agents.push(AgentState {
+            agent_id: child_id,
+            dense_slot: DenseSlot(child_id.0),
+            alive: true,
+            birth_day: SimulationDay(day),
+            health: config.world.initial_health,
+            food: cost,
+            wealth: 0,
+            productivity: parent.productivity,
+            cooperation: parent.cooperation,
+            aggression: parent.aggression,
+            risk_tolerance: parent.risk_tolerance,
+            group_id: parent.group_id,
+        });
+    }
+
+    if births.is_empty() {
+        return Ok(Phase9bResult {
+            births,
+            removed: 0,
+            replaced_edges: 0,
+            dropped_edges: 0,
+            compacted: false,
+        });
+    }
+
+    for birth in &births {
+        let row = build_newborn_row(
+            birth.parent,
+            birth.child,
+            birth.group,
+            degree_k,
+            &candidate_index,
+        )?;
+        scratch.newborn_rows.push((birth.child, birth.group, row));
+    }
+    let append_plan = relationship_graph.plan_append_rows(
+        &scratch.newborn_rows,
+        candidate_index.members,
+        &mut scratch.csr_row_ends,
+    )?;
+    let max_degree = phase4_projection.stage_appended_rows(
+        &scratch.newborn_rows,
+        storage,
+        &mut scratch.projection_row_ends,
+        &mut scratch.projection_neighbor_slots,
+    )?;
+
+    storage.reserve(scratch.newborn_agents.len());
+    relationship_graph.reserve_appended_rows(&append_plan);
+    phase4_projection.reserve_appended_rows(
+        scratch.projection_row_ends.len(),
+        scratch.projection_neighbor_slots.len(),
+    );
+    for &(slot, food_after_birth_cost) in &scratch.parent_food_updates {
+        storage.economy.food[slot] = food_after_birth_cost;
+    }
+    for newborn in &scratch.newborn_agents {
+        storage.push(newborn);
+    }
+    relationship_graph.append_prevalidated_rows(
+        &scratch.newborn_rows,
+        &scratch.csr_row_ends,
+        append_plan,
+    );
+    phase4_projection.append_staged_rows(
+        &scratch.projection_row_ends,
+        &scratch.projection_neighbor_slots,
+        max_degree,
+    );
+    *next_agent_id = planned_next_agent_id;
+
+    Ok(Phase9bResult {
+        births,
+        removed: 0,
+        replaced_edges: 0,
+        dropped_edges: 0,
+        compacted: false,
+    })
 }
 
 fn plan_phase9b(
