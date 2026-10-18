@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sim_core::Money;
 
 /// Runtime semantics profile selected by the input configuration.
@@ -9,6 +9,70 @@ pub enum SimulationProfile {
     M2,
     M3,
     M3p,
+}
+
+/// Runtime feature switches. The first two bits select the legacy base profile.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SimulationSystems {
+    pub relationship_graph: bool,
+    pub population_dynamics: bool,
+    pub propagation: bool,
+}
+
+impl SimulationSystems {
+    pub const fn for_profile(profile: SimulationProfile) -> Self {
+        match profile {
+            SimulationProfile::M2 => Self {
+                relationship_graph: false,
+                population_dynamics: false,
+                propagation: false,
+            },
+            SimulationProfile::M3 => Self {
+                relationship_graph: true,
+                population_dynamics: false,
+                propagation: false,
+            },
+            SimulationProfile::M3p => Self {
+                relationship_graph: true,
+                population_dynamics: true,
+                propagation: false,
+            },
+        }
+    }
+
+    pub const fn base_profile(self) -> SimulationProfile {
+        if self.population_dynamics {
+            SimulationProfile::M3p
+        } else if self.relationship_graph {
+            SimulationProfile::M3
+        } else {
+            SimulationProfile::M2
+        }
+    }
+}
+
+/// The switch table is nested under `[simulation]` in TOML.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SimulationConfig {
+    pub systems: SimulationSystems,
+}
+
+/// Stable run metadata kept out of canonical simulation digests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SimulationRunManifest {
+    pub base_profile: SimulationProfile,
+    pub systems: SimulationSystems,
+}
+
+/// M3-11 propagation parameters. They are required only when propagation is enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PropagationConfig {
+    pub seed_probability: f32,
+    pub transmit_probability: f32,
+    pub forget_probability: f32,
+    pub max_hops: u32,
 }
 
 /// Run and world initialization configuration.
@@ -95,10 +159,12 @@ pub struct DecisionConfig {
 }
 
 /// Master configuration container for the SimulaCiv M0 reference model.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SimConfig {
     #[serde(default)]
     pub profile: SimulationProfile,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub simulation: Option<SimulationConfig>,
     pub world: WorldConfig,
     pub traits: TraitConfig,
     pub environment: EnvironmentConfig,
@@ -107,6 +173,59 @@ pub struct SimConfig {
     pub decision: DecisionConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub population: Option<PopulationConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub propagation: Option<PropagationConfig>,
+}
+
+#[derive(Deserialize)]
+struct SimConfigWire {
+    #[serde(default)]
+    profile: Option<SimulationProfile>,
+    #[serde(default)]
+    simulation: Option<SimulationConfig>,
+    world: WorldConfig,
+    traits: TraitConfig,
+    environment: EnvironmentConfig,
+    economy: EconomyConfig,
+    interaction: InteractionConfig,
+    decision: DecisionConfig,
+    #[serde(default)]
+    population: Option<PopulationConfig>,
+    #[serde(default)]
+    propagation: Option<PropagationConfig>,
+}
+
+impl<'de> Deserialize<'de> for SimConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = SimConfigWire::deserialize(deserializer)?;
+        let supplied_systems = wire.simulation.map(|simulation| simulation.systems);
+        let profile = wire
+            .profile
+            .or_else(|| supplied_systems.map(SimulationSystems::base_profile))
+            .unwrap_or_default();
+        if let Some(systems) = supplied_systems
+            && systems.base_profile() != profile
+        {
+            return Err(serde::de::Error::custom(format!(
+                "profile = {profile:?} conflicts with [simulation.systems]"
+            )));
+        }
+        Ok(Self {
+            profile,
+            simulation: supplied_systems.map(|systems| SimulationConfig { systems }),
+            world: wire.world,
+            traits: wire.traits,
+            environment: wire.environment,
+            economy: wire.economy,
+            interaction: wire.interaction,
+            decision: wire.decision,
+            population: wire.population,
+            propagation: wire.propagation,
+        })
+    }
 }
 
 /// Explicit configuration validation errors.
@@ -176,6 +295,16 @@ pub enum ConfigValidationError {
     },
     InvalidBirthProbability(f32),
     InvalidCompactionIntervalDays(u32),
+    PopulationDynamicsRequiresRelationshipGraph,
+    PropagationRequiresRelationshipGraph,
+    ProfileSystemsMismatch,
+    MissingPropagationSettings,
+    PropagationSettingsRequirePropagation,
+    InvalidPropagationProbability {
+        name: &'static str,
+        value: f32,
+    },
+    InvalidPropagationMaxHops(u32),
 }
 
 impl std::fmt::Display for ConfigValidationError {
@@ -346,6 +475,31 @@ impl std::fmt::Display for ConfigValidationError {
             Self::InvalidCompactionIntervalDays(value) => {
                 write!(f, "compaction_interval_days must be >= 1, got {value}")
             }
+            Self::PopulationDynamicsRequiresRelationshipGraph => {
+                write!(f, "population_dynamics requires relationship_graph")
+            }
+            Self::PropagationRequiresRelationshipGraph => {
+                write!(f, "propagation requires relationship_graph")
+            }
+            Self::ProfileSystemsMismatch => {
+                write!(f, "profile conflicts with [simulation.systems]")
+            }
+            Self::MissingPropagationSettings => {
+                write!(f, "propagation = true requires [propagation] settings")
+            }
+            Self::PropagationSettingsRequirePropagation => {
+                write!(
+                    f,
+                    "[propagation] settings require simulation.systems.propagation = true"
+                )
+            }
+            Self::InvalidPropagationProbability { name, value } => write!(
+                f,
+                "{name} must be finite and within [0.0, 1.0], got {value}"
+            ),
+            Self::InvalidPropagationMaxHops(value) => {
+                write!(f, "max_hops must be within [1, 64], got {value}")
+            }
         }
     }
 }
@@ -401,6 +555,42 @@ impl SimConfig {
 
     /// Validates all configuration invariants according to the SimulaCiv M0 specification.
     pub fn validate(&self) -> Result<(), ConfigValidationError> {
+        let systems = self.effective_systems();
+        if systems.population_dynamics && !systems.relationship_graph {
+            return Err(ConfigValidationError::PopulationDynamicsRequiresRelationshipGraph);
+        }
+        if systems.propagation && !systems.relationship_graph {
+            return Err(ConfigValidationError::PropagationRequiresRelationshipGraph);
+        }
+        if systems.base_profile() != self.profile {
+            return Err(ConfigValidationError::ProfileSystemsMismatch);
+        }
+        match (systems.propagation, self.propagation) {
+            (true, None) => return Err(ConfigValidationError::MissingPropagationSettings),
+            (false, Some(_)) => {
+                return Err(ConfigValidationError::PropagationSettingsRequirePropagation);
+            }
+            (true, Some(propagation)) => {
+                for (name, value) in [
+                    ("seed_probability", propagation.seed_probability),
+                    ("transmit_probability", propagation.transmit_probability),
+                    ("forget_probability", propagation.forget_probability),
+                ] {
+                    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+                        return Err(ConfigValidationError::InvalidPropagationProbability {
+                            name,
+                            value,
+                        });
+                    }
+                }
+                if !(1..=64).contains(&propagation.max_hops) {
+                    return Err(ConfigValidationError::InvalidPropagationMaxHops(
+                        propagation.max_hops,
+                    ));
+                }
+            }
+            (false, None) => {}
+        }
         match self.profile {
             SimulationProfile::M2 => {
                 if self.interaction.relationship_degree_k.is_some()
@@ -760,4 +950,44 @@ impl SimConfig {
 
         Ok(())
     }
+
+    pub fn effective_systems(&self) -> SimulationSystems {
+        self.simulation
+            .map(|simulation| simulation.systems)
+            .unwrap_or_else(|| SimulationSystems::for_profile(self.profile))
+    }
+
+    pub fn run_manifest(&self) -> SimulationRunManifest {
+        SimulationRunManifest {
+            base_profile: self.profile,
+            systems: self.effective_systems(),
+        }
+    }
+
+    pub fn runner_selection(&self) -> SimulationRunnerSelection {
+        let systems = self.effective_systems();
+        if systems.propagation {
+            if systems.population_dynamics {
+                SimulationRunnerSelection::M3pPropagation
+            } else {
+                SimulationRunnerSelection::M3Propagation
+            }
+        } else {
+            match self.profile {
+                SimulationProfile::M2 => SimulationRunnerSelection::M2,
+                SimulationProfile::M3 => SimulationRunnerSelection::M3,
+                SimulationProfile::M3p => SimulationRunnerSelection::M3p,
+            }
+        }
+    }
+}
+
+/// Existing execution path selected by the effective feature set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimulationRunnerSelection {
+    M2,
+    M3,
+    M3p,
+    M3Propagation,
+    M3pPropagation,
 }

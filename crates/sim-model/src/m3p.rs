@@ -1709,6 +1709,11 @@ fn ensure_m3p_config(config: &SimConfig) -> Result<(), M0RunError> {
     if config.profile != SimulationProfile::M3p {
         return Err(invariant("M3P reference runner requires profile = \"m3p\""));
     }
+    if config.effective_systems().propagation {
+        return Err(invariant(
+            "propagation-enabled configuration requires an M3-11 runner",
+        ));
+    }
     config
         .validate()
         .map_err(|error| invariant(format!("invalid M3P configuration: {error}")))

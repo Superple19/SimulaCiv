@@ -26,7 +26,9 @@ pub use commands::{
 };
 pub use config::{
     ConfigError, ConfigValidationError, DecisionConfig, EconomyConfig, EnvironmentConfig,
-    InteractionConfig, PopulationConfig, SimConfig, SimulationProfile, TraitConfig, WorldConfig,
+    InteractionConfig, PopulationConfig, PropagationConfig, SimConfig, SimulationConfig,
+    SimulationProfile, SimulationRunManifest, SimulationRunnerSelection, SimulationSystems,
+    TraitConfig, WorldConfig,
 };
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,
@@ -133,11 +135,12 @@ pub use resolution::{
     phase8_welfare_distribution_with_subconfigs, phase8_welfare_resolution,
 };
 pub use runner::{
+    ConfiguredDayOutcome, ConfiguredRunOutcome, ConfiguredStorageRunContext,
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, DayOutcome, M0RunContext,
     M0RunError, M3DayOutcome, M3ParallelStorageRunContext, M3ReferenceContext,
     M3SearchReductionRunContext, M3StorageRunContext, M3pIncrementalTopologyStorageRunContext,
-    M3pStorageRunContext, Phase4Backend, Phase4ExecutionPolicy, run_hybrid_authority_day,
-    run_hybrid_authority_day_with_candidate_index_scratch,
+    M3pStorageRunContext, Phase4Backend, Phase4ExecutionPolicy, run_configured_storage_days,
+    run_hybrid_authority_day, run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
     run_hybrid_authority_days_with_phase4_policy, run_hybrid_authority_days_with_phase5_baseline,

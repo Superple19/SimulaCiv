@@ -14,7 +14,9 @@
 //! - Phase 10: Macroscopic Metrics & Observation Hook
 //! - Phase 11: Canonical Snapshot & Event Stream Flush
 
-use crate::config::{SimConfig, SimulationProfile};
+use crate::config::{
+    SimConfig, SimulationProfile, SimulationRunManifest, SimulationRunnerSelection,
+};
 use crate::decision::{
     DecisionError, PrimaryActionChoice, phase4_primary_action_selection_into,
     phase4_primary_action_selection_storage_into,
@@ -144,6 +146,28 @@ pub const DEFAULT_CONFIG_VERSION: &str = "1.0";
 pub struct M0RunContext {
     pub master_seed: u64,
     pub replicate_id: u32,
+}
+
+/// Context selected by the explicit feature-set dispatcher.
+pub enum ConfiguredStorageRunContext {
+    M2(M0RunContext),
+    M3(M3StorageRunContext),
+    M3p(M3pStorageRunContext),
+}
+
+/// Typed result from one of the existing legacy storage/reference runner families.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfiguredDayOutcome {
+    M2(DayOutcome),
+    M3(M3DayOutcome),
+    M3p(M3pDayOutcome),
+}
+
+/// Effective feature manifest and the outcomes produced by the selected existing runner.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConfiguredRunOutcome {
+    pub manifest: SimulationRunManifest,
+    pub days: Vec<ConfiguredDayOutcome>,
 }
 
 impl M0RunContext {
@@ -586,7 +610,13 @@ impl M3pIncrementalTopologyStorageRunContext {
 
 fn ensure_m3p_storage_profile(config: &SimConfig) -> Result<(), M0RunError> {
     if config.profile == SimulationProfile::M3p {
-        Ok(())
+        if config.effective_systems().propagation {
+            Err(M0RunError::InvariantViolation(
+                "propagation-enabled configuration requires an M3-11 runner".into(),
+            ))
+        } else {
+            Ok(())
+        }
     } else {
         Err(M0RunError::InvariantViolation(
             "M3P storage runner requires profile = \"m3p\"".into(),
@@ -852,6 +882,11 @@ impl std::fmt::Display for M0RunError {
 impl std::error::Error for M0RunError {}
 
 fn ensure_m2_profile(config: &SimConfig) -> Result<(), M0RunError> {
+    if config.effective_systems().propagation {
+        return Err(M0RunError::InvariantViolation(
+            "propagation-enabled configuration requires an M3-11 runner".into(),
+        ));
+    }
     match config.profile {
         SimulationProfile::M2 => Ok(()),
         SimulationProfile::M3 => Err(M0RunError::InvariantViolation(
@@ -864,7 +899,7 @@ fn ensure_m2_profile(config: &SimConfig) -> Result<(), M0RunError> {
 }
 
 fn ensure_m3_profile(config: &SimConfig) -> Result<(), M0RunError> {
-    if config.profile == SimulationProfile::M3 {
+    if config.profile == SimulationProfile::M3 && !config.effective_systems().propagation {
         Ok(())
     } else {
         Err(M0RunError::InvariantViolation(
@@ -874,7 +909,7 @@ fn ensure_m3_profile(config: &SimConfig) -> Result<(), M0RunError> {
 }
 
 fn ensure_m3_storage_profile(config: &SimConfig) -> Result<(), M0RunError> {
-    if config.profile == SimulationProfile::M3 {
+    if config.profile == SimulationProfile::M3 && !config.effective_systems().propagation {
         Ok(())
     } else {
         Err(M0RunError::InvariantViolation(
@@ -1382,6 +1417,58 @@ pub fn run_m3p_storage_days_incremental_topology(
         )?);
     }
     Ok(outcomes)
+}
+
+/// Selects an existing serial storage runner from the validated feature set.
+/// Propagation is rejected here until its dedicated M3-11 path is available.
+pub fn run_configured_storage_days(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut ConfiguredStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<ConfiguredRunOutcome, M0RunError> {
+    config.validate().map_err(|error| {
+        M0RunError::InvariantViolation(format!("invalid configuration: {error}"))
+    })?;
+    let manifest = config.run_manifest();
+    let outcomes = match (config.runner_selection(), context) {
+        (SimulationRunnerSelection::M2, ConfiguredStorageRunContext::M2(run_context)) => {
+            run_hybrid_authority_days(hybrid_world, config, run_context, days, options)?
+                .into_iter()
+                .map(ConfiguredDayOutcome::M2)
+                .collect()
+        }
+        (SimulationRunnerSelection::M3, ConfiguredStorageRunContext::M3(run_context)) => {
+            run_m3_storage_days(hybrid_world, config, run_context, days, options)?
+                .into_iter()
+                .map(ConfiguredDayOutcome::M3)
+                .collect()
+        }
+        (SimulationRunnerSelection::M3p, ConfiguredStorageRunContext::M3p(run_context)) => {
+            run_m3p_storage_days(hybrid_world, config, run_context, days, options)?
+                .into_iter()
+                .map(ConfiguredDayOutcome::M3p)
+                .collect()
+        }
+        (
+            SimulationRunnerSelection::M3Propagation | SimulationRunnerSelection::M3pPropagation,
+            _,
+        ) => {
+            return Err(M0RunError::InvariantViolation(
+                "propagation-enabled configuration requires an M3-11 runner".into(),
+            ));
+        }
+        _ => {
+            return Err(M0RunError::InvariantViolation(
+                "configured runner context does not match the effective feature set".into(),
+            ));
+        }
+    };
+    Ok(ConfiguredRunOutcome {
+        manifest,
+        days: outcomes,
+    })
 }
 
 /// Executes serial M3 storage days with opt-in target-search reduction.
