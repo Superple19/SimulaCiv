@@ -57,6 +57,7 @@
     .series-line { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
     .point { stroke:var(--card); stroke-width:1.3; cursor:crosshair; }
     .point.duplicate { fill:var(--card); stroke:var(--point-color); }
+    .day-cursor { stroke:var(--accent); stroke-width:1.5; stroke-dasharray:4 3; pointer-events:none; }
     .record { margin-top:10px; }
     .day-table-wrap { overflow:auto; border:1px solid var(--line); border-radius:8px; }
     .day-table { min-width:1480px; font-size:.72rem; }
@@ -126,26 +127,38 @@
     const drop = document.getElementById("drop");
     const tooltip = document.getElementById("tooltip");
     const charts = [
-      { title:"Alive population", get:d=>d.alive, zeroBaseline:true },
-      { title:"Mean food of alive agents", get:d=>d.food_alive?.mean, format:v=>String(v) },
-      { title:"Keyed Phase 6B entries", get:d=>d.keyed_entries, zeroBaseline:true },
-      { title:"Applied-positive", get:d=>d.phase6b_outcomes?.applied_positive, zeroBaseline:true },
-      { title:"TheftFailed", get:d=>d.phase6b_outcomes?.theft_failed, zeroBaseline:true },
+      { title:"Alive population", get:d=>d.alive, format:"count", zeroBaseline:true },
+      { title:"Mean food of alive agents", get:d=>d.food_alive?.mean, format:"float" },
+      { title:"Keyed Phase 6B entries", get:d=>d.keyed_entries, format:"count", zeroBaseline:true },
+      { title:"Applied-positive", get:d=>d.phase6b_outcomes?.applied_positive, format:"count", zeroBaseline:true },
+      { title:"TheftFailed", get:d=>d.phase6b_outcomes?.theft_failed, format:"count", zeroBaseline:true },
       { title:"GiveFood targets", multi:d=>[
         {name:"Some", value:d.give_food?.some},
         {name:"None", value:d.give_food?.none}
-      ], zeroBaseline:true },
+      ], format:"count", zeroBaseline:true },
       { title:"StealFood targets", multi:d=>[
         {name:"Some", value:d.steal_food?.some},
         {name:"None", value:d.steal_food?.none}
-      ], zeroBaseline:true },
-      { title:"Conflict fraction", get:d=>d.conflict_fraction, format:v=>String(v) },
-      { title:"Dependency levels per day", get:d=>d.level_count, zeroBaseline:true },
-      { title:"Day wall time (µs)", get:d=>d.day_wall_time_us, format:v=>String(v) }
+      ], format:"count", zeroBaseline:true },
+      { title:"Conflict fraction", get:d=>d.conflict_fraction, format:"fraction" },
+      { title:"Dependency levels per day", get:d=>d.level_count, format:"count", zeroBaseline:true },
+      { title:"Day wall time (µs)", get:d=>d.day_wall_time_us, format:"time" }
     ];
+    const countFormatter=new Intl.NumberFormat("en-US",{maximumFractionDigits:0});
+    function formatCount(value) { return value===null||value===undefined?"—":countFormatter.format(Math.round(Number(value))); }
+    function formatFloat(value,digits=2) { return value===null||value===undefined?"—":Number(value).toFixed(digits); }
+    function formatMetric(value,format) {
+      if(format==="float")return formatFloat(value,2);
+      if(format==="fraction")return formatFloat(value,3);
+      if(format==="time")return `${formatCount(value)} µs`;
+      return formatCount(value);
+    }
 
     function digestKey(d) { return [d?.state, d?.metrics, d?.events].join("|"); }
     function configKey(config) { return String(config || "").trim(); }
+    function digestGroupEqual(first,second) {
+      return configKey(first.header.config_toml)===configKey(second.header.config_toml)&&digestKey(first.digests)===digestKey(second.digests);
+    }
     function metricSeries(definition, day) {
       return definition.multi ? definition.multi(day) : [{name:"", value:definition.get(day)}];
     }
@@ -204,18 +217,33 @@
         root.append(element("span",`${identical?"✓ identical":"✗ differ"}: ${group.traces.map(trace=>trace.name).join(" · ")}`,`status-pill${identical?"":" differ"}`));
       }
     }
-    function configNumber(trace,key) {
+    function configRaw(trace,key) {
       const line=String(trace.header.config_toml||"").match(new RegExp(`^\\s*${key}\\s*=\\s*([^\\r\\n]+)`,"m"));
-      if(!line)return null;
-      const value=Number(line[1].trim());
+      return line?line[1].trim():null;
+    }
+    function configNumber(trace,key) {
+      const raw=configRaw(trace,key);
+      if(raw===null)return null;
+      const value=Number(raw);
       return Number.isFinite(value)?value:null;
     }
-    function configSummary(trace) {
+    function tracePreset(trace) {
       const foodKnobs=["initial_settlement_resource","carrying_capacity","regrowth_rate","health_decay_rate","base_work_yield"].map(key=>configNumber(trace,key));
       const baseline=[2000,10000,.1,.05,2];
       const common=foodKnobs.every((value,index)=>value===baseline[index]);
       const metabolic=configNumber(trace,"base_metabolic_cost");
-      const preset=common&&metabolic===1?"m2_40":common&&metabolic===.48?"sustained":"custom";
+      return common&&metabolic===1?"m2_40":common&&metabolic===.48?"sustained":"custom";
+    }
+    function traceConfigIdentity(trace) {
+      return ["initial_population","settlement_count","relationship_degree_k","p_local"].map(key=>configRaw(trace,key)).concat([
+        tracePreset(trace),configRaw(trace,"master_seed"),configRaw(trace,"replicate_id")
+      ]);
+    }
+    function sameTraceConfig(first,second) {
+      return JSON.stringify(traceConfigIdentity(first))===JSON.stringify(traceConfigIdentity(second));
+    }
+    function configSummary(trace) {
+      const preset=tracePreset(trace);
       return `N ${configNumber(trace,"initial_population")??"?"} · K ${configNumber(trace,"settlement_count")??"?"} · k ${configNumber(trace,"relationship_degree_k")??"?"} · p_local ${configNumber(trace,"p_local")??"?"} · ${preset}`;
     }
     function copyDigest(value,button) {
@@ -266,6 +294,13 @@
       const fraction=raw/power;
       return (fraction<=1?1:fraction<=2?2:fraction<=5?5:10)*power;
     }
+    function niceDayTicks(minimum,maximum) {
+      if(minimum===maximum)return [minimum];
+      const step=niceStep(minimum,maximum,4),ticks=[minimum];
+      for(let tick=Math.ceil(minimum/step)*step;tick<maximum;tick+=step)if(tick>minimum)ticks.push(Number(tick.toPrecision(12)));
+      if(ticks[ticks.length-1]!==maximum)ticks.push(maximum);
+      return ticks;
+    }
     function axisRange(values, zeroBaseline) {
       const dataMin=Math.min(...values),dataMax=Math.max(...values);
       const nonNegative=dataMin>=0;
@@ -289,37 +324,56 @@
       if(segment.length)segments.push(segment);
       return segments;
     }
+    function updateChartCursors(day) {
+      document.querySelectorAll("svg.day-chart").forEach(svg=>{
+        const cursor=svg.querySelector(".day-cursor"),minimum=Number(svg.dataset.dayMin),maximum=Number(svg.dataset.dayMax);
+        if(day<minimum||day>maximum){cursor.style.display="none";return;}
+        const plotLeft=Number(svg.dataset.plotLeft),plotWidth=Number(svg.dataset.plotWidth);
+        const x=plotLeft+(maximum===minimum?0.5:(day-minimum)/(maximum-minimum))*plotWidth;
+        cursor.style.display="";cursor.setAttribute("x1",x);cursor.setAttribute("x2",x);
+      });
+    }
+    function updateSelectedDay(day,refreshRecord) {
+      const slider=document.getElementById("day-slider"),minimum=Number(slider.min),maximum=Number(slider.max);
+      const selected=Math.max(minimum,Math.min(maximum,Math.round(day))),changed=slider.value!==String(selected);
+      slider.value=String(selected);document.getElementById("day-label").textContent=String(selected);updateChartCursors(selected);
+      if(changed||refreshRecord)renderDayRecords(traces);
+    }
     function appendChartNote(card, definition, shown) {
       const notes=[];
-      shown.forEach((trace,traceIndex)=>{
-        const identicalTo=shown.slice(0,traceIndex).find(other=>sameMetricValues(trace,other,definition));
-        if(identicalTo)notes.push(`${trace.name} identical to ${identicalTo.name}`);
-      });
+      for(let first=0;first<shown.length;first++)for(let second=0;second<first;second++) {
+        const metricEqual=sameMetricValues(shown[first],shown[second],definition),digestEqual=digestGroupEqual(shown[first],shown[second]);
+        if(metricEqual!==digestEqual)notes.push(metricEqual?`${shown[first].name} matches ${shown[second].name} here; digest groups differ`:`${shown[first].name} differs from ${shown[second].name} here; digests identical`);
+      }
       card.append(element("p",notes.join(" · "),"chart-note"));
     }
     function drawChart(container, definition, shown) {
       const card=element("article",undefined,"chart"); card.append(element("h2",definition.title));
       appendChartNote(card,definition,shown);
       const width=640,height=132,left=54,right=14,top=7,bottom=20,plotW=width-left-right,plotH=height-top-bottom;
-      const svg=document.createElementNS("http://www.w3.org/2000/svg","svg"); svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("role","img"); svg.setAttribute("aria-label",definition.title);
-      const all=shown.flatMap(t=>t.days.map(d=>d.day)); const xMin=Math.min(...all),xMax=Math.max(...all);
+      const svg=document.createElementNS("http://www.w3.org/2000/svg","svg"); svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("role","img"); svg.setAttribute("aria-label",definition.title);svg.classList.add("day-chart");
+      const all=traces.flatMap(t=>t.days.map(d=>d.day)); const xMin=Math.min(...all),xMax=Math.max(...all);
+      Object.assign(svg.dataset,{dayMin:String(xMin),dayMax:String(xMax),plotLeft:String(left),plotWidth:String(plotW)});
       const rawSeries=[];
       shown.forEach(trace=>trace.days.forEach(day=>{
         const values=metricSeries(definition,day);
         values.forEach(value=>{if (value.value !== null && value.value !== undefined && Number.isFinite(Number(value.value))) rawSeries.push({trace,day,name:value.name,value:Number(value.value),dash:value.dash||""});});
       }));
-      if (!rawSeries.length) { card.append(element("p","No values for this chart.")); container.append(card); return; }
-      const {min:yMin,max:yMax,step}=axisRange(rawSeries.map(point=>point.value),definition.zeroBaseline===true);
+      const hasValues=rawSeries.length>0;
+      if(!hasValues)card.append(element("p","No values for this chart."));
+      const {min:yMin,max:yMax,step}=hasValues?axisRange(rawSeries.map(point=>point.value),definition.zeroBaseline===true):{min:0,max:1,step:.2};
       const x=value=>left+(xMax===xMin ? .5 : (value-xMin)/(xMax-xMin))*plotW;
       const y=value=>top+(yMax-value)/(yMax-yMin)*plotH;
       const tickCount=Math.round((yMax-yMin)/step);
       for(let tick=0;tick<=tickCount;tick++) {
         const value=Number((yMin+step*tick).toPrecision(12)), yy=y(value);
         const grid=document.createElementNS(svg.namespaceURI,"line"); grid.setAttribute("x1",left);grid.setAttribute("x2",width-right);grid.setAttribute("y1",yy);grid.setAttribute("y2",yy);grid.setAttribute("class","gridline");svg.append(grid);
-        const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",left-7);label.setAttribute("y",yy+4);label.setAttribute("text-anchor","end");label.setAttribute("class","axis-label");label.textContent=value.toString();svg.append(label);
+        const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",left-7);label.setAttribute("y",yy+4);label.setAttribute("text-anchor","end");label.setAttribute("class","axis-label");label.textContent=formatMetric(value,definition.format);svg.append(label);
       }
-      const xLabel=document.createElementNS(svg.namespaceURI,"text");xLabel.setAttribute("x",left);xLabel.setAttribute("y",height-5);xLabel.setAttribute("class","axis-label");xLabel.textContent=`day ${xMin}`;svg.append(xLabel);
-      const xEnd=document.createElementNS(svg.namespaceURI,"text");xEnd.setAttribute("x",width-right);xEnd.setAttribute("y",height-5);xEnd.setAttribute("text-anchor","end");xEnd.setAttribute("class","axis-label");xEnd.textContent=`day ${xMax}`;svg.append(xEnd);
+      for(const tick of niceDayTicks(xMin,xMax)) {
+        const xx=x(tick),grid=document.createElementNS(svg.namespaceURI,"line");grid.setAttribute("x1",xx);grid.setAttribute("x2",xx);grid.setAttribute("y1",top);grid.setAttribute("y2",height-bottom);grid.setAttribute("class","gridline");svg.append(grid);
+        const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",xx);label.setAttribute("y",height-4);label.setAttribute("text-anchor",tick===xMin?"start":tick===xMax?"end":"middle");label.setAttribute("class","axis-label");label.textContent=String(tick);svg.append(label);
+      }
       shown.forEach(trace=>{
         const traceIndex=shown.indexOf(trace);
         const identicalTo=shown.slice(0,traceIndex).find(other=>sameMetricValues(trace,other,definition));
@@ -334,14 +388,21 @@
             for(const point of points) {
               const circle=document.createElementNS(svg.namespaceURI,"circle");circle.setAttribute("cx",point.x);circle.setAttribute("cy",point.y);circle.setAttribute("r",points.length>500?1.8:2.7);circle.setAttribute("fill",trace.color);circle.setAttribute("class","point");
               if(duplicate){circle.classList.add("duplicate");circle.style.setProperty("--point-color",trace.color);}
-              const exact=typeof point.value==="number" ? point.value.toString() : String(point.value);
-              circle.dataset.tip=`${trace.name}\nday ${point.day.day}${point.part?" · "+point.part:""}\n${exact}`;
+              const exact=String(point.value),display=formatMetric(point.value,definition.format);
+              circle.setAttribute("title",`${definition.title}, day ${point.day.day}: ${exact}`);
+              circle.dataset.tip=`${trace.name}\n${definition.title} · day ${point.day.day}${point.part?" · "+point.part:""}\n${display}`;
               circle.addEventListener("pointerenter",event=>{tooltip.textContent=circle.dataset.tip;tooltip.style.display="block";tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
               circle.addEventListener("pointermove",event=>{tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
               circle.addEventListener("pointerleave",()=>{tooltip.style.display="none";});svg.append(circle);
             }
           }
         });
+      });
+      const cursor=document.createElementNS(svg.namespaceURI,"line");cursor.setAttribute("class","day-cursor");cursor.setAttribute("y1",top);cursor.setAttribute("y2",height-bottom);svg.append(cursor);
+      svg.addEventListener("pointermove",event=>{
+        const rect=svg.getBoundingClientRect(),localX=(event.clientX-rect.left)*(width/rect.width);
+        const ratio=Math.max(0,Math.min(1,(localX-left)/plotW));
+        updateSelectedDay(xMin+ratio*(xMax-xMin),false);
       });
       card.append(svg);
       container.append(card);
@@ -355,19 +416,20 @@
         ["TheftFailed",outcomes.theft_failed], ["TargetIneligible",outcomes.target_ineligible],
         ["InitiatorIneligible",outcomes.initiator_ineligible], ["ZeroTarget",outcomes.zero_target]
       ];
-      const actionText=Object.entries(actions).map(([name,count])=>`${name} ${count}`).join(" · ");
-      const outcomeText=outcomeEntries.map(([name,count])=>`${name} ${count??0}`).join(" · ");
+      const actionEntries=["Work","BuyFood","SellFood","GiveFood","StealFood","Idle"].map(name=>[name,actions[name]??0]);
+      const actionText=actionEntries.map(([name,count])=>`${name} ${formatCount(count)}`).join(" · ");
+      const outcomeText=outcomeEntries.map(([name,count])=>`${name} ${formatCount(count??0)}`).join(" · ");
       return [
-        {text:String(day.alive??"—"),compare:day.alive??null},
-        {text:String(day.food_alive?.mean??"—"),compare:day.food_alive?.mean??null},
-        {text:actionText,compare:Object.entries(actions)},
-        {text:`${give[0]??"—"} / ${give[1]??"—"}`,compare:give},
-        {text:`${steal[0]??"—"} / ${steal[1]??"—"}`,compare:steal},
-        {text:String(day.keyed_entries??"—"),compare:day.keyed_entries??null},
+        {text:formatCount(day.alive),compare:day.alive??null},
+        {text:formatFloat(day.food_alive?.mean),compare:day.food_alive?.mean??null},
+        {text:actionText,compare:actionEntries},
+        {text:`${formatCount(give[0])} / ${formatCount(give[1])}`,compare:give},
+        {text:`${formatCount(steal[0])} / ${formatCount(steal[1])}`,compare:steal},
+        {text:formatCount(day.keyed_entries),compare:day.keyed_entries??null},
         {text:outcomeText,compare:outcomeEntries.map(([,count])=>count??0)},
-        {text:String(day.conflict_fraction??"—"),compare:day.conflict_fraction??null},
-        {text:`${day.level_count??"—"} / ${day.max_level_size??"—"}`,compare:[day.level_count??null,day.max_level_size??null]},
-        {text:`${day.day_wall_time_us??"—"} µs`,compare:day.day_wall_time_us??null}
+        {text:formatFloat(day.conflict_fraction,3),compare:day.conflict_fraction??null},
+        {text:`${formatCount(day.level_count)} / ${formatCount(day.max_level_size)}`,compare:[day.level_count??null,day.max_level_size??null]},
+        {text:`${formatCount(day.day_wall_time_us)} µs`,compare:day.day_wall_time_us??null}
       ];
     }
     function renderDayRecords(shown) {
@@ -387,11 +449,15 @@
         const {trace}=rows[rowIndex],row=document.createElement("tr");
         const file=element("td",trace.name);file.style.borderLeft=`4px solid ${trace.color}`;row.append(file);
         for(let column=0;column<headings.length-1;column++) {
-          const cell=values[rowIndex][column],all=values.map(other=>JSON.stringify(other[column].compare));
+          const cell=values[rowIndex][column];
           const td=element("td",cell.text);
           if(column===2)td.classList.add("actions");
           if(column===6)td.classList.add("outcomes");
-          if(new Set(all).size>1)td.classList.add("diff");
+          if(column!==9) {
+            const peers=rows.map((candidate,index)=>sameTraceConfig(trace,candidate.trace)?index:-1).filter(index=>index>=0);
+            const valuesInConfig=peers.map(index=>JSON.stringify(values[index][column].compare));
+            if(new Set(valuesInConfig).size>1)td.classList.add("diff");
+          }
           row.append(td);
         }
         body.append(row);
@@ -407,6 +473,9 @@
       const shown=selectedTraces();
       const chartSection=document.getElementById("chart-section"),chartRoot=document.getElementById("charts");chartRoot.replaceChildren();
       const overlay=document.getElementById("overlay").checked?shown:shown.slice(0,1);
+      const slider=document.getElementById("day-slider"),maxDay=Math.max(0,...traces.flatMap(trace=>trace.days.map(day=>day.day)));
+      slider.max=String(maxDay);if(Number(slider.value)>maxDay)slider.value=String(maxDay);
+      const selectedDay=Number(slider.value);document.getElementById("day-label").textContent=String(selectedDay);
       document.getElementById("empty").hidden=traces.length>0&&shown.length>0;
       if(!shown.length){document.getElementById("empty").textContent=traces.length?"Select a trace above to display it.":"Choose or drop a trace file to begin.";}
       chartSection.hidden=shown.length===0;
@@ -414,6 +483,7 @@
         document.getElementById("empty").textContent="Choose or drop a trace file to begin.";
         renderSharedLegend(overlay);
         for(const chart of charts)drawChart(chartRoot,chart,overlay);
+        updateChartCursors(selectedDay);
       }
       renderDayRecords(traces);
     }
@@ -423,7 +493,7 @@
     }
     files.addEventListener("change",event=>acceptFiles(event.target.files));
     document.getElementById("overlay").addEventListener("change",render);
-    document.getElementById("day-slider").addEventListener("input",()=>renderDayRecords(traces));
+    document.getElementById("day-slider").addEventListener("input",event=>updateSelectedDay(Number(event.target.value),true));
     document.getElementById("clear").addEventListener("click",()=>{traces.length=0;files.value="";render();});
     for(const name of ["dragenter","dragover"])drop.addEventListener(name,event=>{event.preventDefault();drop.classList.add("over");});
     for(const name of ["dragleave","drop"])drop.addEventListener(name,event=>{event.preventDefault();drop.classList.remove("over");});
