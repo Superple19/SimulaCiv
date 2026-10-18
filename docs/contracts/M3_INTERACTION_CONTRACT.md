@@ -294,7 +294,7 @@ Determine whether post-M3-06 superlinear scaling is measurement noise, memory-hi
 
 ### M3-08 (formerly M3-P) — Population dynamics — PLANNED
 
-Add births and define newborn graph attachment, dead-agent cleanup and storage reuse, deterministic `AgentId` allocation, and graph persistence in snapshots. This stage requires its own contract before implementation. The current model has no births: initialization sets every `birth_day` to zero, and no simulation phase creates agents.
+Add births and define newborn graph attachment, dead-agent cleanup and storage reuse, deterministic `AgentId` allocation, and graph persistence in snapshots. The draft contract is in [§13](#13-m3-08-formerly-m3-p-population-dynamics); it must be reviewed and frozen before implementation. The current model has no births: initialization sets every `birth_day` to zero, and no simulation phase creates agents.
 
 Spatial migration, previously listed as M3-03, remains a deferred follow-up and is not part of M3-08's planned scope.
 
@@ -692,3 +692,134 @@ Report per-phase median ± MAD, per-phase alpha vs N for the fixed-K and `K=N/20
 ### 12.7 Freeze record
 
 This freeze resolves the index representation, storage call-site scope, error-parity requirements, test matrix, and measurement protocol. It authorizes the requested M3-K implementation steps; it does not itself change simulation code.
+
+## 13. M3-08 (formerly M3-P) Population dynamics
+
+**Status: DRAFT — NOT FROZEN**
+
+This section drafts the population-dynamics design for births, graph updates, death cleanup, identity allocation, storage lifetime, snapshots, and profile compatibility. It is not implementation authorization and does not amend frozen M3-00 through M3-07 behavior. Every recommendation below is a proposal for review, not a frozen decision.
+
+### 13.1 Verified current-code baseline
+
+- `initialize_world` in `crates/sim-model/src/initialization.rs` assigns initial IDs as `AgentId(i as u32)`, groups round-robin as `GroupId(i % settlement_count)`, and `birth_day = 0`. `AgentId` is a `u32` newtype in `crates/sim-core/src/primitives.rs`.
+- `phase9_mortality_commitment` in `crates/sim-model/src/phases.rs` and `phase9_mortality_commitment_storage` only change `alive` from true to false; neither removes agents or compacts storage. The storage resolver leaves `AgentId`, `DenseSlot`, and physical slot positions untouched.
+- Source search found production insertion only in `initialize_world` and snapshot reconstruction. `SegmentedAgentStorage::push` in `crates/sim-model/src/storage.rs` appends every column and updates the `AgentId -> slot` map; `rebuild_slot_map` reconstructs that map after storage rebuilding.
+- `RelationshipGraph::generate` in `crates/sim-model/src/relationship_graph.rs` builds a canonical fixed-degree CSR from membership input. `M3StorageRunContext::new` in `crates/sim-model/src/runner.rs` builds it once from current storage memberships and builds the Phase 4 slot projection; `generate_intents_m3_into` and `generate_intents_m3_storage_into` in `crates/sim-model/src/intents.rs` filter dead or unhealthy neighbors at use time. The current M3 runner does not add nodes or mutate graph edges during a run.
+- `encode_snapshot` and `decode_snapshot` in `crates/sim-model/src/snapshot.rs` use snapshot schema v1, canonicalize agents by `AgentId`, and store `alive` and `birth_day`. The schema stores neither a graph nor an AgentId allocation cursor. M3 recreates its static graph when constructing the run context; that cannot reconstruct a graph that has changed through births or edge cleanup.
+- `canonical_m3_state_bytes` and `canonical_m3_state_bytes_from_storage` in `crates/sim-model/src/hashing.rs` append the current CSR hash to the canonical M1 State fields. Therefore a graph update changes the M3 State digest even if all agent fields are unchanged.
+- The current graph generator rejects population counts `N >= 2^24` in `relationship_graph.rs::validate_population_count`, because its rank-selection formula uses an exactly representable `f32` population bound. Births must retain a checked bound for the population represented in the graph.
+
+### 13.2 Birth timing
+
+**Options**
+
+1. Add Phase 9b after mortality. Create newborns at the end of day `D`; they do not participate in behavior or interactions until day `D+1`.
+2. Queue successful births during day `D` and materialize them at the start of day `D+1`, before Phase 1.
+
+**Consequences** — Both can be deterministic if births are committed in ascending parent `AgentId` order. Option 1 makes the newborn part of the post-birth state and any Phase 10/11 observation later that same day; option 2 delays their presence in that state and in the next snapshot until day `D+1`. Both require the M3-08 snapshot to preserve the new agent and graph state. State, metrics, and event digests change for births-on runs; either can keep existing M2/M3 digests unchanged when isolated behind the M3-08 profile. Phase 9b adds a bounded end-of-day pass; next-day materialization adds a queue and another lifecycle boundary.
+
+**RECOMMENDED — proposal, not frozen:** Option 1, with Phase 9b after mortality and before metrics/snapshot. Newborns become eligible for simulation behavior on the following day, while same-day metrics and a boundary snapshot describe the completed post-birth state. This same-day observation rule still needs explicit confirmation.
+
+### 13.3 Birth eligibility, probability, resources, and traits
+
+**Options**
+
+- Use a single-parent rule over agents satisfying `alive`, `health > 0`, and `food > birth_threshold`; evaluate one stateless coordinate draw per eligible parent, ordered by ascending parent `AgentId`. A proposed M3-only subsystem ID is `7`. Alternatively, use a stateful/sequential random stream or an unbounded number of births per eligible parent.
+- Apply no per-day birth cap, or configure an optional cap after parent ordering. With a cap, eligible successes are admitted in ascending parent ID order until the cap is reached.
+- Transfer the newborn's initial food and wealth from the parent so aggregate food and wealth are conserved, or mint initial resources. For traits, either copy the parent's traits exactly or apply a deterministic coordinate-based perturbation to inherited traits.
+
+**Consequences** — Coordinate-addressed draws make outcomes independent of loop scheduling and avoid shifting other subsystems' draws; the exact phase, draw index, and whether ineligible parents have coordinates remain to be specified. Sorting parent IDs makes cap arbitration deterministic. Resource transfer requires exact amounts, checked wealth arithmetic, and a frozen `f32` subtraction/addition order; floating-point transfer may not conserve a summed value bit-exactly. Minting changes conservation semantics. Exact trait copies avoid extra draws and keep inheritance simple; perturbations remain deterministic only after distributions, bounds, and coordinates are specified. Birth parameters must be available on resume, and newborn attributes affect State digests; birth counters/events affect M3-08 metrics and Events digests. A cap bounds daily work; without one, graph population capacity and AgentId exhaustion remain the hard limits.
+
+**RECOMMENDED — proposal, not frozen:** Use one stateless birth draw per eligible parent, ascending-AgentId parent order, and the proposed M3-only subsystem ID `7`. Permit an explicit optional per-day cap, applied to successful parents in that order. Transfer food and wealth from the parent with checked arithmetic. Copy traits exactly in the first M3-08 contract; keep coordinate-based perturbation as an alternative for review rather than silently adding trait randomness.
+
+### 13.4 AgentId allocation and population bound
+
+**Options**
+
+1. Allocate `max(existing AgentId) + 1` on each birth, or persist a monotonic high-water/next-ID cursor in authoritative state.
+2. Reuse IDs after death, or never reuse them. Reject exhaustion or wrap/saturate the ID.
+3. Enforce the graph population bound before birth, or allow the graph to exceed the current `N < 2^24` limit.
+
+**Consequences** — A persisted monotonic cursor preserves identity across cleanup and snapshot resume; deriving IDs from current agents can reuse a removed maximum ID. Reuse/wrap risks changing coordinate-RNG identity and graph references. Exhaustion must be a checked error, not wraparound. Graph generation currently requires the represented population to remain strictly below `2^24`; exceeding it makes M3 graph selection invalid. The cursor must be persisted; if it is part of canonical M3-08 state, it must be encoded in that profile's State digest. The population cap is a validation rule, not mutable state. A checked constant-time cursor increment and cap check are inexpensive.
+
+**RECOMMENDED — proposal, not frozen:** Persist a monotonic `next_agent_id` high-water cursor, never reuse an ID, represent the cursor wide enough to represent the exhausted state beyond the `u32` AgentId range, and return a checked error on exhaustion. Check the post-birth graph population before committing any birth and reject a result with `N >= 2^24`.
+
+### 13.5 Newborn group assignment
+
+**Options** — Assign the newborn to its parent's current `GroupId`, choose a group by deterministic balancing, or introduce an independent coordinate-based group draw.
+
+**Consequences** — Parent-group assignment has no additional draw or ordering dependency and is stable under storage-slot permutation. It concentrates births according to parent distribution and directly affects same-group edge sampling and the locality ratio. A balancing or random assignment rule adds state or RNG semantics and can change graph rows, CSR hash, metrics, and all M3-08 digests. The selected group must be stored in snapshots; lookup and assignment are constant-time apart from any balancing data structure.
+
+**RECOMMENDED — proposal, not frozen:** The newborn joins its parent's current group. Do not derive assignment from physical slot order.
+
+### 13.6 Graph attachment and dead endpoints
+
+**Options**
+
+- For a newborn's outgoing row, add `k` locality-sampled edges plus a mandatory parent edge (`k + 1` total); create exactly `k` sampled edges without a mandatory parent link; or keep exactly `k` total and reserve one edge for the parent when `k > 0`.
+- Keep existing agents' edges unchanged, or add inbound edges to newborns as part of birth.
+- When a neighbor dies, keep its edge and continue skipping it as M3-00 does, or replace dead endpoints at a deterministic cleanup boundary using fresh samples.
+
+**Consequences** — Each choice can be deterministic if row construction and updates use canonical AgentId order and stateless, non-colliding coordinates. The `k+1` choice changes the configured degree bound; reserving a parent edge needs a defined `k=0` rule. Inbound updates mutate existing rows, while an outgoing-only parent link changes only the newborn row. Keeping dead endpoints leaves CSR and its hash unchanged at death but can exhaust live candidates; replacing endpoints changes the CSR hash and State digest and requires the snapshot to store the updated CSR. Incremental edge repair costs work proportional to affected rows; full CSR rebuild/re-hash costs at least O(E) and may rebuild slot projections.
+
+**RECOMMENDED — proposal, not frozen:** Keep graph edges directed. For `k > 0`, use exactly `k` total newborn out-edges, with one mandatory child-to-parent edge and `k - 1` locality-sampled edges; keep existing live rows unchanged. At cleanup, replace edges whose target has died using deterministic coordinates keyed by day, source ID, and edge position. The `k=0` behavior, replacement coordinate allocation, and whether replacement happens daily remain blocking questions below.
+
+### 13.7 Death cleanup and storage layout
+
+**Options**
+
+1. Append newborns to the end and retain dead records; reuse dead physical slots for newborns; or compact deterministically every fixed `C` days, removing dead records and rebuilding storage in ascending `AgentId` order.
+2. Treat dead records as permanent canonical tombstones, or remove them from the M3-08 live population at cleanup while preserving mortality history through events/metrics.
+
+**Consequences** — Appending in birth/AgentId order is deterministic and preserves existing slots but retains dead rows, so column scans and projection size can grow with cumulative births. Reuse reduces retained storage but makes slot order depend on death/reuse history; all mappings and graph projections must be rebuilt and physical order must stay non-semantic. Compaction by `AgentId` gives deterministic storage order and amortizes a full O(N) pass, while its frequency affects the amount of retained dead storage. Removing dead records changes M3-08 State/snapshot contents and may change population metrics; a tombstone policy preserves them but requires additional historical storage. M2 and current M3 snapshot/golden bytes must not change.
+
+**M3-07 locality evidence:** `docs/performance/M3_07_SCALE_RESIDUAL.md`, “Normal versus reversed slot layout,” reports a P4 action-selection reversed-slot slowdown of `2.3734x` at `N=1M` (reliable under its MAD rule) and a P4 intent/projection point estimate of `3.6011x` (unreliable under the MAD rule). Its “Observed point changes and working-set landmarks” section attributes gather/translation pressure only as an inference. This supports preserving AgentId-local slot order as a performance hypothesis; it does not prove that append, reuse, or a particular compaction interval is faster.
+
+**RECOMMENDED — proposal, not frozen:** Compact at deterministic cleanup boundaries in ascending `AgentId` order, rebuild the slot map and graph projection, and keep physical slot order explicitly non-semantic. Treat the cleanup cadence `C` and whether dead records leave canonical M3-08 state as separate decisions; this avoids promising a locality gain not yet measured.
+
+### 13.8 Snapshot and restore
+
+**Options** — Keep schema v1 and regenerate from seed/config, or introduce a versioned snapshot schema for the population-dynamics profile that stores the canonical CSR plus allocator state. Earlier M3 v1 snapshots could be rejected for births-on runs, or accepted only as a fresh transition that initializes the new profile's static graph and allocator before any dynamic changes.
+
+**Consequences** — Regeneration is valid for the current static graph but cannot restore edges changed by births or endpoint cleanup. Persisting CSR in canonical source/neighbor order and the next-ID cursor makes resume independent of current storage slots; validation must check graph ordering, IDs, edge references, population cap, cursor consistency, and CSR hash before accepting the snapshot. A new schema/domain changes only the population-dynamics profile's snapshot and digest bytes; M2 and current M3 v1 bytes can remain exact. Snapshot storage adds O(N + E) bytes and encoding/decoding work; regeneration is cheaper but semantically insufficient for mutable topology.
+
+**RECOMMENDED — proposal, not frozen:** Use a new snapshot schema version for the population-dynamics profile and persist canonical CSR and the monotonic AgentId cursor. Keep M2 and current M3 snapshot encodings unchanged. Do not claim that a v1 snapshot can resume an already-mutated population-dynamics run.
+
+### 13.9 Profile, metrics, and events compatibility
+
+**Options** — Add `births.enabled = false` to the existing M3 profile and run births when enabled, or isolate births-on semantics in a new profile such as `m3p`. For observations, extend shared M3 metrics/events or add M3-08-specific birth/cleanup records and separate digest domains.
+
+**Consequences** — A disabled-by-default option can preserve current behavior only if every existing M3 path, snapshot, and digest excludes it semantically; accidental default/config drift risks changing the golden path. A separate profile makes the compatibility boundary explicit and allows distinct snapshot and State/Metrics/Events digests. Birth/cleanup event ordering must be deterministic (for example by parent/newborn AgentId); counts and event payloads become observable contract. New metrics and events add per-day work and digest bytes but need not alter M2 or current M3 outputs.
+
+**RECOMMENDED — proposal, not frozen:** Keep `profile = "m3"` births-off and byte-identical to current M3; introduce an explicit population-dynamics profile such as `m3p` for births-on runs. Give that profile distinct snapshot versioning and State/Metrics/Events digest domains. Record births and cleanup through profile-specific metrics and events, ordered canonically; do not change M2/current M3 schemas or golden values.
+
+### 13.10 Proposed acceptance gates
+
+A later implementation contract should require:
+
+1. Exact replay determinism for the population-dynamics profile across repeated runs and supported physical slot layouts.
+2. Snapshot pause/resume parity with the graph and allocator restored from the new schema.
+3. Checked ID exhaustion and `N < 2^24` population-cap tests, including atomic failure before partial birth/graph commit.
+4. Births-off behavior equal to current M3 goldens and all M2 behavior/goldens unchanged.
+5. At least one sustained test configuration that maintains its specified population behavior over 1,000 days; its food supply and birth settings must be committed as part of the later test contract.
+6. Canonical graph CSR/hash validation, parent-edge and dead-endpoint cases, deterministic cap ordering, and error-precedence tests.
+
+### 13.11 Open questions
+
+All recommendations remain proposals. The following choices require resolution before §13 can be frozen.
+
+| ID | Question | Status |
+|---|---|---|
+| RQ-1 | Does Phase 9b create the child before same-day Phase 10 metrics and Phase 11 snapshots, or queue it for day `D+1`? Define exact day-of-birth observation semantics. | **Blocking** |
+| RQ-2 | What exact eligibility threshold, birth probability, coordinate phase/draw, per-parent birth limit, and optional daily cap apply? | **Blocking** |
+| RQ-3 | What exact food/wealth amounts transfer, and what `f32` operation order guarantees food conservation? | **Blocking** |
+| RQ-4 | Are traits copied exactly or perturbed; if perturbed, what distribution, bounds, and coordinates apply? | **Blocking** |
+| RQ-5 | What is the serialized cursor representation and precise exhaustion boundary for the `u32` AgentId space? | **Blocking** |
+| RQ-6 | Is the graph population live agents only or all retained records, and does `k` include the mandatory parent edge? Define `k=0`. | **Blocking** |
+| RQ-7 | Is the parent edge directed child-to-parent or reciprocal, and what coordinates, self/duplicate rules, capacity errors, and exact boundary apply when replacing dead endpoints? | **Blocking** |
+| RQ-8 | Are dead agents removed from canonical M3-08 state, retained as tombstones, or represented in a separate history; when does graph cleanup occur? | **Blocking** |
+| RQ-9 | What deterministic compaction cadence `C` is used, and does it affect only physical layout or also logical cleanup? | **Blocking** if it changes logical membership or graph; otherwise **Non-blocking** performance choice |
+| RQ-10 | Which profile name, config fields, snapshot schema number, and separate digest domain tags identify population-dynamics runs? | **Blocking** |
+| RQ-11 | What exact birth/cleanup event payloads and metrics fields are required, and how are they ordered relative to mortality and snapshot events? | **Blocking** |
+| RQ-12 | What sustained test configuration and population tolerance define the 1,000-day acceptance gate? | **Blocking** |
+| RQ-13 | After semantic gates are fixed, what measured compaction cadence and storage strategy best preserve M3-07 gather locality? | **Non-blocking** for semantic implementation; required before performance claims |
