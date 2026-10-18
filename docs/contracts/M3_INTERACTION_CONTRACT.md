@@ -2,9 +2,9 @@
 
 **Status: §1–§7 and §9–§12 FROZEN**
 
-**Scope: M3-00 semantic reference (§1–§7), M3-01 optimized serial contract (§9), M3-02 deterministic parallel Phase 6B contract (§10), M3-02b search and bookkeeping reduction contract (§11), and M3-K settlement lookup indexing contract (§12)**
+**Scope: M3-00 semantic reference (§1–§7), M3-01 optimized serial contract (§9), M3-02 deterministic parallel Phase 6B contract (§10), M3-03 (formerly M3-02b) search and bookkeeping reduction contract (§11), and M3-06 (formerly M3-K) settlement lookup indexing contract (§12)**
 
-This document freezes M3-00 (§1–§7), M3-01 (§9), M3-02 (§10), M3-02b (§11), and M3-K (§12); other later M3 stages are planned in §8.
+This document freezes M3-00 (§1–§7), M3-01 (§9), M3-02 (§10), M3-03 (formerly M3-02b, §11), and M3-06 (formerly M3-K, §12); other later M3 stages are planned in §8.
 
 The research question is: **How much interaction complexity can a deterministic simulation runtime support before its execution model or data architecture must fundamentally change?** The M3-00 reference workload deliberately breaks the assumption that a settlement is an independent interaction partition.
 
@@ -237,6 +237,23 @@ This freeze authorizes the M3-00 implementation task to be requested; it does no
 
 This plan is non-frozen. Each stage has its own contract section and must pass through **DRAFT → review → FROZEN** before that stage's implementation begins.
 
+### Stage-number mapping
+
+The identifiers below put the stages in execution order. Existing filenames and document anchors remain unchanged.
+
+| Previous identifier or name | Current identifier | Status / disposition |
+|---|---|---|
+| M3-00, M3-01, M3-02 | M3-00, M3-01, M3-02 | Unchanged |
+| M3-02b — Search and bookkeeping reduction | M3-03 | Complete |
+| M3-E — Equilibrium workload | M3-04 | Complete, benchmark-only stage |
+| M3-S — Scale limit search | M3-05 | Complete, measurement-only stage |
+| M3-K — Settlement lookup indexing | M3-06 | Complete |
+| Residual-scaling diagnosis | M3-07 | Planned measurement-only stage |
+| M3-P — Population dynamics | M3-08 | Planned; dynamic topology is absorbed here |
+| M3-05 — Propagation | M3-09 | Planned |
+| M3-03 — Spatial migration | Deferred, unnumbered | Deferred follow-up |
+| M3-04 — Dynamic topology | M3-08 | Absorbed into population dynamics |
+
 ### M3-00 — Reference workload — COMPLETE
 
 Single-threaded reference with the relationship graph, neighbor targeting, global Phase 6B resolution, and separate M3 goldens.
@@ -249,35 +266,39 @@ Port M3 to the Segmented SoA path with index-based neighbor and target lookup, s
 
 The frozen primary method, dependency-level scheduling, passed exact State, Metrics, and Events parity against M3-01 serial. Round-based Deterministic Reservations remains a comparison-only schedule. No settlement-partition fast path was added; M3-01 measured a conflict fraction of about `0.54` even at `p_local = 1`. Serial remains the default and parallel execution remains an explicit opt-in. The release benchmark, extended parity results, per-stage timings, level structure, and contention measurements are recorded in [M3-02 Parallel Phase 6B](../performance/M3_02_PARALLEL_PHASE6B.md).
 
-### M3-02b — Search and bookkeeping reduction — COMPLETE
+### Optional stage after M3-02 — Contention dial
+
+An optional hub-biased or otherwise contention-controlled graph mode may test scheduling across different endpoint-contention levels. It changes graph semantics and requires its own contract amendment before implementation.
+
+### M3-03 (formerly M3-02b) — Search and bookkeeping reduction — COMPLETE
 
 The explicit serial search-reduction path is opt-in; `run_m3_storage_days` remains the oracle. The frozen parity gates passed. The global Phase 4 eligibility skip was retained after stage measurement; bitsets, slot-sidecar reuse, and radix sorting were rejected by the measurement-first gate, and output-vector de-duplication remained out of scope. Results and limitations are recorded in [M3-02b Search and Bookkeeping Reduction](../performance/M3_02B_SEARCH_REDUCTION.md).
 
 The post-M3-02 evidence is summarized in the [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md). It is an interim answer, not the M3 graduation gate.
 
-### M3-E — Equilibrium workload — PLANNED (benchmark-only)
+### M3-04 (formerly M3-E) — Equilibrium workload — COMPLETE (benchmark-only)
 
-Search for and measure a food-supply configuration that sustains interactions. This is a benchmark workload and does not change simulation semantics.
+Search for and measure a food-supply configuration that sustains interactions. This is a benchmark workload and does not change simulation semantics; results are recorded in [M3-04 Equilibrium Workload](../performance/M3_EQUILIBRIUM_WORKLOAD.md) and [M3-04 Sustained Workload](../performance/M3_SUSTAINED_WORKLOAD.md).
 
-### M3-S — Scale limit search — PLANNED (measurement-only)
+### M3-05 (formerly M3-S) — Scale limit search — COMPLETE (measurement-only)
 
-Measure the static-world workload's scale limits using the equilibrium configuration. This stage adds measurement only.
+Measure the static-world workload's scale limits using the equilibrium configuration. This stage adds measurement only; results are recorded in [M3-05 Scale Limit](../performance/M3_SCALE_LIMIT.md).
 
-### M3-K — Settlement lookup indexing — COMPLETE
+### M3-06 (formerly M3-K) — Settlement lookup indexing — COMPLETE
 
 Index repeated GroupId lookups on the shared M2/M3 storage path without changing output or error semantics. The implementation contract is in [§12](#12-m3-k-settlement-lookup-indexing); before/after work counts, scaling, and whole-tick measurements are recorded in [M3 Settlement Index](../performance/M3_SETTLEMENT_INDEX.md).
 
-### Optional stage after M3-02 — Contention dial
+### M3-07 — Residual scaling diagnosis — PLANNED (measurement-only)
 
-An optional hub-biased or otherwise contention-controlled graph mode may test scheduling across different endpoint-contention levels. It changes graph semantics and requires its own contract amendment before implementation.
+Determine whether post-M3-06 superlinear scaling is measurement noise, memory-hierarchy effects, or remaining algorithmic cost. Record findings in [M3-07 Scale Residual](../performance/M3_07_SCALE_RESIDUAL.md).
 
-### M3-P — Population dynamics — PLANNED
+### M3-08 (formerly M3-P) — Population dynamics — PLANNED
 
 Add births and define newborn graph attachment, dead-agent cleanup and storage reuse, deterministic `AgentId` allocation, and graph persistence in snapshots. This stage requires its own contract before implementation. The current model has no births: initialization sets every `birth_day` to zero, and no simulation phase creates agents.
 
-Spatial migration, previously listed as M3-03, remains a deferred follow-up and is not part of M3-P's planned scope.
+Spatial migration, previously listed as M3-03, remains a deferred follow-up and is not part of M3-08's planned scope.
 
-### M3-05 — Propagation — PLANNED
+### M3-09 (formerly M3-05) — Propagation — PLANNED
 
 Model multi-hop spread over the graph within one tick and define intra-tick ordering.
 
@@ -285,7 +306,7 @@ Model multi-hop spread over the graph within one tick and define intra-tick orde
 
 Report in the M2-40 format, answer the central research question, and decide whether a new architecture (M4) is needed.
 
-M3-E and M3-S extend the measured answer for sustained workloads and scale limits. M3-P and M3-05 deepen the research question with population dynamics and propagation.
+M3-04 and M3-05 extend the measured answer for sustained workloads and scale limits. M3-08 and M3-09 deepen the research question with population dynamics and propagation; M3-07 diagnoses residual scaling after indexed settlement lookups.
 
 ## 9. M3-01 Optimized path and serial baseline
 
@@ -478,7 +499,9 @@ M3-01 measured a conflict fraction of about `0.54` across the tested `p_local` v
 
 This freeze resolves the M3-02 scope, parallel entry point, CI matrix, dependency-level scratch lifetime, and optional contention-dial boundary. It authorizes the M3-02 implementation task to be requested; it does not start that task.
 
-## 11. M3-02b Search and bookkeeping reduction
+<a id="11-m3-02b-search-and-bookkeeping-reduction"></a>
+
+## 11. M3-02b (now M3-03) Search and bookkeeping reduction
 
 **Status: FROZEN**
 
@@ -587,7 +610,9 @@ None. The debug runtime measurement and post-push CI timing are required impleme
 
 This freeze resolves the sustained CI configuration, runtime target, private Phase 5 slot-sidecar constraints, explicit opt-in API, and candidate boundaries. It authorizes the M3-02b implementation task to proceed; it does not itself implement the optimizations.
 
-## 12. M3-K Settlement lookup indexing
+<a id="12-m3-k-settlement-lookup-indexing"></a>
+
+## 12. M3-K (now M3-06) Settlement lookup indexing
 
 **Status: FROZEN**
 

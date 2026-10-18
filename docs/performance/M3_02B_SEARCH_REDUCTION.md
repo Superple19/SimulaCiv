@@ -1,4 +1,5 @@
-# M3-02b Search and Bookkeeping Reduction
+<a id="m3-02b-search-and-bookkeeping-reduction"></a>
+# M3-03 (formerly M3-02b) Search and Bookkeeping Reduction
 
 - **Status:** M3-02b complete
 - **Retained candidate:** Phase 4 global eligibility precheck, behind the explicit serial opt-in runner

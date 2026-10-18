@@ -1,4 +1,5 @@
-# M3 Equilibrium Workload
+<a id="m3-equilibrium-workload"></a>
+# M3-04 (formerly M3-E) Equilibrium Workload
 
 This report records a benchmark-only search for a food-supply configuration with sustained Phase 6B interactions. It changes no simulation semantics or production behavior.
 

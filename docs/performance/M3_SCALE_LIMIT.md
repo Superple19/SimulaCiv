@@ -1,4 +1,5 @@
-# M3 Scale Limit Search
+<a id="m3-scale-limit-search"></a>
+# M3-05 (formerly M3-S) Scale Limit Search
 
 This report records the requested static-world scale search on the equilibrium preset. It is a benchmark-only study; it changes no simulation semantics or production behavior. The subsequent M3-K settlement-index before/after measurements are recorded in [M3 Settlement Index](M3_SETTLEMENT_INDEX.md); the measurements below are unchanged.
 

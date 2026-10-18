@@ -1,4 +1,5 @@
-# M3 Sustained Workload Benchmark
+<a id="m3-sustained-workload-benchmark"></a>
+# M3-04 (formerly M3-E) Sustained Workload Benchmark
 
 This benchmark evaluates audit option (b): a sustained-interaction workload configuration. It changes no simulation source behavior or frozen M3 semantics. The new workload changes only food-supply values in the copied M2-40 configuration.
 

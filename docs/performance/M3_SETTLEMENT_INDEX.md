@@ -1,4 +1,5 @@
-# M3-K Settlement Index Measurement
+<a id="m3-k-settlement-index-measurement"></a>
+# M3-06 (formerly M3-K) Settlement Index Measurement
 
 This report records the fixed-N, fixed-K, and `K=N/200` reruns after M3-K. The change replaces repeated storage-path GroupId scans with one transient source-order-preserving index per phase call. The original [M3 scale diagnosis](M3_SCALE_DIAGNOSIS.md) and [M3 scale-limit measurements](M3_SCALE_LIMIT.md) remain unchanged and provide the before values.
 

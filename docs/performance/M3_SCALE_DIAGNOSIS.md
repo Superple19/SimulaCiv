@@ -1,4 +1,5 @@
-# M3 Scale Diagnosis: Population and Settlement Count
+<a id="m3-scale-diagnosis-population-and-settlement-count"></a>
+# M3-05 (formerly M3-S) Scale Diagnosis: Population and Settlement Count
 
 This is a measurement-only diagnosis of the superlinear intervals recorded in [M3 Scale Limit](M3_SCALE_LIMIT.md). It separates population `N` from settlement count `K`, counts the settlement-keyed scans reached by the M3 serial storage path, decomposes Phase 3, and remeasures the N=1,000,000 / k=16 parallel Phase 6B case. No semantic optimization was implemented.
 
