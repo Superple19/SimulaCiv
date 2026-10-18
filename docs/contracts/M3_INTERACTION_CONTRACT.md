@@ -249,9 +249,9 @@ Port M3 to the Segmented SoA path with index-based neighbor and target lookup, s
 
 The frozen primary method, dependency-level scheduling, passed exact State, Metrics, and Events parity against M3-01 serial. Round-based Deterministic Reservations remains a comparison-only schedule. No settlement-partition fast path was added; M3-01 measured a conflict fraction of about `0.54` even at `p_local = 1`. Serial remains the default and parallel execution remains an explicit opt-in. The release benchmark, extended parity results, per-stage timings, level structure, and contention measurements are recorded in [M3-02 Parallel Phase 6B](../performance/M3_02_PARALLEL_PHASE6B.md).
 
-### M3-02b — Search and bookkeeping reduction — PLANNED
+### M3-02b — Search and bookkeeping reduction — COMPLETE
 
-Test serial M3 storage-path reductions to candidate search and Phase 6B bookkeeping with exact parity. The unchanged `run_m3_storage_days` remains the oracle; the proposed optimized path is a separate explicit opt-in. Draft scope: [§11](#11-m3-02b-search-and-bookkeeping-reduction). Report path: [`docs/performance/M3_02B_SEARCH_REDUCTION.md`](../performance/M3_02B_SEARCH_REDUCTION.md).
+The explicit serial search-reduction path is opt-in; `run_m3_storage_days` remains the oracle. The frozen parity gates passed. The global Phase 4 eligibility skip was retained after stage measurement; bitsets, slot-sidecar reuse, and radix sorting were rejected by the measurement-first gate, and output-vector de-duplication remained out of scope. Results and limitations are recorded in [M3-02b Search and Bookkeeping Reduction](../performance/M3_02B_SEARCH_REDUCTION.md).
 
 The post-M3-02 evidence is summarized in the [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md). It is an interim answer, not the M3 graduation gate.
 
