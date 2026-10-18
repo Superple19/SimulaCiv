@@ -46,6 +46,7 @@
     .legend-item { display:inline-flex; align-items:center; gap:5px; }
     .legend-line { width:17px; border-top:3px solid var(--swatch); }
     .legend-note { margin-left:auto; }
+    .legend-identical { color:var(--muted); font-size:.72rem; }
     .charts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
     .chart { min-width:0; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:6px 8px; }
     .chart h2 { margin:0; font-size:.85rem; }
@@ -57,6 +58,8 @@
     .series-line { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
     .point { stroke:var(--card); stroke-width:1.3; cursor:crosshair; }
     .point.duplicate { fill:var(--card); stroke:var(--point-color); }
+    .point.square { rx:1; }
+    .outlier-marker { stroke:var(--card); stroke-width:1.2; cursor:crosshair; }
     .day-cursor { stroke:var(--accent); stroke-width:1.5; stroke-dasharray:4 3; pointer-events:none; }
     .record { margin-top:10px; }
     .day-table-wrap { overflow:auto; border:1px solid var(--line); border-radius:8px; }
@@ -93,6 +96,7 @@
       <label class="file-button" for="files">Load JSONL traces</label>
       <input id="files" type="file" accept=".jsonl,.json,.txt,application/json" multiple>
       <label><input id="overlay" type="checkbox" checked> Overlay selected traces</label>
+      <label><input id="wall-log" type="checkbox"> Log wall time</label>
       <button id="clear" type="button">Clear traces</button>
     </div>
     <div id="drop" class="drop">Drop one or more JSONL files here</div>
@@ -242,6 +246,46 @@
     function sameTraceConfig(first,second) {
       return JSON.stringify(traceConfigIdentity(first))===JSON.stringify(traceConfigIdentity(second));
     }
+    function traceGroupKey(trace) {
+      return JSON.stringify(traceConfigIdentity(trace));
+    }
+    function assignGroupColors() {
+      const colors=new Map();
+      for(const trace of traces) {
+        const key=traceGroupKey(trace);
+        if(!colors.has(key))colors.set(key,palette[colors.size%palette.length]);
+        trace.color=colors.get(key);
+      }
+    }
+    function runnerType(trace) {
+      if(trace.header.runner==="search_reduction")return "search_reduction";
+      if(String(trace.header.runner||"").startsWith("parallel:"))return "parallel";
+      return "serial";
+    }
+    function runnerDash(trace) {
+      return runnerType(trace)==="search_reduction"?"7 4":runnerType(trace)==="parallel"?"1 3":"";
+    }
+    function chartDrawEntries(definition,shown) {
+      if(definition.format==="time")return shown.map(trace=>({trace,collapsed:false}));
+      const groups=new Map();
+      for(const trace of shown) {
+        const key=traceGroupKey(trace);
+        if(!groups.has(key))groups.set(key,[]);
+        groups.get(key).push(trace);
+      }
+      const entries=[];
+      for(const group of groups.values()) {
+        const collapse=definition.format!=="time"&&group.length>1&&group.every(trace=>sameMetricValues(group[0],trace,definition));
+        if(collapse)entries.push({trace:group[0],collapsed:true});
+        else for(const trace of group)entries.push({trace,collapsed:false});
+      }
+      return entries;
+    }
+    function percentile(values,quantile) {
+      if(!values.length)return null;
+      const sorted=[...values].sort((a,b)=>a-b);
+      return sorted[Math.max(0,Math.ceil(quantile*sorted.length)-1)];
+    }
     function configSummary(trace) {
       const preset=tracePreset(trace);
       return `N ${configNumber(trace,"initial_population")??"?"} · K ${configNumber(trace,"settlement_count")??"?"} · k ${configNumber(trace,"relationship_degree_k")??"?"} · p_local ${configNumber(trace,"p_local")??"?"} · ${preset}`;
@@ -280,10 +324,26 @@
     }
     function renderSharedLegend(shown) {
       const root=document.getElementById("chart-legend");root.replaceChildren();
+      const groups=new Map();
       for(const trace of shown) {
-        const item=element("span",undefined,"legend-item"),line=element("span",undefined,"legend-line");line.style.setProperty("--swatch",trace.color);item.append(line,document.createTextNode(trace.name));root.append(item);
+        const key=traceGroupKey(trace);
+        if(!groups.has(key))groups.set(key,[]);
+        groups.get(key).push(trace);
       }
-      if(shown.length)root.append(element("span","GiveFood / StealFood: solid = Some · dashed = None","legend-note"));
+      for(const group of groups.values()) {
+        const trace=group[0],item=element("span",undefined,"legend-item"),line=element("span",undefined,"legend-line");
+        line.style.setProperty("--swatch",trace.color);item.append(line,document.createTextNode(configSummary(trace)));root.append(item);
+        const identical=charts.filter(definition=>definition.format!=="time"&&group.length>1&&group.every(member=>sameMetricValues(group[0],member,definition)));
+        if(identical.length)root.append(element("span",`${group.length} runners identical: ${identical.map(definition=>definition.title).join(", ")}`,"legend-identical"));
+      }
+      for(const style of ["serial","search_reduction","parallel"]) {
+        if(!shown.some(trace=>runnerType(trace)===style))continue;
+        const line=element("span",undefined,"legend-line");line.style.setProperty("--swatch","var(--muted)");
+        line.style.borderTopStyle=style==="search_reduction"?"dashed":style==="parallel"?"dotted":"solid";
+        const label=style==="search_reduction"?"search_reduction":style;
+        const item=element("span",undefined,"legend-item");item.append(line,document.createTextNode(label));root.append(item);
+      }
+      if(shown.length)root.append(element("span","Circles = Some · squares = None · triangles = above wall-time P99","legend-note"));
     }
     function linePath(points) { return points.map((point,index)=>`${index ? "L":"M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "); }
     function niceStep(minimum, maximum, targetTicks=4) {
@@ -309,7 +369,7 @@
       const max=Math.ceil(dataMax/step)*step;
       return {min,max:max>min?max:min+step,step};
     }
-    function seriesSegments(trace, definition, part, x, y) {
+    function seriesSegments(trace, definition, part, x, y, valueLimit=null, clippedY=null) {
       const segments=[]; let segment=[];
       for (const day of trace.days) {
         const series=metricSeries(definition,day);
@@ -319,7 +379,8 @@
           segment=[];
           continue;
         }
-        segment.push({x:x(day.day),y:y(Number(value)),day,value:Number(value),part});
+        const numeric=Number(value),clipped=valueLimit!==null&&numeric>valueLimit;
+        segment.push({x:x(day.day),y:y(clipped?clippedY:numeric),day,value:numeric,part,clipped});
       }
       if(segment.length)segments.push(segment);
       return segments;
@@ -341,8 +402,10 @@
     }
     function appendChartNote(card, definition, shown) {
       const notes=[];
+      if(definition.format==="time") { card.append(element("p","","chart-note")); return; }
       for(let first=0;first<shown.length;first++)for(let second=0;second<first;second++) {
         const metricEqual=sameMetricValues(shown[first],shown[second],definition),digestEqual=digestGroupEqual(shown[first],shown[second]);
+        if(sameTraceConfig(shown[first],shown[second])&&metricEqual)continue;
         if(metricEqual!==digestEqual)notes.push(metricEqual?`${shown[first].name} matches ${shown[second].name} here; digest groups differ`:`${shown[first].name} differs from ${shown[second].name} here; digests identical`);
       }
       card.append(element("p",notes.join(" · "),"chart-note"));
@@ -361,12 +424,19 @@
       }));
       const hasValues=rawSeries.length>0;
       if(!hasValues)card.append(element("p","No values for this chart."));
-      const {min:yMin,max:yMax,step}=hasValues?axisRange(rawSeries.map(point=>point.value),definition.zeroBaseline===true):{min:0,max:1,step:.2};
+      const wallTime=definition.format==="time";
+      const wallValues=wallTime?traces.flatMap(trace=>trace.days.map(day=>day.day_wall_time_us).filter(value=>value!==null&&value!==undefined).map(Number).filter(Number.isFinite)):[];
+      const percentile99=wallTime?percentile(wallValues,.99):null;
+      const wallLimit=percentile99??1,yMax=wallTime?(wallLimit>0?wallLimit:1):undefined;
+      const axis=wallTime?{min:0,max:yMax,step:niceStep(0,yMax)}:hasValues?axisRange(rawSeries.map(point=>point.value),definition.zeroBaseline===true):{min:0,max:1,step:.2};
+      const yMin=axis.min;
+      const logScale=wallTime&&document.getElementById("wall-log").checked;
+      const transform=value=>logScale?Math.log10(Math.max(0,value)+1):value;
+      const transformedMin=transform(yMin),transformedMax=transform(axis.max);
       const x=value=>left+(xMax===xMin ? .5 : (value-xMin)/(xMax-xMin))*plotW;
-      const y=value=>top+(yMax-value)/(yMax-yMin)*plotH;
-      const tickCount=Math.round((yMax-yMin)/step);
-      for(let tick=0;tick<=tickCount;tick++) {
-        const value=Number((yMin+step*tick).toPrecision(12)), yy=y(value);
+      const y=value=>top+(transformedMax-transform(value))/(transformedMax-transformedMin)*plotH;
+      for(let value=yMin,index=0;value<=axis.max+axis.step*1e-9;value=yMin+axis.step*++index) {
+        value=Number(value.toPrecision(12));const yy=y(value);
         const grid=document.createElementNS(svg.namespaceURI,"line"); grid.setAttribute("x1",left);grid.setAttribute("x2",width-right);grid.setAttribute("y1",yy);grid.setAttribute("y2",yy);grid.setAttribute("class","gridline");svg.append(grid);
         const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",left-7);label.setAttribute("y",yy+4);label.setAttribute("text-anchor","end");label.setAttribute("class","axis-label");label.textContent=formatMetric(value,definition.format);svg.append(label);
       }
@@ -374,30 +444,34 @@
         const xx=x(tick),grid=document.createElementNS(svg.namespaceURI,"line");grid.setAttribute("x1",xx);grid.setAttribute("x2",xx);grid.setAttribute("y1",top);grid.setAttribute("y2",height-bottom);grid.setAttribute("class","gridline");svg.append(grid);
         const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",xx);label.setAttribute("y",height-4);label.setAttribute("text-anchor",tick===xMin?"start":tick===xMax?"end":"middle");label.setAttribute("class","axis-label");label.textContent=String(tick);svg.append(label);
       }
-      shown.forEach(trace=>{
-        const traceIndex=shown.indexOf(trace);
-        const identicalTo=shown.slice(0,traceIndex).find(other=>sameMetricValues(trace,other,definition));
-        const duplicate=Boolean(identicalTo);
+      for(const entry of chartDrawEntries(definition,shown)) {
+        const {trace,collapsed}=entry;
         const parts=definition.multi ? metricSeries(definition,trace.days[0]||{}).map(item=>item.name) : [""];
-        parts.forEach((part,partIndex)=>{
-          const segments=seriesSegments(trace,definition,part,x,y);
+        parts.forEach(part=>{
+          const segments=seriesSegments(trace,definition,part,x,y,wallTime?wallLimit:null,axis.max);
           if (!segments.length) return;
           for(const points of segments) {
             const path=document.createElementNS(svg.namespaceURI,"path");path.setAttribute("d",linePath(points));path.setAttribute("class","series-line");path.setAttribute("stroke",trace.color);
-            path.setAttribute("stroke-dasharray",duplicate?(partIndex?"2 2 6 2":"2 3"):(partIndex?"6 4":""));svg.append(path);
+            path.setAttribute("stroke-dasharray",collapsed?"":runnerDash(trace));if(part==="None")path.setAttribute("opacity","0.7");svg.append(path);
             for(const point of points) {
-              const circle=document.createElementNS(svg.namespaceURI,"circle");circle.setAttribute("cx",point.x);circle.setAttribute("cy",point.y);circle.setAttribute("r",points.length>500?1.8:2.7);circle.setAttribute("fill",trace.color);circle.setAttribute("class","point");
-              if(duplicate){circle.classList.add("duplicate");circle.style.setProperty("--point-color",trace.color);}
+              let marker;
+              if(point.clipped) {
+                marker=document.createElementNS(svg.namespaceURI,"path");marker.setAttribute("d",`M${point.x},${top} l-4,7 h8 z`);marker.setAttribute("class","outlier-marker");marker.setAttribute("fill",trace.color);
+              } else if(definition.multi&&part==="None") {
+                marker=document.createElementNS(svg.namespaceURI,"rect");marker.setAttribute("x",point.x-2.5);marker.setAttribute("y",point.y-2.5);marker.setAttribute("width",5);marker.setAttribute("height",5);marker.setAttribute("class","point square");marker.setAttribute("fill",trace.color);
+              } else {
+                marker=document.createElementNS(svg.namespaceURI,"circle");marker.setAttribute("cx",point.x);marker.setAttribute("cy",point.y);marker.setAttribute("r",points.length>500?1.8:2.7);marker.setAttribute("class","point");marker.setAttribute("fill",trace.color);
+              }
               const exact=String(point.value),display=formatMetric(point.value,definition.format);
-              circle.setAttribute("title",`${definition.title}, day ${point.day.day}: ${exact}`);
-              circle.dataset.tip=`${trace.name}\n${definition.title} · day ${point.day.day}${point.part?" · "+point.part:""}\n${display}`;
-              circle.addEventListener("pointerenter",event=>{tooltip.textContent=circle.dataset.tip;tooltip.style.display="block";tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
-              circle.addEventListener("pointermove",event=>{tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
-              circle.addEventListener("pointerleave",()=>{tooltip.style.display="none";});svg.append(circle);
+              marker.setAttribute("title",`${definition.title}, day ${point.day.day}: ${exact}`);
+              marker.dataset.tip=`${trace.name} (${trace.header.runner})\n${definition.title} · day ${point.day.day}${point.part?" · "+point.part:""}\n${display}${point.clipped?` (exact ${exact})`:""}`;
+              marker.addEventListener("pointerenter",event=>{tooltip.textContent=marker.dataset.tip;tooltip.style.display="block";tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
+              marker.addEventListener("pointermove",event=>{tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
+              marker.addEventListener("pointerleave",()=>{tooltip.style.display="none";});svg.append(marker);
             }
           }
         });
-      });
+      }
       const cursor=document.createElementNS(svg.namespaceURI,"line");cursor.setAttribute("class","day-cursor");cursor.setAttribute("y1",top);cursor.setAttribute("y2",height-bottom);svg.append(cursor);
       svg.addEventListener("pointermove",event=>{
         const rect=svg.getBoundingClientRect(),localX=(event.clientX-rect.left)*(width/rect.width);
@@ -468,6 +542,7 @@
       root.append(raw);
     }
     function render() {
+      assignGroupColors();
       renderDigestStatus();
       renderTraceTable();
       const shown=selectedTraces();
@@ -493,6 +568,7 @@
     }
     files.addEventListener("change",event=>acceptFiles(event.target.files));
     document.getElementById("overlay").addEventListener("change",render);
+    document.getElementById("wall-log").addEventListener("change",render);
     document.getElementById("day-slider").addEventListener("input",event=>updateSelectedDay(Number(event.target.value),true));
     document.getElementById("clear").addEventListener("click",()=>{traces.length=0;files.value="";render();});
     for(const name of ["dragenter","dragover"])drop.addEventListener(name,event=>{event.preventDefault();drop.classList.add("over");});
