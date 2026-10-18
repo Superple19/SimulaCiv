@@ -826,13 +826,13 @@ This freeze records the m3p birth schedule and rule, checked monotonic identity 
 
 ## 14. M3-09 Incremental topology maintenance
 
-**Status: DRAFT — NOT FROZEN**
+**Status: FROZEN**
 
-This draft proposes removing repeated full-population graph/projection work on M3P birth days. It is based on `apply_phase9b_storage`, `plan_phase9b`, `M3pCandidateIndex::new`, and `build_newborn_row` in `crates/sim-model/src/m3p.rs`; `M3pStorageRunContext::refresh_after_phase9b` and `run_m3p_storage_day` in `crates/sim-model/src/runner.rs`; `M3Phase4SlotProjection::rebuild` in `crates/sim-model/src/intents.rs`; and `RelationshipGraph::from_canonical_rows` / `hash_csr` in `crates/sim-model/src/relationship_graph.rs`.
+This section specifies removal of repeated full-population graph/projection work on M3P birth days. It is based on `apply_phase9b_storage`, `plan_phase9b`, `M3pCandidateIndex::new`, and `build_newborn_row` in `crates/sim-model/src/m3p.rs`; `M3pStorageRunContext::refresh_after_phase9b` and `run_m3p_storage_day` in `crates/sim-model/src/runner.rs`; `M3Phase4SlotProjection::rebuild` in `crates/sim-model/src/intents.rs`; and `RelationshipGraph::from_canonical_rows` / `hash_csr` in `crates/sim-model/src/relationship_graph.rs`.
 
 ### 14.1 Goal and authority
 
-Add a separate explicit opt-in storage entry point, provisionally `run_m3p_storage_days_incremental_topology`, with its own caller-owned context if needed. The current `run_m3p_reference_day` and `run_m3p_storage_days` remain unchanged and remain the oracles. For every day, the opt-in path must match the existing M3P reference and storage paths in State, Metrics, and Events digests; intents; Phase 6B resolutions; events; snapshot bytes; and errors, including error precedence. No M3P semantic, RNG-coordinate, ordering, or validation change is authorized by this draft.
+Add the separate explicit opt-in storage entry point `run_m3p_storage_days_incremental_topology` with its own caller-owned context. The current `run_m3p_reference_day` and `run_m3p_storage_days` remain unchanged and remain the oracles. For every day, the opt-in path must match the existing M3P reference and storage paths in State, Metrics, and Events digests; intents; Phase 6B resolutions; events; snapshot bytes; and errors, including error precedence. No M3P semantic, RNG-coordinate, ordering, or validation change is authorized by this freeze.
 
 ### 14.2 Structures and incremental candidates
 
@@ -866,7 +866,7 @@ On compaction days, retain the full §13.6 behavior: process edges in the frozen
 
 `hash_csr` in `crates/sim-model/src/relationship_graph.rs` hashes the domain tag, then the source count, then every canonical source row and neighbor. Because source count precedes the rows, appending a row changes bytes before the appended data; a cached SHA-256 state cannot be extended to produce the frozen hash. `canonical_m3p_state_bytes_from_storage` consumes the CSR hash, and `encode_m3p_snapshot` stores it. Recomputing the frozen hash costs O(V + E) per digest or snapshot request.
 
-**Option (i) — preserve the frozen hash and compute lazily (recommended proposal).** Mark the cached hash dirty after graph mutation and recompute the exact §2.1 preimage only when a State digest or snapshot requests it. This preserves M3P State digests, the 32-byte snapshot field, snapshot bytes, and M2/M3 hashes. It saves work only when no hash or snapshot is requested; a request still costs O(V + E). The implementation must resolve how to preserve the current `csr_hash()` borrowing API or replace it behind the new opt-in path.
+**Option (i) — preserve the frozen hash and compute lazily (FROZEN).** Mark the cached hash dirty after graph mutation and recompute the exact §2.1 preimage only when a State digest or snapshot requests it. This preserves M3P State digests, the 32-byte snapshot field, snapshot bytes, and M2/M3 hashes. It saves work only when no hash or snapshot is requested; a request still costs O(V + E). The implementation must preserve the current `csr_hash()` behavior for existing callers while allowing the new opt-in path to invalidate and lazily refresh its cached value.
 
 **Option (ii) — amend the M3P hash to an append-friendly encoding.** A revised canonical encoding could put the source count after rows or use a specified streaming/chained hash. This changes the CSR hash and therefore M3P State digests; it changes the stored 32-byte CSR hash and thus M3P snapshot bytes even if the snapshot field layout stays the same. It requires amending the frozen M3P hash contract and replacing the M3P State golden values; an on-wire format change would also require a snapshot schema decision. M2 and M3 hashes remain untouched.
 
@@ -888,12 +888,16 @@ Use the accepted sustained configuration in [M3-08 Population Dynamics](../perfo
 
 This stage does not change birth eligibility, probability, resource transfer, ID assignment, candidate pools, edge sampling, dead-edge cleanup, or compaction timing. It does not change snapshot schema under recommended option (i), and does not modify M2 or existing M3 paths. A changed CSR hash or graph semantic requires a separate explicit contract amendment.
 
-### 14.8 Open questions
+### 14.8 Frozen decision register
 
-| ID | Question | Blocking? | Proposal for review |
+| ID | Decision | Status | Frozen resolution |
 |---|---|---|---|
-| OQ-1 | Keep the frozen CSR hash and compute it lazily, or amend it to an append-friendly encoding? | **Blocking for freeze** | Preserve the frozen hash and use lazy recomputation. Option (ii) now changes already-pushed M3P State expectations and snapshot hash bytes. |
-| OQ-2 | What private scratch/context shape can stage and validate CSR/projection deltas before mutation while preserving Phase 9b failure atomicity? | **Blocking for freeze** | Use a separate opt-in context and validate all fallible row, slot, count, and ID work before applying deltas. |
-| OQ-3 | Should the candidate rank index be maintained by applying Phase 9 death deltas or rebuilt once per Phase 9b call from an existing ordered membership index? | **Non-blocking** | Measure both only if the simpler reuse of current membership data does not meet the stage's target. Both must materialize the exact §13 A-1 pool. |
-| OQ-4 | Which deterministic day sample should trigger debug full-rebuild assertions? | **Non-blocking** | Always check compaction days and use a documented fixed-period sample for birth days. The test-only gate still compares every day. |
-| OQ-5 | Should the provisional public function be named `run_m3p_storage_days_incremental_topology` or use another explicit opt-in name? | **Non-blocking** | Keep it separate from the current M3P oracle runners and do not add an automatic policy. |
+| OQ-1 | CSR hash policy | **FROZEN** | Keep the exact existing CSR hash encoding. Cache the digest with a dirty state; any graph mutation marks it dirty. Compute and cache the hash only when a State digest or snapshot requests it. Each request after invalidation costs O(V + E); repeated requests before the next mutation reuse the cached 32-byte value. If a digest or snapshot is requested every day, that day still pays O(V + E). Do not change M3P goldens, snapshot bytes, or schema. |
+| OQ-2 | Incremental mutation context and atomicity | **FROZEN** | Use a separate opt-in context. Stage newborn CSR rows, row offsets, and projection rows in caller-owned reusable scratch. Complete every fallible validation and checked calculation first, reserve required destination capacities, then apply only append operations with no remaining validation/error branch. On any validation error, state, graph, projection, and allocator remain unchanged. |
+| OQ-3 | Sampling index lifecycle | **FROZEN** | Build the exact §13 A-1 fixed candidate pool and its group rank indexes once per Phase 9b call from existing ordered membership data. Consider maintaining the index incrementally only if this implementation misses its measured target; if tried, measure it against this per-call build and require exact pool and rank parity. |
+| OQ-4 | Debug full-rebuild sample schedule | **FROZEN** | Debug builds compare against a full rebuild on every compaction day and every 16th simulation day. Tests compare incremental structures against a full rebuild every day. |
+| OQ-5 | Public entry point | **FROZEN** | Name the separate explicit opt-in runner `run_m3p_storage_days_incremental_topology`. Current M3P reference and storage runners remain unchanged oracles; no automatic selection or fallback is added. |
+
+### 14.9 Freeze record
+
+This freeze preserves the existing CSR hash preimage and makes it lazy after incremental graph mutations; it selects staged, failure-atomic CSR/projection appends, a per-Phase-9b candidate index build, the debug/test full-rebuild schedules, and the explicit `run_m3p_storage_days_incremental_topology` entry point. It authorizes the M3-09 implementation already requested in the current task. It does not change M3P semantics, goldens, snapshots, snapshot schema, or M2/M3 paths.
