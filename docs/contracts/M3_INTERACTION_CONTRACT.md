@@ -2,9 +2,9 @@
 
 **Status: FROZEN**
 
-**Scope: M3-00 semantic reference (§1–§7) and M3-01 optimized serial contract (§9)**
+**Scope: M3-00 semantic reference (§1–§7), M3-01 optimized serial contract (§9), and M3-02 deterministic parallel Phase 6B contract (§10)**
 
-This document freezes M3-00 (§1–§7) and M3-01 (§9); later M3 stages are planned in §8.
+This document freezes M3-00 (§1–§7), M3-01 (§9), and M3-02 (§10); later M3 stages are planned in §8.
 
 The research question is: **How much interaction complexity can a deterministic simulation runtime support before its execution model or data architecture must fundamentally change?** The M3-00 reference workload deliberately breaks the assumption that a settlement is an independent interaction partition.
 
@@ -247,9 +247,13 @@ Port M3 to the Segmented SoA path with index-based neighbor and target lookup, s
 
 ### M3-02 — Deterministic parallel Phase 6B
 
-The primary approach is conflict-based scheduling (the Deterministic Reservations family): entries touching disjoint agents may run in parallel; entries sharing an agent retain global-stream order. A settlement-partition fast path is valid only when every interaction is settlement-local (`p_local = 1`). Serial remains the default; parallel execution is an explicit opt-in.
+The primary method is dependency-level scheduling; round-based Deterministic Reservations is for comparison only. No settlement-partition fast path is included because M3-01 measured a conflict fraction of about `0.54` even at `p_local = 1`. Serial remains the default; parallel execution is an explicit opt-in.
 
-**Gate:** bit-identical digests to the reference. Report speedup versus `p_local` and where partition-based parallelism stops paying off, including the cause.
+**Gate:** bit-identical State, Metrics, and Events digests against both M3-01 serial and the M3-00 reference. The report covers per-stage Phase 6B speedup, level structure, and contention at day 0 and after 100 days. Whole-tick speedup is secondary and Amdahl-bounded.
+
+### Optional stage after M3-02 — Contention dial
+
+An optional hub-biased or otherwise contention-controlled graph mode may test scheduling across different endpoint-contention levels. It changes graph semantics and requires its own contract amendment before implementation.
 
 ### M3-03 — Spatial migration
 
@@ -365,7 +369,7 @@ This freeze resolves the §9 API, benchmark workload, projection lifecycle, and 
 
 ## 10. M3-02 Deterministic parallel Phase 6B
 
-**Status: DRAFT — NOT FROZEN**
+**Status: FROZEN**
 
 ### 10.1 Scope and opt-in policy
 
@@ -408,6 +412,8 @@ Store the entry's original global-stream index in that level. This is one serial
 
 The schedule can reorder only entries that touch disjoint agents. For every shared endpoint, its level order is the same as the global stream order, so later entries observe earlier writes exactly as in serial Phase 6B. Preserve the original global index separately from the level so that level order and Rayon completion order never become output order. Record the number of non-empty levels and the largest level size as measurements.
 
+The per-slot `last_level` and level-membership scratch is caller-owned and reused across days. Resetting it for a new day must not allocate; clearing retained buffers or using a generation stamp are both acceptable. It remains transient runtime scratch and does not enter simulation state, snapshots, or digests.
+
 An alternative round-based Deterministic Reservations schedule may be measured for comparison only. It must reserve endpoints in global-stream order within each round and may execute only endpoint-disjoint entries concurrently. Dependency levels remain the primary method for M3-02; the alternative does not change serial semantics or become an implicit fallback.
 
 ### 10.5 Output and event order
@@ -416,14 +422,15 @@ Reconstruct one `SettlementTargetedResolution` per initiator group in ascending 
 
 ### 10.6 Correctness and parity gates
 
-Require bit-identical State, Metrics, and Events digest sequences against both the serial M3-01 path and the M3-00 reference for:
+Require bit-identical State, Metrics, and Events digest sequences against both the serial M3-01 path and the M3-00 reference. CI covers:
 
-- the committed M3 golden configuration;
-- every configuration in the full §9.7 100-day differential matrix (`N=300`, the three listed seeds, `K ∈ {3,10}`, `k ∈ {4,8,16}`, `p_local ∈ {0,0.5,1}`, plus `N ∈ {1,000,3,000}` with their §9.7 `K`, seed, `k`, and locality settings);
-- snapshot pause/resume, rebuilding the graph and slot projection after restore;
-- equivalent logical states with shuffled or permuted storage slots.
+- the M3 golden configuration and the full §9.7 100-day matrix: all 60 differential cells (`N=300` with the three listed seeds, `K ∈ {3,10}`, `k ∈ {4,8,16}`, `p_local ∈ {0,0.5,1}`, plus `N ∈ {1,000,3,000}` with their §9.7 `K`, seed, `k`, and locality settings), using pool sizes `{2,4}` and chunk size `256`;
+- a thread/chunk sweep on the M3 golden configuration and this subset: `N=300`, seed `81985529216486895`, `K=3`, `k=8`, `p_local ∈ {0,0.5,1}`, using pool sizes `{1,2,4}` × chunk sizes `{64,128,256,512,1024}`;
+- snapshot pause/resume and shuffled-slot parity using pool size `4` and chunk size `256`, rebuilding the graph and slot projection after restore.
 
-Run parity with Rayon pool sizes `{1, 2, 4}` and the host maximum, and with chunk sizes `{64, 128, 256, 512, 1024}`. Record the host maximum used. CI must explicitly construct and exercise at least 2-thread and 4-thread pools; it must not skip multi-thread coverage because the runner reports a low core count. Keep all existing M2 goldens and snapshot checks unchanged. The serial M3-01 path remains available as the oracle and default.
+CI must construct and exercise both 2-thread and 4-thread pools regardless of the runner's reported core count. Keep all existing M2 goldens and snapshot checks unchanged. The serial M3-01 path remains available as the oracle and default.
+
+Run the host-maximum pool and the full chunk-size sweep over the full §9.7 matrix once in release mode and record the results in the performance report; these extended runs are not CI gates. Record the host maximum used.
 
 ### 10.7 Measurement protocol
 
@@ -446,9 +453,13 @@ M3-01 measured a conflict fraction of about `0.54` across the tested `p_local` v
 - Changing the relationship graph, target semantics, RNG coordinates, global key, transfer rules, event schema, snapshot schema, or digests.
 - Introducing a settlement-partition fast path based only on `p_local`.
 
-### 10.10 Open questions
+### 10.10 Frozen decision register
 
-| ID | Question | Status |
-|---|---|---|
-| Q1 | Should a later M3 stage add a contention dial, such as a hub-biased graph mode, to test scheduling across different endpoint-contention levels? This would change graph semantics and requires its own contract amendment before implementation. | **NON-BLOCKING** |
-| Q2 | What exact Rust identifier should the separate public opt-in parallel runner use? The required boundary is fixed here (M3 storage Phase 6B only, caller-owned pool, explicit call); the spelling can be selected during implementation without changing semantics. | **NON-BLOCKING** |
+| ID | Decision | Status | Frozen resolution |
+|---|---|---|---|
+| Q1 | Contention dial | **FROZEN** | Out of M3-02 scope. Record it as the optional stage after M3-02 in §8; any hub-biased or other contention-controlled graph mode requires its own contract amendment before implementation. |
+| Q2 | Parallel M3 entry point | **FROZEN** | Expose `run_m3_storage_days_with_parallel_phase6b`, taking a caller-owned `rayon::ThreadPool` and a nonzero chunk size. Calling it is the explicit opt-in; `run_m3_storage_days` remains serial and unchanged. |
+
+### 10.11 Freeze record
+
+This freeze resolves the M3-02 scope, parallel entry point, CI matrix, dependency-level scratch lifetime, and optional contention-dial boundary. It authorizes the M3-02 implementation task to be requested; it does not start that task.
