@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, K_PRIME, Money, RngCoordinate, coordinate_prng_f32, mix64};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
+use std::time::{Duration, Instant};
 
 /// Outcome of a single agent's Work intent during Phase 6A.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1606,6 +1607,51 @@ pub fn phase6b_targeted_resolution_storage_m3_with_scratch(
     partitions: &[SettlementIntentPartition],
     scratch: &mut M3Phase6BStorageScratch,
 ) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    phase6b_targeted_resolution_storage_m3_serial_impl(
+        storage,
+        settlements,
+        current_day,
+        config,
+        partitions,
+        scratch,
+        None,
+    )
+}
+
+/// Timing-only wrapper around the unchanged serial M3 Phase 6B resolver.
+#[allow(clippy::too_many_arguments)]
+pub fn phase6b_targeted_resolution_storage_m3_with_timing(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    scratch: &mut M3Phase6BStorageScratch,
+) -> Result<(Vec<SettlementTargetedResolution>, M3Phase6BStageTimings), Phase6BError> {
+    let mut timings = M3Phase6BStageTimings::default();
+    let resolutions = phase6b_targeted_resolution_storage_m3_serial_impl(
+        storage,
+        settlements,
+        current_day,
+        config,
+        partitions,
+        scratch,
+        Some(&mut timings),
+    )?;
+    Ok((resolutions, timings))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn phase6b_targeted_resolution_storage_m3_serial_impl(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    scratch: &mut M3Phase6BStorageScratch,
+    mut timings: Option<&mut M3Phase6BStageTimings>,
+) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    let validation_start = timings.as_ref().map(|_| Instant::now());
     scratch.clear();
     if !config.interaction.theft_success_probability.is_finite()
         || config.interaction.theft_success_probability < 0.0
@@ -1702,6 +1748,11 @@ pub fn phase6b_targeted_resolution_storage_m3_with_scratch(
     // The reference collects keyed entries after sorting partitions by GroupId; stable sorting
     // staged interactions here also preserves its tie order for duplicate initiators.
     scratch.validated.sort_by_key(|item| item.group_id);
+    if let (Some(timings), Some(start)) = (timings.as_deref_mut(), validation_start) {
+        timings.validation_slot_lookup += start.elapsed();
+    }
+
+    let key_generation_start = timings.as_ref().map(|_| Instant::now());
     for item in &scratch.validated {
         let bucket_index = scratch
             .group_ids
@@ -1741,6 +1792,10 @@ pub fn phase6b_targeted_resolution_storage_m3_with_scratch(
     }
 
     let group_count = scratch.group_ids.len();
+    if let (Some(timings), Some(start)) = (timings.as_deref_mut(), key_generation_start) {
+        timings.key_generation += start.elapsed();
+    }
+    let global_sort_start = timings.as_ref().map(|_| Instant::now());
     for bucket in &mut scratch.buckets[..group_count] {
         bucket
             .zero_target
@@ -1759,6 +1814,10 @@ pub fn phase6b_targeted_resolution_storage_m3_with_scratch(
         )
     });
 
+    if let (Some(timings), Some(start)) = (timings.as_deref_mut(), global_sort_start) {
+        timings.global_sort += start.elapsed();
+    }
+    let evaluation_start = timings.as_ref().map(|_| Instant::now());
     for index in 0..scratch.keyed.len() {
         let item = scratch.keyed[index];
         let group_id = scratch.group_ids[item.bucket_index];
@@ -1908,6 +1967,10 @@ pub fn phase6b_targeted_resolution_storage_m3_with_scratch(
         });
     }
 
+    if let (Some(timings), Some(start)) = (timings, evaluation_start) {
+        timings.evaluation_writeback_output += start.elapsed();
+    }
+
     Ok(resolutions)
 }
 
@@ -1946,6 +2009,16 @@ struct M3ParallelEvaluation {
 pub struct M3Phase6BLevelStats {
     pub non_empty_level_count: usize,
     pub max_level_size: usize,
+}
+
+/// Opt-in timing breakdown for the deterministic parallel M3 Phase 6B resolver.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct M3Phase6BStageTimings {
+    pub validation_slot_lookup: Duration,
+    pub key_generation: Duration,
+    pub global_sort: Duration,
+    pub dependency_level_build: Duration,
+    pub evaluation_writeback_output: Duration,
 }
 
 /// Caller-owned transient scratch for deterministic parallel M3 storage Phase 6B.
@@ -2046,6 +2119,60 @@ pub fn phase6b_targeted_resolution_storage_m3_parallel_with_scratch(
     pool: &ThreadPool,
     chunk_size: NonZeroUsize,
 ) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    phase6b_targeted_resolution_storage_m3_parallel_impl(
+        storage,
+        settlements,
+        current_day,
+        config,
+        partitions,
+        scratch,
+        pool,
+        chunk_size,
+        None,
+    )
+}
+
+/// Timing-only wrapper around the same resolver used by the production parallel entry point.
+/// The returned timings are observational and do not participate in resolution decisions.
+#[allow(clippy::too_many_arguments)]
+pub fn phase6b_targeted_resolution_storage_m3_parallel_with_timing(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    scratch: &mut M3Phase6BParallelScratch,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<(Vec<SettlementTargetedResolution>, M3Phase6BStageTimings), Phase6BError> {
+    let mut timings = M3Phase6BStageTimings::default();
+    let resolutions = phase6b_targeted_resolution_storage_m3_parallel_impl(
+        storage,
+        settlements,
+        current_day,
+        config,
+        partitions,
+        scratch,
+        pool,
+        chunk_size,
+        Some(&mut timings),
+    )?;
+    Ok((resolutions, timings))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn phase6b_targeted_resolution_storage_m3_parallel_impl(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    scratch: &mut M3Phase6BParallelScratch,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+    mut timings: Option<&mut M3Phase6BStageTimings>,
+) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    let validation_start = timings.as_ref().map(|_| Instant::now());
     scratch.clear();
     if !config.interaction.theft_success_probability.is_finite()
         || config.interaction.theft_success_probability < 0.0
@@ -2194,9 +2321,14 @@ pub fn phase6b_targeted_resolution_storage_m3_parallel_with_scratch(
         }
     }
 
+    if let (Some(timings), Some(start)) = (timings.as_deref_mut(), validation_start) {
+        timings.validation_slot_lookup += start.elapsed();
+    }
+
     let master_seed = config.world.master_seed;
     let replicate_id = config.world.replicate_id;
     let day = current_day.as_u32();
+    let key_generation_start = timings.as_ref().map(|_| Instant::now());
     pool.install(|| {
         scratch.keyed.par_chunks_mut(chunk_len).for_each(|chunk| {
             for keyed in chunk {
@@ -2212,6 +2344,11 @@ pub fn phase6b_targeted_resolution_storage_m3_parallel_with_scratch(
             }
         });
     });
+    if let (Some(timings), Some(start)) = (timings.as_deref_mut(), key_generation_start) {
+        timings.key_generation += start.elapsed();
+    }
+
+    let global_sort_start = timings.as_ref().map(|_| Instant::now());
     scratch.keyed.sort_unstable_by(|a, b| {
         compare_keyed_interactions(
             a.item.key,
@@ -2225,7 +2362,11 @@ pub fn phase6b_targeted_resolution_storage_m3_parallel_with_scratch(
         )
         .then_with(|| a.staging_order.cmp(&b.staging_order))
     });
+    if let (Some(timings), Some(start)) = (timings.as_deref_mut(), global_sort_start) {
+        timings.global_sort += start.elapsed();
+    }
 
+    let dependency_level_start = timings.as_ref().map(|_| Instant::now());
     scratch.last_level.resize(storage.len(), 0);
     scratch.last_level.fill(0);
     let keyed = &scratch.keyed;
@@ -2266,7 +2407,11 @@ pub fn phase6b_targeted_resolution_storage_m3_parallel_with_scratch(
     scratch
         .keyed_results
         .resize_with(scratch.keyed.len(), || None);
+    if let (Some(timings), Some(start)) = (timings.as_deref_mut(), dependency_level_start) {
+        timings.dependency_level_build += start.elapsed();
+    }
 
+    let evaluation_start = timings.as_ref().map(|_| Instant::now());
     for level_index in 0..active_level_count {
         let level_entries = &scratch.levels[level_index];
         let level_results = &mut scratch.level_evaluations[level_index];
@@ -2330,6 +2475,10 @@ pub fn phase6b_targeted_resolution_storage_m3_parallel_with_scratch(
             keyed_stream: bucket.keyed_stream.clone(),
             resolutions: all,
         });
+    }
+
+    if let (Some(timings), Some(start)) = (timings, evaluation_start) {
+        timings.evaluation_writeback_output += start.elapsed();
     }
 
     Ok(resolutions)

@@ -18,3 +18,7 @@ harness = false
 [[bench]]
 name = "m3_01_serial_baseline_bench"
 harness = false
+
+[[bench]]
+name = "m3_02_parallel_phase6b_bench"
+harness = false

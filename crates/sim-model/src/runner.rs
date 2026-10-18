@@ -49,12 +49,14 @@ use crate::phases::{
 };
 use crate::relationship_graph::{RelationshipGraph, RelationshipGraphError};
 use crate::resolution::{
-    M3Phase6BParallelScratch, M3Phase6BStorageScratch, Phase6AError, Phase6BError,
-    Phase6BResolutionScratch, Phase7Error, Phase8Error, Phase8WelfareScratch,
+    M3Phase6BParallelScratch, M3Phase6BStageTimings, M3Phase6BStorageScratch, Phase6AError,
+    Phase6BError, Phase6BResolutionScratch, Phase7Error, Phase8Error, Phase8WelfareScratch,
     phase6a_work_resolution, phase6a_work_resolution_storage, phase6b_targeted_resolution,
     phase6b_targeted_resolution_m3, phase6b_targeted_resolution_storage_baseline,
     phase6b_targeted_resolution_storage_m3_parallel_with_scratch,
+    phase6b_targeted_resolution_storage_m3_parallel_with_timing,
     phase6b_targeted_resolution_storage_m3_with_scratch,
+    phase6b_targeted_resolution_storage_m3_with_timing,
     phase6b_targeted_resolution_storage_ordered_with_scratch,
     phase7_market_clearance_storage_with_config, phase7_market_clearance_with_config,
     phase8_welfare_distribution_storage_full_scan,
@@ -895,6 +897,32 @@ pub fn run_m3_storage_days(
     Ok(outcomes)
 }
 
+/// Timing-only wrapper for the serial M3 runner, returning per-day Phase 6B stage durations.
+/// It follows the same phase path and produces the same outcomes as `run_m3_storage_days`.
+pub fn run_m3_storage_days_with_phase6b_timing(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3StorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<(Vec<M3DayOutcome>, Vec<M3Phase6BStageTimings>), M0RunError> {
+    context.validate_for(hybrid_world, config)?;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    let mut phase6b_timings = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        outcomes.push(run_m3_storage_day_with_phase6b(
+            hybrid_world,
+            config,
+            context,
+            options,
+            M3StoragePhase6BMode::SerialTimed {
+                timings: &mut phase6b_timings,
+            },
+        )?);
+    }
+    Ok((outcomes, phase6b_timings))
+}
+
 /// Executes consecutive M3 storage days with explicit caller-owned Rayon Phase 6B execution.
 pub fn run_m3_storage_days_with_parallel_phase6b(
     hybrid_world: &mut HybridWorldState,
@@ -927,6 +955,41 @@ pub fn run_m3_storage_days_with_parallel_phase6b(
     Ok(outcomes)
 }
 
+/// Timing-only wrapper for the parallel M3 runner, returning per-day Phase 6B stage durations.
+/// It follows the same phase path and produces the same outcomes as the untimed entry point.
+pub fn run_m3_storage_days_with_parallel_phase6b_timing(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3ParallelStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<(Vec<M3DayOutcome>, Vec<M3Phase6BStageTimings>), M0RunError> {
+    context.validate_for(hybrid_world, config)?;
+    let M3ParallelStorageRunContext {
+        storage_context,
+        phase6b_scratch,
+    } = context;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    let mut phase6b_timings = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        outcomes.push(run_m3_storage_day_with_phase6b(
+            hybrid_world,
+            config,
+            storage_context,
+            options,
+            M3StoragePhase6BMode::ParallelTimed {
+                scratch: phase6b_scratch,
+                pool,
+                chunk_size,
+                timings: &mut phase6b_timings,
+            },
+        )?);
+    }
+    Ok((outcomes, phase6b_timings))
+}
+
 fn run_m3_storage_day(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
@@ -944,10 +1007,19 @@ fn run_m3_storage_day(
 
 enum M3StoragePhase6BMode<'a> {
     Serial,
+    SerialTimed {
+        timings: &'a mut Vec<M3Phase6BStageTimings>,
+    },
     Parallel {
         scratch: &'a mut M3Phase6BParallelScratch,
         pool: &'a ThreadPool,
         chunk_size: NonZeroUsize,
+    },
+    ParallelTimed {
+        scratch: &'a mut M3Phase6BParallelScratch,
+        pool: &'a ThreadPool,
+        chunk_size: NonZeroUsize,
+        timings: &'a mut Vec<M3Phase6BStageTimings>,
     },
 }
 
@@ -1021,6 +1093,18 @@ fn run_m3_storage_day_with_phase6b(
             &partitions,
             &mut context.phase6b_scratch,
         )?,
+        M3StoragePhase6BMode::SerialTimed { timings } => {
+            let (resolutions, stage_timings) = phase6b_targeted_resolution_storage_m3_with_timing(
+                storage,
+                &world.settlements,
+                world.current_day,
+                &effective_config,
+                &partitions,
+                &mut context.phase6b_scratch,
+            )?;
+            timings.push(stage_timings);
+            resolutions
+        }
         M3StoragePhase6BMode::Parallel {
             scratch,
             pool,
@@ -1035,6 +1119,26 @@ fn run_m3_storage_day_with_phase6b(
             pool,
             chunk_size,
         )?,
+        M3StoragePhase6BMode::ParallelTimed {
+            scratch,
+            pool,
+            chunk_size,
+            timings,
+        } => {
+            let (resolutions, stage_timings) =
+                phase6b_targeted_resolution_storage_m3_parallel_with_timing(
+                    storage,
+                    &world.settlements,
+                    world.current_day,
+                    &effective_config,
+                    &partitions,
+                    scratch,
+                    pool,
+                    chunk_size,
+                )?;
+            timings.push(stage_timings);
+            resolutions
+        }
     };
     let market_resolutions = phase7_market_clearance_storage_with_config(
         storage,

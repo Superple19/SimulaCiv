@@ -98,9 +98,9 @@ pub use relationship_graph::{
     M3_RELATIONSHIP_GRAPH_SUBSYSTEM_ID, RelationshipGraph, RelationshipGraphError,
 };
 pub use resolution::{
-    BuyerMarketResolution, M3Phase6BLevelStats, M3Phase6BParallelScratch, M3Phase6BStorageScratch,
-    Phase6AError, Phase6BError, Phase6BResolutionScratch, Phase7Error, Phase8Error,
-    Phase8WelfareScratch, SellerMarketResolution, SettlementMarketResolution,
+    BuyerMarketResolution, M3Phase6BLevelStats, M3Phase6BParallelScratch, M3Phase6BStageTimings,
+    M3Phase6BStorageScratch, Phase6AError, Phase6BError, Phase6BResolutionScratch, Phase7Error,
+    Phase8Error, Phase8WelfareScratch, SellerMarketResolution, SettlementMarketResolution,
     SettlementTargetedResolution, SettlementWelfareResolution, SettlementWorkResolution,
     TargetedActionKind, TargetedOutcome, TargetedResolution, WelfareRecipientResolution,
     WorkAllocation, compare_keyed_interactions, compute_m3_resolution_key, compute_resolution_key,
@@ -108,7 +108,9 @@ pub use resolution::{
     phase6b_targeted_resolution_m3, phase6b_targeted_resolution_storage,
     phase6b_targeted_resolution_storage_baseline,
     phase6b_targeted_resolution_storage_m3_parallel_with_scratch,
+    phase6b_targeted_resolution_storage_m3_parallel_with_timing,
     phase6b_targeted_resolution_storage_m3_with_scratch,
+    phase6b_targeted_resolution_storage_m3_with_timing,
     phase6b_targeted_resolution_storage_with_scratch, phase7_market_clearance,
     phase7_market_clearance_storage, phase7_market_clearance_storage_with_config,
     phase7_market_clearance_with_config, phase7_market_resolution, phase8_welfare_distribution,
@@ -130,8 +132,9 @@ pub use runner::{
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_authority_days_with_rayon_phase4,
     run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_day_with_scratch,
     run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_m3_reference_day,
-    run_m3_storage_days, run_m3_storage_days_with_parallel_phase6b, run_native_soa_day,
-    run_native_soa_day_with_storage, run_native_soa_days,
+    run_m3_storage_days, run_m3_storage_days_with_parallel_phase6b,
+    run_m3_storage_days_with_parallel_phase6b_timing, run_m3_storage_days_with_phase6b_timing,
+    run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,
