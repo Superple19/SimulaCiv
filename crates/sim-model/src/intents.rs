@@ -1347,7 +1347,11 @@ impl Phase4CandidateIndexScratch {
 enum Phase4CandidateSource<'a> {
     FullScan(&'a mut Vec<sim_core::AgentId>, bool),
     PreIndexed(&'a Phase4CandidateIndexScratch),
-    M3Projected(&'a M3Phase4SlotProjection, &'a mut Vec<sim_core::AgentId>),
+    M3Projected(
+        &'a M3Phase4SlotProjection,
+        &'a mut Vec<sim_core::AgentId>,
+        Option<M3Phase4GlobalEligibility>,
+    ),
 }
 
 impl Phase4CandidateSource<'_> {
@@ -1412,26 +1416,35 @@ impl Phase4CandidateSource<'_> {
                 let exclude_end = candidates.partition_point(|id| *id <= initiator);
                 (candidates, exclude_start, exclude_end)
             }
-            Self::M3Projected(projection, candidate_scratch) => {
+            Self::M3Projected(projection, candidate_scratch, global_eligibility) => {
                 candidate_scratch.clear();
-                let alive = storage.alive();
-                let health = storage.health();
-                let food = storage.food();
-                let agent_ids = storage.agent_ids();
-                for &candidate_slot in projection.neighbors_of_slot(initiator_slot) {
-                    let candidate_id = agent_ids[candidate_slot];
-                    let eligible = candidate_id != initiator
-                        && alive[candidate_slot]
-                        && health[candidate_slot] > 0.0
-                        && match action {
-                            Action::GiveFood => {
-                                food[candidate_slot] < config.interaction.starvation_threshold
-                            }
-                            Action::StealFood => food[candidate_slot] > 0.0,
-                            _ => unreachable!("candidate targets only apply to targeted actions"),
-                        };
-                    if eligible {
-                        candidate_scratch.push(candidate_id);
+                let globally_eligible = global_eligibility.is_none_or(|eligibility| match action {
+                    Action::GiveFood => eligibility.give_food,
+                    Action::StealFood => eligibility.steal_food,
+                    _ => unreachable!("candidate targets only apply to targeted actions"),
+                });
+                if globally_eligible {
+                    let alive = storage.alive();
+                    let health = storage.health();
+                    let food = storage.food();
+                    let agent_ids = storage.agent_ids();
+                    for &candidate_slot in projection.neighbors_of_slot(initiator_slot) {
+                        let candidate_id = agent_ids[candidate_slot];
+                        let eligible = candidate_id != initiator
+                            && alive[candidate_slot]
+                            && health[candidate_slot] > 0.0
+                            && match action {
+                                Action::GiveFood => {
+                                    food[candidate_slot] < config.interaction.starvation_threshold
+                                }
+                                Action::StealFood => food[candidate_slot] > 0.0,
+                                _ => {
+                                    unreachable!("candidate targets only apply to targeted actions")
+                                }
+                            };
+                        if eligible {
+                            candidate_scratch.push(candidate_id);
+                        }
                     }
                 }
                 (candidate_scratch.as_slice(), 0, 0)
@@ -1611,7 +1624,38 @@ pub fn generate_intents_m3_storage_into(
         current_day,
         config,
         choices,
-        Phase4CandidateSource::M3Projected(projection, candidate_scratch),
+        Phase4CandidateSource::M3Projected(projection, candidate_scratch, None),
+        out,
+        None,
+    )
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct M3Phase4GlobalEligibility {
+    pub give_food: bool,
+    pub steal_food: bool,
+}
+
+/// M3-02b path using a once-per-day proof that one target class is globally empty.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn generate_intents_m3_storage_with_global_eligibility_into(
+    storage: &crate::storage::SegmentedAgentStorage,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    projection: &M3Phase4SlotProjection,
+    candidate_scratch: &mut Vec<sim_core::AgentId>,
+    global_eligibility: M3Phase4GlobalEligibility,
+    out: &mut Vec<Intent>,
+) -> Result<(), IntentError> {
+    candidate_scratch.clear();
+    candidate_scratch.reserve(projection.max_degree);
+    generate_intents_storage_impl(
+        storage,
+        current_day,
+        config,
+        choices,
+        Phase4CandidateSource::M3Projected(projection, candidate_scratch, Some(global_eligibility)),
         out,
         None,
     )
@@ -1642,7 +1686,7 @@ pub fn generate_intents_m3_storage_into_with_timing(
         current_day,
         config,
         choices,
-        Phase4CandidateSource::M3Projected(projection, candidate_scratch),
+        Phase4CandidateSource::M3Projected(projection, candidate_scratch, None),
         out,
         Some(&mut timings),
     )?;
@@ -1899,7 +1943,7 @@ fn generate_intents_storage_impl(
     out.clear();
     match &mut candidate_source {
         Phase4CandidateSource::FullScan(candidate_scratch, _)
-        | Phase4CandidateSource::M3Projected(_, candidate_scratch) => candidate_scratch.clear(),
+        | Phase4CandidateSource::M3Projected(_, candidate_scratch, _) => candidate_scratch.clear(),
         Phase4CandidateSource::PreIndexed(_) => {}
     }
     let n = choices.len();
@@ -1929,7 +1973,7 @@ fn generate_intents_storage_impl(
     let is_storage_sorted = match &candidate_source {
         Phase4CandidateSource::FullScan(_, is_sorted) => *is_sorted,
         Phase4CandidateSource::PreIndexed(index) => index.storage_is_sorted(),
-        Phase4CandidateSource::M3Projected(projection, _) => projection.storage_is_sorted,
+        Phase4CandidateSource::M3Projected(projection, _, _) => projection.storage_is_sorted,
     };
     let mut cursor = 0;
 

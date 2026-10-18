@@ -31,10 +31,12 @@ use crate::features::{
     phase3_observation_and_features_storage_with_scratch,
 };
 use crate::intents::{
-    CrossPartitionCountError, Intent, IntentError, M3Phase4SlotProjection,
-    Phase4CandidateIndexScratch, count_cross_partition_interactions_per_day,
-    count_cross_partition_interactions_storage_per_day, generate_intents_m3_into,
-    generate_intents_m3_storage_into, generate_intents_storage_with_candidate_index,
+    CrossPartitionCountError, Intent, IntentError, M3Phase4GlobalEligibility,
+    M3Phase4SlotProjection, Phase4CandidateIndexScratch,
+    count_cross_partition_interactions_per_day, count_cross_partition_interactions_storage_per_day,
+    generate_intents_m3_into, generate_intents_m3_storage_into,
+    generate_intents_m3_storage_with_global_eligibility_into,
+    generate_intents_storage_with_candidate_index,
     generate_intents_storage_with_candidate_index_rayon, generate_intents_storage_with_scratch,
     phase4_generate_intents_into,
 };
@@ -268,6 +270,63 @@ impl M3StorageRunContext {
             ));
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+struct M3SearchReductionScratch {
+    phase4_global_eligibility: M3Phase4GlobalEligibility,
+}
+
+impl M3SearchReductionScratch {
+    fn update_phase4_global_eligibility(
+        &mut self,
+        storage: &SegmentedAgentStorage,
+        starvation_threshold: f32,
+    ) {
+        let alive = storage.alive();
+        let health = storage.health();
+        let food = storage.food();
+        let mut eligibility = M3Phase4GlobalEligibility::default();
+        for slot in 0..storage.len() {
+            if alive[slot] && health[slot] > 0.0 {
+                eligibility.give_food |= food[slot] < starvation_threshold;
+                eligibility.steal_food |= food[slot] > 0.0;
+                if eligibility.give_food && eligibility.steal_food {
+                    break;
+                }
+            }
+        }
+        self.phase4_global_eligibility = eligibility;
+    }
+}
+
+/// Caller-owned state for the explicit serial search-reduction M3 runner.
+#[derive(Debug)]
+pub struct M3SearchReductionRunContext {
+    storage_context: M3StorageRunContext,
+    scratch: M3SearchReductionScratch,
+}
+
+impl M3SearchReductionRunContext {
+    /// Builds a fresh graph, slot projection, and reusable search-reduction scratch.
+    pub fn new(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+    ) -> Result<Self, M0RunError> {
+        Ok(Self {
+            storage_context: M3StorageRunContext::new(hybrid_world, config, run_context)?,
+            scratch: M3SearchReductionScratch::default(),
+        })
+    }
+
+    fn validate_for(
+        &self,
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+    ) -> Result<(), M0RunError> {
+        self.storage_context.validate_for(hybrid_world, config)
     }
 }
 
@@ -897,6 +956,27 @@ pub fn run_m3_storage_days(
     Ok(outcomes)
 }
 
+/// Executes serial M3 storage days with opt-in target-search reduction.
+pub fn run_m3_storage_days_with_search_reduction(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3SearchReductionRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<M3DayOutcome>, M0RunError> {
+    context.validate_for(hybrid_world, config)?;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        outcomes.push(run_m3_storage_day_with_search_reduction(
+            hybrid_world,
+            config,
+            context,
+            options,
+        )?);
+    }
+    Ok(outcomes)
+}
+
 /// Timing-only wrapper for the serial M3 runner, returning per-day Phase 6B stage durations.
 /// It follows the same phase path and produces the same outcomes as `run_m3_storage_days`.
 pub fn run_m3_storage_days_with_phase6b_timing(
@@ -1030,6 +1110,40 @@ fn run_m3_storage_day_with_phase6b(
     options: &DayExecutionOptions,
     phase6b_mode: M3StoragePhase6BMode<'_>,
 ) -> Result<M3DayOutcome, M0RunError> {
+    run_m3_storage_day_with_phase6b_and_search_reduction(
+        hybrid_world,
+        config,
+        context,
+        options,
+        phase6b_mode,
+        None,
+    )
+}
+
+fn run_m3_storage_day_with_search_reduction(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3SearchReductionRunContext,
+    options: &DayExecutionOptions,
+) -> Result<M3DayOutcome, M0RunError> {
+    run_m3_storage_day_with_phase6b_and_search_reduction(
+        hybrid_world,
+        config,
+        &mut context.storage_context,
+        options,
+        M3StoragePhase6BMode::Serial,
+        Some(&mut context.scratch),
+    )
+}
+
+fn run_m3_storage_day_with_phase6b_and_search_reduction(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3StorageRunContext,
+    options: &DayExecutionOptions,
+    phase6b_mode: M3StoragePhase6BMode<'_>,
+    search_reduction_scratch: Option<&mut M3SearchReductionScratch>,
+) -> Result<M3DayOutcome, M0RunError> {
     let HybridWorldState {
         world,
         segmented_storage,
@@ -1066,15 +1180,32 @@ fn run_m3_storage_day_with_phase6b(
     )?;
 
     context.intents_scratch.clear();
-    generate_intents_m3_storage_into(
-        storage,
-        world.current_day,
-        &effective_config,
-        &context.choices_scratch,
-        &context.phase4_projection,
-        &mut context.candidate_scratch,
-        &mut context.intents_scratch,
-    )?;
+    if let Some(search_scratch) = search_reduction_scratch {
+        search_scratch.update_phase4_global_eligibility(
+            storage,
+            effective_config.interaction.starvation_threshold,
+        );
+        generate_intents_m3_storage_with_global_eligibility_into(
+            storage,
+            world.current_day,
+            &effective_config,
+            &context.choices_scratch,
+            &context.phase4_projection,
+            &mut context.candidate_scratch,
+            search_scratch.phase4_global_eligibility,
+            &mut context.intents_scratch,
+        )?;
+    } else {
+        generate_intents_m3_storage_into(
+            storage,
+            world.current_day,
+            &effective_config,
+            &context.choices_scratch,
+            &context.phase4_projection,
+            &mut context.candidate_scratch,
+            &mut context.intents_scratch,
+        )?;
+    }
     let cross_partition_interaction_count =
         count_cross_partition_interactions_storage_per_day(&context.intents_scratch, storage)?;
 
