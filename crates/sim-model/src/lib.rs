@@ -77,8 +77,9 @@ pub use intents::{
     phase4_generate_intents_storage_into,
 };
 pub use m3p::{
-    M3P_BIRTH_SUBSYSTEM_ID, M3pDailyMetrics, M3pDayOutcome, M3pEvent, M3pEventRecord,
-    M3pReferenceState, run_m3p_reference_day,
+    M3P_BIRTH_SUBSYSTEM_ID, M3P_SNAPSHOT_SCHEMA_VERSION, M3pDailyMetrics, M3pDayOutcome, M3pEvent,
+    M3pEventRecord, M3pReferenceState, RestoredM3pSnapshot, decode_m3p_snapshot,
+    encode_m3p_snapshot, run_m3p_reference_day,
 };
 pub use metrics::{
     DailyMetrics, M3DailyMetrics, Phase10Error, compute_wealth_gini_dynamic,

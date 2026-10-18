@@ -3,8 +3,8 @@
 use crate::config::{SimConfig, SimulationProfile};
 use crate::decision::phase4_primary_action_selection_into;
 use crate::events::{
-    Event, EventBuffer, EventKey, GLOBAL_PARTITION_KEY, event_from_daily_metrics,
-    events_from_market_resolution, events_from_mortality_resolution,
+    Event, EventBuffer, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
+    event_from_daily_metrics, events_from_market_resolution, events_from_mortality_resolution,
     events_from_targeted_resolution, events_from_welfare_resolution, events_from_work_resolution,
     phase11_flush_events,
 };
@@ -22,8 +22,13 @@ use crate::resolution::{
     phase6a_work_resolution, phase6b_targeted_resolution_m3, phase7_market_clearance_with_config,
     phase8_welfare_distribution_with_config,
 };
-use crate::runner::{DayExecutionOptions, M0RunContext, M0RunError};
-use crate::snapshot::CanonicalSnapshot;
+use crate::runner::{
+    DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext, M0RunError,
+};
+use crate::snapshot::{
+    CanonicalSnapshot, SNAPSHOT_MAGIC, SnapshotError, SnapshotMetadata, decode_snapshot,
+    encode_snapshot,
+};
 use crate::state::{AgentDynamicSoAScratch, AgentState, WorldState};
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, DenseSlot, GroupId, RngCoordinate, SimulationDay, coordinate_prng_f32};
@@ -31,6 +36,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const M3P_MAX_LIVE_POPULATION: u64 = 1 << 24;
 const AGENT_ID_EXHAUSTED: u64 = u32::MAX as u64 + 1;
+pub const M3P_SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 
 /// M3P-only stateless RNG subsystem; the frozen `Subsystem` mapping is unchanged.
 pub const M3P_BIRTH_SUBSYSTEM_ID: u16 = 7;
@@ -78,8 +84,15 @@ pub struct M3pDayOutcome {
     pub snapshot: Option<CanonicalSnapshot>,
 }
 
+/// Restored population-dynamics state and its canonical snapshot metadata.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RestoredM3pSnapshot {
+    pub metadata: SnapshotMetadata,
+    pub state: M3pReferenceState,
+}
+
 /// Authoritative M3P reference state, including mutable graph and ID allocator state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct M3pReferenceState {
     world: WorldState,
     relationship_graph: RelationshipGraph,
@@ -202,7 +215,201 @@ impl M3pReferenceState {
     }
 }
 
-/// Executes one M3P reference day. Snapshot requests are rejected until the next M3-08 stage.
+/// Encodes an M3P schema-v2 snapshot while leaving the M2/M3 schema-v1 bytes untouched.
+pub fn encode_m3p_snapshot(
+    state: &M3pReferenceState,
+    metadata: &SnapshotMetadata,
+) -> Result<CanonicalSnapshot, SnapshotError> {
+    validate_state_parts(
+        &state.world.agents,
+        &state.relationship_graph,
+        state.next_agent_id,
+    )
+    .map_err(|error| SnapshotError::InvalidState(error.to_string()))?;
+    if metadata.master_seed != state.run_context.master_seed
+        || metadata.replicate_id != state.run_context.replicate_id
+    {
+        return Err(SnapshotError::InvalidState(
+            "M3P snapshot metadata does not match run coordinates".into(),
+        ));
+    }
+
+    // Reuse the canonical v1 world encoding as the immutable state section in the v2 envelope.
+    let world_snapshot = encode_snapshot(&state.world, metadata)?;
+    let base_len =
+        u64::try_from(world_snapshot.bytes.len()).map_err(|_| SnapshotError::LengthOverflow)?;
+    let source_count = u64::try_from(state.relationship_graph.source_ids().len())
+        .map_err(|_| SnapshotError::LengthOverflow)?;
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&SNAPSHOT_MAGIC);
+    bytes.extend_from_slice(&M3P_SNAPSHOT_SCHEMA_VERSION.to_le_bytes());
+    bytes.extend_from_slice(&base_len.to_le_bytes());
+    bytes.extend_from_slice(&world_snapshot.bytes);
+    bytes.extend_from_slice(&state.next_agent_id.to_le_bytes());
+    bytes.extend_from_slice(&state.world.initial_money_supply.to_le_bytes());
+    bytes.extend_from_slice(&source_count.to_le_bytes());
+    for &source_id in state.relationship_graph.source_ids() {
+        let neighbors = state
+            .relationship_graph
+            .neighbors_of(source_id)
+            .ok_or_else(|| SnapshotError::InvalidState("missing M3P CSR source row".into()))?;
+        let degree = u32::try_from(neighbors.len()).map_err(|_| SnapshotError::LengthOverflow)?;
+        bytes.extend_from_slice(&source_id.0.to_le_bytes());
+        bytes.extend_from_slice(&degree.to_le_bytes());
+        for neighbor in neighbors {
+            bytes.extend_from_slice(&neighbor.0.to_le_bytes());
+        }
+    }
+    bytes.extend_from_slice(state.relationship_graph.csr_hash());
+    Ok(CanonicalSnapshot::new(metadata.clone(), bytes))
+}
+
+/// Decodes and validates an M3P v2 snapshot, including graph closure and CSR hash.
+pub fn decode_m3p_snapshot(
+    bytes: &[u8],
+    config: &SimConfig,
+) -> Result<RestoredM3pSnapshot, SnapshotError> {
+    let mut cursor = 0usize;
+    let magic: [u8; 8] = read_snapshot_bytes(bytes, &mut cursor, 8)?
+        .try_into()
+        .map_err(|_| SnapshotError::UnexpectedEof)?;
+    if magic != SNAPSHOT_MAGIC {
+        return Err(SnapshotError::InvalidMagic(magic));
+    }
+    let schema = read_snapshot_u32(bytes, &mut cursor)?;
+    if schema != M3P_SNAPSHOT_SCHEMA_VERSION {
+        return Err(SnapshotError::UnsupportedVersion(schema));
+    }
+    let base_len = usize::try_from(read_snapshot_u64(bytes, &mut cursor)?)
+        .map_err(|_| SnapshotError::LengthOverflow)?;
+    let base_bytes = read_snapshot_bytes(bytes, &mut cursor, base_len)?;
+    let mut restored = decode_snapshot(base_bytes)?;
+    let next_agent_id = read_snapshot_u64(bytes, &mut cursor)?;
+    let initial_money_supply = i64::from_le_bytes(
+        read_snapshot_bytes(bytes, &mut cursor, 8)?
+            .try_into()
+            .map_err(|_| SnapshotError::UnexpectedEof)?,
+    );
+    if initial_money_supply < 0 {
+        return Err(SnapshotError::InvalidState(
+            "M3P initial money supply is negative".into(),
+        ));
+    }
+    restored.world.initial_money_supply = initial_money_supply;
+    let source_count = usize::try_from(read_snapshot_u64(bytes, &mut cursor)?)
+        .map_err(|_| SnapshotError::LengthOverflow)?;
+    if source_count != restored.world.agents.len() {
+        return Err(SnapshotError::InvalidState(
+            "M3P CSR source count does not match canonical agents".into(),
+        ));
+    }
+
+    let agent_ids: Vec<_> = restored
+        .world
+        .agents
+        .iter()
+        .map(|agent| agent.agent_id)
+        .collect();
+    let mut rows = Vec::with_capacity(source_count);
+    for &expected_source in &agent_ids {
+        let source_id = AgentId(read_snapshot_u32(bytes, &mut cursor)?);
+        if source_id != expected_source {
+            return Err(SnapshotError::InvalidState(
+                "M3P CSR sources are not in canonical AgentId order".into(),
+            ));
+        }
+        let degree = read_snapshot_u32(bytes, &mut cursor)? as usize;
+        if degree > 16 {
+            return Err(SnapshotError::InvalidState(
+                "M3P CSR row exceeds maximum degree".into(),
+            ));
+        }
+        let mut neighbors = Vec::with_capacity(degree);
+        for _ in 0..degree {
+            let target_id = AgentId(read_snapshot_u32(bytes, &mut cursor)?);
+            if target_id == source_id || agent_ids.binary_search(&target_id).is_err() {
+                return Err(SnapshotError::InvalidState(
+                    "M3P CSR contains a dangling or self edge".into(),
+                ));
+            }
+            if neighbors
+                .last()
+                .is_some_and(|previous| *previous >= target_id)
+            {
+                return Err(SnapshotError::InvalidState(
+                    "M3P CSR neighbors are not strictly AgentId-sorted".into(),
+                ));
+            }
+            neighbors.push(target_id);
+        }
+        rows.push((source_id, neighbors));
+    }
+    let stored_hash: [u8; 32] = read_snapshot_bytes(bytes, &mut cursor, 32)?
+        .try_into()
+        .map_err(|_| SnapshotError::UnexpectedEof)?;
+    if cursor < bytes.len() {
+        return Err(SnapshotError::TrailingBytes(bytes.len() - cursor));
+    }
+
+    let memberships: Vec<_> = restored
+        .world
+        .agents
+        .iter()
+        .map(|agent| (agent.agent_id, agent.group_id))
+        .collect();
+    let graph = RelationshipGraph::from_canonical_rows(rows, &memberships)
+        .map_err(|error| SnapshotError::InvalidState(error.to_string()))?;
+    if graph.csr_hash() != &stored_hash {
+        return Err(SnapshotError::InvalidState(
+            "M3P CSR hash does not match canonical graph bytes".into(),
+        ));
+    }
+    let run_context = M0RunContext::new(
+        restored.metadata.master_seed,
+        restored.metadata.replicate_id,
+    );
+    let state =
+        M3pReferenceState::from_parts(restored.world, graph, next_agent_id, config, &run_context)
+            .map_err(|error| SnapshotError::InvalidState(error.to_string()))?;
+    Ok(RestoredM3pSnapshot {
+        metadata: restored.metadata,
+        state,
+    })
+}
+
+fn read_snapshot_bytes<'a>(
+    bytes: &'a [u8],
+    cursor: &mut usize,
+    len: usize,
+) -> Result<&'a [u8], SnapshotError> {
+    let end = cursor
+        .checked_add(len)
+        .ok_or(SnapshotError::UnexpectedEof)?;
+    if end > bytes.len() {
+        return Err(SnapshotError::UnexpectedEof);
+    }
+    let value = &bytes[*cursor..end];
+    *cursor = end;
+    Ok(value)
+}
+
+fn read_snapshot_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32, SnapshotError> {
+    Ok(u32::from_le_bytes(
+        read_snapshot_bytes(bytes, cursor, 4)?
+            .try_into()
+            .map_err(|_| SnapshotError::UnexpectedEof)?,
+    ))
+}
+
+fn read_snapshot_u64(bytes: &[u8], cursor: &mut usize) -> Result<u64, SnapshotError> {
+    Ok(u64::from_le_bytes(
+        read_snapshot_bytes(bytes, cursor, 8)?
+            .try_into()
+            .map_err(|_| SnapshotError::UnexpectedEof)?,
+    ))
+}
+
+/// Executes one M3P reference day, including schema-v2 snapshots at requested boundaries.
 pub fn run_m3p_reference_day(
     state: &mut M3pReferenceState,
     config: &SimConfig,
@@ -210,11 +417,6 @@ pub fn run_m3p_reference_day(
     options: &DayExecutionOptions,
 ) -> Result<M3pDayOutcome, M0RunError> {
     state.validate_for(config, run_context)?;
-    if options.snapshot_boundary {
-        return Err(invariant(
-            "M3P snapshot schema v2 support is not available in this stage",
-        ));
-    }
 
     let executed_day = state.world.current_day.as_u32();
     let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
@@ -341,6 +543,31 @@ pub fn run_m3p_reference_day(
         None
     };
 
+    let snapshot = if options.snapshot_boundary {
+        let metadata = SnapshotMetadata::new(
+            next_day,
+            run_context.master_seed,
+            run_context.replicate_id,
+            DEFAULT_MODEL_VERSION,
+            DEFAULT_CONFIG_VERSION,
+        );
+        let snapshot = encode_m3p_snapshot(state, &metadata)?;
+        if options.events_enabled {
+            event_buffer.push(EventRecord::new(
+                EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: metadata.day,
+                    master_seed: metadata.master_seed,
+                    replicate_id: metadata.replicate_id,
+                    schema_version: M3P_SNAPSHOT_SCHEMA_VERSION,
+                }),
+            ));
+        }
+        Some(snapshot)
+    } else {
+        None
+    };
+
     let mut events = if options.events_enabled {
         phase11_flush_events(&mut event_buffer)?
             .into_iter()
@@ -392,7 +619,7 @@ pub fn run_m3p_reference_day(
         executed_day,
         metrics,
         events,
-        snapshot: None,
+        snapshot,
     })
 }
 
