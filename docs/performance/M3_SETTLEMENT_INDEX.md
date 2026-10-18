@@ -138,9 +138,9 @@ The current paired full-tick result was 448,951.867 ± 877.067 µs serial and 42
 
 - `cargo fmt --check` — passed.
 - `cargo clippy --all-targets -- -D warnings` — passed.
-- `cargo test --workspace` — passed after the three implementation phase commits; M2/M3 golden, snapshot, and differential tests remained unchanged and passed.
+- `cargo test --workspace` — passed after each implementation phase group and again with the randomized public-phase parity test; M2/M3 goldens, snapshots, and differential tests passed unchanged.
 - `cargo bench -p sim-model --bench m3_scale_limit_bench -- --diagnose` — completed all fixed-K, fixed-N, `K=N/200`, Phase 3 subphase, and parallel Phase 6B diagnostics. The bench's serial/parallel paired digest assertion passed.
 - The benchmark log is temporary under ignored `target/`; it is not committed.
-- No test, golden, snapshot, canonical expected hash, M1 manifest, or CI workflow file changed.
+- No existing test, golden, snapshot, canonical expected hash, M1 manifest, or CI workflow file changed. The new `m3_settlement_index_tests.rs` adds randomized public-phase parity coverage.
 
 Measurements are from a single Windows host. The N=1M per-phase MADs in the proportional-K profile are high, and per-phase alpha for its last interval is correspondingly uncertain. The fixed-N series shows the repeated lookup work falling as expected; the N=1M full-tick paired median also decreased, but this report does not attribute all of that whole-tick difference to the index alone.
