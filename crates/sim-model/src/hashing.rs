@@ -6,6 +6,7 @@
 //! - Ordered telemetry event streams (`CanonicalEventHash`)
 
 use crate::events::{Event, EventKey, EventRecord, ObservationEvent, StateTransitionEvent};
+use crate::m3p::{M3pDailyMetrics, M3pEvent, M3pEventRecord, M3pReferenceState};
 use crate::metrics::DailyMetrics;
 use crate::metrics::M3DailyMetrics;
 use crate::relationship_graph::RelationshipGraph;
@@ -30,6 +31,21 @@ pub const DOMAIN_M3_STATE: &[u8] = b"SIMCIV_M3_STATE_V1";
 
 /// Exact ASCII domain prefix for canonical M3 metrics preimages.
 pub const DOMAIN_M3_METRICS: &[u8] = b"SIMCIV_M3_METRICS_V1";
+
+/// Exact ASCII domain prefix for canonical M3P state preimages.
+pub const DOMAIN_M3P_STATE: &[u8] = b"SIMCIV_M3P_STATE_V1";
+
+/// Exact ASCII domain prefix for canonical M3P metrics preimages.
+pub const DOMAIN_M3P_METRICS: &[u8] = b"SIMCIV_M3P_METRICS_V1";
+
+/// Exact ASCII domain prefix for canonical M3P event preimages.
+pub const DOMAIN_M3P_EVENTS: &[u8] = b"SIMCIV_M3P_EVENTS_V1";
+
+/// Fixed M3P-only event variant tags, following the existing transition tags.
+pub const M3P_EVENT_BIRTH: u8 = 0x05;
+pub const M3P_EVENT_CLEANUP: u8 = 0x06;
+
+const CANONICAL_EVENT_KEY_BYTES: usize = 21;
 
 /// 256-bit canonical hash value produced by the determinism oracles.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -280,6 +296,30 @@ pub fn canonical_m3_state_hash(
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
+/// Encodes canonical M1 state fields, the CSR hash, and the M3P allocator cursor.
+pub fn canonical_m3p_state_bytes(state: &M3pReferenceState) -> Result<Vec<u8>, CanonicalHashError> {
+    let m3_bytes = canonical_m3_state_bytes(state.world(), state.relationship_graph())?;
+    let fields = &m3_bytes[DOMAIN_M3_STATE.len()..];
+    let capacity = DOMAIN_M3P_STATE
+        .len()
+        .checked_add(fields.len())
+        .and_then(|len| len.checked_add(8))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3P_STATE);
+    bytes.extend_from_slice(fields);
+    bytes.extend_from_slice(&state.next_agent_id().to_le_bytes());
+    Ok(bytes)
+}
+
+/// Computes the M3P State digest.
+pub fn canonical_m3p_state_hash(
+    state: &M3pReferenceState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3p_state_bytes(state)?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
 /// Encodes authoritative storage state under the M3 domain, followed by the canonical CSR hash.
 pub fn canonical_m3_state_bytes_from_storage(
     storage: &SegmentedAgentStorage,
@@ -433,6 +473,61 @@ pub fn canonical_m3_metrics_hash(
     metrics: &[M3DailyMetrics],
 ) -> Result<CanonicalHash, CanonicalHashError> {
     let bytes = canonical_m3_metrics_bytes(metrics)?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
+/// Encodes M3P daily metrics in M1/M3 day order with population fields appended.
+pub fn canonical_m3p_metrics_bytes(
+    metrics: &[M3pDailyMetrics],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let count = u32::try_from(metrics.len()).map_err(|_| CanonicalHashError::LengthOverflow)?;
+    let mut sorted: Vec<&M3pDailyMetrics> = metrics.iter().collect();
+    sorted.sort_by_key(|metric| metric.m3_metrics.metrics.day);
+    for window in sorted.windows(2) {
+        if window[0].m3_metrics.metrics.day == window[1].m3_metrics.metrics.day {
+            return Err(CanonicalHashError::DuplicateMetricDay(
+                window[0].m3_metrics.metrics.day,
+            ));
+        }
+    }
+
+    let m3_metrics: Vec<M3DailyMetrics> = sorted
+        .iter()
+        .map(|metric| metric.m3_metrics.clone())
+        .collect();
+    let m3_bytes = canonical_m3_metrics_bytes(&m3_metrics)?;
+    let capacity = DOMAIN_M3P_METRICS
+        .len()
+        .checked_add(4)
+        .and_then(|len| len.checked_add(sorted.len().checked_mul(100)?))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3P_METRICS);
+    bytes.extend_from_slice(&count.to_le_bytes());
+    for (index, metric) in sorted.into_iter().enumerate() {
+        let start = DOMAIN_M3_METRICS
+            .len()
+            .checked_add(4)
+            .and_then(|offset| offset.checked_add(index.checked_mul(60)?))
+            .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+        let end = start
+            .checked_add(60)
+            .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+        bytes.extend_from_slice(&m3_bytes[start..end]);
+        bytes.extend_from_slice(&metric.births.to_le_bytes());
+        bytes.extend_from_slice(&metric.removed.to_le_bytes());
+        bytes.extend_from_slice(&metric.replaced_edges.to_le_bytes());
+        bytes.extend_from_slice(&metric.live_population.to_le_bytes());
+        bytes.extend_from_slice(&metric.next_agent_id.to_le_bytes());
+    }
+    Ok(bytes)
+}
+
+/// Computes the canonical M3P Metrics digest.
+pub fn canonical_m3p_metrics_hash(
+    metrics: &[M3pDailyMetrics],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3p_metrics_bytes(metrics)?;
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
@@ -718,5 +813,79 @@ pub fn canonical_event_bytes(events: &[EventRecord]) -> Result<Vec<u8>, Canonica
 /// Computes the `CanonicalEventHash` for the given event slice.
 pub fn canonical_event_hash(events: &[EventRecord]) -> Result<CanonicalHash, CanonicalHashError> {
     let bytes = canonical_event_bytes(events)?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
+/// Encodes M3P events, reusing the frozen payload encoding for existing events.
+pub fn canonical_m3p_event_bytes(events: &[M3pEventRecord]) -> Result<Vec<u8>, CanonicalHashError> {
+    let count = u32::try_from(events.len()).map_err(|_| CanonicalHashError::LengthOverflow)?;
+    let mut sorted: Vec<&M3pEventRecord> = events.iter().collect();
+    sorted.sort_by_key(|record| record.key);
+    for window in sorted.windows(2) {
+        if window[0].key == window[1].key {
+            return Err(CanonicalHashError::DuplicateEventKey(window[0].key));
+        }
+    }
+
+    let capacity = DOMAIN_M3P_EVENTS
+        .len()
+        .checked_add(4)
+        .and_then(|len| len.checked_add(sorted.len().checked_mul(64)?))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3P_EVENTS);
+    bytes.extend_from_slice(&count.to_le_bytes());
+
+    for record in sorted {
+        if !(1..=11).contains(&record.key.phase) {
+            return Err(CanonicalHashError::InvalidPhase(record.key.phase));
+        }
+        bytes.extend_from_slice(&record.key.day.to_le_bytes());
+        bytes.push(record.key.phase);
+        bytes.extend_from_slice(&record.key.partition_key.to_le_bytes());
+        bytes.extend_from_slice(&record.key.local_sequence.to_le_bytes());
+        match &record.event {
+            M3pEvent::Existing(event) => {
+                let encoded =
+                    canonical_event_bytes(&[EventRecord::new(record.key, event.clone())])?;
+                let event_body_start = DOMAIN_EVENTS
+                    .len()
+                    .checked_add(4)
+                    .and_then(|offset| offset.checked_add(CANONICAL_EVENT_KEY_BYTES))
+                    .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+                bytes.extend_from_slice(&encoded[event_body_start..]);
+            }
+            M3pEvent::Birth {
+                parent,
+                child,
+                group,
+            } => {
+                bytes.push(EVENT_CATEGORY_STATE_TRANSITION);
+                bytes.push(M3P_EVENT_BIRTH);
+                bytes.extend_from_slice(&parent.0.to_le_bytes());
+                bytes.extend_from_slice(&child.0.to_le_bytes());
+                bytes.extend_from_slice(&group.0.to_le_bytes());
+            }
+            M3pEvent::Cleanup {
+                removed,
+                replaced_edges,
+                dropped_edges,
+            } => {
+                bytes.push(EVENT_CATEGORY_STATE_TRANSITION);
+                bytes.push(M3P_EVENT_CLEANUP);
+                bytes.extend_from_slice(&removed.to_le_bytes());
+                bytes.extend_from_slice(&replaced_edges.to_le_bytes());
+                bytes.extend_from_slice(&dropped_edges.to_le_bytes());
+            }
+        }
+    }
+    Ok(bytes)
+}
+
+/// Computes the canonical M3P Events digest.
+pub fn canonical_m3p_event_hash(
+    events: &[M3pEventRecord],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3p_event_bytes(events)?;
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }

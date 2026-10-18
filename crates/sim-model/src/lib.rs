@@ -53,13 +53,16 @@ pub use features::{
 };
 pub use hashing::{
     CanonicalHash, CanonicalHashError, DOMAIN_EVENTS, DOMAIN_M3_METRICS, DOMAIN_M3_STATE,
-    DOMAIN_METRICS, DOMAIN_STATE, EVENT_CATEGORY_OBSERVATION, EVENT_CATEGORY_STATE_TRANSITION,
-    OBSERVATION_EVENT_DAILY_METRICS, OBSERVATION_EVENT_SNAPSHOT_EMITTED,
+    DOMAIN_M3P_EVENTS, DOMAIN_M3P_METRICS, DOMAIN_M3P_STATE, DOMAIN_METRICS, DOMAIN_STATE,
+    EVENT_CATEGORY_OBSERVATION, EVENT_CATEGORY_STATE_TRANSITION, M3P_EVENT_BIRTH,
+    M3P_EVENT_CLEANUP, OBSERVATION_EVENT_DAILY_METRICS, OBSERVATION_EVENT_SNAPSHOT_EMITTED,
     STATE_EVENT_FOOD_TRANSFERRED, STATE_EVENT_MARKET_CLEARED, STATE_EVENT_MORTALITY_COMMITTED,
     STATE_EVENT_WELFARE_DISTRIBUTED, STATE_EVENT_WORK_RESOLVED, canonical_event_bytes,
     canonical_event_hash, canonical_m3_metrics_bytes, canonical_m3_metrics_hash,
     canonical_m3_state_bytes, canonical_m3_state_bytes_from_storage, canonical_m3_state_hash,
-    canonical_m3_state_hash_from_storage, canonical_metrics_bytes, canonical_metrics_hash,
+    canonical_m3_state_hash_from_storage, canonical_m3p_event_bytes, canonical_m3p_event_hash,
+    canonical_m3p_metrics_bytes, canonical_m3p_metrics_hash, canonical_m3p_state_bytes,
+    canonical_m3p_state_hash, canonical_metrics_bytes, canonical_metrics_hash,
     canonical_state_bytes, canonical_state_hash,
 };
 pub use initialization::{InitializationError, initialize_world};
