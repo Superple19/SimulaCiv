@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SimulaCiv trace viewer</title>
+  <style>
+    :root { color-scheme: light dark; font: 15px/1.45 system-ui, sans-serif; --bg:#f4f6fa; --card:#fff; --fg:#202a3a; --muted:#5e6a7d; --line:#d9dfeb; --accent:#315fce; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#111722; --card:#1a2331; --fg:#e6ecf6; --muted:#a5b1c3; --line:#344255; --accent:#8eacff; } }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg); }
+    header, main { max-width:1500px; margin:auto; padding:18px; }
+    header { padding-bottom:8px; }
+    h1 { margin:0 0 4px; font-size:1.55rem; }
+    h2 { margin:0 0 12px; font-size:1.05rem; }
+    p { margin:5px 0 12px; color:var(--muted); }
+    .toolbar, .controls { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; }
+    .toolbar { margin:14px 0; }
+    button, .file-button { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--card); color:var(--fg); cursor:pointer; }
+    input[type=file] { display:none; }
+    input[type=range] { min-width:180px; flex:1; }
+    .drop { border:2px dashed var(--line); border-radius:10px; padding:12px; color:var(--muted); text-align:center; }
+    .drop.over { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 10%, var(--card)); }
+    .warning { display:none; margin:12px 0; padding:10px 12px; border-radius:8px; background:#a62c2c; color:white; }
+    .trace-list, .summaries { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:12px; margin:14px 0; }
+    .summary, .chart, .record { min-width:0; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:13px; }
+    .summary { overflow-wrap:anywhere; }
+    .summary label { font-weight:600; }
+    .summary dl { display:grid; grid-template-columns:max-content 1fr; gap:3px 10px; margin:10px 0; font-size:.88rem; }
+    dt { color:var(--muted); } dd { margin:0; font-family:ui-monospace,monospace; overflow-wrap:anywhere; }
+    details pre, .record pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; font-size:.78rem; }
+    .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr)); gap:12px; }
+    .chart h2 { margin-bottom:4px; }
+    .legend { display:flex; flex-wrap:wrap; gap:4px 12px; color:var(--muted); font-size:.78rem; }
+    .legend span::before { content:""; display:inline-block; width:12px; height:3px; margin:0 5px 3px 0; background:var(--swatch); }
+    svg { display:block; width:100%; height:auto; overflow:visible; touch-action:pan-x pan-y; }
+    .gridline { stroke:var(--line); stroke-width:1; }
+    .axis-label { fill:var(--muted); font-size:11px; }
+    .series-line { fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .point { stroke:var(--card); stroke-width:1.3; cursor:crosshair; }
+    .record { margin-top:14px; }
+    #tooltip { position:fixed; z-index:5; display:none; pointer-events:none; padding:7px 9px; border-radius:6px; background:var(--fg); color:var(--bg); font:12px ui-monospace,monospace; white-space:pre; box-shadow:0 2px 10px #0004; }
+    .empty { padding:25px; text-align:center; color:var(--muted); }
+    @media (max-width:600px) { header, main { padding:12px; } .charts { grid-template-columns:1fr; } .chart { padding:10px; } .controls { align-items:stretch; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SimulaCiv trace viewer</h1>
+    <p>Load local M3 JSONL traces to compare runtime behavior. Files stay in this browser tab.</p>
+    <div class="toolbar">
+      <label class="file-button" for="files">Load JSONL traces</label>
+      <input id="files" type="file" accept=".jsonl,.json,.txt,application/json" multiple>
+      <label><input id="overlay" type="checkbox" checked> Overlay selected traces</label>
+      <button id="clear" type="button">Clear traces</button>
+    </div>
+    <div id="drop" class="drop">Drop one or more JSONL files here</div>
+    <div id="warning" class="warning"></div>
+  </header>
+  <main>
+    <section id="summaries" class="summaries"></section>
+    <div id="empty" class="empty">Choose or drop a trace file to begin.</div>
+    <section id="charts" class="charts"></section>
+    <section id="record" class="record" hidden>
+      <h2>Day record</h2>
+      <div class="controls"><label for="day-slider">Day <span id="day-label">0</span></label><input id="day-slider" type="range" min="0" max="0" value="0"></div>
+      <div id="day-records" class="summaries"></div>
+    </section>
+  </main>
+  <div id="tooltip"></div>
+  <script>
+    "use strict";
+    const traces = [];
+    const palette = ["#2864dc", "#e05d36", "#23956a", "#a14ac0", "#c49216", "#168b9b", "#da3975", "#626d7c"];
+    const files = document.getElementById("files");
+    const drop = document.getElementById("drop");
+    const tooltip = document.getElementById("tooltip");
+    const charts = [
+      { title:"Alive population", get:d=>d.alive, format:v=>String(v) },
+      { title:"Mean food of alive agents", get:d=>d.food_alive?.mean, format:v=>String(v) },
+      { title:"Keyed Phase 6B entries", get:d=>d.keyed_entries, format:v=>String(v) },
+      { title:"Applied-positive", get:d=>d.phase6b_outcomes?.applied_positive, format:v=>String(v) },
+      { title:"TheftFailed", get:d=>d.phase6b_outcomes?.theft_failed, format:v=>String(v) },
+      { title:"GiveFood targets", multi:d=>[
+        {name:"Some", value:d.give_food?.some, dash:""},
+        {name:"None", value:d.give_food?.none, dash:"6 4"}
+      ] },
+      { title:"Conflict fraction", get:d=>d.conflict_fraction, format:v=>String(v) },
+      { title:"Dependency levels per day", get:d=>d.level_count, format:v=>String(v) },
+      { title:"Day wall time (µs)", get:d=>d.day_wall_time_us, format:v=>String(v) }
+    ];
+
+    function digestKey(d) { return [d?.state, d?.metrics, d?.events].join("|"); }
+    function configKey(config) { return String(config || "").trim(); }
+    function loadFile(file) {
+      return file.text().then(text=>{
+        const rows = text.split(/\r?\n/).filter(line=>line.trim()).map((line,index)=>{
+          try { return JSON.parse(line); }
+          catch (error) { throw new Error(`${file.name}, line ${index+1}: ${error.message}`); }
+        });
+        if (rows.length < 2 || rows[0].type !== "header") throw new Error(`${file.name}: missing trace header or day records`);
+        const days = rows.slice(1).filter(row=>row.type === "day");
+        if (!days.length) throw new Error(`${file.name}: no day records`);
+        const last = days[days.length-1];
+        if (!last.final_digests) throw new Error(`${file.name}: final digest record is missing`);
+        traces.push({name:file.name, header:rows[0], days, digests:last.final_digests, selected:true, color:palette[traces.length % palette.length]});
+      });
+    }
+    function selectedTraces() { return traces.filter(t=>t.selected); }
+    function showWarning(message) {
+      const node=document.getElementById("warning");
+      node.textContent=message;
+      node.style.display=message ? "block" : "none";
+    }
+    function element(tag, text, className) {
+      const node=document.createElement(tag);
+      if (text !== undefined) node.textContent=text;
+      if (className) node.className=className;
+      return node;
+    }
+    function renderSummaries() {
+      const root=document.getElementById("summaries"); root.replaceChildren();
+      const grouped=new Map();
+      for (const trace of traces) {
+        const key=configKey(trace.header.config_toml);
+        if (!grouped.has(key)) grouped.set(key, new Set());
+        grouped.get(key).add(digestKey(trace.digests));
+      }
+      const mismatches=[...grouped.values()].some(values=>values.size>1);
+      showWarning(mismatches ? "Traces with identical configuration have different final State, Metrics, or Events digests." : "");
+      traces.forEach((trace,index)=>{
+        const card=element("article",undefined,"summary");
+        const label=element("label");
+        const checkbox=element("input"); checkbox.type="checkbox"; checkbox.checked=trace.selected;
+        checkbox.addEventListener("change",()=>{trace.selected=checkbox.checked; render();});
+        label.append(checkbox,document.createTextNode(" "+trace.name));
+        card.append(label);
+        const dl=element("dl");
+        for (const [name,value] of [["Runner",trace.header.runner],["Host",`${trace.header.host?.os||"?"} / ${trace.header.host?.arch||"?"}`],["Commit",trace.header.commit||"unavailable"],["Final State",trace.digests.state],["Final Metrics",trace.digests.metrics],["Final Events",trace.digests.events]]) {
+          dl.append(element("dt",name),element("dd",String(value)));
+        }
+        card.append(dl);
+        const details=element("details"); details.append(element("summary","Configuration"),element("pre",trace.header.config_toml||"")); card.append(details);
+        card.style.borderTop=`4px solid ${trace.color}`;
+        root.append(card);
+      });
+    }
+    function linePath(points) { return points.map((point,index)=>`${index ? "L":"M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" "); }
+    function drawChart(container, definition, shown) {
+      const card=element("article",undefined,"chart"); card.append(element("h2",definition.title));
+      const width=640,height=230,left=54,right=14,top=14,bottom=31,plotW=width-left-right,plotH=height-top-bottom;
+      const svg=document.createElementNS("http://www.w3.org/2000/svg","svg"); svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("role","img"); svg.setAttribute("aria-label",definition.title);
+      const all=shown.flatMap(t=>t.days.map(d=>d.day)); const xMin=Math.min(...all),xMax=Math.max(...all);
+      const rawSeries=[];
+      shown.forEach(trace=>trace.days.forEach(day=>{
+        const values=definition.multi ? definition.multi(day) : [{name:"",value:definition.get(day),dash:""}];
+        values.forEach(value=>{if (value.value !== null && value.value !== undefined && Number.isFinite(Number(value.value))) rawSeries.push({trace,day,name:value.name,value:Number(value.value),dash:value.dash||""});});
+      }));
+      if (!rawSeries.length) { card.append(element("p","No values for this chart.")); container.append(card); return; }
+      let yMin=Math.min(0,...rawSeries.map(point=>point.value)),yMax=Math.max(...rawSeries.map(point=>point.value));
+      if (yMin===yMax) yMax=yMin+1;
+      const yPad=(yMax-yMin)*0.06; yMin-=yPad; yMax+=yPad;
+      const x=value=>left+(xMax===xMin ? .5 : (value-xMin)/(xMax-xMin))*plotW;
+      const y=value=>top+(yMax-value)/(yMax-yMin)*plotH;
+      for(let tick=0;tick<=4;tick++) {
+        const value=yMin+(yMax-yMin)*tick/4, yy=y(value);
+        const grid=document.createElementNS(svg.namespaceURI,"line"); grid.setAttribute("x1",left);grid.setAttribute("x2",width-right);grid.setAttribute("y1",yy);grid.setAttribute("y2",yy);grid.setAttribute("class","gridline");svg.append(grid);
+        const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",left-7);label.setAttribute("y",yy+4);label.setAttribute("text-anchor","end");label.setAttribute("class","axis-label");label.textContent=Number(value.toPrecision(4)).toString();svg.append(label);
+      }
+      const xLabel=document.createElementNS(svg.namespaceURI,"text");xLabel.setAttribute("x",left);xLabel.setAttribute("y",height-5);xLabel.setAttribute("class","axis-label");xLabel.textContent=`day ${xMin}`;svg.append(xLabel);
+      const xEnd=document.createElementNS(svg.namespaceURI,"text");xEnd.setAttribute("x",width-right);xEnd.setAttribute("y",height-5);xEnd.setAttribute("text-anchor","end");xEnd.setAttribute("class","axis-label");xEnd.textContent=`day ${xMax}`;svg.append(xEnd);
+      shown.forEach(trace=>{
+        const parts=definition.multi ? ["Some","None"] : [""];
+        parts.forEach((part,partIndex)=>{
+          const points=trace.days.flatMap(day=>{
+            const v=definition.multi ? definition.multi(day).find(item=>item.name===part)?.value : definition.get(day);
+            return v===null || v===undefined || !Number.isFinite(Number(v)) ? [] : [{x:x(day.day),y:y(Number(v)),day,value:v,trace,part}];
+          });
+          if (!points.length) return;
+          const path=document.createElementNS(svg.namespaceURI,"path");path.setAttribute("d",linePath(points));path.setAttribute("class","series-line");path.setAttribute("stroke",trace.color);if(partIndex)path.setAttribute("stroke-dasharray","6 4");svg.append(path);
+          for(const point of points) {
+            const circle=document.createElementNS(svg.namespaceURI,"circle");circle.setAttribute("cx",point.x);circle.setAttribute("cy",point.y);circle.setAttribute("r",points.length>500?1.8:2.7);circle.setAttribute("fill",trace.color);circle.setAttribute("class","point");
+            const exact=typeof point.value==="number" ? point.value.toString() : String(point.value);
+            circle.dataset.tip=`${trace.name}\nday ${point.day.day}${point.part?" · "+point.part:""}\n${exact}`;
+            circle.addEventListener("pointerenter",event=>{tooltip.textContent=circle.dataset.tip;tooltip.style.display="block";tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
+            circle.addEventListener("pointermove",event=>{tooltip.style.left=`${event.clientX+12}px`;tooltip.style.top=`${event.clientY+12}px`;});
+            circle.addEventListener("pointerleave",()=>{tooltip.style.display="none";});svg.append(circle);
+          }
+        });
+      });
+      card.append(svg);
+      const legend=element("div",undefined,"legend");
+      shown.forEach(trace=>{const span=element("span",trace.name);span.style.setProperty("--swatch",trace.color);legend.append(span);});
+      if(definition.multi) { const span=element("span","dashed = None");span.style.setProperty("--swatch","var(--muted)");legend.append(span); }
+      card.append(legend);container.append(card);
+    }
+    function renderDayRecords(shown) {
+      const section=document.getElementById("record"), slider=document.getElementById("day-slider");
+      if(!traces.length){section.hidden=true;return;}
+      section.hidden=false;
+      const maxDay=Math.max(0,...shown.flatMap(t=>t.days.map(d=>d.day)));
+      slider.max=String(maxDay); if(Number(slider.value)>maxDay)slider.value=String(maxDay);
+      const selectedDay=Number(slider.value);document.getElementById("day-label").textContent=String(selectedDay);
+      const root=document.getElementById("day-records");root.replaceChildren();
+      for(const trace of shown){
+        const day=trace.days.find(record=>record.day===selectedDay); if(!day)continue;
+        const card=element("article",undefined,"summary");card.style.borderTop=`4px solid ${trace.color}`;card.append(element("h2",`${trace.name} · day ${selectedDay}`));
+        const pre=element("pre",JSON.stringify(day,null,2));card.append(pre);root.append(card);
+      }
+    }
+    function render() {
+      renderSummaries();
+      const shown=selectedTraces();
+      const chartRoot=document.getElementById("charts");chartRoot.replaceChildren();
+      document.getElementById("empty").hidden=traces.length>0;
+      if(!shown.length){document.getElementById("empty").textContent="Select a trace above to display it.";}
+      else {document.getElementById("empty").textContent="Choose or drop a trace file to begin.";for(const chart of charts)drawChart(chartRoot,chart,document.getElementById("overlay").checked?shown:shown.slice(0,1));}
+      renderDayRecords(document.getElementById("overlay").checked?shown:shown.slice(0,1));
+    }
+    async function acceptFiles(fileList) {
+      try { for(const file of [...fileList]) await loadFile(file); render(); }
+      catch(error) { showWarning(error.message); }
+    }
+    files.addEventListener("change",event=>acceptFiles(event.target.files));
+    document.getElementById("overlay").addEventListener("change",render);
+    document.getElementById("day-slider").addEventListener("input",()=>renderDayRecords(document.getElementById("overlay").checked?selectedTraces():selectedTraces().slice(0,1)));
+    document.getElementById("clear").addEventListener("click",()=>{traces.length=0;files.value="";render();});
+    for(const name of ["dragenter","dragover"])drop.addEventListener(name,event=>{event.preventDefault();drop.classList.add("over");});
+    for(const name of ["dragleave","drop"])drop.addEventListener(name,event=>{event.preventDefault();drop.classList.remove("over");});
+    drop.addEventListener("drop",event=>acceptFiles(event.dataTransfer.files));
+    render();
+  </script>
+</body>
+</html>

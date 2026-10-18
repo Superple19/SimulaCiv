@@ -92,6 +92,8 @@ Run the baseline benchmark with:
 cargo bench --bench m0_baseline_bench
 ```
 
+Open the [read-only M3 trace viewer](viewer/index.html) to load local JSONL traces in the browser.
+
 ## Further reading
 
 - [System design specification](SIMULACIV_DESIGN_SPECIFICATION.md)
