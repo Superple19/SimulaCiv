@@ -882,14 +882,13 @@ fn plan_phase9b(
     let mut local_sampling_index = M3pCandidateIndexScratch::default();
     let mut local_eligible_parents = Vec::new();
     let mut local_successful_parents = Vec::new();
-    let mut local_agent_slots = Vec::new();
     let (
         sampling_index,
         mut newborn_rows_scratch,
         mut csr_row_ends_scratch,
         eligible_parents,
         successful_parents,
-        agent_slots,
+        mut agent_slots_scratch,
         planned_agents_scratch,
     ) = match incremental_scratch {
         Some(scratch) => (
@@ -898,7 +897,7 @@ fn plan_phase9b(
             Some(&mut scratch.csr_row_ends),
             &mut scratch.eligible_parents,
             &mut scratch.successful_parents,
-            &mut scratch.agent_slots,
+            Some(&mut scratch.agent_slots),
             Some(&mut scratch.planned_agents),
         ),
         None => (
@@ -907,7 +906,7 @@ fn plan_phase9b(
             None,
             &mut local_eligible_parents,
             &mut local_successful_parents,
-            &mut local_agent_slots,
+            None,
             None,
         ),
     };
@@ -970,13 +969,22 @@ fn plan_phase9b(
     }
     validate_live_population_after_births(live_population, birth_count)?;
 
-    agent_slots.clear();
-    for (slot, agent) in state.world.agents.iter().enumerate() {
-        agent_slots.push((agent.agent_id, slot));
-    }
-    agent_slots.sort_unstable_by_key(|&(agent_id, _)| agent_id);
-    if agent_slots.windows(2).any(|pair| pair[0].0 == pair[1].0) {
-        return Err(invariant("duplicate AgentId during M3P Phase 9b planning"));
+    let mut legacy_agent_slots = BTreeMap::new();
+    if let Some(agent_slots) = agent_slots_scratch.as_mut() {
+        agent_slots.clear();
+        for (slot, agent) in state.world.agents.iter().enumerate() {
+            agent_slots.push((agent.agent_id, slot));
+        }
+        agent_slots.sort_unstable_by_key(|&(agent_id, _)| agent_id);
+        if agent_slots.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            return Err(invariant("duplicate AgentId during M3P Phase 9b planning"));
+        }
+    } else {
+        for (slot, agent) in state.world.agents.iter().enumerate() {
+            if legacy_agent_slots.insert(agent.agent_id, slot).is_some() {
+                return Err(invariant("duplicate AgentId during M3P Phase 9b planning"));
+            }
+        }
     }
     let cost = population_config.birth_food_cost;
     let mut planned_agents = if let Some(planned_agents) = planned_agents_scratch {
@@ -991,10 +999,16 @@ fn plan_phase9b(
     let degree_k = state.relationship_degree_k as usize;
 
     for (offset, parent_id) in successful_parents.iter().copied().enumerate() {
-        let parent_slot = agent_slots
-            .binary_search_by_key(&parent_id, |&(agent_id, _)| agent_id)
-            .map_err(|_| invariant("M3P birth parent is missing"))?;
-        let slot = agent_slots[parent_slot].1;
+        let slot = if let Some(agent_slots) = agent_slots_scratch.as_ref() {
+            let parent_slot = agent_slots
+                .binary_search_by_key(&parent_id, |&(agent_id, _)| agent_id)
+                .map_err(|_| invariant("M3P birth parent is missing"))?;
+            agent_slots[parent_slot].1
+        } else {
+            *legacy_agent_slots
+                .get(&parent_id)
+                .ok_or_else(|| invariant("M3P birth parent is missing"))?
+        };
         let parent = &planned_agents[slot];
         if !parent.alive
             || parent.health < population_config.birth_min_health
