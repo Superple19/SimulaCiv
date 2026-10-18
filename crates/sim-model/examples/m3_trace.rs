@@ -1,11 +1,13 @@
 use sim_core::AgentId;
+use sim_model::config::PopulationConfig;
 use sim_model::decision::{
     Action, PrimaryActionChoice, phase4_primary_action_selection_storage_into,
 };
 use sim_model::features::phase3_observation_and_features_storage_with_scratch;
 use sim_model::hashing::{
     CanonicalHash, canonical_event_hash, canonical_m3_metrics_hash,
-    canonical_m3_state_hash_from_storage,
+    canonical_m3_state_hash_from_storage, canonical_m3p_event_hash, canonical_m3p_metrics_hash,
+    canonical_m3p_state_hash_from_storage,
 };
 use sim_model::intents::{
     Intent, M3Phase4SlotProjection, count_cross_partition_interactions_storage_per_day,
@@ -22,13 +24,14 @@ use sim_model::resolution::{
 };
 use sim_model::runner::{
     DayExecutionOptions, M0RunContext, M3DayOutcome, M3ParallelStorageRunContext,
-    M3SearchReductionRunContext, M3StorageRunContext, run_m3_storage_days,
+    M3SearchReductionRunContext, M3StorageRunContext, M3pStorageRunContext, run_m3_storage_days,
     run_m3_storage_days_with_parallel_phase6b, run_m3_storage_days_with_search_reduction,
+    run_m3p_storage_days,
 };
 use sim_model::state::HybridWorldState;
 use sim_model::{
-    AgentFeatures, M3DailyMetrics, Phase3ScarcityScratch, RelationshipGraph, SimConfig,
-    SimulationProfile, initialize_world,
+    AgentFeatures, M3DailyMetrics, M3pDailyMetrics, M3pDayOutcome, M3pEvent, Phase3ScarcityScratch,
+    RelationshipGraph, SimConfig, SimulationProfile, initialize_world,
 };
 use std::collections::HashMap;
 use std::error::Error;
@@ -184,7 +187,7 @@ fn required<T>(name: &str, value: Option<T>) -> Result<T, Box<dyn Error>> {
 fn print_help() {
     println!(
         "Usage: cargo run --release -p sim-model --example m3_trace -- \\
-         --config <m2_40|sustained|equilibrium|config.toml> --n <N> --settlements <K> \\
+         --config <m2_40|sustained|equilibrium|m3p_sustained|config.toml> --n <N> --settlements <K> \\
          --k <degree> --p-local <0..1> --days <days> --seed <u64> \\
          --replicate <u32> --runner <serial|parallel:threads:chunk|search_reduction> \\
          --output <trace.jsonl>"
@@ -226,9 +229,38 @@ fn load_config(args: &Args) -> Result<SimConfig, Box<dyn Error>> {
             config.environment.base_metabolic_cost = EQUILIBRIUM_METABOLIC_COST;
             config
         }
+        "m3p_sustained" => {
+            let mut config = SimConfig::from_toml_str(M2_40_CONFIG)?;
+            config.profile = SimulationProfile::M3p;
+            config.world.initial_settlement_resource = 1_000_000.0;
+            config.environment.carrying_capacity = 10_000_000.0;
+            config.environment.base_metabolic_cost = 1.0;
+            config.environment.health_decay_rate = 0.2;
+            config.economy.base_work_yield = 1.9;
+            config.population = Some(PopulationConfig {
+                birth_min_health: 0.5,
+                birth_food_threshold: 0.5,
+                birth_probability: 0.0001,
+                birth_food_cost: 0.5,
+                births_max_per_day: 0,
+                compaction_interval_days: 50,
+            });
+            config.decision.action_biases = [2.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+            config.decision.base_weight_matrix = [
+                [1.0, 0.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0, 1.0],
+                [0.0, 0.0, 0.0, 0.0, 1.0],
+                [0.0; 5],
+                [0.0; 5],
+            ];
+            config
+        }
         path => SimConfig::from_toml_str(&fs::read_to_string(path)?)?,
     };
-    config.profile = SimulationProfile::M3;
+    if config.profile != SimulationProfile::M3p {
+        config.profile = SimulationProfile::M3;
+    }
     config.world.initial_population = args.population;
     config.world.settlement_count = args.settlements;
     config.world.master_seed = args.seed;
@@ -272,6 +304,33 @@ fn digests(
         )?,
         metrics: canonical_m3_metrics_hash(&metrics)?,
         events: canonical_event_hash(&events)?,
+    })
+}
+
+fn m3p_digests(
+    world: &HybridWorldState,
+    context: &M3pStorageRunContext,
+    outcomes: &[M3pDayOutcome],
+) -> Result<Digests, Box<dyn Error>> {
+    let storage = world.storage().ok_or("hybrid storage is missing")?;
+    let metrics: Vec<M3pDailyMetrics> = outcomes
+        .iter()
+        .map(|day| day.metrics.clone().ok_or("M3P runner omitted metrics"))
+        .collect::<Result<_, _>>()?;
+    let events: Vec<_> = outcomes
+        .iter()
+        .flat_map(|day| day.events.iter().cloned())
+        .collect();
+    Ok(Digests {
+        state: canonical_m3p_state_hash_from_storage(
+            storage,
+            world.world.current_day,
+            &world.world.settlements,
+            context.relationship_graph(),
+            context.next_agent_id(),
+        )?,
+        metrics: canonical_m3p_metrics_hash(&metrics)?,
+        events: canonical_m3p_event_hash(&events)?,
     })
 }
 
@@ -793,6 +852,208 @@ fn write_day(
     Ok(())
 }
 
+fn write_m3p_day(
+    writer: &mut impl Write,
+    outcome: &M3pDayOutcome,
+    observation: &Observation,
+    alive: u64,
+    food: &FoodStats,
+    wall_time_us: f64,
+    final_digests: Option<&Digests>,
+) -> Result<(), Box<dyn Error>> {
+    let metrics = outcome
+        .metrics
+        .as_ref()
+        .ok_or("M3P runner omitted metrics")?;
+    let actions = Action::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, action)| {
+            format!(
+                "{}:{}",
+                json_string(&action.to_string()),
+                observation.actions[index]
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut population_events = Vec::new();
+    let mut dropped_edges = 0u64;
+    for record in &outcome.events {
+        match record.event {
+            M3pEvent::Birth {
+                parent,
+                child,
+                group,
+            } => population_events.push(format!(
+                "{{\"type\":\"birth\",\"parent\":{},\"child\":{},\"group\":{}}}",
+                parent.0, child.0, group.0
+            )),
+            M3pEvent::Cleanup {
+                removed,
+                replaced_edges,
+                dropped_edges: dropped,
+            } => {
+                dropped_edges += dropped;
+                population_events.push(format!(
+                    "{{\"type\":\"cleanup\",\"removed\":{removed},\"replaced_edges\":{replaced_edges},\"dropped_edges\":{dropped}}}"
+                ));
+            }
+            M3pEvent::Existing(_) => {}
+        }
+    }
+    write!(
+        writer,
+        "{{\"type\":\"day\",\"day\":{},\"alive\":{alive},\"food_alive\":{{\"mean\":{},\"min\":{},\"max\":{}}},\"action_counts\":{{{actions}}},\"give_food\":{{\"some\":{},\"none\":{}}},\"steal_food\":{{\"some\":{},\"none\":{}}},\"keyed_entries\":{},\"cross_partition_interactions\":{},\"phase6b_outcomes\":{{\"zero_target\":{},\"initiator_ineligible\":{},\"target_ineligible\":{},\"theft_failed\":{},\"applied_positive\":{},\"applied_zero\":{}}},\"conflict_fraction\":{},\"mean_contention\":{},\"level_count\":{},\"max_level_size\":{},\"day_wall_time_us\":{},\"births\":{},\"removed\":{},\"replaced_edges\":{},\"dropped_edges\":{dropped_edges},\"live_population\":{},\"next_agent_id\":{},\"population_events\":[{}]",
+        outcome.executed_day,
+        optional_number(food.mean),
+        optional_float(food.min),
+        optional_float(food.max),
+        observation.give_some,
+        observation.give_none,
+        observation.steal_some,
+        observation.steal_none,
+        observation.keyed,
+        metrics.m3_metrics.cross_partition_interaction_count,
+        observation.outcomes.zero_target,
+        observation.outcomes.initiator_ineligible,
+        observation.outcomes.target_ineligible,
+        observation.outcomes.theft_failed,
+        observation.outcomes.applied_positive,
+        observation.outcomes.applied_zero,
+        optional_number(observation.conflict_fraction),
+        optional_number(observation.mean_contention),
+        observation.level_count,
+        observation.max_level_size,
+        wall_time_us,
+        metrics.births,
+        metrics.removed,
+        metrics.replaced_edges,
+        metrics.live_population,
+        metrics.next_agent_id,
+        population_events.join(","),
+    )?;
+    if let Some(digests) = final_digests {
+        write!(
+            writer,
+            ",\"final_digests\":{{\"state\":{},\"metrics\":{},\"events\":{}}}",
+            json_string(&digests.state.to_string()),
+            json_string(&digests.metrics.to_string()),
+            json_string(&digests.events.to_string()),
+        )?;
+    }
+    writeln!(writer, "}}")?;
+    Ok(())
+}
+
+fn run_m3p_trace(
+    args: &Args,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    initial: &HybridWorldState,
+) -> Result<(), Box<dyn Error>> {
+    if !matches!(args.runner, Runner::Serial) {
+        return Err("M3P trace currently supports only the serial storage runner".into());
+    }
+    let mut traced_world = initial.clone();
+    let mut context = M3pStorageRunContext::new(&traced_world, config, run_context)?;
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: true,
+        snapshot_boundary: false,
+    };
+    let mut outcomes = Vec::with_capacity(args.days as usize);
+    let mut observations = Vec::with_capacity(args.days as usize);
+    let mut elapsed = Vec::with_capacity(args.days as usize);
+    let mut food_by_day = Vec::with_capacity(args.days as usize);
+
+    for _ in 0..args.days {
+        let mut observer = Observer::new(&traced_world, context.relationship_graph())?;
+        let observation = observer.observe(&traced_world, config)?;
+        let started = Instant::now();
+        let outcome = run_m3p_storage_days(&mut traced_world, config, &mut context, 1, &options)?
+            .into_iter()
+            .next()
+            .ok_or("M3P runner returned no day")?;
+        let metrics = outcome
+            .metrics
+            .as_ref()
+            .ok_or("M3P runner omitted metrics")?;
+        assert_eq!(
+            observation.cross_partition, metrics.m3_metrics.cross_partition_interaction_count,
+            "trace cross-partition count differs from M3P metrics"
+        );
+        assert_eq!(
+            context.relationship_graph().edge_ratio_counts(),
+            (
+                metrics.m3_metrics.cross_partition_edge_count,
+                metrics.m3_metrics.total_directed_edge_count
+            ),
+            "trace relationship graph differs from M3P metrics"
+        );
+        elapsed.push(started.elapsed().as_secs_f64() * 1_000_000.0);
+        food_by_day.push(food_stats(&traced_world)?);
+        outcomes.push(outcome);
+        observations.push(observation);
+    }
+
+    let traced_digests = m3p_digests(&traced_world, &context, &outcomes)?;
+    let mut plain_world = initial.clone();
+    let mut plain_context = M3pStorageRunContext::new(&plain_world, config, run_context)?;
+    let plain_outcomes = run_m3p_storage_days(
+        &mut plain_world,
+        config,
+        &mut plain_context,
+        args.days,
+        &options,
+    )?;
+    let plain_digests = m3p_digests(&plain_world, &plain_context, &plain_outcomes)?;
+    assert_eq!(
+        traced_digests, plain_digests,
+        "trace collection changed M3P digests"
+    );
+    assert_eq!(
+        outcomes
+            .iter()
+            .map(|day| (&day.metrics, &day.events))
+            .collect::<Vec<_>>(),
+        plain_outcomes
+            .iter()
+            .map(|day| (&day.metrics, &day.events))
+            .collect::<Vec<_>>(),
+        "trace collection changed M3P daily metrics or events"
+    );
+
+    if let Some(parent) = args
+        .output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)?;
+    }
+    let mut writer = BufWriter::new(File::create(&args.output)?);
+    write_header(&mut writer, config, args.runner)?;
+    for index in 0..args.days as usize {
+        let (alive, food) = &food_by_day[index];
+        let final_digests = (index + 1 == args.days as usize).then_some(&traced_digests);
+        write_m3p_day(
+            &mut writer,
+            &outcomes[index],
+            &observations[index],
+            *alive,
+            food,
+            elapsed[index],
+            final_digests,
+        )?;
+    }
+    writer.flush()?;
+    println!("trace: {}", args.output.display());
+    println!("state: {}", traced_digests.state);
+    println!("metrics: {}", traced_digests.metrics);
+    println!("events: {}", traced_digests.events);
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     if std::env::args().nth(1).as_deref() == Some("--help") {
         print_help();
@@ -802,6 +1063,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let config = load_config(&args)?;
     let run_context = M0RunContext::new(args.seed, args.replicate);
     let initial = HybridWorldState::hybrid(initialize_world(&config)?);
+    if config.profile == SimulationProfile::M3p {
+        return run_m3p_trace(&args, &config, &run_context, &initial);
+    }
     let storage = initial.storage().ok_or("hybrid storage is missing")?;
     let memberships: Vec<_> = storage
         .agent_ids()
