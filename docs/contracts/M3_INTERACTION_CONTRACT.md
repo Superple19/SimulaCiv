@@ -249,6 +249,10 @@ Port M3 to the Segmented SoA path with index-based neighbor and target lookup, s
 
 The frozen primary method, dependency-level scheduling, passed exact State, Metrics, and Events parity against M3-01 serial. Round-based Deterministic Reservations remains a comparison-only schedule. No settlement-partition fast path was added; M3-01 measured a conflict fraction of about `0.54` even at `p_local = 1`. Serial remains the default and parallel execution remains an explicit opt-in. The release benchmark, extended parity results, per-stage timings, level structure, and contention measurements are recorded in [M3-02 Parallel Phase 6B](../performance/M3_02_PARALLEL_PHASE6B.md).
 
+### M3-02b — Search and bookkeeping reduction — PLANNED
+
+Test serial M3 storage-path reductions to candidate search and Phase 6B bookkeeping with exact parity. The unchanged `run_m3_storage_days` remains the oracle; the proposed optimized path is a separate explicit opt-in. Draft scope: [§11](#11-m3-02b-search-and-bookkeeping-reduction). Report path: [`docs/performance/M3_02B_SEARCH_REDUCTION.md`](../performance/M3_02B_SEARCH_REDUCTION.md).
+
 The post-M3-02 evidence is summarized in the [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md). It is an interim answer, not the M3 graduation gate.
 
 ### Optional stage after M3-02 — Contention dial
@@ -463,3 +467,101 @@ M3-01 measured a conflict fraction of about `0.54` across the tested `p_local` v
 ### 10.11 Freeze record
 
 This freeze resolves the M3-02 scope, parallel entry point, CI matrix, dependency-level scratch lifetime, and optional contention-dial boundary. It authorizes the M3-02 implementation task to be requested; it does not start that task.
+
+## 11. M3-02b Search and bookkeeping reduction
+
+**Status: DRAFT — NOT FROZEN**
+
+### 11.1 Goal and semantic boundary
+
+Reduce Phase 4 neighbor-search work and Phase 6B resolver bookkeeping on the serial M3 storage path while preserving bit-identical State, Metrics, and Events digests, identical Phase 4 `Intent` values, identical Phase 6B `SettlementTargetedResolution` values, and identical error behavior, including error precedence and partial output where applicable. `run_m3_storage_days` remains the serial oracle. The proposed optimized path is a separate, explicit opt-in entry point, provisionally named `run_m3_storage_days_with_search_reduction`; it does not replace or alter the oracle, the M3-02 parallel entry point, or any M2 path.
+
+Do not change simulation semantics, Phase 4 RNG coordinates or target-index formula, the Phase 6B resolution key or comparator, event payload/schema/order, snapshot schema, M3 digests, or M2 behavior. Transient indexes, masks, and sidecars remain runtime scratch and are excluded from state, snapshots, and digests.
+
+The current path is implemented by [`phase4_primary_action_selection_storage_into`](../../crates/sim-model/src/decision.rs), `generate_intents_m3_storage_into`, `generate_intents_storage_impl`, `Phase4CandidateSource::target_agent`, and `phase4_select_candidate` in [`intents.rs`](../../crates/sim-model/src/intents.rs); `run_m3_storage_day_with_phase6b` in [`runner.rs`](../../crates/sim-model/src/runner.rs) orders the phases. Phase 6B validation, `slot_of` lookups, key staging, sorting, sequential commits, and output assembly are in `phase6b_targeted_resolution_storage_m3_serial_impl` in [`resolution.rs`](../../crates/sim-model/src/resolution.rs). `SettlementTargetedResolution` currently exposes three owned vectors: `zero_target`, `keyed_stream`, and `resolutions`.
+
+This work is motivated by measured search/setup cost and the difference between the short-lived and sustained workloads. See [M3-01 Serial Baseline](../performance/M3_01_SERIAL_BASELINE.md), especially its per-phase profile; [M3-02 Parallel Phase 6B](../performance/M3_02_PARALLEL_PHASE6B.md), especially “Search and setup vs applied interaction cost,” “Outcome counts over days 1–3,” and “Timing-hook overhead”; [M3 Sustained Workload](../performance/M3_SUSTAINED_WORKLOAD.md), especially its workload and search/setup tables; and [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md), especially “Evidence against the central research question” and “Candidate next stages.” The existing reports show that search/setup was substantially larger than Applied-positive work, that GiveFood produced no targets in the initial M2-40 window, and that the selected food-supply configuration retains active interactions later in the run. These observations motivate measurement; they do not authorize semantic shortcuts.
+
+### 11.2 Candidate optimizations
+
+Evaluate each candidate independently. “Order” below means candidate order and/or Phase 6B semantic commit order; every accepted implementation must preserve both where applicable.
+
+#### a. Skip a target search when a global eligibility predicate is empty
+
+Before Phase 4 intent generation, compute once per day whether any storage row satisfies the live target predicate:
+
+- GiveFood: `alive && health > 0.0 && food < starvation_threshold`.
+- StealFood: `alive && health > 0.0 && food > 0.0`.
+
+If the corresponding population-wide predicate is false, no graph neighbor can satisfy its subset predicate, so the neighbor scan may be skipped and the target remains `None`. This is a sufficient condition; if the only matching agent is the initiator, the precheck may fail to skip, but the ordinary neighbor filter still returns the same result. The precheck must not bypass choice validation, change the selected action, or alter partial-output/error behavior.
+
+In the current code, `Phase4CandidateSource::target_agent` visits projected M3 neighbors and `phase4_select_candidate` returns `None` when `candidate_count == 0` before constructing the `RngCoordinate` or calling `coordinate_prng_f32`. The PRNG is coordinate-based, not a mutable stream. Intent generation reads `&SegmentedAgentStorage`; Phase 4 selection also reads storage through a shared reference, so no earlier intent mutates the predicates observed by later intents. Reusing the exact comparisons therefore preserves target results. For nonempty candidate sets, preserve the existing candidate order, coordinate, and index calculation unchanged.
+
+**RNG and ordering:** no draw is made today for an empty set; this optimization must keep that behavior. It must not change the draws or ordering for nonempty sets. **API/type change:** none required. **Bit-exact status:** provable from the subset predicate, subject to exact daily recomputation and the parity gates in §11.4.
+
+#### b. Per-day eligibility bitsets
+
+Build transient storage-slot bitsets once per day for `alive && health > 0.0`, `food < starvation_threshold`, and `food > 0.0`. During projected-neighbor traversal, test the corresponding bits instead of loading and comparing the separate columns for each neighbor. Recompute after all earlier phases that can change the relevant columns; do not cache masks across days.
+
+The source predicates are the exact comparisons in `Phase4CandidateSource::target_agent`. Since `M3Phase4SlotProjection` stores each row in ascending `AgentId` order, continue traversing that row in its existing order and use the bitsets only as filters. Do not construct candidates by unordered bitset iteration.
+
+**RNG and ordering:** unchanged if the same projected row and predicates are used. **API/type change:** none required; masks are transient scratch. **Bit-exact status:** the predicate argument is direct, but performance is unproven; an `O(N)` mask build may cost more than neighbor filtering and must be measured.
+
+#### c. Reuse Phase 4-resolved slots in Phase 6B
+
+Phase 4 already resolves each initiator to a slot, and `M3Phase4SlotProjection` supplies neighbor slots used to select a target. The current Phase 6B serial resolver then performs `slot_of` for each targeted initiator and each non-null target while validating partitions. A runner-private sidecar could retain the selected initiator and target slots and carry them through `phase5_partition_intents_from_vec_with_scratch`, avoiding those repeated lookups for intents generated by that run.
+
+Do not remove structural validation. The existing public `phase6b_targeted_resolution_storage_m3_with_scratch` must continue to validate arbitrary caller-supplied partitions in its current order and return the same errors. Reuse is limited to partitions produced by the new runner itself; preserve live `alive`, `health`, `group_id`, `food`, and action-specific checks at commit time. If implementing this requires adding slot fields to public `Intent`, `SettlementIntentPartition`, or another frozen result type, it is out of scope.
+
+**RNG and ordering:** slot access alone changes neither RNG coordinates nor ordering; the global key, comparator, and sequential commit order remain fixed. **API/type change:** avoidable only if the sidecar stays private and remains aligned through Phase 5. **Bit-exact status:** conditional on proving that the sidecar covers exactly the internally generated intents while the public resolver retains full validation; otherwise out of scope.
+
+#### d. Deterministic global-sort replacement
+
+The current serial resolver uses stable `sort_by` with `compare_keyed_interactions`, ordering by `(ResolutionKey, target AgentId, initiator AgentId, action kind)`; equal tuples retain serial staging order. A deterministic radix sort may be evaluated only if it implements that exact lexicographic order and preserves the stable staging-order tie-break. A key-only sort is not equivalent when keys collide and is out of scope unless it also reproduces every comparator tie-break.
+
+**RNG and ordering:** no coordinate changes, but a changed commit order can change live-food outcomes. Exact order, including equal-tuple stability, is mandatory. **API/type change:** none required. **Bit-exact status:** only a proven comparator-equivalent implementation is in scope; any unproven ordering is out of scope.
+
+#### e. Reduce output assembly copies
+
+The resolver currently builds `resolutions` as `zero_target` followed by `keyed_stream`, while `SettlementTargetedResolution` exposes all three as independently owned `Vec<TargetedResolution>` fields. With that public shape and retained scratch buffers, constructing all three vectors requires copying the records. Moving the two scratch vectors into the result could avoid some clones but gives up their retained capacity and may add allocations on later days; measure it as a separate candidate if attempted.
+
+Eliminating duplicate record storage entirely would require a public API/type change, such as shared backing storage or ranges into one vector, and is out of scope for this draft. **RNG and ordering:** no RNG effect; vector contents and order must remain exact. **API/type change:** required for full de-duplication. **Bit-exact status:** value equality is straightforward, but any move-based scratch-lifetime trade-off must pass repeated-day allocation and timing checks.
+
+### 11.3 Measurement-first rule
+
+Implement, validate, and measure one candidate at a time. Do not combine candidates until each has an individual parity result. Retain a candidate only when all §11.4 equality gates pass and the paired median improvement exceeds the MAD of the paired timing differences; report median and MAD for both the stage and uninstrumented whole tick. Record every rejected candidate and the reason, including no improvement beyond MAD, regression, API/type impact, or inability to prove parity. Timing hooks are secondary evidence and their overhead must be reported.
+
+### 11.4 Correctness and CI gates
+
+For every retained candidate, require exact Phase 4 intent and Phase 6B resolution equality, exact daily State/Metrics/Events digests against both `run_m3_storage_days` and the M3-00 reference, and identical error variants, precedence, and partial-output behavior for the same inputs. Run these gates on the existing Linux, Windows, and macOS CI matrix:
+
+- the M3 golden configuration and the complete §9.7 100-day matrix against both the serial M3-01 oracle and M3-00 reference;
+- snapshot pause/resume parity with graph and slot projection rebuilt, and shuffled-DenseSlot parity;
+- unchanged existing M2 goldens and snapshot checks;
+- the selected M3 sustained food-supply configuration for 200 days at `N=300` and `N=3,000` in CI, comparing the same three semantic paths. The source workload is the `base_metabolic_cost=0.48` configuration in [M3 Sustained Workload](../performance/M3_SUSTAINED_WORKLOAD.md), with seed `81985529216486895`, replicate `7`, `k=8`, and its selected `p_local=0.5` setting. Choose `K` only after the §2.2 capacity issue in OQ-1 below is resolved; do not silently use `K=N/200` at `N=300`.
+
+**Expected added CI work (estimate, not a measurement):** for the single sustained `p_local=0.5` cell at each population, the added `N × days` is `(300 + 3,000) × 200 = 660,000` agent-days per path. The §9.7 matrix is `54 × 300 × 100 + 3 × 1,000 × 100 + 3 × 3,000 × 100 = 2,820,000` agent-days per path. Under a roughly linear population-cost assumption this is about a **23% increase to the §9.7 differential portion**, not 23% of the whole workspace suite. Actual CI wall time is unknown and must be recorded on the slowest supported OS; this estimate is not a substitute for that measurement.
+
+### 11.5 Measurement protocol
+
+Use the M2-40 configuration at day 0 and the accepted M3 sustained configuration at day 150, for `N ∈ {10,000, 100,000}`, `p_local ∈ {0, 0.5, 1}`, and `k=8`. Record host details using the M3-01/M3-02 report format. The primary result is the uninstrumented whole-tick median ± MAD from paired samples with identical checkpoints and scratch reuse. Per-stage profiles are secondary; report hook overhead and do not treat hook-derived per-entry division as exact.
+
+For each baseline and retained candidate, report search/setup versus Applied-positive work before and after: search/setup is Phase 4 neighbor filtering/target draw plus Phase 6B validation/slot lookup, key generation, and sort; work is the Phase 6B interval for entries ending `Applied` with `amount > 0`. Preserve keyed, Some/None, and outcome counts alongside the timings so changes are interpreted against the workload. Use the existing M3 measurement cadence where applicable: two warmups, at least eleven timed paired samples, three consecutive days per sample, and retained scratch. This follows the protocols and caveats recorded in the cited M3 reports.
+
+### 11.6 Bench output for a future viewer
+
+The new benchmark writes per-day JSON records under `target/` only; do not commit the generated files and do not include file output in timed regions. Each record includes configuration and day, alive count, action counts, GiveFood/StealFood `Some` and `None` counts, Phase 6B outcome counts, keyed-entry count, level count and maximum level size where a level schedule is measured (`null` for the serial schedule), and stage times. Collect measurements through the bench or result-neutral timing APIs; writing JSON must not mutate simulation inputs or outputs.
+
+### 11.7 Report
+
+Record methods, retained and rejected candidates, per-stage and whole-tick medians ± MAD, search/setup versus Applied-positive work, workload counts, hook overhead, parity results, and actual added CI wall time in [`docs/performance/M3_02B_SEARCH_REDUCTION.md`](../performance/M3_02B_SEARCH_REDUCTION.md). Label estimates and inferences separately from measured facts.
+
+### 11.8 Open questions
+
+| ID | Question | Status | Why it remains open |
+|---|---|---|---|
+| OQ-1 | What `K` should the 200-day `N=300` sustained CI case use? | **Blocking for sustained-gate freeze** | The source report uses `K=N/200`, which gives `K=1` at `N=300`. `RelationshipGraph::validate_capacities` requires cross-partition capacity when `p_local != 1`; for `k=8`, `p_local=0.5`, and one settlement, graph construction returns `InsufficientCrossPartitionCapacity`. Select and record a valid `K` before freezing this gate. |
+| OQ-2 | Is the estimated ~23% increase to the §9.7 differential portion acceptable, and what is the numeric wall-time budget? | **Blocking for CI-gate freeze** | Current source and reports do not provide a matching three-OS CI wall-time baseline for this added sustained matrix. Measure the actual delta; the agent-day estimate assumes roughly linear cost in `N` and is not a wall-time measurement. |
+| OQ-3 | Can candidate (c)'s private slot sidecar remain correctly associated through Phase 5 without changing public intent/partition types? | **Blocking for candidate (c); non-blocking for §11** | The current public intent and partition values contain AgentIds, while Phase 5 reorders/partitions intents. The code does not define a slot-sidecar contract. Keep the candidate out unless a private mapping and its validation/error parity are demonstrated. |
+
+This section remains a draft. A later freeze must resolve blocking questions, authorize only the selected candidates, and set the implementation and CI acceptance boundary before code changes begin.
