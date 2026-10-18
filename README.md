@@ -10,7 +10,7 @@ The current reference workload is an agent-based synthetic society. The project 
 
 ## Status
 
-**M2 graduated — `v0.3.0-m2`. M3-00 through M3-06 are complete ([interim audit](docs/performance/M3_INTERIM_AUDIT.md)); M3-07 is the current measurement stage, and M3-08 through M3-09 are planned.** Spatial migration is deferred without a stage number; population dynamics (M3-08) requires its own contract before implementation.
+**M2 graduated — `v0.3.0-m2`. M3-00 through M3-07 are complete ([interim audit](docs/performance/M3_INTERIM_AUDIT.md)); M3-08 and M3-09 are planned.** Spatial migration is deferred without a stage number; population dynamics (M3-08) requires its own contract before implementation.
 
 Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
 
@@ -19,7 +19,7 @@ Canonical State, Metrics, and Events digests and snapshots are verified on Linux
 | M0 — `v0.1.0-m0` | Complete | Deterministic executable reference semantics and replay gate |
 | M1 — `v0.2.0-m1` | Complete | Frozen semantic contracts and machine-readable contract manifest |
 | M2 — `v0.3.0-m2` | Graduated | High-performance runtime with canonical parity |
-| M3 | In progress — M3-00 through M3-06 complete; M3-07 in measurement; M3-08 and M3-09 planned | Reference and optimized relationship-graph paths, deterministic parallel Phase 6B, opt-in search reduction, indexed settlement lookups, exact digest parity, [serial baseline](docs/performance/M3_01_SERIAL_BASELINE.md), [parallel Phase 6B profile](docs/performance/M3_02_PARALLEL_PHASE6B.md), [search-reduction report](docs/performance/M3_02B_SEARCH_REDUCTION.md), and [settlement-index measurements](docs/performance/M3_SETTLEMENT_INDEX.md); M3-00 goldens verified on Linux, Windows, and macOS |
+| M3 | In progress — M3-00 through M3-07 complete; M3-08 and M3-09 planned | Reference and optimized relationship-graph paths, deterministic parallel Phase 6B, opt-in search reduction, indexed settlement lookups, exact digest parity, [serial baseline](docs/performance/M3_01_SERIAL_BASELINE.md), [parallel Phase 6B profile](docs/performance/M3_02_PARALLEL_PHASE6B.md), [search-reduction report](docs/performance/M3_02B_SEARCH_REDUCTION.md), [settlement-index measurements](docs/performance/M3_SETTLEMENT_INDEX.md), and [residual-scaling diagnosis](docs/performance/M3_07_SCALE_RESIDUAL.md); M3-00 goldens verified on Linux, Windows, and macOS |
 
 The M2 production path uses authoritative Segmented SoA storage. Serial remains the default; deterministic Phase4 Rayon execution is an explicit opt-in, and Auto policy remains experimental. Canonical State, Metrics, Events, and Day 100/250/500 snapshots were validated for exact parity. The measured workloads scale near-linearly through 100k agents; the 200k high-K results remain follow-up evidence. Timings depend on workload and host.
 
@@ -70,7 +70,7 @@ The model represents a synthetic population with biological, economic, group, an
 - **M3-04 (formerly M3-E) — Equilibrium workload:** complete; benchmark-only configuration search ([workload report](docs/performance/M3_EQUILIBRIUM_WORKLOAD.md); [sustained workload](docs/performance/M3_SUSTAINED_WORKLOAD.md)).
 - **M3-05 (formerly M3-S) — Scale limit search:** complete; static-world scale measurements ([scale report](docs/performance/M3_SCALE_LIMIT.md)).
 - **M3-06 (formerly M3-K) — Settlement lookup indexing:** complete ([measurements](docs/performance/M3_SETTLEMENT_INDEX.md)).
-- **M3-07 — Residual scaling diagnosis:** planned measurement-only stage ([report](docs/performance/M3_07_SCALE_RESIDUAL.md)).
+- **M3-07 — Residual scaling diagnosis:** complete; controlled scale rerun and access-pattern analysis ([report](docs/performance/M3_07_SCALE_RESIDUAL.md)).
 - **M3-08 (formerly M3-P) — Population dynamics:** planned; dynamic topology is absorbed into this stage.
 - **M3-09 (formerly M3-05) — Propagation:** planned; model multi-hop spread with explicit intra-tick ordering.
 - **Spatial migration (formerly M3-03):** deferred without a stage number.

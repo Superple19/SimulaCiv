@@ -118,6 +118,10 @@ const DAYS_PER_SAMPLE: u32 = 3;
 const WARMUPS: usize = 2;
 const SAMPLES: usize = 7;
 const CHECKPOINT_DAYS: [u32; 2] = [0, 50];
+const RESIDUAL_SAMPLES: usize = 15;
+const RESIDUAL_POPULATIONS: [u64; 10] = [
+    25_000, 50_000, 100_000, 150_000, 200_000, 300_000, 400_000, 500_000, 750_000, 1_000_000,
+];
 
 struct AllocationTracker;
 
@@ -621,6 +625,8 @@ struct ProfileSample {
     phase_us: [f64; PHASE_NAMES.len()],
     p6b_stage_us: [f64; P6B_STAGE_NAMES.len()],
     settlement_scans: SettlementScanCounts,
+    alive_agents: u64,
+    keyed_entries: u64,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -1010,6 +1016,11 @@ impl ManualProfile {
         } else {
             SettlementScanCounts::default()
         };
+        let alive_agents = metrics.metrics.population as u64;
+        let keyed_entries = targeted_resolutions
+            .iter()
+            .map(|resolution| resolution.keyed_stream.len() as u64)
+            .sum();
 
         (
             M3DayOutcome {
@@ -1022,6 +1033,8 @@ impl ManualProfile {
                 phase_us,
                 p6b_stage_us,
                 settlement_scans,
+                alive_agents,
+                keyed_entries,
             },
         )
     }
@@ -1052,14 +1065,28 @@ fn summarize(values: &mut [f64]) -> Summary {
 struct PhaseProfile {
     phases: [Summary; PHASE_NAMES.len()],
     p6b_stages: [Summary; P6B_STAGE_NAMES.len()],
+    mean_alive_agents: f64,
+    mean_keyed_entries: f64,
 }
 
 fn profile_serial_cell(checkpoint: &HybridWorldState, config: &SimConfig) -> PhaseProfile {
+    profile_serial_cell_with_samples(checkpoint, config, WARMUPS, SAMPLES)
+}
+
+fn profile_serial_cell_with_samples(
+    checkpoint: &HybridWorldState,
+    config: &SimConfig,
+    warmups: usize,
+    samples: usize,
+) -> PhaseProfile {
     let mut phase_values: [Vec<f64>; PHASE_NAMES.len()] = array::from_fn(|_| Vec::new());
     let mut p6b_values: [Vec<f64>; P6B_STAGE_NAMES.len()] = array::from_fn(|_| Vec::new());
+    let mut alive_total = 0u64;
+    let mut keyed_total = 0u64;
+    let mut measurement_days = 0u64;
     let options = options();
 
-    for sample_index in 0..(WARMUPS + SAMPLES) {
+    for sample_index in 0..(warmups + samples) {
         let mut manual = ManualProfile::from_checkpoint(checkpoint, config);
         let mut runner_world = checkpoint.clone();
         let run_context = M0RunContext::new(MASTER_SEED, REPLICATE_ID);
@@ -1090,13 +1117,16 @@ fn profile_serial_cell(checkpoint: &HybridWorldState, config: &SimConfig) -> Pha
             .expect("runner profile state hash succeeds");
             assert_eq!(manual_state, runner_state);
 
-            if sample_index >= WARMUPS {
+            if sample_index >= warmups {
                 for (values, value) in phase_values.iter_mut().zip(profile.phase_us) {
                     values.push(value);
                 }
                 for (values, value) in p6b_values.iter_mut().zip(profile.p6b_stage_us) {
                     values.push(value);
                 }
+                alive_total += profile.alive_agents;
+                keyed_total += profile.keyed_entries;
+                measurement_days += 1;
             }
         }
     }
@@ -1104,6 +1134,8 @@ fn profile_serial_cell(checkpoint: &HybridWorldState, config: &SimConfig) -> Pha
     PhaseProfile {
         phases: phase_values.each_mut().map(|values| summarize(values)),
         p6b_stages: p6b_values.each_mut().map(|values| summarize(values)),
+        mean_alive_agents: alive_total as f64 / measurement_days as f64,
+        mean_keyed_entries: keyed_total as f64 / measurement_days as f64,
     }
 }
 
@@ -1945,6 +1977,263 @@ fn diagnose_parallel_phase6b() {
     emit("DIAG_P6B_PARITY|equal_state_metrics_events=true|samples=7|days_per_sample=3");
 }
 
+#[derive(Clone, Copy)]
+struct ResidualCell {
+    population: u64,
+    profile: PhaseProfile,
+}
+
+fn residual_mad_ratio(summary: Summary) -> f64 {
+    if summary.median > 0.0 {
+        summary.mad / summary.median
+    } else {
+        f64::INFINITY
+    }
+}
+
+fn residual_mad_percent(summary: Summary) -> String {
+    if summary.median > 0.0 {
+        format!("{:.3}", residual_mad_ratio(summary) * 100.0)
+    } else {
+        "na".to_owned()
+    }
+}
+
+fn report_residual_profile(layout: &str, cell: ResidualCell) {
+    emit(&format!(
+        "RESIDUAL_CELL|layout={layout}|N={}|K={}|mean_alive={:.1}|mean_keyed={:.1}|warmups={WARMUPS}|samples={RESIDUAL_SAMPLES}|days_per_sample={DAYS_PER_SAMPLE}|observations={}",
+        cell.population,
+        cell.population / 200,
+        cell.profile.mean_alive_agents,
+        cell.profile.mean_keyed_entries,
+        RESIDUAL_SAMPLES * DAYS_PER_SAMPLE as usize,
+    ));
+    for (phase, summary) in PHASE_NAMES.iter().zip(cell.profile.phases) {
+        let ns_per_alive = summary.median * 1_000.0 / cell.profile.mean_alive_agents;
+        let reliable = residual_mad_ratio(summary) <= 0.05;
+        let mad_percent = residual_mad_percent(summary);
+        let ns_per_keyed = if *phase == "P6B_total" && cell.profile.mean_keyed_entries > 0.0 {
+            format!(
+                "{:.4}",
+                summary.median * 1_000.0 / cell.profile.mean_keyed_entries
+            )
+        } else {
+            "na".to_owned()
+        };
+        emit(&format!(
+            "RESIDUAL_PHASE|layout={layout}|N={}|phase={phase}|median_us={:.3}|mad_us={:.3}|mad_over_median_pct={mad_percent}|reliable={reliable}|ns_per_alive={ns_per_alive:.4}|ns_per_keyed={ns_per_keyed}",
+            cell.population, summary.median, summary.mad,
+        ));
+    }
+    for (phase, summary) in P6B_STAGE_NAMES.iter().zip(cell.profile.p6b_stages) {
+        let reliable = residual_mad_ratio(summary) <= 0.05;
+        let mad_percent = residual_mad_percent(summary);
+        let ns_per_keyed = if cell.profile.mean_keyed_entries > 0.0 {
+            format!(
+                "{:.4}",
+                summary.median * 1_000.0 / cell.profile.mean_keyed_entries
+            )
+        } else {
+            "na".to_owned()
+        };
+        emit(&format!(
+            "RESIDUAL_P6B_STAGE|layout={layout}|N={}|stage={phase}|median_us={:.3}|mad_us={:.3}|mad_over_median_pct={mad_percent}|reliable={reliable}|ns_per_keyed={ns_per_keyed}",
+            cell.population, summary.median, summary.mad,
+        ));
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn report_residual_cpu_cache() {
+    use std::arch::x86_64::__cpuid;
+    let max_leaf = __cpuid(0x8000_0000).eax;
+    if max_leaf < 0x8000_0006 {
+        emit(&format!(
+            "RESIDUAL_CACHE|extended_leaf_max=0x{max_leaf:08x}|unavailable=true"
+        ));
+        return;
+    }
+    let leaf5 = __cpuid(0x8000_0005);
+    let leaf6 = __cpuid(0x8000_0006);
+    let l1d_bytes = ((leaf5.ecx >> 24) & 0xff) as u64 * 1024;
+    let l2_bytes = ((leaf6.ecx >> 16) & 0xffff) as u64 * 1024;
+    let l3_bytes = ((leaf6.edx >> 18) & 0x3fff) as u64 * 512 * 1024;
+    let l1_dtlb_4k = (leaf5.ebx >> 16) & 0xff;
+    let l2_dtlb_4k = (leaf6.ebx >> 16) & 0xfff;
+    emit(&format!(
+        "RESIDUAL_CACHE|extended_leaf_max=0x{max_leaf:08x}|l1d_bytes_per_core={l1d_bytes}|l2_bytes_per_core={l2_bytes}|l3_bytes_per_ccd={l3_bytes}|l1_dtlb_4k_entries={l1_dtlb_4k}|l1_dtlb_4k_reach_bytes={}|l2_dtlb_4k_entries_cpuid_raw={l2_dtlb_4k}|l2_dtlb_4k_reach_cpuid_raw_bytes={}",
+        u64::from(l1_dtlb_4k) * 4096,
+        u64::from(l2_dtlb_4k) * 4096,
+    ));
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn report_residual_cpu_cache() {
+    emit("RESIDUAL_CACHE|unavailable=true|reason=unsupported_architecture");
+}
+
+fn verify_shuffled_layout_parity(
+    config: &SimConfig,
+    normal: &HybridWorldState,
+    shuffled: &HybridWorldState,
+) {
+    fn one_day(config: &SimConfig, checkpoint: &HybridWorldState) -> Digests {
+        let mut world = checkpoint.clone();
+        let run_context = M0RunContext::new(MASTER_SEED, REPLICATE_ID);
+        let mut context = M3StorageRunContext::new(&world, config, &run_context)
+            .expect("residual layout context builds");
+        let outcomes = run_m3_storage_days(&mut world, config, &mut context, 1, &options())
+            .expect("residual layout parity day succeeds");
+        m3_day_digests(&world, context.relationship_graph(), &outcomes)
+    }
+
+    let normal_digests = one_day(config, normal);
+    let shuffled_digests = one_day(config, shuffled);
+    let normal_hashes = (
+        normal_digests.state.to_hex(),
+        normal_digests.metrics.to_hex(),
+        normal_digests.events.to_hex(),
+    );
+    let shuffled_hashes = (
+        shuffled_digests.state.to_hex(),
+        shuffled_digests.metrics.to_hex(),
+        shuffled_digests.events.to_hex(),
+    );
+    assert_eq!(normal_hashes, shuffled_hashes);
+    emit(&format!(
+        "RESIDUAL_LAYOUT_PARITY|N={}|K={}|state={}|metrics={}|events={}|equal=true",
+        config.world.initial_population,
+        config.world.settlement_count,
+        normal_hashes.0,
+        normal_hashes.1,
+        normal_hashes.2,
+    ));
+}
+
+fn report_residual_layout_comparison(
+    config: &SimConfig,
+    normal_world: &HybridWorldState,
+    normal_profile: PhaseProfile,
+) {
+    let mut reversed_world = normal_world.world.clone();
+    reversed_world.agents.reverse();
+    let shuffled = HybridWorldState::hybrid(reversed_world);
+    verify_shuffled_layout_parity(config, normal_world, &shuffled);
+
+    let shuffled_profile =
+        profile_serial_cell_with_samples(&shuffled, config, WARMUPS, RESIDUAL_SAMPLES);
+    let population = config.world.initial_population;
+    report_residual_profile(
+        "reversed",
+        ResidualCell {
+            population,
+            profile: shuffled_profile,
+        },
+    );
+    for (phase, (normal, reversed)) in PHASE_NAMES.iter().zip(
+        normal_profile
+            .phases
+            .into_iter()
+            .zip(shuffled_profile.phases),
+    ) {
+        emit(&format!(
+            "RESIDUAL_LAYOUT_PHASE|N={population}|phase={phase}|normal_us={:.3}|normal_mad_pct={:.3}|reversed_us={:.3}|reversed_mad_pct={:.3}|shuffled_over_normal={:.4}",
+            normal.median,
+            residual_mad_ratio(normal) * 100.0,
+            reversed.median,
+            residual_mad_ratio(reversed) * 100.0,
+            reversed.median / normal.median,
+        ));
+    }
+}
+
+fn report_residual_alphas(cells: &[ResidualCell]) {
+    for pair in [(250_000, 500_000), (500_000, 1_000_000)] {
+        let lower = cells.iter().find(|cell| cell.population == pair.0).unwrap();
+        let upper = cells.iter().find(|cell| cell.population == pair.1).unwrap();
+        for (index, phase) in PHASE_NAMES.iter().enumerate() {
+            let lower_time = lower.profile.phases[index];
+            let upper_time = upper.profile.phases[index];
+            let reliable =
+                residual_mad_ratio(lower_time) <= 0.05 && residual_mad_ratio(upper_time) <= 0.05;
+            let alpha_value = if reliable {
+                format!(
+                    "{:.5}",
+                    alpha(pair.0, lower_time.median, pair.1, upper_time.median)
+                )
+            } else {
+                "excluded".to_owned()
+            };
+            emit(&format!(
+                "RESIDUAL_ALPHA|from_N={}|to_N={}|phase={phase}|alpha={alpha_value}|from_mad_pct={:.3}|to_mad_pct={:.3}|reliable={reliable}",
+                pair.0,
+                pair.1,
+                residual_mad_ratio(lower_time) * 100.0,
+                residual_mad_ratio(upper_time) * 100.0,
+            ));
+        }
+    }
+}
+
+fn run_residual_sweep() {
+    emit(&format!(
+        "RESIDUAL_HOST|os={}|arch={}|pid={}|seed={MASTER_SEED}|replicate={REPLICATE_ID}|profile=equilibrium|metabolic_cost={EQUILIBRIUM_METABOLIC_COST}|k=8|p_local={P_LOCAL}|warmups={WARMUPS}|samples={RESIDUAL_SAMPLES}|days_per_sample={DAYS_PER_SAMPLE}|timed_days_per_cell={}",
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        std::process::id(),
+        RESIDUAL_SAMPLES * DAYS_PER_SAMPLE as usize,
+    ));
+    report_residual_cpu_cache();
+
+    let mut cells = Vec::with_capacity(RESIDUAL_POPULATIONS.len() + 1);
+    for population in RESIDUAL_POPULATIONS {
+        let config = config_for(population, 8);
+        let (base, initialization) = initialize(&config);
+        emit(&format!(
+            "RESIDUAL_SETUP|N={population}|K={}|initialization_us={:.3}",
+            config.world.settlement_count,
+            micros(initialization),
+        ));
+        let profile = profile_serial_cell_with_samples(&base, &config, WARMUPS, RESIDUAL_SAMPLES);
+        let cell = ResidualCell {
+            population,
+            profile,
+        };
+        report_residual_profile("normal", cell);
+        if matches!(population, 100_000 | 1_000_000) {
+            report_residual_layout_comparison(&config, &base, profile);
+        }
+        cells.push(cell);
+        drop(base);
+    }
+
+    let anchor_population = 250_000;
+    let anchor_config = config_for(anchor_population, 8);
+    let (anchor_world, initialization) = initialize(&anchor_config);
+    emit(&format!(
+        "RESIDUAL_SETUP|series=alpha_anchor|N={anchor_population}|K={}|initialization_us={:.3}",
+        anchor_config.world.settlement_count,
+        micros(initialization),
+    ));
+    let anchor_profile =
+        profile_serial_cell_with_samples(&anchor_world, &anchor_config, WARMUPS, RESIDUAL_SAMPLES);
+    report_residual_profile(
+        "alpha_anchor",
+        ResidualCell {
+            population: anchor_population,
+            profile: anchor_profile,
+        },
+    );
+    cells.push(ResidualCell {
+        population: anchor_population,
+        profile: anchor_profile,
+    });
+    report_residual_alphas(&cells);
+    emit(
+        "RESIDUAL_COMPLETE|fine_sweep_cells=10|alpha_anchor_cells=1|layout_cells=2|samples_per_cell=15",
+    );
+}
+
 fn run_diagnosis() {
     if std::env::args().any(|arg| arg == "--p3-only") {
         diagnose_phase3();
@@ -2012,6 +2301,10 @@ fn run_diagnosis() {
 }
 
 fn main() {
+    if std::env::args().any(|arg| arg == "--residual") {
+        run_residual_sweep();
+        return;
+    }
     if std::env::args().any(|arg| arg == "--diagnose") {
         run_diagnosis();
         return;

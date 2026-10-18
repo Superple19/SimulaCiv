@@ -248,7 +248,7 @@ The identifiers below put the stages in execution order. Existing filenames and 
 | M3-E — Equilibrium workload | M3-04 | Complete, benchmark-only stage |
 | M3-S — Scale limit search | M3-05 | Complete, measurement-only stage |
 | M3-K — Settlement lookup indexing | M3-06 | Complete |
-| Residual-scaling diagnosis | M3-07 | Planned measurement-only stage |
+| Residual-scaling diagnosis | M3-07 | Complete, measurement-only stage |
 | M3-P — Population dynamics | M3-08 | Planned; dynamic topology is absorbed here |
 | M3-05 — Propagation | M3-09 | Planned |
 | M3-03 — Spatial migration | Deferred, unnumbered | Deferred follow-up |
@@ -288,9 +288,9 @@ Measure the static-world workload's scale limits using the equilibrium configura
 
 Index repeated GroupId lookups on the shared M2/M3 storage path without changing output or error semantics. The implementation contract is in [§12](#12-m3-k-settlement-lookup-indexing); before/after work counts, scaling, and whole-tick measurements are recorded in [M3 Settlement Index](../performance/M3_SETTLEMENT_INDEX.md).
 
-### M3-07 — Residual scaling diagnosis — PLANNED (measurement-only)
+### M3-07 — Residual scaling diagnosis — COMPLETE (measurement-only)
 
-Determine whether post-M3-06 superlinear scaling is measurement noise, memory-hierarchy effects, or remaining algorithmic cost. Record findings in [M3-07 Scale Residual](../performance/M3_07_SCALE_RESIDUAL.md).
+Determine whether post-M3-06 superlinear scaling is measurement noise, memory-hierarchy effects, or remaining algorithmic cost. Findings are recorded in [M3-07 Scale Residual](../performance/M3_07_SCALE_RESIDUAL.md).
 
 ### M3-08 (formerly M3-P) — Population dynamics — PLANNED
 
