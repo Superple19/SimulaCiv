@@ -26,7 +26,17 @@ pub const M3PROP_SNAPSHOT_SCHEMA_VERSION: u32 = 3;
 #[derive(Debug, Clone, PartialEq)]
 pub struct M3PropDailyMetrics {
     pub m3_metrics: M3DailyMetrics,
+    pub population: Option<M3PropPopulationMetrics>,
     pub propagation: PropagationDailyCounts,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct M3PropPopulationMetrics {
+    pub births: u64,
+    pub removed: u64,
+    pub replaced_edges: u64,
+    pub live_population: u64,
+    pub next_agent_id: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -193,6 +203,7 @@ pub fn run_m3prop_reference_day(
     let propagation_counts = propagation_counts.expect("Phase 9c callback runs once per day");
     let metrics = outcome.metrics.map(|m3_metrics| M3PropDailyMetrics {
         m3_metrics,
+        population: None,
         propagation: propagation_counts,
     });
 

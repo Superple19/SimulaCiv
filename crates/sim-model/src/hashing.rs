@@ -10,6 +10,7 @@ use crate::m3p::{M3pDailyMetrics, M3pEvent, M3pEventRecord, M3pReferenceState};
 use crate::m3prop::{M3PropDailyMetrics, M3PropagationReferenceState};
 use crate::metrics::DailyMetrics;
 use crate::metrics::M3DailyMetrics;
+use crate::propagation::PropagationAgentState;
 use crate::relationship_graph::RelationshipGraph;
 use crate::resolution::TargetedActionKind;
 use crate::state::WorldState;
@@ -17,6 +18,7 @@ use crate::storage::SegmentedAgentStorage;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sim_core::{AgentId, GroupId, Money, SimulationDay};
+use std::collections::BTreeMap;
 
 /// Exact ASCII domain prefix for canonical state preimages.
 pub const DOMAIN_STATE: &[u8] = b"SIMCIV_STATE_V1";
@@ -387,6 +389,66 @@ pub fn canonical_m3prop_state_hash(
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
+/// Encodes M3PROP state directly from authoritative storage without an AoS state copy.
+pub fn canonical_m3prop_state_bytes_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    propagation: &BTreeMap<AgentId, PropagationAgentState>,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let base = canonical_m3_state_bytes_from_storage(storage, current_day, settlements, graph)?;
+    let mut ids = storage.agent_ids().to_vec();
+    ids.sort_unstable();
+    if ids.windows(2).any(|pair| pair[0] == pair[1])
+        || propagation.keys().copied().ne(ids.iter().copied())
+    {
+        return Err(CanonicalHashError::InvalidState(
+            "M3PROP storage propagation rows do not match canonical AgentIds".into(),
+        ));
+    }
+    let capacity = DOMAIN_M3PROP_STATE
+        .len()
+        .checked_add(base.len() - DOMAIN_M3_STATE.len())
+        .and_then(|length| length.checked_add(ids.len().checked_mul(9)?))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3PROP_STATE);
+    bytes.extend_from_slice(&base[DOMAIN_M3_STATE.len()..]);
+    for agent_id in ids {
+        let propagated = propagation
+            .get(&agent_id)
+            .expect("validated propagation key");
+        if !propagated.informed && propagated.informed_day != 0 {
+            return Err(CanonicalHashError::InvalidState(
+                "uninformed M3PROP storage row has nonzero informed_day".into(),
+            ));
+        }
+        bytes.extend_from_slice(&agent_id.0.to_le_bytes());
+        bytes.push(u8::from(propagated.informed));
+        bytes.extend_from_slice(&propagated.informed_day.to_le_bytes());
+    }
+    Ok(bytes)
+}
+
+/// Computes the M3PROP State digest from authoritative storage.
+pub fn canonical_m3prop_state_hash_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    propagation: &BTreeMap<AgentId, PropagationAgentState>,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3prop_state_bytes_from_storage(
+        storage,
+        current_day,
+        settlements,
+        graph,
+        propagation,
+    )?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
 /// Encodes authoritative storage state under the M3 domain, followed by the canonical CSR hash.
 pub fn canonical_m3_state_bytes_from_storage(
     storage: &SegmentedAgentStorage,
@@ -657,10 +719,22 @@ pub fn canonical_m3prop_metrics_bytes(
         .map(|metric| metric.m3_metrics.clone())
         .collect();
     let base_bytes = canonical_m3_metrics_bytes(&base)?;
+    let population_fields = sorted
+        .first()
+        .is_some_and(|metric| metric.population.is_some());
+    if sorted
+        .iter()
+        .any(|metric| metric.population.is_some() != population_fields)
+    {
+        return Err(CanonicalHashError::InvalidState(
+            "M3PROP metrics mix M3 and M3P base profiles".into(),
+        ));
+    }
+    let record_bytes = if population_fields { 148 } else { 108 };
     let capacity = DOMAIN_M3PROP_METRICS
         .len()
         .checked_add(4)
-        .and_then(|length| length.checked_add(sorted.len().checked_mul(108)?))
+        .and_then(|length| length.checked_add(sorted.len().checked_mul(record_bytes)?))
         .ok_or(CanonicalHashError::ArithmeticOverflow)?;
     let mut bytes = Vec::with_capacity(capacity);
     bytes.extend_from_slice(DOMAIN_M3PROP_METRICS);
@@ -675,6 +749,17 @@ pub fn canonical_m3prop_metrics_bytes(
             .checked_add(60)
             .ok_or(CanonicalHashError::ArithmeticOverflow)?;
         bytes.extend_from_slice(&base_bytes[start..end]);
+        if let Some(population) = metric.population {
+            for value in [
+                population.births,
+                population.removed,
+                population.replaced_edges,
+                population.live_population,
+                population.next_agent_id,
+            ] {
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        }
         for value in [
             metric.propagation.informed_count,
             metric.propagation.newly_informed,

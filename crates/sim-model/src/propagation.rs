@@ -1,8 +1,12 @@
 use crate::config::PropagationConfig;
 use crate::relationship_graph::RelationshipGraph;
 use crate::state::WorldState;
+use crate::storage::SegmentedAgentStorage;
+use rayon::ThreadPool;
+use rayon::prelude::*;
 use sim_core::{AgentId, RngCoordinate, coordinate_prng_f32};
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroUsize;
 
 pub const M3_PROPAGATION_SUBSYSTEM_ID: u16 = 8;
 
@@ -31,6 +35,97 @@ pub fn apply_phase9c(
     replicate_id: u32,
     day: u32,
 ) -> Result<PropagationDailyCounts, String> {
+    let agent_layout: Vec<_> = world
+        .agents
+        .iter()
+        .map(|agent| (agent.agent_id, agent.alive))
+        .collect();
+    apply_phase9c_for_layout(
+        &agent_layout,
+        graph,
+        propagation,
+        config,
+        master_seed,
+        replicate_id,
+        day,
+        None,
+    )
+}
+
+pub fn apply_phase9c_storage(
+    storage: &SegmentedAgentStorage,
+    graph: &RelationshipGraph,
+    propagation: &mut BTreeMap<AgentId, PropagationAgentState>,
+    config: PropagationConfig,
+    master_seed: u64,
+    replicate_id: u32,
+    day: u32,
+) -> Result<PropagationDailyCounts, String> {
+    if storage.agent_ids().len() != storage.alive().len() {
+        return Err("storage propagation columns have inconsistent lengths".into());
+    }
+    let agent_layout: Vec<_> = storage
+        .agent_ids()
+        .iter()
+        .copied()
+        .zip(storage.alive().iter().copied())
+        .collect();
+    apply_phase9c_for_layout(
+        &agent_layout,
+        graph,
+        propagation,
+        config,
+        master_seed,
+        replicate_id,
+        day,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn apply_phase9c_storage_parallel(
+    storage: &SegmentedAgentStorage,
+    graph: &RelationshipGraph,
+    propagation: &mut BTreeMap<AgentId, PropagationAgentState>,
+    config: PropagationConfig,
+    master_seed: u64,
+    replicate_id: u32,
+    day: u32,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<PropagationDailyCounts, String> {
+    if storage.agent_ids().len() != storage.alive().len() {
+        return Err("storage propagation columns have inconsistent lengths".into());
+    }
+    let agent_layout: Vec<_> = storage
+        .agent_ids()
+        .iter()
+        .copied()
+        .zip(storage.alive().iter().copied())
+        .collect();
+    apply_phase9c_for_layout(
+        &agent_layout,
+        graph,
+        propagation,
+        config,
+        master_seed,
+        replicate_id,
+        day,
+        Some((pool, chunk_size)),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_phase9c_for_layout(
+    agent_layout: &[(AgentId, bool)],
+    graph: &RelationshipGraph,
+    propagation: &mut BTreeMap<AgentId, PropagationAgentState>,
+    config: PropagationConfig,
+    master_seed: u64,
+    replicate_id: u32,
+    day: u32,
+    parallel: Option<(&ThreadPool, NonZeroUsize)>,
+) -> Result<PropagationDailyCounts, String> {
     if [
         config.seed_probability,
         config.transmit_probability,
@@ -42,7 +137,7 @@ pub fn apply_phase9c(
     {
         return Err("invalid M3 propagation configuration".into());
     }
-    let mut agent_ids: Vec<_> = world.agents.iter().map(|agent| agent.agent_id).collect();
+    let mut agent_ids: Vec<_> = agent_layout.iter().map(|(agent_id, _)| *agent_id).collect();
     agent_ids.sort_unstable();
     if agent_ids.windows(2).any(|pair| pair[0] == pair[1]) {
         return Err("duplicate AgentId in propagation state".into());
@@ -54,11 +149,10 @@ pub fn apply_phase9c(
         return Err("propagation columns do not match world AgentIds".into());
     }
 
-    let live: BTreeSet<_> = world
-        .agents
+    let live: BTreeSet<_> = agent_layout
         .iter()
-        .filter(|agent| agent.alive)
-        .map(|agent| agent.agent_id)
+        .filter(|(_, alive)| *alive)
+        .map(|(agent_id, _)| *agent_id)
         .collect();
     let mut counts = PropagationDailyCounts::default();
     for agent_id in &agent_ids {
@@ -127,30 +221,40 @@ pub fn apply_phase9c(
             break;
         }
         counts.levels_used += 1;
-        let mut next_frontier = BTreeSet::new();
-        for source_id in &frontier {
-            let neighbors = graph
-                .neighbors_of(*source_id)
-                .ok_or_else(|| "missing propagation graph row".to_string())?;
-            for (edge_position, target_id) in neighbors.iter().enumerate() {
-                if !live.contains(target_id) || propagation[target_id].informed {
-                    continue;
-                }
-                let draw_index = 2 + level * 64 + edge_position as u32;
-                let coordinate = RngCoordinate::new(
-                    master_seed,
-                    replicate_id,
-                    day,
-                    9,
-                    M3_PROPAGATION_SUBSYSTEM_ID,
-                    source_id.0,
-                    draw_index,
-                );
-                if coordinate_prng_f32(&coordinate) < config.transmit_probability {
-                    next_frontier.insert(*target_id);
-                }
-            }
-        }
+        let frontier_agents: Vec<_> = frontier.iter().copied().collect();
+        let candidate_chunks: Vec<Vec<AgentId>> = if let Some((pool, chunk_size)) = parallel {
+            pool.install(|| {
+                frontier_agents
+                    .par_chunks(chunk_size.get())
+                    .map(|sources| {
+                        evaluate_sources(
+                            sources,
+                            graph,
+                            &live,
+                            propagation,
+                            config,
+                            master_seed,
+                            replicate_id,
+                            day,
+                            level,
+                        )
+                    })
+                    .collect()
+            })
+        } else {
+            vec![evaluate_sources(
+                &frontier_agents,
+                graph,
+                &live,
+                propagation,
+                config,
+                master_seed,
+                replicate_id,
+                day,
+                level,
+            )]
+        };
+        let next_frontier: BTreeSet<_> = candidate_chunks.into_iter().flatten().collect();
         for target_id in &next_frontier {
             let state = propagation
                 .get_mut(target_id)
@@ -169,6 +273,44 @@ pub fn apply_phase9c(
         .filter(|agent_id| propagation[agent_id].informed)
         .count() as u64;
     Ok(counts)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_sources(
+    sources: &[AgentId],
+    graph: &RelationshipGraph,
+    live: &BTreeSet<AgentId>,
+    propagation: &BTreeMap<AgentId, PropagationAgentState>,
+    config: PropagationConfig,
+    master_seed: u64,
+    replicate_id: u32,
+    day: u32,
+    level: u32,
+) -> Vec<AgentId> {
+    let mut targets = Vec::new();
+    for source_id in sources {
+        let Some(neighbors) = graph.neighbors_of(*source_id) else {
+            continue;
+        };
+        for (edge_position, target_id) in neighbors.iter().enumerate() {
+            if !live.contains(target_id) || propagation[target_id].informed {
+                continue;
+            }
+            let coordinate = RngCoordinate::new(
+                master_seed,
+                replicate_id,
+                day,
+                9,
+                M3_PROPAGATION_SUBSYSTEM_ID,
+                source_id.0,
+                2 + level * 64 + edge_position as u32,
+            );
+            if coordinate_prng_f32(&coordinate) < config.transmit_probability {
+                targets.push(*target_id);
+            }
+        }
+    }
+    targets
 }
 
 #[cfg(test)]

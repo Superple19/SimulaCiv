@@ -47,6 +47,10 @@ use crate::m3p::{
     M3pReferenceState, Phase9bResult, Phase9bRunParameters, apply_phase9b_storage,
     apply_phase9b_storage_incremental, encode_m3p_snapshot,
 };
+use crate::m3prop::{
+    M3PropDailyMetrics, M3PropDayOutcome, M3PropagationReferenceState, encode_m3prop_snapshot,
+    m3_base_config,
+};
 use crate::metrics::{
     DailyMetrics, M3DailyMetrics, Phase10Error, phase10_observe_storage_with_scratch,
     phase10_observe_with_scratch,
@@ -58,6 +62,10 @@ use crate::partitioning::{
 use crate::phases::{
     Phase9Error, phase1_resource_regrowth, phase2_biological_degradation,
     phase9_mortality_commitment,
+};
+use crate::propagation::{
+    PropagationAgentState, PropagationDailyCounts, apply_phase9c_storage,
+    apply_phase9c_storage_parallel,
 };
 use crate::relationship_graph::{RelationshipGraph, RelationshipGraphError};
 use crate::resolution::{
@@ -83,7 +91,7 @@ use crate::storage::SegmentedAgentStorage;
 use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, SimulationDay};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroUsize;
 
 fn record_phase6_event_count(
@@ -153,6 +161,7 @@ pub enum ConfiguredStorageRunContext {
     M2(M0RunContext),
     M3(M3StorageRunContext),
     M3p(M3pStorageRunContext),
+    M3Propagation(M3PropagationStorageRunContext),
 }
 
 /// Typed result from one of the existing legacy storage/reference runner families.
@@ -161,6 +170,7 @@ pub enum ConfiguredDayOutcome {
     M2(DayOutcome),
     M3(M3DayOutcome),
     M3p(M3pDayOutcome),
+    M3Propagation(M3PropDayOutcome),
 }
 
 /// Effective feature manifest and the outcomes produced by the selected existing runner.
@@ -352,6 +362,45 @@ impl M3StorageRunContext {
             ));
         }
         Ok(())
+    }
+}
+
+/// M3 propagation state and the existing M3 storage scratch for the explicit serial path.
+pub struct M3PropagationStorageRunContext {
+    storage_context: M3StorageRunContext,
+    propagation: BTreeMap<AgentId, PropagationAgentState>,
+}
+
+impl M3PropagationStorageRunContext {
+    pub fn new(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+    ) -> Result<Self, M0RunError> {
+        validate_m3prop_runner_config(config)?;
+        let base_config = m3_base_config(config);
+        let storage_context = M3StorageRunContext::new(hybrid_world, &base_config, run_context)?;
+        let storage = hybrid_world.segmented_storage.as_ref().ok_or_else(|| {
+            M0RunError::InvariantViolation("hybrid mode without segmented storage".into())
+        })?;
+        let propagation = storage
+            .agent_ids()
+            .iter()
+            .copied()
+            .map(|agent_id| (agent_id, PropagationAgentState::default()))
+            .collect();
+        Ok(Self {
+            storage_context,
+            propagation,
+        })
+    }
+
+    pub fn propagation(&self) -> &BTreeMap<AgentId, PropagationAgentState> {
+        &self.propagation
+    }
+
+    pub fn relationship_graph(&self) -> &RelationshipGraph {
+        self.storage_context.relationship_graph()
     }
 }
 
@@ -918,6 +967,17 @@ fn ensure_m3_storage_profile(config: &SimConfig) -> Result<(), M0RunError> {
     }
 }
 
+fn validate_m3prop_runner_config(config: &SimConfig) -> Result<(), M0RunError> {
+    if config.profile != SimulationProfile::M3 || !config.effective_systems().propagation {
+        return Err(M0RunError::InvariantViolation(
+            "M3 propagation storage runner requires profile m3 with propagation enabled".into(),
+        ));
+    }
+    config
+        .validate()
+        .map_err(|error| M0RunError::InvariantViolation(error.to_string()))
+}
+
 impl From<CrossPartitionCountError> for M0RunError {
     fn from(error: CrossPartitionCountError) -> Self {
         Self::InvariantViolation(error.to_string())
@@ -1395,6 +1455,148 @@ pub fn run_m3_storage_days(
     Ok(outcomes)
 }
 
+/// Executes serial M3 storage days with Phase 9c propagation.
+pub fn run_m3prop_storage_days(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3PropagationStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<M3PropDayOutcome>, M0RunError> {
+    run_m3prop_storage_days_inner(hybrid_world, config, context, days, options, None)
+}
+
+pub fn run_m3prop_storage_days_with_parallel_spread(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3PropagationStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<Vec<M3PropDayOutcome>, M0RunError> {
+    run_m3prop_storage_days_inner(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        Some((pool, chunk_size)),
+    )
+}
+
+fn run_m3prop_storage_days_inner(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3PropagationStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+    parallel: Option<(&ThreadPool, NonZeroUsize)>,
+) -> Result<Vec<M3PropDayOutcome>, M0RunError> {
+    validate_m3prop_runner_config(config)?;
+    let base_config = m3_base_config(config);
+    context
+        .storage_context
+        .validate_for(hybrid_world, &base_config)?;
+    let run_context = context.storage_context.run_context;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        let mut day_counts: Option<PropagationDailyCounts> = None;
+        let mut post_phase9 = |storage: &SegmentedAgentStorage,
+                               graph: &RelationshipGraph,
+                               day: u32|
+         -> Result<(), M0RunError> {
+            let config = config.propagation.expect("validated propagation settings");
+            let result = match parallel {
+                Some((pool, chunk_size)) => apply_phase9c_storage_parallel(
+                    storage,
+                    graph,
+                    &mut context.propagation,
+                    config,
+                    run_context.master_seed,
+                    run_context.replicate_id,
+                    day,
+                    pool,
+                    chunk_size,
+                ),
+                None => apply_phase9c_storage(
+                    storage,
+                    graph,
+                    &mut context.propagation,
+                    config,
+                    run_context.master_seed,
+                    run_context.replicate_id,
+                    day,
+                ),
+            };
+            day_counts = Some(result.map_err(M0RunError::InvariantViolation)?);
+            Ok(())
+        };
+        let mut base_options = *options;
+        base_options.snapshot_boundary = false;
+        let mut base_outcome = run_m3_storage_day_with_phase6b_and_post_phase9(
+            hybrid_world,
+            &base_config,
+            &mut context.storage_context,
+            &base_options,
+            &mut post_phase9,
+        )?;
+        let propagation_counts = day_counts.expect("Phase 9c callback runs once per day");
+        let metrics = base_outcome
+            .metrics
+            .take()
+            .map(|m3_metrics| M3PropDailyMetrics {
+                m3_metrics,
+                population: None,
+                propagation: propagation_counts,
+            });
+        let snapshot = if options.snapshot_boundary {
+            let HybridWorldState {
+                world,
+                segmented_storage,
+                ..
+            } = hybrid_world;
+            let storage = segmented_storage.as_ref().ok_or_else(|| {
+                M0RunError::InvariantViolation("hybrid mode without storage".into())
+            })?;
+            storage.write_back_to_agents(&mut world.agents);
+            let mut snapshot_state =
+                M3PropagationReferenceState::new(world.clone(), config, &run_context)?;
+            snapshot_state.propagation = context.propagation.clone();
+            let metadata = SnapshotMetadata::new(
+                world.current_day.as_u32(),
+                run_context.master_seed,
+                run_context.replicate_id,
+                DEFAULT_MODEL_VERSION,
+                DEFAULT_CONFIG_VERSION,
+            );
+            let snapshot = encode_m3prop_snapshot(&snapshot_state, &metadata)?;
+            if options.events_enabled {
+                base_outcome.events.push(EventRecord::new(
+                    EventKey::new(base_outcome.executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                    Event::Observation(ObservationEvent::SnapshotEmitted {
+                        day: metadata.day,
+                        master_seed: metadata.master_seed,
+                        replicate_id: metadata.replicate_id,
+                        schema_version: crate::m3prop::M3PROP_SNAPSHOT_SCHEMA_VERSION,
+                    }),
+                ));
+                base_outcome.events.sort_by_key(|event| event.key);
+            }
+            Some(snapshot)
+        } else {
+            None
+        };
+        outcomes.push(M3PropDayOutcome {
+            executed_day: base_outcome.executed_day,
+            metrics,
+            events: base_outcome.events,
+            snapshot,
+        });
+    }
+    Ok(outcomes)
+}
+
 /// Executes consecutive M3P days serially with Hybrid / SegmentedAgentStorage authority.
 pub fn run_m3p_storage_days(
     hybrid_world: &mut HybridWorldState,
@@ -1465,6 +1667,13 @@ pub fn run_configured_storage_days(
                 .map(ConfiguredDayOutcome::M3p)
                 .collect()
         }
+        (
+            SimulationRunnerSelection::M3Propagation,
+            ConfiguredStorageRunContext::M3Propagation(run_context),
+        ) => run_m3prop_storage_days(hybrid_world, config, run_context, days, options)?
+            .into_iter()
+            .map(ConfiguredDayOutcome::M3Propagation)
+            .collect(),
         (
             SimulationRunnerSelection::M3Propagation | SimulationRunnerSelection::M3pPropagation,
             _,
@@ -1927,6 +2136,9 @@ enum M3StoragePhase6BMode<'a> {
     },
 }
 
+type M3StoragePostPhase9<'a> =
+    dyn FnMut(&SegmentedAgentStorage, &RelationshipGraph, u32) -> Result<(), M0RunError> + 'a;
+
 fn run_m3_storage_day_with_phase6b(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
@@ -1941,6 +2153,29 @@ fn run_m3_storage_day_with_phase6b(
         options,
         phase6b_mode,
         None,
+        None,
+    )
+}
+
+fn run_m3_storage_day_with_phase6b_and_post_phase9(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3StorageRunContext,
+    options: &DayExecutionOptions,
+    post_phase9: &mut dyn FnMut(
+        &SegmentedAgentStorage,
+        &RelationshipGraph,
+        u32,
+    ) -> Result<(), M0RunError>,
+) -> Result<M3DayOutcome, M0RunError> {
+    run_m3_storage_day_with_phase6b_and_search_reduction(
+        hybrid_world,
+        config,
+        context,
+        options,
+        M3StoragePhase6BMode::Serial,
+        None,
+        Some(post_phase9),
     )
 }
 
@@ -1957,6 +2192,7 @@ fn run_m3_storage_day_with_search_reduction(
         options,
         M3StoragePhase6BMode::Serial,
         Some(&mut context.scratch),
+        None,
     )
 }
 
@@ -1967,6 +2203,7 @@ fn run_m3_storage_day_with_phase6b_and_search_reduction(
     options: &DayExecutionOptions,
     phase6b_mode: M3StoragePhase6BMode<'_>,
     search_reduction_scratch: Option<&mut M3SearchReductionScratch>,
+    post_phase9: Option<&mut M3StoragePostPhase9<'_>>,
 ) -> Result<M3DayOutcome, M0RunError> {
     let HybridWorldState {
         world,
@@ -2108,6 +2345,9 @@ fn run_m3_storage_day_with_phase6b_and_search_reduction(
         &mut context.phase8_scratch,
     )?;
     let mortality_resolution = storage.phase9_mortality_commitment()?;
+    if let Some(post_phase9) = post_phase9 {
+        post_phase9(storage, &context.relationship_graph, executed_day)?;
+    }
 
     let mut event_buffer = if options.events_enabled {
         EventBuffer::with_capacity(storage.len().saturating_mul(2) + world.settlements.len() + 4)
