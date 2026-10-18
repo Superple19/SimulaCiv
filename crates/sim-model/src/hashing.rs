@@ -7,6 +7,7 @@
 
 use crate::events::{Event, EventKey, EventRecord, ObservationEvent, StateTransitionEvent};
 use crate::m3p::{M3pDailyMetrics, M3pEvent, M3pEventRecord, M3pReferenceState};
+use crate::m3prop::{M3PropDailyMetrics, M3PropagationReferenceState};
 use crate::metrics::DailyMetrics;
 use crate::metrics::M3DailyMetrics;
 use crate::relationship_graph::RelationshipGraph;
@@ -40,6 +41,15 @@ pub const DOMAIN_M3P_METRICS: &[u8] = b"SIMCIV_M3P_METRICS_V1";
 
 /// Exact ASCII domain prefix for canonical M3P event preimages.
 pub const DOMAIN_M3P_EVENTS: &[u8] = b"SIMCIV_M3P_EVENTS_V1";
+
+/// Exact ASCII domain prefix for M3 propagation state preimages.
+pub const DOMAIN_M3PROP_STATE: &[u8] = b"SIMCIV_M3PROP_STATE_V1";
+
+/// Exact ASCII domain prefix for M3 propagation metrics preimages.
+pub const DOMAIN_M3PROP_METRICS: &[u8] = b"SIMCIV_M3PROP_METRICS_V1";
+
+/// Exact ASCII domain prefix for M3 propagation event preimages.
+pub const DOMAIN_M3PROP_EVENTS: &[u8] = b"SIMCIV_M3PROP_EVENTS_V1";
 
 /// Fixed M3P-only event variant tags, following the existing transition tags.
 pub const M3P_EVENT_BIRTH: u8 = 0x05;
@@ -320,6 +330,63 @@ pub fn canonical_m3p_state_hash(
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
+/// Encodes M3 fields and the relationship graph followed by canonical propagation columns.
+pub fn canonical_m3prop_state_bytes(
+    state: &M3PropagationReferenceState,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let base = canonical_m3_state_bytes(state.world(), state.relationship_graph())?;
+    let expected_ids: Vec<_> = state
+        .world()
+        .agents
+        .iter()
+        .map(|agent| agent.agent_id)
+        .collect();
+    let mut sorted_ids = expected_ids.clone();
+    sorted_ids.sort_unstable();
+    if sorted_ids.windows(2).any(|pair| pair[0] == pair[1])
+        || state
+            .propagation()
+            .keys()
+            .copied()
+            .ne(sorted_ids.iter().copied())
+    {
+        return Err(CanonicalHashError::InvalidState(
+            "M3PROP propagation rows do not match canonical AgentIds".into(),
+        ));
+    }
+    let capacity = DOMAIN_M3PROP_STATE
+        .len()
+        .checked_add(base.len() - DOMAIN_M3_STATE.len())
+        .and_then(|length| length.checked_add(sorted_ids.len().checked_mul(9)?))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3PROP_STATE);
+    bytes.extend_from_slice(&base[DOMAIN_M3_STATE.len()..]);
+    for agent_id in sorted_ids {
+        let propagated = state
+            .propagation()
+            .get(&agent_id)
+            .expect("validated propagation key");
+        if !propagated.informed && propagated.informed_day != 0 {
+            return Err(CanonicalHashError::InvalidState(
+                "uninformed M3PROP row has nonzero informed_day".into(),
+            ));
+        }
+        bytes.extend_from_slice(&agent_id.0.to_le_bytes());
+        bytes.push(u8::from(propagated.informed));
+        bytes.extend_from_slice(&propagated.informed_day.to_le_bytes());
+    }
+    Ok(bytes)
+}
+
+/// Computes the canonical M3PROP State digest.
+pub fn canonical_m3prop_state_hash(
+    state: &M3PropagationReferenceState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3prop_state_bytes(state)?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
 /// Encodes authoritative storage state under the M3 domain, followed by the canonical CSR hash.
 pub fn canonical_m3_state_bytes_from_storage(
     storage: &SegmentedAgentStorage,
@@ -568,6 +635,65 @@ pub fn canonical_m3p_metrics_hash(
     metrics: &[M3pDailyMetrics],
 ) -> Result<CanonicalHash, CanonicalHashError> {
     let bytes = canonical_m3p_metrics_bytes(metrics)?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
+/// Encodes M3 metrics in day order followed by the six propagation counters.
+pub fn canonical_m3prop_metrics_bytes(
+    metrics: &[M3PropDailyMetrics],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let count = u32::try_from(metrics.len()).map_err(|_| CanonicalHashError::LengthOverflow)?;
+    let mut sorted: Vec<&M3PropDailyMetrics> = metrics.iter().collect();
+    sorted.sort_by_key(|metric| metric.m3_metrics.metrics.day);
+    for window in sorted.windows(2) {
+        if window[0].m3_metrics.metrics.day == window[1].m3_metrics.metrics.day {
+            return Err(CanonicalHashError::DuplicateMetricDay(
+                window[0].m3_metrics.metrics.day,
+            ));
+        }
+    }
+    let base: Vec<_> = sorted
+        .iter()
+        .map(|metric| metric.m3_metrics.clone())
+        .collect();
+    let base_bytes = canonical_m3_metrics_bytes(&base)?;
+    let capacity = DOMAIN_M3PROP_METRICS
+        .len()
+        .checked_add(4)
+        .and_then(|length| length.checked_add(sorted.len().checked_mul(108)?))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3PROP_METRICS);
+    bytes.extend_from_slice(&count.to_le_bytes());
+    for (index, metric) in sorted.into_iter().enumerate() {
+        let start = DOMAIN_M3_METRICS
+            .len()
+            .checked_add(4)
+            .and_then(|offset| offset.checked_add(index.checked_mul(60)?))
+            .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+        let end = start
+            .checked_add(60)
+            .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+        bytes.extend_from_slice(&base_bytes[start..end]);
+        for value in [
+            metric.propagation.informed_count,
+            metric.propagation.newly_informed,
+            metric.propagation.forgotten,
+            metric.propagation.seeded,
+            metric.propagation.levels_used,
+            metric.propagation.max_frontier_size,
+        ] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+    Ok(bytes)
+}
+
+/// Computes the canonical M3PROP Metrics digest.
+pub fn canonical_m3prop_metrics_hash(
+    metrics: &[M3PropDailyMetrics],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3prop_metrics_bytes(metrics)?;
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
@@ -927,5 +1053,26 @@ pub fn canonical_m3p_event_hash(
     events: &[M3pEventRecord],
 ) -> Result<CanonicalHash, CanonicalHashError> {
     let bytes = canonical_m3p_event_bytes(events)?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
+/// Encodes the existing canonical event stream under the M3PROP event domain.
+pub fn canonical_m3prop_event_bytes(events: &[EventRecord]) -> Result<Vec<u8>, CanonicalHashError> {
+    let base = canonical_event_bytes(events)?;
+    let capacity = DOMAIN_M3PROP_EVENTS
+        .len()
+        .checked_add(base.len().saturating_sub(DOMAIN_EVENTS.len()))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3PROP_EVENTS);
+    bytes.extend_from_slice(&base[DOMAIN_EVENTS.len()..]);
+    Ok(bytes)
+}
+
+/// Computes the canonical M3PROP Events digest.
+pub fn canonical_m3prop_event_hash(
+    events: &[EventRecord],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3prop_event_bytes(events)?;
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }

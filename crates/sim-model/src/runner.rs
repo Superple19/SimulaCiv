@@ -1221,6 +1221,19 @@ pub fn run_m3_reference_day(
     context: &M3ReferenceContext,
     options: &DayExecutionOptions,
 ) -> Result<M3DayOutcome, M0RunError> {
+    run_m3_reference_day_with_post_phase9(world, config, context, options, |_, _| Ok(()))
+}
+
+pub(crate) fn run_m3_reference_day_with_post_phase9<F>(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M3ReferenceContext,
+    options: &DayExecutionOptions,
+    post_phase9: F,
+) -> Result<M3DayOutcome, M0RunError>
+where
+    F: FnOnce(&mut WorldState, u32) -> Result<(), M0RunError>,
+{
     ensure_m3_profile(config)?;
     let executed_day = world.current_day.as_u32();
     let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
@@ -1254,6 +1267,7 @@ pub fn run_m3_reference_day(
         phase7_market_clearance_with_config(world, &partitions, &effective_config.economy)?;
     let welfare_resolutions = phase8_welfare_distribution_with_config(world, &effective_config)?;
     let mortality_resolution = phase9_mortality_commitment(world)?;
+    post_phase9(world, executed_day)?;
 
     let mut event_buffer = if options.events_enabled {
         let estimated_cap = world.agents.len().saturating_mul(2) + world.settlements.len() + 4;

@@ -10,9 +10,11 @@ pub mod hashing;
 pub mod initialization;
 pub mod intents;
 pub mod m3p;
+pub mod m3prop;
 pub mod metrics;
 pub mod partitioning;
 pub mod phases;
+pub mod propagation;
 pub mod relationship_graph;
 pub mod resolution;
 pub mod runner;
@@ -55,7 +57,8 @@ pub use features::{
 };
 pub use hashing::{
     CanonicalHash, CanonicalHashError, DOMAIN_EVENTS, DOMAIN_M3_METRICS, DOMAIN_M3_STATE,
-    DOMAIN_M3P_EVENTS, DOMAIN_M3P_METRICS, DOMAIN_M3P_STATE, DOMAIN_METRICS, DOMAIN_STATE,
+    DOMAIN_M3P_EVENTS, DOMAIN_M3P_METRICS, DOMAIN_M3P_STATE, DOMAIN_M3PROP_EVENTS,
+    DOMAIN_M3PROP_METRICS, DOMAIN_M3PROP_STATE, DOMAIN_METRICS, DOMAIN_STATE,
     EVENT_CATEGORY_OBSERVATION, EVENT_CATEGORY_STATE_TRANSITION, M3P_EVENT_BIRTH,
     M3P_EVENT_CLEANUP, OBSERVATION_EVENT_DAILY_METRICS, OBSERVATION_EVENT_SNAPSHOT_EMITTED,
     STATE_EVENT_FOOD_TRANSFERRED, STATE_EVENT_MARKET_CLEARED, STATE_EVENT_MORTALITY_COMMITTED,
@@ -65,8 +68,10 @@ pub use hashing::{
     canonical_m3_state_hash_from_storage, canonical_m3p_event_bytes, canonical_m3p_event_hash,
     canonical_m3p_metrics_bytes, canonical_m3p_metrics_hash, canonical_m3p_state_bytes,
     canonical_m3p_state_bytes_from_storage, canonical_m3p_state_hash,
-    canonical_m3p_state_hash_from_storage, canonical_metrics_bytes, canonical_metrics_hash,
-    canonical_state_bytes, canonical_state_hash,
+    canonical_m3p_state_hash_from_storage, canonical_m3prop_event_bytes,
+    canonical_m3prop_event_hash, canonical_m3prop_metrics_bytes, canonical_m3prop_metrics_hash,
+    canonical_m3prop_state_bytes, canonical_m3prop_state_hash, canonical_metrics_bytes,
+    canonical_metrics_hash, canonical_state_bytes, canonical_state_hash,
 };
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
@@ -86,6 +91,11 @@ pub use m3p::{
     M3P_BIRTH_SUBSYSTEM_ID, M3P_SNAPSHOT_SCHEMA_VERSION, M3pDailyMetrics, M3pDayOutcome, M3pEvent,
     M3pEventRecord, M3pReferenceState, RestoredM3pSnapshot, decode_m3p_snapshot,
     encode_m3p_snapshot, run_m3p_reference_day,
+};
+pub use m3prop::{
+    M3PROP_SNAPSHOT_SCHEMA_VERSION, M3PropDailyMetrics, M3PropDayOutcome,
+    M3PropagationReferenceState, RestoredM3PropagationSnapshot, decode_m3prop_snapshot,
+    encode_m3prop_snapshot, run_m3prop_reference_day,
 };
 pub use metrics::{
     DailyMetrics, M3DailyMetrics, Phase10Error, compute_wealth_gini_dynamic,
@@ -107,6 +117,9 @@ pub use phases::{
     phase2_biological_degradation_with_scratch, phase9_mortality_commitment,
     phase9_mortality_commitment_storage, phase9_mortality_commitment_with_config,
     phase9_mortality_resolution, update_biological_degradation,
+};
+pub use propagation::{
+    M3_PROPAGATION_SUBSYSTEM_ID, PropagationAgentState, PropagationDailyCounts, apply_phase9c,
 };
 pub use relationship_graph::{
     M3_RELATIONSHIP_GRAPH_SUBSYSTEM_ID, RelationshipGraph, RelationshipGraphError,
