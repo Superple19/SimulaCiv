@@ -226,6 +226,83 @@ impl RelationshipGraph {
         })
     }
 
+    /// Builds a canonical graph from explicit rows for the isolated M3P path.
+    ///
+    /// Unlike initial M2/M3 graph generation, dynamic M3P rows may be shorter than `k`.
+    pub(crate) fn from_canonical_rows(
+        rows: Vec<(AgentId, Vec<AgentId>)>,
+        memberships: &[(AgentId, GroupId)],
+    ) -> Result<Self, RelationshipGraphError> {
+        if rows.len() != memberships.len() {
+            return Err(RelationshipGraphError::RankInvariantViolation);
+        }
+
+        let mut sorted_memberships = memberships.to_vec();
+        sorted_memberships.sort_unstable_by_key(|&(agent_id, _)| agent_id);
+        for pair in sorted_memberships.windows(2) {
+            if pair[0].0 == pair[1].0 {
+                return Err(RelationshipGraphError::DuplicateAgentId(pair[0].0));
+            }
+        }
+
+        let mut source_ids = Vec::with_capacity(rows.len());
+        let mut row_offsets = Vec::with_capacity(rows.len() + 1);
+        let mut neighbors = Vec::new();
+        row_offsets.push(0);
+        let mut cross_partition_edges = 0u64;
+
+        for (row_index, (source_id, row_neighbors)) in rows.into_iter().enumerate() {
+            if row_index > 0 && source_ids[row_index - 1] >= source_id {
+                if source_ids[row_index - 1] == source_id {
+                    return Err(RelationshipGraphError::DuplicateAgentId(source_id));
+                }
+                return Err(RelationshipGraphError::RankInvariantViolation);
+            }
+            if sorted_memberships.get(row_index).map(|entry| entry.0) != Some(source_id) {
+                return Err(RelationshipGraphError::RankInvariantViolation);
+            }
+            if row_neighbors.len() > 16 {
+                return Err(RelationshipGraphError::InvalidDegree(
+                    row_neighbors.len() as u32
+                ));
+            }
+            if row_neighbors.windows(2).any(|pair| pair[0] >= pair[1]) {
+                return Err(RelationshipGraphError::RankInvariantViolation);
+            }
+
+            let source_group_id = sorted_memberships[row_index].1;
+            for &target_id in &row_neighbors {
+                let target_index = sorted_memberships
+                    .binary_search_by_key(&target_id, |entry| entry.0)
+                    .map_err(|_| RelationshipGraphError::RankInvariantViolation)?;
+                if target_id == source_id {
+                    return Err(RelationshipGraphError::RankInvariantViolation);
+                }
+                if sorted_memberships[target_index].1 != source_group_id {
+                    cross_partition_edges = cross_partition_edges
+                        .checked_add(1)
+                        .ok_or(RelationshipGraphError::EdgeCountOverflow)?;
+                }
+            }
+
+            source_ids.push(source_id);
+            neighbors.extend(row_neighbors);
+            row_offsets.push(neighbors.len());
+        }
+
+        let total_edges = u64::try_from(neighbors.len())
+            .map_err(|_| RelationshipGraphError::EdgeCountOverflow)?;
+        let csr_hash = hash_csr(&source_ids, &row_offsets, &neighbors);
+        Ok(Self {
+            source_ids,
+            row_offsets,
+            neighbors,
+            cross_partition_edges,
+            total_edges,
+            csr_hash,
+        })
+    }
+
     pub fn source_ids(&self) -> &[AgentId] {
         &self.source_ids
     }
@@ -292,7 +369,7 @@ fn validate_capacities(
     Ok(())
 }
 
-fn adjust_rank_for_exclusions(rank: usize, excluded: &[usize]) -> usize {
+pub(crate) fn adjust_rank_for_exclusions(rank: usize, excluded: &[usize]) -> usize {
     let mut adjusted = rank;
     for &excluded_rank in excluded {
         if excluded_rank <= adjusted {
@@ -304,7 +381,7 @@ fn adjust_rank_for_exclusions(rank: usize, excluded: &[usize]) -> usize {
     adjusted
 }
 
-fn complement_rank_to_global_rank(
+pub(crate) fn complement_rank_to_global_rank(
     group_ranks: &[usize],
     population: usize,
     complement_rank: usize,

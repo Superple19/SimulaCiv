@@ -9,6 +9,7 @@ pub mod features;
 pub mod hashing;
 pub mod initialization;
 pub mod intents;
+pub mod m3p;
 pub mod metrics;
 pub mod partitioning;
 pub mod phases;
@@ -74,6 +75,10 @@ pub use intents::{
     get_give_food_candidates, get_give_food_candidates_m3, get_steal_food_candidates,
     get_steal_food_candidates_m3, phase4_generate_intents, phase4_generate_intents_into,
     phase4_generate_intents_storage_into,
+};
+pub use m3p::{
+    M3P_BIRTH_SUBSYSTEM_ID, M3pDailyMetrics, M3pDayOutcome, M3pEvent, M3pEventRecord,
+    M3pReferenceState, run_m3p_reference_day,
 };
 pub use metrics::{
     DailyMetrics, M3DailyMetrics, Phase10Error, compute_wealth_gini_dynamic,
