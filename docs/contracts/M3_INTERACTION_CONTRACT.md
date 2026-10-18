@@ -245,11 +245,9 @@ Single-threaded reference with the relationship graph, neighbor targeting, globa
 
 Port M3 to the Segmented SoA path with index-based neighbor and target lookup, serially. The golden, §9.7 differential, snapshot-resume, shuffled-slot, and release-differential gates passed. The serial baseline and conflict-density results are recorded in [M3-01 Serial Baseline](../performance/M3_01_SERIAL_BASELINE.md).
 
-### M3-02 — Deterministic parallel Phase 6B
+### M3-02 — Deterministic parallel Phase 6B — COMPLETE
 
-The primary method is dependency-level scheduling; round-based Deterministic Reservations is for comparison only. No settlement-partition fast path is included because M3-01 measured a conflict fraction of about `0.54` even at `p_local = 1`. Serial remains the default; parallel execution is an explicit opt-in.
-
-**Gate:** bit-identical State, Metrics, and Events digests against both M3-01 serial and the M3-00 reference. The report covers per-stage Phase 6B speedup, level structure, and contention at day 0 and after 100 days. Whole-tick speedup is secondary and Amdahl-bounded.
+The frozen primary method, dependency-level scheduling, passed exact State, Metrics, and Events parity against M3-01 serial. Round-based Deterministic Reservations remains a comparison-only schedule. No settlement-partition fast path was added; M3-01 measured a conflict fraction of about `0.54` even at `p_local = 1`. Serial remains the default and parallel execution remains an explicit opt-in. The release benchmark, extended parity results, per-stage timings, level structure, and contention measurements are recorded in [M3-02 Parallel Phase 6B](../performance/M3_02_PARALLEL_PHASE6B.md).
 
 ### Optional stage after M3-02 — Contention dial
 
