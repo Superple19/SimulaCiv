@@ -120,8 +120,8 @@ pub use resolution::{
 };
 pub use runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, DayOutcome, M0RunContext,
-    M0RunError, M3DayOutcome, M3ReferenceContext, M3StorageRunContext, Phase4Backend,
-    Phase4ExecutionPolicy, run_hybrid_authority_day,
+    M0RunError, M3DayOutcome, M3ParallelStorageRunContext, M3ReferenceContext, M3StorageRunContext,
+    Phase4Backend, Phase4ExecutionPolicy, run_hybrid_authority_day,
     run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
@@ -130,7 +130,8 @@ pub use runner::{
     run_hybrid_authority_days_with_phase8_full_scan, run_hybrid_authority_days_with_rayon_phase4,
     run_hybrid_scope_isolated_day, run_hybrid_scope_isolated_day_with_scratch,
     run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_m3_reference_day,
-    run_m3_storage_days, run_native_soa_day, run_native_soa_day_with_storage, run_native_soa_days,
+    run_m3_storage_days, run_m3_storage_days_with_parallel_phase6b, run_native_soa_day,
+    run_native_soa_day_with_storage, run_native_soa_days,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,

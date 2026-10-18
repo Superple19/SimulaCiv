@@ -49,10 +49,11 @@ use crate::phases::{
 };
 use crate::relationship_graph::{RelationshipGraph, RelationshipGraphError};
 use crate::resolution::{
-    M3Phase6BStorageScratch, Phase6AError, Phase6BError, Phase6BResolutionScratch, Phase7Error,
-    Phase8Error, Phase8WelfareScratch, phase6a_work_resolution, phase6a_work_resolution_storage,
-    phase6b_targeted_resolution, phase6b_targeted_resolution_m3,
-    phase6b_targeted_resolution_storage_baseline,
+    M3Phase6BParallelScratch, M3Phase6BStorageScratch, Phase6AError, Phase6BError,
+    Phase6BResolutionScratch, Phase7Error, Phase8Error, Phase8WelfareScratch,
+    phase6a_work_resolution, phase6a_work_resolution_storage, phase6b_targeted_resolution,
+    phase6b_targeted_resolution_m3, phase6b_targeted_resolution_storage_baseline,
+    phase6b_targeted_resolution_storage_m3_parallel_with_scratch,
     phase6b_targeted_resolution_storage_m3_with_scratch,
     phase6b_targeted_resolution_storage_ordered_with_scratch,
     phase7_market_clearance_storage_with_config, phase7_market_clearance_with_config,
@@ -265,6 +266,44 @@ impl M3StorageRunContext {
             ));
         }
         Ok(())
+    }
+}
+
+/// Runtime wrapper for explicitly opted-in parallel M3 storage Phase 6B.
+#[derive(Debug)]
+pub struct M3ParallelStorageRunContext {
+    storage_context: M3StorageRunContext,
+    phase6b_scratch: M3Phase6BParallelScratch,
+}
+
+impl M3ParallelStorageRunContext {
+    /// Builds a fresh M3 graph, slot projection, and reusable parallel Phase 6B scratch.
+    pub fn new(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+    ) -> Result<Self, M0RunError> {
+        let storage_context = M3StorageRunContext::new(hybrid_world, config, run_context)?;
+        let agent_count = storage_context.storage_memberships.len();
+        let partition_count = hybrid_world.world.settlements.len();
+        let phase6b_scratch =
+            M3Phase6BParallelScratch::with_capacity(agent_count, partition_count, agent_count);
+        Ok(Self {
+            storage_context,
+            phase6b_scratch,
+        })
+    }
+
+    pub fn relationship_graph(&self) -> &RelationshipGraph {
+        self.storage_context.relationship_graph()
+    }
+
+    fn validate_for(
+        &self,
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+    ) -> Result<(), M0RunError> {
+        self.storage_context.validate_for(hybrid_world, config)
     }
 }
 
@@ -856,11 +895,68 @@ pub fn run_m3_storage_days(
     Ok(outcomes)
 }
 
+/// Executes consecutive M3 storage days with explicit caller-owned Rayon Phase 6B execution.
+pub fn run_m3_storage_days_with_parallel_phase6b(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3ParallelStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<Vec<M3DayOutcome>, M0RunError> {
+    context.validate_for(hybrid_world, config)?;
+    let M3ParallelStorageRunContext {
+        storage_context,
+        phase6b_scratch,
+    } = context;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        outcomes.push(run_m3_storage_day_with_phase6b(
+            hybrid_world,
+            config,
+            storage_context,
+            options,
+            M3StoragePhase6BMode::Parallel {
+                scratch: phase6b_scratch,
+                pool,
+                chunk_size,
+            },
+        )?);
+    }
+    Ok(outcomes)
+}
+
 fn run_m3_storage_day(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &mut M3StorageRunContext,
     options: &DayExecutionOptions,
+) -> Result<M3DayOutcome, M0RunError> {
+    run_m3_storage_day_with_phase6b(
+        hybrid_world,
+        config,
+        context,
+        options,
+        M3StoragePhase6BMode::Serial,
+    )
+}
+
+enum M3StoragePhase6BMode<'a> {
+    Serial,
+    Parallel {
+        scratch: &'a mut M3Phase6BParallelScratch,
+        pool: &'a ThreadPool,
+        chunk_size: NonZeroUsize,
+    },
+}
+
+fn run_m3_storage_day_with_phase6b(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3StorageRunContext,
+    options: &DayExecutionOptions,
+    phase6b_mode: M3StoragePhase6BMode<'_>,
 ) -> Result<M3DayOutcome, M0RunError> {
     let HybridWorldState {
         world,
@@ -916,14 +1012,30 @@ fn run_m3_storage_day(
     )?;
     let work_resolutions =
         phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)?;
-    let targeted_resolutions = phase6b_targeted_resolution_storage_m3_with_scratch(
-        storage,
-        &world.settlements,
-        world.current_day,
-        &effective_config,
-        &partitions,
-        &mut context.phase6b_scratch,
-    )?;
+    let targeted_resolutions = match phase6b_mode {
+        M3StoragePhase6BMode::Serial => phase6b_targeted_resolution_storage_m3_with_scratch(
+            storage,
+            &world.settlements,
+            world.current_day,
+            &effective_config,
+            &partitions,
+            &mut context.phase6b_scratch,
+        )?,
+        M3StoragePhase6BMode::Parallel {
+            scratch,
+            pool,
+            chunk_size,
+        } => phase6b_targeted_resolution_storage_m3_parallel_with_scratch(
+            storage,
+            &world.settlements,
+            world.current_day,
+            &effective_config,
+            &partitions,
+            scratch,
+            pool,
+            chunk_size,
+        )?,
+    };
     let market_resolutions = phase7_market_clearance_storage_with_config(
         storage,
         &mut world.settlements,
