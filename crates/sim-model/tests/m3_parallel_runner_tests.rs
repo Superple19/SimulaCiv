@@ -160,17 +160,24 @@ const GOLDENS: [(u32, &str, &str, &str); 3] = [
     ),
 ];
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DayDigests {
+#[derive(Debug, Clone, PartialEq)]
+struct DayRecords {
     day: u32,
     state: CanonicalHash,
+    metrics: M3DailyMetrics,
+    events: Vec<EventRecord>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CumulativeDigests {
     metrics: CanonicalHash,
     events: CanonicalHash,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Trace {
-    days: Vec<DayDigests>,
+    days: Vec<DayRecords>,
+    cumulative_digests: BTreeMap<u32, CumulativeDigests>,
     snapshots: BTreeMap<u32, Vec<u8>>,
 }
 
@@ -203,18 +210,24 @@ fn options(snapshot_boundary: bool) -> DayExecutionOptions {
     }
 }
 
-fn day_digest(
-    day: u32,
-    state: CanonicalHash,
-    metrics: &[M3DailyMetrics],
-    events: &[EventRecord],
-) -> DayDigests {
-    DayDigests {
-        day,
-        state,
-        metrics: canonical_m3_metrics_hash(metrics).unwrap(),
-        events: canonical_event_hash(events).unwrap(),
+fn cumulative_digests(days: &[DayRecords]) -> CumulativeDigests {
+    let metrics: Vec<_> = days.iter().map(|record| record.metrics.clone()).collect();
+    let event_count = days.iter().map(|record| record.events.len()).sum();
+    let mut events = Vec::with_capacity(event_count);
+    for record in days {
+        events.extend_from_slice(&record.events);
     }
+
+    CumulativeDigests {
+        metrics: canonical_m3_metrics_hash(&metrics).unwrap(),
+        events: canonical_event_hash(&events).unwrap(),
+    }
+}
+
+fn is_digest_checkpoint(day: u32, final_day: u32, snapshot_boundary: bool) -> bool {
+    snapshot_boundary
+        || day == final_day
+        || GOLDENS.iter().any(|(golden_day, ..)| *golden_day == day)
 }
 
 fn oracle_trace(config: &SimConfig, days: u32, snapshot_days: &[u32]) -> Trace {
@@ -233,12 +246,11 @@ fn oracle_trace(config: &SimConfig, days: u32, snapshot_days: &[u32]) -> Trace {
         storage_context.relationship_graph().csr_hash()
     );
 
-    let mut reference_metrics = Vec::with_capacity(days as usize);
     let mut storage_metrics = Vec::with_capacity(days as usize);
-    let mut reference_events = Vec::new();
     let mut storage_events = Vec::new();
     let mut trace = Trace {
         days: Vec::with_capacity(days as usize),
+        cumulative_digests: BTreeMap::new(),
         snapshots: BTreeMap::new(),
     };
 
@@ -291,16 +303,24 @@ fn oracle_trace(config: &SimConfig, days: u32, snapshot_days: &[u32]) -> Trace {
 
         let reference_metric = reference_outcome.metrics.unwrap();
         let storage_metric = storage_outcome.metrics.unwrap();
-        reference_metrics.push(reference_metric);
         storage_metrics.push(storage_metric);
-        reference_events.extend(reference_outcome.events);
-        storage_events.extend(storage_outcome.events);
+        storage_events.extend(storage_outcome.events.iter().cloned());
 
-        let reference_digest =
-            day_digest(day, reference_state, &reference_metrics, &reference_events);
-        let storage_digest = day_digest(day, storage_state, &storage_metrics, &storage_events);
-        assert_eq!(storage_digest, reference_digest);
-        trace.days.push(reference_digest);
+        trace.days.push(DayRecords {
+            day,
+            state: reference_state,
+            metrics: reference_metric,
+            events: reference_outcome.events,
+        });
+        if is_digest_checkpoint(day, days, snapshot_boundary) {
+            let reference_digests = cumulative_digests(&trace.days);
+            let storage_digests = CumulativeDigests {
+                metrics: canonical_m3_metrics_hash(&storage_metrics).unwrap(),
+                events: canonical_event_hash(&storage_events).unwrap(),
+            };
+            assert_eq!(storage_digests, reference_digests);
+            trace.cumulative_digests.insert(day, reference_digests);
+        }
         if let Some(snapshot) = storage_outcome.snapshot {
             trace.snapshots.insert(day, snapshot.bytes);
         }
@@ -311,8 +331,6 @@ fn oracle_trace(config: &SimConfig, days: u32, snapshot_days: &[u32]) -> Trace {
 struct ParallelRun {
     hybrid_world: HybridWorldState,
     context: M3ParallelStorageRunContext,
-    metrics: Vec<M3DailyMetrics>,
-    events: Vec<EventRecord>,
     trace: Trace,
 }
 
@@ -329,10 +347,9 @@ impl ParallelRun {
         Self {
             hybrid_world,
             context,
-            metrics: Vec::new(),
-            events: Vec::new(),
             trace: Trace {
                 days: Vec::new(),
+                cumulative_digests: BTreeMap::new(),
                 snapshots: BTreeMap::new(),
             },
         }
@@ -344,7 +361,8 @@ impl ParallelRun {
         pool: &ThreadPool,
         chunk_size: usize,
         snapshot_boundary: bool,
-    ) -> DayDigests {
+        final_day: u32,
+    ) {
         let mut outcomes = run_m3_storage_days_with_parallel_phase6b(
             &mut self.hybrid_world,
             config,
@@ -357,8 +375,7 @@ impl ParallelRun {
         .unwrap();
         let outcome: M3DayOutcome = outcomes.pop().unwrap();
         let metric = outcome.metrics.unwrap();
-        self.metrics.push(metric);
-        self.events.extend(outcome.events);
+        let events = outcome.events;
 
         let storage = self.hybrid_world.segmented_storage.as_ref().unwrap();
         let day = self.hybrid_world.world.current_day.as_u32();
@@ -369,20 +386,26 @@ impl ParallelRun {
             self.context.relationship_graph(),
         )
         .unwrap();
-        let digest = day_digest(day, state, &self.metrics, &self.events);
+        self.trace.days.push(DayRecords {
+            day,
+            state,
+            metrics: metric,
+            events,
+        });
+        if is_digest_checkpoint(day, final_day, snapshot_boundary) {
+            self.trace
+                .cumulative_digests
+                .insert(day, cumulative_digests(&self.trace.days));
+        }
         if let Some(snapshot) = outcome.snapshot {
             self.trace.snapshots.insert(day, snapshot.bytes);
         }
-        self.trace.days.push(digest.clone());
-        digest
     }
 
     fn checkpoint(&self, day: u32) -> ParallelCheckpoint {
         ParallelCheckpoint {
             snapshot: self.trace.snapshots[&day].clone(),
             graph_hash: *self.context.relationship_graph().csr_hash(),
-            metrics: self.metrics.clone(),
-            events: self.events.clone(),
             trace: self.trace.clone(),
         }
     }
@@ -403,8 +426,6 @@ impl ParallelRun {
         Self {
             hybrid_world,
             context,
-            metrics: checkpoint.metrics,
-            events: checkpoint.events,
             trace: checkpoint.trace,
         }
     }
@@ -413,8 +434,6 @@ impl ParallelRun {
 struct ParallelCheckpoint {
     snapshot: Vec<u8>,
     graph_hash: [u8; 32],
-    metrics: Vec<M3DailyMetrics>,
-    events: Vec<EventRecord>,
     trace: Trace,
 }
 
@@ -431,17 +450,21 @@ fn make_pools() -> Vec<(usize, ThreadPool)> {
 }
 
 fn assert_trace(actual: &Trace, expected: &Trace) {
+    // Exact per-day records imply equality of each cumulative digest; checkpoint hashes below
+    // keep the §10.6 digest-sequence gate explicit without re-hashing every historical prefix.
     assert_eq!(actual.days, expected.days);
+    assert_eq!(actual.cumulative_digests, expected.cumulative_digests);
     assert_eq!(actual.snapshots, expected.snapshots);
 }
 
 fn assert_m3_goldens(trace: &Trace) {
     for &(day, state, metrics, events) in &GOLDENS {
-        let digest = &trace.days[(day - 1) as usize];
-        assert_eq!(digest.day, day);
-        assert_eq!(digest.state.to_hex(), state);
-        assert_eq!(digest.metrics.to_hex(), metrics);
-        assert_eq!(digest.events.to_hex(), events);
+        let record = &trace.days[(day - 1) as usize];
+        assert_eq!(record.day, day);
+        assert_eq!(record.state.to_hex(), state);
+        let digests = trace.cumulative_digests.get(&day).unwrap();
+        assert_eq!(digests.metrics.to_hex(), metrics);
+        assert_eq!(digests.events.to_hex(), events);
         assert!(trace.snapshots.contains_key(&day));
     }
 }
@@ -464,6 +487,7 @@ fn parallel_runner_matches_golden_full_matrix_and_thread_chunk_sweeps() {
                     pool,
                     chunk_size,
                     [100, 250, 500].contains(&day),
+                    500,
                 );
                 if *thread_count == 4 && chunk_size == 256 && day == 250 {
                     parallel_resume_checkpoint = Some(run.checkpoint(250));
@@ -478,7 +502,7 @@ fn parallel_runner_matches_golden_full_matrix_and_thread_chunk_sweeps() {
         parallel_resume_checkpoint.expect("golden 4-thread/256-chunk checkpoint"),
     );
     for day in 251..=500 {
-        resumed.advance(&golden_config, &pools[2].1, 256, day == 500);
+        resumed.advance(&golden_config, &pools[2].1, 256, day == 500, 500);
     }
     assert_trace(&resumed.trace, &golden_oracle);
 
@@ -489,6 +513,7 @@ fn parallel_runner_matches_golden_full_matrix_and_thread_chunk_sweeps() {
             &pools[2].1,
             256,
             [100, 250, 500].contains(&day),
+            500,
         );
     }
     assert_trace(&shuffled.trace, &golden_oracle);
@@ -505,7 +530,7 @@ fn parallel_runner_matches_golden_full_matrix_and_thread_chunk_sweeps() {
                         let pool = &pools[(thread_count / 2) as usize].1;
                         let mut run = ParallelRun::new(&config, false);
                         for _ in 0..100 {
-                            run.advance(&config, pool, 256, false);
+                            run.advance(&config, pool, 256, false, 100);
                         }
                         assert_trace(&run.trace, &expected);
                     }
@@ -526,7 +551,7 @@ fn parallel_runner_matches_golden_full_matrix_and_thread_chunk_sweeps() {
                 let pool = &pools[(thread_count / 2) as usize].1;
                 let mut run = ParallelRun::new(&config, false);
                 for _ in 0..100 {
-                    run.advance(&config, pool, 256, false);
+                    run.advance(&config, pool, 256, false, 100);
                 }
                 assert_trace(&run.trace, &expected);
             }
@@ -543,7 +568,7 @@ fn parallel_runner_matches_golden_full_matrix_and_thread_chunk_sweeps() {
                 }
                 let mut run = ParallelRun::new(&config, false);
                 for _ in 0..100 {
-                    run.advance(&config, pool, chunk_size, false);
+                    run.advance(&config, pool, chunk_size, false, 100);
                 }
                 assert_trace(&run.trace, &expected);
             }
