@@ -1,4 +1,7 @@
 use crate::config::SimConfig;
+#[path = "settlement_index.rs"]
+pub(crate) mod settlement_index;
+use self::settlement_index::SettlementIndex;
 use crate::state::{AgentDynamicSoAScratch, SettlementState, WorldState};
 use crate::storage::SegmentedAgentStorage;
 use serde::{Deserialize, Serialize};
@@ -83,21 +86,15 @@ impl std::error::Error for Phase3Error {}
 
 const INLINE_PHASE3_SETTLEMENTS: usize = 8;
 
-#[derive(Debug, Clone, Copy)]
-struct Phase3ScarcityEntry {
-    group_id: GroupId,
-    source_index: usize,
-    scarcity: f32,
-}
-
 /// Reusable transient lookup scratch for Phase 3 settlement scarcity values.
 ///
-/// Settlements are evaluated in source order. Large lookup indexes use source position as the tie-break,
-/// preserving the existing first-match behavior for duplicate GroupIds.
+/// Scarcity values are built in source order. Dense unique GroupIds use direct indexing; the sorted
+/// fallback uses source position as its tie-break to preserve first-match behavior for duplicates.
 #[derive(Debug)]
 pub struct Phase3ScarcityScratch {
     inline_entries: [(GroupId, f32); INLINE_PHASE3_SETTLEMENTS],
-    heap_entries: Vec<Phase3ScarcityEntry>,
+    heap_entries: Vec<f32>,
+    settlement_index: SettlementIndex,
     len: usize,
     uses_heap: bool,
     last_index_build_entries: usize,
@@ -109,6 +106,7 @@ impl Default for Phase3ScarcityScratch {
         Self {
             inline_entries: [(GroupId(0), 0.0); INLINE_PHASE3_SETTLEMENTS],
             heap_entries: Vec::new(),
+            settlement_index: SettlementIndex::new(&[]),
             len: 0,
             uses_heap: false,
             last_index_build_entries: 0,
@@ -151,31 +149,17 @@ impl Phase3ScarcityScratch {
         self.len = settlements.len();
         self.uses_heap = self.len > INLINE_PHASE3_SETTLEMENTS;
         self.last_index_build_entries = self.len;
-        self.last_index_sort_comparisons = 0;
+        self.settlement_index = SettlementIndex::new(settlements);
+        self.last_index_sort_comparisons = self.settlement_index.sort_comparisons();
 
         if self.uses_heap {
             self.heap_entries.clear();
             if self.heap_entries.capacity() < self.len {
                 self.heap_entries.reserve(self.len);
             }
-            for (source_index, settlement) in settlements.iter().enumerate() {
-                self.heap_entries.push(Phase3ScarcityEntry {
-                    group_id: settlement.group_id,
-                    source_index,
-                    scarcity: 1.0 - (settlement.resource / carrying_capacity).clamp(0.0, 1.0),
-                });
-            }
-            if !self
-                .heap_entries
-                .windows(2)
-                .all(|w| w[0].group_id <= w[1].group_id)
-            {
-                self.heap_entries.sort_unstable_by(|left, right| {
-                    self.last_index_sort_comparisons += 1;
-                    left.group_id
-                        .cmp(&right.group_id)
-                        .then_with(|| left.source_index.cmp(&right.source_index))
-                });
+            for settlement in settlements {
+                self.heap_entries
+                    .push(1.0 - (settlement.resource / carrying_capacity).clamp(0.0, 1.0));
             }
         } else {
             for (index, settlement) in settlements.iter().enumerate() {
@@ -188,44 +172,20 @@ impl Phase3ScarcityScratch {
     }
 
     fn lookup<const COUNT_COMPARISONS: bool>(&self, group_id: GroupId) -> (Option<f32>, usize) {
-        if !self.uses_heap {
-            let mut comparisons = 0;
-            for &(candidate_group, scarcity) in &self.inline_entries[..self.len] {
-                if COUNT_COMPARISONS {
-                    comparisons += 1;
-                }
-                if candidate_group == group_id {
-                    return (Some(scarcity), comparisons);
-                }
-            }
-            return (None, comparisons);
-        }
-
-        let entries = &self.heap_entries[..self.len];
-        let mut low = 0;
-        let mut high = entries.len();
-        let mut comparisons = 0;
-        while low < high {
-            let middle = low + (high - low) / 2;
-            if COUNT_COMPARISONS {
-                comparisons += 1;
-            }
-            if entries[middle].group_id < group_id {
-                low = middle + 1;
+        let (source_index, comparisons) = if COUNT_COMPARISONS {
+            self.settlement_index
+                .source_index_with_comparisons(group_id)
+        } else {
+            (self.settlement_index.source_index(group_id), 0)
+        };
+        let scarcity = source_index.map(|index| {
+            if self.uses_heap {
+                self.heap_entries[index]
             } else {
-                high = middle;
+                self.inline_entries[index].1
             }
-        }
-
-        if low < entries.len() {
-            if COUNT_COMPARISONS {
-                comparisons += 1;
-            }
-            if entries[low].group_id == group_id {
-                return (Some(entries[low].scarcity), comparisons);
-            }
-        }
-        (None, comparisons)
+        });
+        (scarcity, if COUNT_COMPARISONS { comparisons } else { 0 })
     }
 }
 

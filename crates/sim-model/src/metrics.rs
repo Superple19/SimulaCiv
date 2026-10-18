@@ -8,6 +8,7 @@
 //!
 //! All operations are strictly read-only on `WorldState`, guaranteeing observer independence.
 
+use crate::features::settlement_index::SettlementIndex;
 use crate::state::{
     AgentDynamicSoAScratch, AgentDynamicState, AgentState, SettlementState, WorldState,
 };
@@ -337,11 +338,9 @@ pub fn phase10_observe_storage_with_scratch(
     }
 
     // 2. Structural validation of settlements
+    let settlement_index = SettlementIndex::new(settlements);
     for (i, settlement) in settlements.iter().enumerate() {
-        if settlements[..i]
-            .iter()
-            .any(|s| s.group_id == settlement.group_id)
-        {
+        if settlement_index.is_duplicate_source(i) {
             return Err(Phase10Error::DuplicateSettlement(settlement.group_id));
         }
         if settlement.treasury < 0 {
