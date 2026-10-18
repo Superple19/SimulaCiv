@@ -263,9 +263,9 @@ Search for and measure a food-supply configuration that sustains interactions. T
 
 Measure the static-world workload's scale limits using the equilibrium configuration. This stage adds measurement only.
 
-### M3-K — Settlement lookup indexing — PLANNED (contract frozen)
+### M3-K — Settlement lookup indexing — COMPLETE
 
-Index repeated GroupId lookups on the shared M2/M3 storage path without changing output or error semantics. The implementation contract is frozen in [§12](#12-m3-k-settlement-lookup-indexing).
+Index repeated GroupId lookups on the shared M2/M3 storage path without changing output or error semantics. The implementation contract is in [§12](#12-m3-k-settlement-lookup-indexing); before/after work counts, scaling, and whole-tick measurements are recorded in [M3 Settlement Index](../performance/M3_SETTLEMENT_INDEX.md).
 
 ### Optional stage after M3-02 — Contention dial
 

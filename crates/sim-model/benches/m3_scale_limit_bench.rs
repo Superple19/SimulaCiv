@@ -40,6 +40,7 @@ use sim_model::storage::SegmentedAgentStorage;
 use sim_model::{SimConfig, SimulationProfile, initialize_world};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::array;
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -694,6 +695,24 @@ fn phase3_lookup_counts(
     (calls, comparisons, sorted_before_sort)
 }
 
+fn record_phase6_event_count(
+    counts: &mut Vec<(u16, u64)>,
+    slots: &mut HashMap<GroupId, usize>,
+    group_id: GroupId,
+    count: u64,
+) -> u64 {
+    if let Some(&slot) = slots.get(&group_id) {
+        let previous = counts[slot].1;
+        counts[slot].1 += count;
+        previous
+    } else {
+        let slot = counts.len();
+        counts.push((group_id.0, count));
+        slots.insert(group_id, slot);
+        0
+    }
+}
+
 struct ManualProfile {
     world: WorldState,
     storage: SegmentedAgentStorage,
@@ -884,33 +903,30 @@ impl ManualProfile {
             self.storage.len().saturating_mul(2) + self.world.settlements.len() + 4,
         );
         let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+        let mut phase6_count_slots = HashMap::with_capacity(
+            work_resolutions
+                .len()
+                .saturating_add(targeted_resolutions.len()),
+        );
         for work in &work_resolutions {
             let work_events = events_from_work_resolution(executed_day_number, work);
-            let count = work_events.len() as u64;
-            if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(group_id, _)| *group_id == work.group_id.0)
-            {
-                entry.1 += count;
-            } else {
-                phase6_counts.push((work.group_id.0, count));
-            }
+            record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                work.group_id,
+                work_events.len() as u64,
+            );
             event_buffer.push_all(work_events);
         }
         for targeted in &targeted_resolutions {
             let mut targeted_events =
                 events_from_targeted_resolution(executed_day_number, targeted);
-            let offset = if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(group_id, _)| *group_id == targeted.group_id.0)
-            {
-                let previous = entry.1;
-                entry.1 += targeted_events.len() as u64;
-                previous
-            } else {
-                phase6_counts.push((targeted.group_id.0, targeted_events.len() as u64));
-                0
-            };
+            let offset = record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                targeted.group_id,
+                targeted_events.len() as u64,
+            );
             for event in &mut targeted_events {
                 event.key.local_sequence += offset;
             }
@@ -1032,6 +1048,7 @@ fn summarize(values: &mut [f64]) -> Summary {
     }
 }
 
+#[derive(Clone, Copy)]
 struct PhaseProfile {
     phases: [Summary; PHASE_NAMES.len()],
     p6b_stages: [Summary; P6B_STAGE_NAMES.len()],
@@ -1482,6 +1499,7 @@ fn report_first_breaks(
     }
 }
 
+#[derive(Clone, Copy)]
 struct DiagnosticCell {
     population: u64,
     settlements: u32,
@@ -1506,16 +1524,38 @@ fn profile_diagnostic_cell(population: u64, settlements: u32, series: &str) -> D
     let config = config_for_diagnostic(population, settlements);
     let (base, _) = initialize(&config);
     let profile = profile_serial_cell(&base, &config);
-    for (name, summary) in PHASE_NAMES.iter().zip(profile.phases) {
-        emit(&format!(
-            "DIAG_PHASE|series={series}|N={population}|K={settlements}|phase={name}|median_us={:.3}|mad_us={:.3}",
-            summary.median, summary.mad
-        ));
-    }
-    DiagnosticCell {
+    let cell = DiagnosticCell {
         population,
         settlements,
         profile,
+    };
+    report_diagnostic_phases(series, &cell);
+    cell
+}
+
+fn report_diagnostic_phases(series: &str, cell: &DiagnosticCell) {
+    for (name, summary) in PHASE_NAMES.iter().zip(cell.profile.phases) {
+        emit(&format!(
+            "DIAG_PHASE|series={series}|N={}|K={}|phase={name}|median_us={:.3}|mad_us={:.3}",
+            cell.population, cell.settlements, summary.median, summary.mad
+        ));
+    }
+}
+
+fn report_scaled_population_alphas(cells: &[DiagnosticCell]) {
+    for adjacent in cells.windows(2) {
+        for (index, name) in PHASE_NAMES.iter().enumerate() {
+            let lower = adjacent[0].profile.phases[index].median;
+            let upper = adjacent[1].profile.phases[index].median;
+            emit(&format!(
+                "DIAG_ALPHA_N|series=K=N/200|from_N={}|from_K={}|to_N={}|to_K={}|phase={name}|alpha={:.5}",
+                adjacent[0].population,
+                adjacent[0].settlements,
+                adjacent[1].population,
+                adjacent[1].settlements,
+                alpha(adjacent[0].population, lower, adjacent[1].population, upper)
+            ));
+        }
     }
 }
 
@@ -1552,23 +1592,29 @@ fn report_lookup_counts(population: u64, settlements: u32, config: &SimConfig) {
     let (_, sample) = manual.step(config, true);
     let scans = sample.settlement_scans;
     emit(&format!(
-        "DIAG_LOOKUPS|N={population}|K={settlements}|partition_count={}|phase3_index_build_entries={}|phase3_index_sort_comparisons={}|phase3_binary_lookup_calls={}|phase3_binary_comparisons={}|phase3_out_sorted_before_sort={}|phase6a_find_calls={}|phase6a_elements={}|phase6b_any_calls={}|phase6b_elements={}|phase7_find_calls={}|phase7_elements={}|phase10_duplicate_any_calls={}|phase10_elements={}|phase11_group_find_calls={}|phase11_elements={}",
+        "DIAG_LOOKUPS|N={population}|K={settlements}|partition_count={}|after_phase3_index_queries={}|after_phase3_group_comparisons={}|after_phase3_index_build_entries={}|after_phase3_index_sort_comparisons={}|phase3_out_sorted_before_sort={}|before_phase6a_find_calls={}|before_phase6a_elements={}|after_phase6a_index_queries={}|before_phase6b_any_calls={}|before_phase6b_elements={}|after_phase6b_index_queries={}|before_phase7_find_calls={}|before_phase7_elements={}|after_phase7_index_queries={}|before_phase10_duplicate_any_calls={}|before_phase10_elements={}|after_phase10_duplicate_flag_checks={}|before_phase11_group_find_calls={}|before_phase11_elements={}|after_phase11_map_lookups={}|after_phase11_max_distinct_group_keys={}",
         scans.phase6a_find.calls / 2,
-        scans.phase3_index_build_entries,
-        scans.phase3_index_sort_comparisons,
         scans.phase3_lookup_calls,
         scans.phase3_lookup_comparisons,
+        scans.phase3_index_build_entries,
+        scans.phase3_index_sort_comparisons,
         scans.phase3_output_sorted_before_sort,
         scans.phase6a_find.calls,
         scans.phase6a_find.elements,
+        scans.phase6a_find.calls,
         scans.phase6b_any.calls,
         scans.phase6b_any.elements,
+        scans.phase6b_any.calls,
         scans.phase7_find.calls,
         scans.phase7_find.elements,
+        scans.phase7_find.calls,
         scans.phase10_duplicate_any.calls,
         scans.phase10_duplicate_any.elements,
+        settlements,
         scans.phase11_group_find.calls,
         scans.phase11_group_find.elements,
+        scans.phase11_group_find.calls,
+        scans.phase6a_find.calls / 2,
     ));
 }
 
@@ -1926,6 +1972,34 @@ fn run_diagnosis() {
         .collect::<Vec<_>>();
     report_k_times(&fixed_n);
 
+    report_diagnostic_phases("K=N/200", &fixed_k[0]);
+    report_diagnostic_phases("K=N/200", &fixed_n[2]);
+    let scaled_500k = profile_diagnostic_cell(500_000, 2_500, "K=N/200");
+
+    let scaled_1m_config = config_for_diagnostic(1_000_000, 5_000);
+    let (scaled_1m_world, _) = initialize(&scaled_1m_config);
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(POOL_THREADS)
+        .build()
+        .expect("diagnostic Rayon pool builds");
+    let scaled_1m_measurement =
+        measure_cell(1_000_000, 8, 0, &scaled_1m_config, &scaled_1m_world, &pool);
+    let scaled_1m = DiagnosticCell {
+        population: 1_000_000,
+        settlements: 5_000,
+        profile: scaled_1m_measurement.phase_profile,
+    };
+    report_diagnostic_phases("K=N/200", &scaled_1m);
+    emit(&format!(
+        "DIAG_FULL_TICK|N=1000000|K=5000|k=8|day=0|serial_median_us={:.3}|serial_mad_us={:.3}|parallel_median_us={:.3}|parallel_mad_us={:.3}|paired_samples={SAMPLES}|warmups={WARMUPS}|days_per_sample={DAYS_PER_SAMPLE}|digest_parity=true",
+        scaled_1m_measurement.serial_full_tick.median,
+        scaled_1m_measurement.serial_full_tick.mad,
+        scaled_1m_measurement.parallel_full_tick.median,
+        scaled_1m_measurement.parallel_full_tick.mad,
+    ));
+    let scaled_k = [fixed_k[0], fixed_n[2], scaled_500k, scaled_1m];
+    report_scaled_population_alphas(&scaled_k);
+
     diagnose_phase3();
     let config_500 = config_for_diagnostic(1_000_000, 500);
     report_lookup_counts(1_000_000, 500, &config_500);
@@ -1933,7 +2007,7 @@ fn run_diagnosis() {
     report_lookup_counts(1_000_000, 5_000, &config_5000);
     diagnose_parallel_phase6b();
     emit(
-        "DIAG_COMPLETE|fixed_K_cells=4|fixed_N_cells=5|phase3_N=250000,1000000|parallel_N=1000000_k=16",
+        "DIAG_COMPLETE|fixed_K_cells=4|fixed_N_cells=5|K=N/200_cells=4|phase3_N=250000,1000000|parallel_N=1000000_k=16",
     );
 }
 
