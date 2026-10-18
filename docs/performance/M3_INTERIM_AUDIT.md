@@ -67,3 +67,5 @@ The following options are alternatives for a later decision, not an implementati
 - **Stop M3 here:** decide whether the current evidence is a sufficient answer and proceed to the graduation review. This needs a graduation decision, not a behavioral contract amendment. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
 
 This audit records the evidence available after M3-02 and deliberately does not choose among these candidates. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
+
+The M3-E and M3-S measurement reports are [M3 Equilibrium Workload](M3_EQUILIBRIUM_WORKLOAD.md) and [M3 Scale Limit Search](M3_SCALE_LIMIT.md).
