@@ -1,10 +1,10 @@
 # M3 Interaction Contract
 
-**Status: FROZEN**
+**Status: §1–§7 and §9–§12 FROZEN**
 
-**Scope: M3-00 semantic reference (§1–§7), M3-01 optimized serial contract (§9), M3-02 deterministic parallel Phase 6B contract (§10), and M3-02b search and bookkeeping reduction contract (§11)**
+**Scope: M3-00 semantic reference (§1–§7), M3-01 optimized serial contract (§9), M3-02 deterministic parallel Phase 6B contract (§10), M3-02b search and bookkeeping reduction contract (§11), and M3-K settlement lookup indexing contract (§12)**
 
-This document freezes M3-00 (§1–§7), M3-01 (§9), M3-02 (§10), and M3-02b (§11); later M3 stages are planned in §8.
+This document freezes M3-00 (§1–§7), M3-01 (§9), M3-02 (§10), M3-02b (§11), and M3-K (§12); other later M3 stages are planned in §8.
 
 The research question is: **How much interaction complexity can a deterministic simulation runtime support before its execution model or data architecture must fundamentally change?** The M3-00 reference workload deliberately breaks the assumption that a settlement is an independent interaction partition.
 
@@ -262,6 +262,10 @@ Search for and measure a food-supply configuration that sustains interactions. T
 ### M3-S — Scale limit search — PLANNED (measurement-only)
 
 Measure the static-world workload's scale limits using the equilibrium configuration. This stage adds measurement only.
+
+### M3-K — Settlement lookup indexing — PLANNED (contract frozen)
+
+Index repeated GroupId lookups on the shared M2/M3 storage path without changing output or error semantics. The implementation contract is frozen in [§12](#12-m3-k-settlement-lookup-indexing).
 
 ### Optional stage after M3-02 — Contention dial
 
@@ -582,3 +586,84 @@ None. The debug runtime measurement and post-push CI timing are required impleme
 ### 11.10 Freeze record
 
 This freeze resolves the sustained CI configuration, runtime target, private Phase 5 slot-sidecar constraints, explicit opt-in API, and candidate boundaries. It authorizes the M3-02b implementation task to proceed; it does not itself implement the optimizations.
+
+## 12. M3-K Settlement lookup indexing
+
+**Status: FROZEN**
+
+### 12.1 Goal and measured baseline
+
+Replace repeated GroupId-keyed scans on the shared M2/M3 storage path with a transient per-call settlement index. Preserve State, Metrics, and Events digests, intents, resolutions, error values and precedence, and all canonical ordering. Public function signatures and public types remain unchanged. The AoS reference implementations remain available as semantic oracles; this optimization applies only to storage execution.
+
+[M3 Scale Diagnosis](../performance/M3_SCALE_DIAGNOSIS.md) records these day-0 M3 storage counts at `N=1,000,000`:
+
+| Call site | K=500 | K=5,000 |
+|---|---:|---:|
+| P3 scarcity: per-agent binary-search comparisons | 9,980,000 | 13,362,000 |
+| P6A settlement `.find`: calls / elements | 1,000 / 250,500 | 10,000 / 25,005,000 |
+| P6B settlement `.any`: calls / elements | 500 / 125,250 | 5,000 / 12,502,500 |
+| P7 settlement `.find`: calls / elements | 1,000 / 250,500 | 10,000 / 25,005,000 |
+| P10 duplicate-settlement prefix `.any`: calls / elements | 500 / 124,750 | 5,000 / 12,497,500 |
+| P11 event counter GroupId `.find`: calls / elements | 1,000 / 250,000 | 10,000 / 25,000,000 |
+
+The P3 M3 storage path already binary-searches its source-order-preserving scarcity index; it is not a linear scan. The other listed resolver scans grow with partitions or settlements. P11 searches its event-counter vector, not the settlement slice, but is included because it performs the same repeated GroupId lookup pattern.
+
+### 12.2 Required index behavior
+
+Use a private, transient index built once per phase call from the supplied settlement slice. The index provides `GroupId -> source index` lookup and is not stored in `WorldState`, `SegmentedAgentStorage`, snapshots, hashes, or events. No public function signature or public result/configuration type changes.
+
+- When the input IDs are unique and exactly dense in `0..settlements.len()`, use a direct-index table. Verify density and uniqueness from the actual input; never infer them from `K` or the GroupId type alone.
+- For sparse IDs or duplicate IDs, use a sorted `(GroupId, source_index)` fallback and lower-bound lookup. The dense direct-index path accepts any source order. Order equal IDs by source index so fallback lookup returns the same first match as the old source-order `.find`.
+- Index construction itself returns no semantic error. Each caller performs lookups at its existing validation point, in its existing traversal order, so index preparation cannot move an error ahead of an earlier validation.
+- Do not use hash-table iteration to order settlements, participants, resolutions, or events. A hash table may be used only for keyed lookup when the output order continues to come from the existing ordered vectors.
+
+Apply this lookup behavior at the following storage call sites:
+
+1. **P3 scarcity** — in `Phase3ScarcityScratch::prepare` / `lookup` in `features.rs`, retain the current source-order scarcity calculation and first-match behavior for duplicate GroupIds, but resolve each per-agent GroupId through the transient index. Preserve every existing f32 expression and its source-order evaluation.
+2. **P6A work** — in `phase6a_work_resolution_storage` in `resolution.rs`, replace the planning and commit settlement `.find` calls. The same lookup must address the same first source settlement.
+3. **P6B validation** — in the M2 baseline and ordered storage resolvers and the M3 serial and parallel storage resolvers in `resolution.rs`, replace settlement-existence scans with index membership checks. Keep configuration validation, partition traversal, duplicate-partition checks, and intent validation in their current order.
+4. **P7 market** — in `phase7_market_clearance_storage` in `resolution.rs`, replace both the planning lookup and commit lookup while preserving partition and participant ordering.
+5. **P10 duplicate validation** — in `phase10_observe_storage_with_scratch` in `metrics.rs`, precompute which source positions are duplicates, then check each position inside the existing settlement loop. Return the duplicate at the same source position and retain the current order relative to negative-treasury validation.
+6. **P11 event grouping** — in the M2 and M3 storage runner event assembly in `runner.rs`, replace repeated linear lookup in `phase6_counts` with a transient GroupId-to-counter-slot index. Continue emitting and updating the existing vector in the same Work-then-targeted resolution order; map iteration must not produce events. Leave M0 and M3-00 AoS reference event assembly unchanged.
+
+### 12.3 Error and semantic parity
+
+The index is an access optimization only. It must preserve source-order first-match behavior for duplicate settlement IDs and the exact point at which a missing GroupId is reported.
+
+- P6A still checks a partition's settlement before its resource and intents, then commits settlements in the existing plan order.
+- P6B still validates theft probability first, then partitions in caller order; duplicate-partition and missing-settlement precedence remains unchanged. Parallel structural validation must return the same earliest serial error.
+- P7 still validates price/tax and duplicate partitions before processing settlement lookups in sorted partition order; it must select the same source settlement on duplicates.
+- P10 still validates every agent before settlements, then visits settlements in source order and reports the same first duplicate or negative treasury error.
+- P11 keeps the existing event vector order, payloads, partition keys, and local-sequence offsets.
+
+Do not change M0 or M3-00 reference behavior. M2 and M3 storage paths must remain bit-identical, including M2 and M3 State/Metrics/Events goldens, exact intents and resolutions, snapshot bytes, and error variants/precedence.
+
+### 12.4 Correctness gates
+
+Run the full existing workspace suite unchanged, including M2 goldens and snapshot tests, M3 golden tests, the complete §9.7 differential matrix, M3 parallel Phase 6B tests, and M3 search-reduction tests.
+
+Add a new randomized test for the private index that compares every indexed lookup with the old `settlements.iter().position(...)` result and duplicate-at-source result with the old prefix `.any(...)` rule. Include dense, sparse, shuffled, duplicate, and missing GroupIds. Also exercise public phase errors against the old linear lookup oracle, including multiple failures in one input, and assert exact error value and precedence. Keep test randomness deterministic and do not weaken or edit existing tests.
+
+### 12.5 Measurement gate
+
+Rerun the M3 Scale Diagnosis sampling method on the same host and equilibrium configuration before and after indexing:
+
+- fixed `N=250,000`, `K ∈ {250, 500, 1,250, 2,500, 5,000}`;
+- fixed `K=500` and `K=N/200` for `N ∈ {100,000, 250,000, 500,000, 1,000,000}`;
+- `k=8`, `p_local=0.5`, day 0, serial, two warmups, seven samples, three consecutive days with scratch reuse.
+
+Report per-phase median ± MAD, per-phase alpha vs N for the fixed-K and `K=N/200` series, per-phase time vs K for the fixed-N series, lookup work before/after, and a paired whole-tick comparison. Report results in [`docs/performance/M3_SETTLEMENT_INDEX.md`](../performance/M3_SETTLEMENT_INDEX.md). Keep the original M3 scale-limit and diagnosis measurements unchanged.
+
+### 12.6 Frozen decision register
+
+| ID | Decision | Status | Frozen resolution |
+|---|---|---|---|
+| Q1 | Index construction and fast path | **FROZEN** | Build a private transient index once per phase call. Use a direct-index table only after proving GroupIds are unique and exactly dense in `0..K`; otherwise use a sorted `(GroupId, source_index)` index with lower-bound lookup. Duplicate IDs resolve to the smallest source index. |
+| Q2 | Phase coverage and public surface | **FROZEN** | Apply the index to P3 scarcity, P6A, every M2/M3 storage P6B resolver, P7, P10 duplicate validation, and M2/M3 storage P11 event grouping as listed in §12.2. Keep all public signatures and types unchanged. Do not change M0 or M3-00 AoS reference paths. |
+| Q3 | Error and output parity | **FROZEN** | Index construction raises no semantic error. Perform each lookup at the existing validation point and keep source traversal, first-match behavior, error values/precedence, event sequence, resolution order, and f32 calculation order unchanged. P10 checks duplicate markers within its existing source-order loop. |
+| Q4 | Correctness gates | **FROZEN** | Run the unchanged full workspace suite and add randomized tests comparing indexed lookups and public phase errors with the old linear oracle across dense, sparse, shuffled, duplicate, and missing IDs. Preserve M2/M3 goldens, snapshots, and all existing differential gates. |
+| Q5 | Measurement gate | **FROZEN** | Rerun the fixed-N, fixed-K, and `K=N/200` series in §12.5, reporting per-phase median ± MAD, alpha vs N, lookup work, and paired whole-tick timing in `docs/performance/M3_SETTLEMENT_INDEX.md`. |
+
+### 12.7 Freeze record
+
+This freeze resolves the index representation, storage call-site scope, error-parity requirements, test matrix, and measurement protocol. It authorizes the requested M3-K implementation steps; it does not itself change simulation code.
