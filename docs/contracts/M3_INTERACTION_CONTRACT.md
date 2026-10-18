@@ -362,3 +362,93 @@ For a day `d`, let `E_d` be its keyed Phase 6B entries (`target = Some`). Each e
 ### 9.12 Freeze record
 
 This freeze resolves the §9 API, benchmark workload, projection lifecycle, and differential-matrix questions. It freezes the M3-01 optimized serial-path contract and authorizes the M3-01 implementation task to be requested; it does not start that task.
+
+## 10. M3-02 Deterministic parallel Phase 6B
+
+**Status: DRAFT — NOT FROZEN**
+
+### 10.1 Scope and opt-in policy
+
+M3-02 adds an explicit opt-in parallel Phase 6B path for the M3 Hybrid / `SegmentedAgentStorage` authority path. The existing `run_m3_storage_days` remains the unchanged serial default, and the M3-00 `WorldState` reference remains unchanged as the oracle. Phase 6B is the only parallelized phase in this stage; Phase 4 action selection and neighbor-based intent generation, and all other phases, continue to use their M3-01 serial paths.
+
+Expose the parallel path through a separate public M3 storage entry point that receives a caller-owned, already-built Rayon `ThreadPool` and a nonzero chunk size. Calling that entry point is the explicit opt-in. The runner must not construct, resize, cap, or replace the pool, select a backend from timing data, or introduce an automatic threshold. This follows the caller-owned pool and explicit execution model in the M2-38 and M2-39 Rayon gates without adding M3 to `Phase4ExecutionPolicy` or changing M2 runners.
+
+### 10.2 Commit reads, writes, and dependencies
+
+The M3-01 storage resolver first validates the theft probability, partitions, settlement membership, intent group, requested amount, and initiator/target slots. For each keyed entry, commit then reads the initiator's live `alive`, `health`, `group_id`, and `food`; the target's live `alive`, `health`, and `food`; the immutable intent fields; and the relevant configuration values. GiveFood checks the starvation threshold and initiator food. StealFood uses the target food and the stateless TheftSuccess coordinate `(master_seed, replicate_id, current_day, phase 6, subsystem 4, initiator AgentId, draw 0)` and the configured probability. No shared RNG state is consumed.
+
+A successful GiveFood entry debits initiator food and credits target food; a successful StealFood entry debits target food and credits initiator food. Phase 6B does not mutate `alive`, `health`, `group_id`, settlements, treasury, or other agents' fields. It has no shared semantic counter. Its `TargetedResolution` values and per-group output vectors are transient output scratch; Phase 6B events are generated later from the reconstructed result by the unchanged event conversion and Phase 6A offset logic.
+
+Thus two keyed entries conflict exactly when their initiator/target endpoint sets overlap. Entry `j` depends on an earlier entry `i` in the frozen global keyed order iff they share an endpoint. Preserving the order of all entries touching each agent preserves that agent's sequence of live food reads and IEEE `f32` updates; entries with disjoint endpoints have no shared mutable simulation state and may be evaluated concurrently. If implementation inspection finds any additional shared mutable simulation state in this path, parallelization is blocked until its dependency semantics are specified.
+
+The serial resolver appends each result to a per-group keyed output vector. Parallel workers must not append concurrently to a shared bucket. Stage each outcome at its deterministic global-stream position, then reconstruct each group's keyed subsequence in global order after commit scheduling completes.
+
+### 10.3 Parallelizable stages
+
+The M3-01 pipeline and M2 Rayon implementation support these stages:
+
+1. **Structural validation and slot lookup:** validate entries and resolve their endpoint slots independently where possible. Preserve the serial error protocol exactly: invalid theft probability first; then partition checks and intent checks in caller traversal order, with each entry's group mismatch before requested amount and slot lookup. Parallel validation must retain source positions and return the earliest error the serial traversal would return.
+2. **M3 key generation:** compute each keyed entry's `compute_m3_resolution_key` independently from its frozen coordinates and fields.
+3. **Global sort:** order the complete keyed stream by the frozen `(ResolutionKey, target AgentId, initiator AgentId, action kind)` comparator. The normal Phase 4 pipeline emits at most one intent per agent, so its keyed entries have distinct initiators. The storage resolver currently uses stable `sort_by`; if a parallel resolver accepts externally supplied entries with equal four-field keys, it must preserve their serial staging order as the final tie behavior.
+4. **Commit scheduling and evaluation:** build dependency levels as specified in §10.4, then evaluate entries within each level in parallel.
+
+Validation and key generation should use fixed indexed input positions and deterministic error/result collection; Rayon completion order and worker identity must not select errors or determine semantic output order. Reuse caller-owned scratch across days, as in M3-01 and M2's production Rayon path.
+
+### 10.4 Dependency-level schedule
+
+The primary schedule is dependency levels over the globally sorted keyed stream. Build a `last_level` array indexed by storage slot, initialized to zero. Traverse keyed entries in global order. For an entry with endpoint slots `a` and `b`, assign:
+
+```text
+level(entry) = 1 + max(last_level[a], last_level[b])
+last_level[a] = level(entry)
+last_level[b] = level(entry)
+```
+
+Store the entry's original global-stream index in that level. This is one serial `O(E)` pass and uses `O(N + E)` transient scratch for `N` storage slots and `E` keyed entries. Entries assigned to one level have pairwise-disjoint endpoints. Process levels in ascending level number. At the start of each level, workers read the current live state and compute each entry's exact serial eligibility, RNG outcome, transfer amount, resolution record, and proposed endpoint food values. Apply that level's disjoint food writes only after all its evaluations finish; use safe Rust and no `unsafe` for disjoint writes. A deterministic serial scatter in the level's original global-stream order is a valid writeback implementation. Complete the writeback barrier before evaluating the next level.
+
+The schedule can reorder only entries that touch disjoint agents. For every shared endpoint, its level order is the same as the global stream order, so later entries observe earlier writes exactly as in serial Phase 6B. Preserve the original global index separately from the level so that level order and Rayon completion order never become output order. Record the number of non-empty levels and the largest level size as measurements.
+
+An alternative round-based Deterministic Reservations schedule may be measured for comparison only. It must reserve endpoints in global-stream order within each round and may execute only endpoint-disjoint entries concurrently. Dependency levels remain the primary method for M3-02; the alternative does not change serial semantics or become an implicit fallback.
+
+### 10.5 Output and event order
+
+Reconstruct one `SettlementTargetedResolution` per initiator group in ascending `GroupId`. Each group contains `zero_target` entries first in ascending initiator `AgentId` order, followed by that group's subsequence of keyed results in the global keyed-stream order. `resolutions` is `zero_target` followed by `keyed_stream`, exactly as in §2.4 and §9.4. The reconstructed values must be independent of worker count, chunk size, completion order, and level assignment. Continue to use the existing `events_from_targeted_resolution` converter and Phase 6A local-sequence offsets so Phase 6B event order and payload remain unchanged.
+
+### 10.6 Correctness and parity gates
+
+Require bit-identical State, Metrics, and Events digest sequences against both the serial M3-01 path and the M3-00 reference for:
+
+- the committed M3 golden configuration;
+- every configuration in the full §9.7 100-day differential matrix (`N=300`, the three listed seeds, `K ∈ {3,10}`, `k ∈ {4,8,16}`, `p_local ∈ {0,0.5,1}`, plus `N ∈ {1,000,3,000}` with their §9.7 `K`, seed, `k`, and locality settings);
+- snapshot pause/resume, rebuilding the graph and slot projection after restore;
+- equivalent logical states with shuffled or permuted storage slots.
+
+Run parity with Rayon pool sizes `{1, 2, 4}` and the host maximum, and with chunk sizes `{64, 128, 256, 512, 1024}`. Record the host maximum used. CI must explicitly construct and exercise at least 2-thread and 4-thread pools; it must not skip multi-thread coverage because the runner reports a low core count. Keep all existing M2 goldens and snapshot checks unchanged. The serial M3-01 path remains available as the oracle and default.
+
+### 10.7 Measurement protocol
+
+Record the same host fields as M3-01. Use the reference host's thread counts `{1, 2, 4, 6}` and `N ∈ {10k, 50k, 100k}`, `k=8`, and `p_local ∈ {0, 0.5, 1}`. Measure two state horizons: the initial day-0 state and a state after 100 simulated days. Build both states, graphs, projections, runner contexts, and pools outside timed regions; restore an identical checkpoint for each paired sample. At each horizon, use two warmups, interleave serial and parallel samples per cell, and collect at least 11 timed samples. Each timed sample covers three consecutive days with scratch reuse; report median ± MAD per tick.
+
+The primary results are per-Phase-6B stage times: structural validation/slot lookup, key generation, global sort, dependency-level build, and commit/evaluation/writeback/output reconstruction. Whole-tick time is secondary. Cross parallel measurements with the §10.6 chunk sizes. At both horizons and for each configuration, report the number of levels, largest level size, §9.9 conflict fraction and mean contention, plus keyed-entry and cross-partition-interaction volume so timing and available concurrency have workload context. Record the exact thread and chunk settings for every result.
+
+The M3-01 profile measured Phase 6B at about 15% of a 100k tick for representative `k=8` cells. Amdahl's model therefore bounds whole-tick speedup near `1 / (1 - 0.15) ≈ 1.17×` even if Phase 6B became infinitely fast; this is a model/upper bound, not a measured result or target. M3-01 combined sequential commit with output assembly. For its 100k, `k=8` cells, that combined stage is not smaller than validation at `p_local=0`; M3-02 must report its finer stage measurements rather than assume commit is always the smallest Phase 6B component.
+
+Report path: [`docs/performance/M3_02_PARALLEL_PHASE6B.md`](../performance/M3_02_PARALLEL_PHASE6B.md).
+
+### 10.8 Research framing
+
+M3-01 measured a conflict fraction of about `0.54` across the tested `p_local` values, including `p_local = 1`, where cross-partition interaction count is zero. M3-02 tests the hypothesis that parallel Phase 6B scaling is governed by endpoint contention and dependency-level structure, not settlement locality. Settlement partitioning is not a valid fast path merely because `p_local = 1`; it is valid only if every keyed entry is also endpoint-disjoint from entries that would execute concurrently. M3-02 does not include a settlement-partition fast path.
+
+### 10.9 Explicit non-goals
+
+- Parallelizing any phase other than M3 storage Phase 6B.
+- Changing `run_m3_storage_days`, any M2 path, or the serial default.
+- Changing the relationship graph, target semantics, RNG coordinates, global key, transfer rules, event schema, snapshot schema, or digests.
+- Introducing a settlement-partition fast path based only on `p_local`.
+
+### 10.10 Open questions
+
+| ID | Question | Status |
+|---|---|---|
+| Q1 | Should a later M3 stage add a contention dial, such as a hub-biased graph mode, to test scheduling across different endpoint-contention levels? This would change graph semantics and requires its own contract amendment before implementation. | **NON-BLOCKING** |
+| Q2 | What exact Rust identifier should the separate public opt-in parallel runner use? The required boundary is fixed here (M3 storage Phase 6B only, caller-owned pool, explicit call); the spelling can be selected during implementation without changing semantics. | **NON-BLOCKING** |
