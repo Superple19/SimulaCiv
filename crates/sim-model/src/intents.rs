@@ -438,6 +438,50 @@ impl M3Phase4SlotProjection {
         Ok(())
     }
 
+    pub(crate) fn stage_appended_rows(
+        &self,
+        rows: &[(AgentId, GroupId, Vec<AgentId>)],
+        storage: &crate::storage::SegmentedAgentStorage,
+        row_ends: &mut Vec<usize>,
+        neighbor_slots: &mut Vec<usize>,
+    ) -> Result<usize, IntentError> {
+        debug_assert_eq!(self.row_offsets.len(), storage.len() + 1);
+        row_ends.clear();
+        neighbor_slots.clear();
+        let mut row_end = self.row_offsets[storage.len()];
+        let mut max_degree = self.max_degree;
+        for (_, _, neighbors) in rows {
+            max_degree = max_degree.max(neighbors.len());
+            for &neighbor_id in neighbors {
+                let slot = storage
+                    .slot_of(neighbor_id)
+                    .ok_or(IntentError::MissingAgent(neighbor_id))?;
+                neighbor_slots.push(slot);
+            }
+            row_end = row_end
+                .checked_add(neighbors.len())
+                .expect("M3P population and degree bounds fit projection offsets");
+            row_ends.push(row_end);
+        }
+        Ok(max_degree)
+    }
+
+    pub(crate) fn reserve_appended_rows(&mut self, row_count: usize, neighbor_count: usize) {
+        self.row_offsets.reserve(row_count);
+        self.neighbor_slots.reserve(neighbor_count);
+    }
+
+    pub(crate) fn append_staged_rows(
+        &mut self,
+        row_ends: &[usize],
+        neighbor_slots: &[usize],
+        max_degree: usize,
+    ) {
+        self.row_offsets.extend_from_slice(row_ends);
+        self.neighbor_slots.extend_from_slice(neighbor_slots);
+        self.max_degree = max_degree;
+    }
+
     fn neighbors_of_slot(&self, slot: usize) -> &[usize] {
         &self.neighbor_slots[self.row_offsets[slot]..self.row_offsets[slot + 1]]
     }

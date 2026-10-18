@@ -9,7 +9,9 @@ use crate::events::{
     phase11_flush_events,
 };
 use crate::features::phase3_observation_and_features_into;
-use crate::intents::{count_cross_partition_interactions_per_day, generate_intents_m3_into};
+use crate::intents::{
+    M3Phase4SlotProjection, count_cross_partition_interactions_per_day, generate_intents_m3_into,
+};
 use crate::metrics::{M3DailyMetrics, phase10_observe_with_scratch};
 use crate::partitioning::phase5_partition_intents_baseline;
 use crate::phases::{
@@ -663,6 +665,8 @@ enum Phase9bGraphUpdate {
 #[derive(Debug, Default)]
 pub(crate) struct M3pIncrementalTopologyScratch {
     pub(crate) newborn_rows: Vec<(AgentId, GroupId, Vec<AgentId>)>,
+    pub(crate) projection_row_ends: Vec<usize>,
+    pub(crate) projection_neighbor_slots: Vec<usize>,
 }
 
 pub(crate) struct Phase9bRunParameters<'a> {
@@ -762,6 +766,7 @@ pub(crate) fn apply_phase9b_storage_incremental(
     storage: &mut SegmentedAgentStorage,
     world: &WorldState,
     relationship_graph: &mut RelationshipGraph,
+    phase4_projection: &mut M3Phase4SlotProjection,
     next_agent_id: &mut u64,
     parameters: Phase9bRunParameters<'_>,
     scratch: &mut M3pIncrementalTopologyScratch,
@@ -821,8 +826,18 @@ pub(crate) fn apply_phase9b_storage_incremental(
         }
         Phase9bGraphUpdate::Append(append_plan) => {
             let rows = &scratch.newborn_rows;
+            let max_degree = phase4_projection.stage_appended_rows(
+                rows,
+                storage,
+                &mut scratch.projection_row_ends,
+                &mut scratch.projection_neighbor_slots,
+            )?;
             storage.reserve(rows.len());
             relationship_graph.reserve_appended_rows(&append_plan);
+            phase4_projection.reserve_appended_rows(
+                scratch.projection_row_ends.len(),
+                scratch.projection_neighbor_slots.len(),
+            );
             relationship_graph.append_prevalidated_rows(rows, append_plan);
             for (slot, planned_agent) in agents.iter().take(source_len).enumerate() {
                 storage.economy.food[slot] = planned_agent.food;
@@ -830,6 +845,11 @@ pub(crate) fn apply_phase9b_storage_incremental(
             for newborn in agents.iter().skip(source_len) {
                 storage.push(newborn);
             }
+            phase4_projection.append_staged_rows(
+                &scratch.projection_row_ends,
+                &scratch.projection_neighbor_slots,
+                max_degree,
+            );
         }
         Phase9bGraphUpdate::Unchanged => {
             for (slot, planned_agent) in agents.iter().take(source_len).enumerate() {

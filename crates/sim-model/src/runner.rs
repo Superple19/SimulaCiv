@@ -481,6 +481,26 @@ impl M3pStorageRunContext {
         Ok(())
     }
 
+    fn refresh_incremental_after_phase9b(
+        &mut self,
+        storage: &SegmentedAgentStorage,
+        phase9b: &Phase9bResult,
+    ) -> Result<(), M0RunError> {
+        if phase9b.compacted {
+            self.phase4_projection
+                .rebuild(&self.relationship_graph, storage)?;
+            self.storage_memberships = m3p_storage_memberships(storage);
+        } else {
+            self.storage_memberships.extend(
+                phase9b
+                    .births
+                    .iter()
+                    .map(|birth| (birth.child, birth.group)),
+            );
+        }
+        Ok(())
+    }
+
     fn validate_for(
         &self,
         hybrid_world: &HybridWorldState,
@@ -1468,7 +1488,7 @@ fn run_m3p_storage_day_inner(
     config: &SimConfig,
     context: &mut M3pStorageRunContext,
     options: &DayExecutionOptions,
-    incremental_topology_scratch: Option<&mut M3pIncrementalTopologyScratch>,
+    mut incremental_topology_scratch: Option<&mut M3pIncrementalTopologyScratch>,
 ) -> Result<M3pDayOutcome, M0RunError> {
     let HybridWorldState {
         world,
@@ -1545,11 +1565,12 @@ fn run_m3p_storage_day_inner(
         &mut context.phase8_scratch,
     )?;
     let mortality_resolution = storage.phase9_mortality_commitment()?;
-    let phase9b = if let Some(scratch) = incremental_topology_scratch {
+    let phase9b = if let Some(scratch) = incremental_topology_scratch.as_deref_mut() {
         apply_phase9b_storage_incremental(
             storage,
             world,
             &mut context.relationship_graph,
+            &mut context.phase4_projection,
             &mut context.next_agent_id,
             Phase9bRunParameters {
                 config: &effective_config,
@@ -1569,7 +1590,11 @@ fn run_m3p_storage_day_inner(
             executed_day,
         )?
     };
-    context.refresh_after_phase9b(storage, &phase9b)?;
+    if incremental_topology_scratch.is_some() {
+        context.refresh_incremental_after_phase9b(storage, &phase9b)?;
+    } else {
+        context.refresh_after_phase9b(storage, &phase9b)?;
+    }
 
     let mut event_buffer = if options.events_enabled {
         EventBuffer::with_capacity(storage.len().saturating_mul(2) + world.settlements.len() + 4)
