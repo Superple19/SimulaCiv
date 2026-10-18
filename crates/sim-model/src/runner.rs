@@ -40,7 +40,14 @@ use crate::intents::{
     generate_intents_storage_with_candidate_index_rayon, generate_intents_storage_with_scratch,
     phase4_generate_intents_into,
 };
-use crate::metrics::{DailyMetrics, M3DailyMetrics, Phase10Error, phase10_observe_with_scratch};
+use crate::m3p::{
+    M3pDailyMetrics, M3pDayOutcome, M3pEvent, M3pEventRecord, M3pReferenceState, Phase9bResult,
+    apply_phase9b_storage, encode_m3p_snapshot,
+};
+use crate::metrics::{
+    DailyMetrics, M3DailyMetrics, Phase10Error, phase10_observe_storage_with_scratch,
+    phase10_observe_with_scratch,
+};
 use crate::partitioning::{
     Phase5Error, Phase5PartitionScratch, phase5_partition_intents_baseline,
     phase5_partition_intents_from_vec_with_scratch,
@@ -321,6 +328,232 @@ impl M3StorageRunContext {
         }
         Ok(())
     }
+}
+
+/// Runtime graph projection and reusable scratch for M3P storage authority.
+#[derive(Debug)]
+pub struct M3pStorageRunContext {
+    run_context: M0RunContext,
+    relationship_graph: RelationshipGraph,
+    phase4_projection: M3Phase4SlotProjection,
+    storage_memberships: Vec<(AgentId, GroupId)>,
+    next_agent_id: u64,
+    relationship_degree_k: u32,
+    p_local_bits: u32,
+    features_scratch: Vec<AgentFeatures>,
+    choices_scratch: Vec<PrimaryActionChoice>,
+    intents_scratch: Vec<Intent>,
+    candidate_scratch: Vec<AgentId>,
+    phase3_scratch: Phase3ScarcityScratch,
+    phase5_scratch: Phase5PartitionScratch,
+    phase6b_scratch: M3Phase6BStorageScratch,
+    phase8_scratch: Phase8WelfareScratch,
+    phase10_indices: Vec<usize>,
+    phase10_settlement_indices: Vec<usize>,
+}
+
+impl M3pStorageRunContext {
+    /// Creates an M3P graph and projection for an initial hybrid storage instance.
+    pub fn new(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+    ) -> Result<Self, M0RunError> {
+        let storage = m3p_storage_from_hybrid(hybrid_world)?;
+        let world = m3p_world_from_storage(&hybrid_world.world, storage);
+        let reference = M3pReferenceState::new(world, config, run_context)?;
+        Self::from_graph_and_cursor(
+            hybrid_world,
+            config,
+            run_context,
+            reference.relationship_graph().clone(),
+            reference.next_agent_id(),
+        )
+    }
+
+    /// Rebuilds transient execution projection from a restored M3P reference state.
+    pub fn from_reference_state(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+        reference: &M3pReferenceState,
+    ) -> Result<Self, M0RunError> {
+        if reference.run_context() != *run_context {
+            return Err(M0RunError::InvariantViolation(
+                "restored M3P storage state does not match run coordinates".into(),
+            ));
+        }
+        let storage = m3p_storage_from_hybrid(hybrid_world)?;
+        let world = m3p_world_from_storage(&hybrid_world.world, storage);
+        M3pReferenceState::from_parts(
+            world,
+            reference.relationship_graph().clone(),
+            reference.next_agent_id(),
+            config,
+            run_context,
+        )?;
+        Self::from_graph_and_cursor(
+            hybrid_world,
+            config,
+            run_context,
+            reference.relationship_graph().clone(),
+            reference.next_agent_id(),
+        )
+    }
+
+    fn from_graph_and_cursor(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+        relationship_graph: RelationshipGraph,
+        next_agent_id: u64,
+    ) -> Result<Self, M0RunError> {
+        ensure_m3p_storage_profile(config)?;
+        config.validate().map_err(|error| {
+            M0RunError::InvariantViolation(format!("invalid M3P configuration: {error}"))
+        })?;
+        let storage = m3p_storage_from_hybrid(hybrid_world)?;
+        let relationship_degree_k = config
+            .interaction
+            .relationship_degree_k
+            .and_then(|degree| u32::try_from(degree).ok())
+            .ok_or_else(|| {
+                M0RunError::InvariantViolation(
+                    "M3P profile requires a valid relationship_degree_k".into(),
+                )
+            })?;
+        let p_local = config
+            .interaction
+            .p_local
+            .ok_or_else(|| M0RunError::InvariantViolation("M3P profile requires p_local".into()))?;
+        let memberships = m3p_storage_memberships(storage);
+        let world = m3p_world_from_storage(&hybrid_world.world, storage);
+        M3pReferenceState::from_parts(
+            world,
+            relationship_graph.clone(),
+            next_agent_id,
+            config,
+            run_context,
+        )?;
+        let phase4_projection = M3Phase4SlotProjection::new(&relationship_graph, storage)?;
+        let agent_count = storage.len();
+        let settlement_count = hybrid_world.world.settlements.len();
+        Ok(Self {
+            run_context: *run_context,
+            relationship_graph,
+            phase4_projection,
+            storage_memberships: memberships,
+            next_agent_id,
+            relationship_degree_k,
+            p_local_bits: p_local.to_bits(),
+            features_scratch: Vec::with_capacity(agent_count),
+            choices_scratch: Vec::with_capacity(agent_count),
+            intents_scratch: Vec::with_capacity(agent_count),
+            candidate_scratch: Vec::with_capacity(relationship_degree_k as usize),
+            phase3_scratch: Phase3ScarcityScratch::with_capacity(settlement_count),
+            phase5_scratch: Phase5PartitionScratch::with_capacity(settlement_count),
+            phase6b_scratch: M3Phase6BStorageScratch::with_capacity(agent_count),
+            phase8_scratch: Phase8WelfareScratch::with_capacity(settlement_count),
+            phase10_indices: Vec::with_capacity(agent_count),
+            phase10_settlement_indices: Vec::with_capacity(settlement_count),
+        })
+    }
+
+    pub fn relationship_graph(&self) -> &RelationshipGraph {
+        &self.relationship_graph
+    }
+
+    pub const fn next_agent_id(&self) -> u64 {
+        self.next_agent_id
+    }
+
+    fn refresh_after_phase9b(
+        &mut self,
+        storage: &SegmentedAgentStorage,
+        phase9b: &Phase9bResult,
+    ) -> Result<(), M0RunError> {
+        if !phase9b.births.is_empty() || phase9b.compacted {
+            self.phase4_projection
+                .rebuild(&self.relationship_graph, storage)?;
+            self.storage_memberships = m3p_storage_memberships(storage);
+        }
+        Ok(())
+    }
+
+    fn validate_for(
+        &self,
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+    ) -> Result<(), M0RunError> {
+        ensure_m3p_storage_profile(config)?;
+        config.validate().map_err(|error| {
+            M0RunError::InvariantViolation(format!("invalid M3P configuration: {error}"))
+        })?;
+        let storage = m3p_storage_from_hybrid(hybrid_world)?;
+        if config
+            .interaction
+            .relationship_degree_k
+            .and_then(|k| u32::try_from(k).ok())
+            != Some(self.relationship_degree_k)
+            || config.interaction.p_local.map(f32::to_bits) != Some(self.p_local_bits)
+        {
+            return Err(M0RunError::InvariantViolation(
+                "M3P storage context does not match relationship graph configuration".into(),
+            ));
+        }
+        if m3p_storage_memberships(storage) != self.storage_memberships {
+            return Err(M0RunError::InvariantViolation(
+                "M3P storage context is stale after storage construction or replacement".into(),
+            ));
+        }
+        let world = m3p_world_from_storage(&hybrid_world.world, storage);
+        M3pReferenceState::from_parts(
+            world,
+            self.relationship_graph.clone(),
+            self.next_agent_id,
+            config,
+            &self.run_context,
+        )?;
+        Ok(())
+    }
+}
+
+fn ensure_m3p_storage_profile(config: &SimConfig) -> Result<(), M0RunError> {
+    if config.profile == SimulationProfile::M3p {
+        Ok(())
+    } else {
+        Err(M0RunError::InvariantViolation(
+            "M3P storage runner requires profile = \"m3p\"".into(),
+        ))
+    }
+}
+
+fn m3p_storage_from_hybrid(
+    hybrid_world: &HybridWorldState,
+) -> Result<&SegmentedAgentStorage, M0RunError> {
+    if !hybrid_world.is_hybrid() {
+        return Err(M0RunError::InvariantViolation(
+            "M3P storage runner requires Hybrid Storage Authority".into(),
+        ));
+    }
+    hybrid_world.segmented_storage.as_ref().ok_or_else(|| {
+        M0RunError::InvariantViolation("hybrid mode without segmented storage".into())
+    })
+}
+
+fn m3p_storage_memberships(storage: &SegmentedAgentStorage) -> Vec<(AgentId, GroupId)> {
+    storage
+        .agent_ids()
+        .iter()
+        .copied()
+        .zip(storage.group_ids().iter().copied())
+        .collect()
+}
+
+fn m3p_world_from_storage(world: &WorldState, storage: &SegmentedAgentStorage) -> WorldState {
+    let mut copy = world.clone();
+    copy.agents = storage.to_agents();
+    copy
 }
 
 #[derive(Debug, Default)]
@@ -1008,6 +1241,22 @@ pub fn run_m3_storage_days(
     Ok(outcomes)
 }
 
+/// Executes consecutive M3P days serially with Hybrid / SegmentedAgentStorage authority.
+pub fn run_m3p_storage_days(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<M3pDayOutcome>, M0RunError> {
+    context.validate_for(hybrid_world, config)?;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        outcomes.push(run_m3p_storage_day(hybrid_world, config, context, options)?);
+    }
+    Ok(outcomes)
+}
+
 /// Executes serial M3 storage days with opt-in target-search reduction.
 pub fn run_m3_storage_days_with_search_reduction(
     hybrid_world: &mut HybridWorldState,
@@ -1135,6 +1384,265 @@ fn run_m3_storage_day(
         options,
         M3StoragePhase6BMode::Serial,
     )
+}
+
+fn run_m3p_storage_day(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pStorageRunContext,
+    options: &DayExecutionOptions,
+) -> Result<M3pDayOutcome, M0RunError> {
+    let HybridWorldState {
+        world,
+        segmented_storage,
+        authority_mode: _,
+    } = hybrid_world;
+    let storage = segmented_storage
+        .as_mut()
+        .ok_or_else(|| M0RunError::InvariantViolation("hybrid mode without storage".into()))?;
+    let executed_day = world.current_day.as_u32();
+    let next_day = executed_day.checked_add(1).ok_or(M0RunError::DayOverflow)?;
+    let mut effective_config = config.clone();
+    effective_config.world.master_seed = context.run_context.master_seed;
+    effective_config.world.replicate_id = context.run_context.replicate_id;
+
+    phase1_resource_regrowth(world, &effective_config);
+    storage.phase2_degradation_with_config(&effective_config);
+
+    context.features_scratch.clear();
+    phase3_observation_and_features_storage_with_scratch(
+        storage,
+        &world.settlements,
+        &effective_config,
+        &mut context.features_scratch,
+        &mut context.phase3_scratch,
+    )?;
+
+    context.choices_scratch.clear();
+    phase4_primary_action_selection_storage_into(
+        storage,
+        world.current_day,
+        &effective_config,
+        &context.features_scratch,
+        &mut context.choices_scratch,
+    )?;
+
+    context.intents_scratch.clear();
+    generate_intents_m3_storage_into(
+        storage,
+        world.current_day,
+        &effective_config,
+        &context.choices_scratch,
+        &context.phase4_projection,
+        &mut context.candidate_scratch,
+        &mut context.intents_scratch,
+    )?;
+    let cross_partition_interaction_count =
+        count_cross_partition_interactions_storage_per_day(&context.intents_scratch, storage)?;
+
+    let partitions = phase5_partition_intents_from_vec_with_scratch(
+        &mut context.intents_scratch,
+        &mut context.phase5_scratch,
+    )?;
+    let work_resolutions =
+        phase6a_work_resolution_storage(storage, &mut world.settlements, &partitions)?;
+    let targeted_resolutions = phase6b_targeted_resolution_storage_m3_with_scratch(
+        storage,
+        &world.settlements,
+        world.current_day,
+        &effective_config,
+        &partitions,
+        &mut context.phase6b_scratch,
+    )?;
+    let market_resolutions = phase7_market_clearance_storage_with_config(
+        storage,
+        &mut world.settlements,
+        &partitions,
+        &effective_config.economy,
+    )?;
+    let welfare_resolutions = phase8_welfare_distribution_storage_with_config_and_scratch(
+        storage,
+        &mut world.settlements,
+        &effective_config,
+        &mut context.phase8_scratch,
+    )?;
+    let mortality_resolution = storage.phase9_mortality_commitment()?;
+    let phase9b = apply_phase9b_storage(
+        storage,
+        world,
+        &mut context.relationship_graph,
+        &mut context.next_agent_id,
+        &effective_config,
+        &context.run_context,
+        executed_day,
+    )?;
+    context.refresh_after_phase9b(storage, &phase9b)?;
+
+    let mut event_buffer = if options.events_enabled {
+        EventBuffer::with_capacity(storage.len().saturating_mul(2) + world.settlements.len() + 4)
+    } else {
+        EventBuffer::new()
+    };
+    if options.events_enabled {
+        let mut phase6_counts = Vec::with_capacity(work_resolutions.len());
+        let mut phase6_count_slots = HashMap::with_capacity(
+            work_resolutions
+                .len()
+                .saturating_add(targeted_resolutions.len()),
+        );
+        for work in &work_resolutions {
+            let events = events_from_work_resolution(executed_day, work);
+            record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                work.group_id,
+                events.len() as u64,
+            );
+            event_buffer.push_all(events);
+        }
+        for targeted in &targeted_resolutions {
+            let mut events = events_from_targeted_resolution(executed_day, targeted);
+            let offset = record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                targeted.group_id,
+                events.len() as u64,
+            );
+            if offset > 0 {
+                for event in &mut events {
+                    event.key.local_sequence += offset;
+                }
+            }
+            event_buffer.push_all(events);
+        }
+        for market in &market_resolutions {
+            event_buffer.push_all(events_from_market_resolution(executed_day, market));
+        }
+        for welfare in &welfare_resolutions {
+            event_buffer.push_all(events_from_welfare_resolution(executed_day, welfare));
+        }
+        event_buffer.push_all(events_from_mortality_resolution(
+            executed_day,
+            &mortality_resolution,
+        ));
+    }
+
+    let metrics = if options.metrics_enabled {
+        let base = phase10_observe_storage_with_scratch(
+            storage,
+            &world.settlements,
+            executed_day,
+            &mut context.phase10_indices,
+            &mut context.phase10_settlement_indices,
+        )?;
+        if options.events_enabled {
+            event_buffer.push(event_from_daily_metrics(&base));
+        }
+        let (cross_partition_edge_count, total_directed_edge_count) =
+            context.relationship_graph.edge_ratio_counts();
+        Some(M3pDailyMetrics {
+            m3_metrics: M3DailyMetrics {
+                metrics: base,
+                cross_partition_edge_count,
+                total_directed_edge_count,
+                cross_partition_interaction_count,
+            },
+            births: phase9b.births.len() as u64,
+            removed: phase9b.removed,
+            replaced_edges: phase9b.replaced_edges,
+            live_population: storage.alive().iter().filter(|&&alive| alive).count() as u64,
+            next_agent_id: context.next_agent_id,
+        })
+    } else {
+        None
+    };
+
+    let snapshot = if options.snapshot_boundary {
+        let snapshot_world = m3p_world_from_storage(world, storage);
+        let snapshot_state = M3pReferenceState::from_parts(
+            snapshot_world,
+            context.relationship_graph.clone(),
+            context.next_agent_id,
+            &effective_config,
+            &context.run_context,
+        )?;
+        let metadata = SnapshotMetadata::new(
+            next_day,
+            context.run_context.master_seed,
+            context.run_context.replicate_id,
+            DEFAULT_MODEL_VERSION,
+            DEFAULT_CONFIG_VERSION,
+        );
+        let snapshot = encode_m3p_snapshot(&snapshot_state, &metadata)?;
+        if options.events_enabled {
+            event_buffer.push(EventRecord::new(
+                EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: metadata.day,
+                    master_seed: metadata.master_seed,
+                    replicate_id: metadata.replicate_id,
+                    schema_version: crate::m3p::M3P_SNAPSHOT_SCHEMA_VERSION,
+                }),
+            ));
+        }
+        Some(snapshot)
+    } else {
+        None
+    };
+
+    let mut events = if options.events_enabled {
+        phase11_flush_events(&mut event_buffer)?
+            .into_iter()
+            .map(|record| M3pEventRecord {
+                key: record.key,
+                event: M3pEvent::Existing(record.event),
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    if options.events_enabled {
+        let mortality_event_count = mortality_resolution.newly_deceased.len() as u64;
+        for (sequence, birth) in phase9b.births.iter().enumerate() {
+            events.push(M3pEventRecord {
+                key: EventKey::new(
+                    executed_day,
+                    9,
+                    GLOBAL_PARTITION_KEY,
+                    mortality_event_count + sequence as u64,
+                ),
+                event: M3pEvent::Birth {
+                    parent: birth.parent,
+                    child: birth.child,
+                    group: birth.group,
+                },
+            });
+        }
+        if phase9b.compacted {
+            events.push(M3pEventRecord {
+                key: EventKey::new(
+                    executed_day,
+                    9,
+                    GLOBAL_PARTITION_KEY,
+                    mortality_event_count + phase9b.births.len() as u64,
+                ),
+                event: M3pEvent::Cleanup {
+                    removed: phase9b.removed,
+                    replaced_edges: phase9b.replaced_edges,
+                    dropped_edges: phase9b.dropped_edges,
+                },
+            });
+        }
+        events.sort_by_key(|record| record.key);
+    }
+
+    world.current_day = SimulationDay(next_day);
+    Ok(M3pDayOutcome {
+        executed_day,
+        metrics,
+        events,
+        snapshot,
+    })
 }
 
 enum M3StoragePhase6BMode<'a> {

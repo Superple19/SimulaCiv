@@ -30,6 +30,7 @@ use crate::snapshot::{
     encode_snapshot,
 };
 use crate::state::{AgentDynamicSoAScratch, AgentState, WorldState};
+use crate::storage::SegmentedAgentStorage;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, DenseSlot, GroupId, RngCoordinate, SimulationDay, coordinate_prng_f32};
 use std::collections::{BTreeMap, BTreeSet};
@@ -186,6 +187,10 @@ impl M3pReferenceState {
 
     pub const fn next_agent_id(&self) -> u64 {
         self.next_agent_id
+    }
+
+    pub(crate) const fn run_context(&self) -> M0RunContext {
+        self.run_context
     }
 
     fn validate_for(
@@ -624,19 +629,19 @@ pub fn run_m3p_reference_day(
 }
 
 #[derive(Debug)]
-struct BirthRecord {
-    parent: AgentId,
-    child: AgentId,
-    group: GroupId,
+pub(crate) struct BirthRecord {
+    pub(crate) parent: AgentId,
+    pub(crate) child: AgentId,
+    pub(crate) group: GroupId,
 }
 
 #[derive(Debug)]
-struct Phase9bResult {
-    births: Vec<BirthRecord>,
-    removed: u64,
-    replaced_edges: u64,
-    dropped_edges: u64,
-    compacted: bool,
+pub(crate) struct Phase9bResult {
+    pub(crate) births: Vec<BirthRecord>,
+    pub(crate) removed: u64,
+    pub(crate) replaced_edges: u64,
+    pub(crate) dropped_edges: u64,
+    pub(crate) compacted: bool,
 }
 
 #[derive(Debug)]
@@ -657,6 +662,58 @@ fn apply_phase9b(
     state.world.agents = plan.agents;
     state.relationship_graph = plan.relationship_graph;
     state.next_agent_id = plan.next_agent_id;
+    Ok(plan.result)
+}
+
+/// Plans M3P Phase 9b against storage-derived logical state, then commits to SoA columns.
+pub(crate) fn apply_phase9b_storage(
+    storage: &mut SegmentedAgentStorage,
+    world: &WorldState,
+    relationship_graph: &mut RelationshipGraph,
+    next_agent_id: &mut u64,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    day: u32,
+) -> Result<Phase9bResult, M0RunError> {
+    let source_len = storage.len();
+    let planning_world = WorldState {
+        current_day: world.current_day,
+        agents: storage.to_agents(),
+        settlements: world.settlements.clone(),
+        initial_money_supply: world.initial_money_supply,
+    };
+    let planning_state = M3pReferenceState::from_parts(
+        planning_world,
+        relationship_graph.clone(),
+        *next_agent_id,
+        config,
+        run_context,
+    )?;
+    let plan = plan_phase9b(&planning_state, config, run_context, day)?;
+    if !plan.result.compacted && plan.agents.len() < source_len {
+        return Err(invariant(
+            "M3P storage Phase 9b removed agents without compaction",
+        ));
+    }
+
+    if plan.result.compacted {
+        storage.clear();
+        storage.reserve(plan.agents.len());
+        for (slot, planned_agent) in plan.agents.iter().enumerate() {
+            let mut agent = planned_agent.clone();
+            agent.dense_slot = DenseSlot(slot as u32);
+            storage.push(&agent);
+        }
+    } else {
+        for (slot, planned_agent) in plan.agents.iter().take(source_len).enumerate() {
+            storage.economy.food[slot] = planned_agent.food;
+        }
+        for newborn in plan.agents.iter().skip(source_len) {
+            storage.push(newborn);
+        }
+    }
+    *relationship_graph = plan.relationship_graph;
+    *next_agent_id = plan.next_agent_id;
     Ok(plan.result)
 }
 
