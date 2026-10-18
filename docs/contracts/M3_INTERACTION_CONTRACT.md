@@ -304,9 +304,9 @@ Spatial migration, previously listed as M3-03, remains a deferred follow-up and 
 
 The frozen [§14](#14-m3-09-incremental-topology-maintenance) incremental storage path appends newborn CSR and Phase 4 projection rows on non-compaction days while preserving exact M3P parity. The full-tick and Phase 9b before/after results are in [M3-09 Incremental Topology](../performance/M3_09_INCREMENTAL_TOPOLOGY.md).
 
-### M3-10 — Feature switches — PLANNED
+### M3-10 — Feature switches — contract frozen; implementation planned
 
-Specify feature-switch behavior in a separate contract section before implementation.
+Feature-switch behavior is frozen in [§15](#15-m3-10-feature-switches). The implementation task is planned; existing M2, M3, and M3P paths remain the compatibility oracles.
 
 ### M3-11 (formerly M3-05) — Propagation — PLANNED
 
@@ -901,3 +901,44 @@ This stage does not change birth eligibility, probability, resource transfer, ID
 ### 14.9 Freeze record
 
 This freeze preserves the existing CSR hash preimage and makes it lazy after incremental graph mutations; it selects staged, failure-atomic CSR/projection appends, a per-Phase-9b candidate index build, the debug/test full-rebuild schedules, and the explicit `run_m3p_storage_days_incremental_topology` entry point. It authorizes the M3-09 implementation already requested in the current task. It does not change M3P semantics, goldens, snapshots, snapshot schema, or M2/M3 paths.
+
+## 15. M3-10 Feature switches
+
+**Status: FROZEN**
+
+**Code basis:** [`config.rs`](../../crates/sim-model/src/config.rs) currently validates the legacy `SimulationProfile`; [`runner.rs`](../../crates/sim-model/src/runner.rs) keeps separate M2/M3/M3P entry points and guards; [`m3p.rs`](../../crates/sim-model/src/m3p.rs) owns the M3P reference state. This section adds an explicit switch/manifest layer around those existing paths.
+
+### 15.1 Scope and configuration
+
+The runtime feature set is the fixed triple `(relationship_graph, population_dynamics, propagation)`. The TOML source is `[simulation.systems]`; omitted switches are `false`. `population_dynamics = true` and `propagation = true` each require `relationship_graph = true`. A dependency violation is a configuration error. `[propagation]` parameters are required exactly when propagation is enabled; supplying them while propagation is disabled is an error.
+
+The legacy `profile` values are aliases for the three-feature projection with propagation off: `m2 = (false, false, false)`, `m3 = (true, false, false)`, and `m3p = (true, true, false)`. If neither `profile` nor `[simulation.systems]` is present, the effective set is M2. If only one is present, it selects the effective set. If both are present, the legacy profile's graph and population-dynamics bits must match the switch values; propagation is an orthogonal opt-in bit and may be enabled alongside a matching M3 or M3P legacy profile. Other disagreement is a configuration error. The effective legacy base path is M2, M3, or M3P according to the first two bits; propagation selects the new propagation-enabled path.
+
+The feature set is immutable for a run. Snapshot resume requires the same effective set and propagation parameters. A run manifest records the effective feature triple and the corresponding legacy base path separately from simulation digests. Existing snapshot v1/v2 headers and bytes remain unchanged. Only new snapshot v3 records include the manifest.
+
+### 15.2 Compatibility and disabled-feature behavior
+
+When the effective set is M2, M3, or M3P with propagation off, use the existing runner, state, metric, event, digest, and snapshot implementation for that profile. The feature set is not added to those digest preimages. Their existing canonical bytes, hashes, goldens, and snapshots must remain exact.
+
+An off feature is a no-op: it consumes no RNG coordinate, adds no state or metrics fields or events, allocates no feature scratch, and does not advance an ID allocator. The population-dynamics and propagation state columns exist only in their enabled runtime context. Existing M2/M3/M3P entry points retain their current profile guards and behavior; feature-enabled execution is selected explicitly by the M3-10 dispatch surface and never by timing or automatic fallback.
+
+### 15.3 Dispatch and validation
+
+The explicit feature-run dispatch maps `(false,false,false)` to the existing M2 path, `(true,false,false)` to M3, and `(true,true,false)` to M3P. Propagation-enabled combinations are reserved for the M3-11 entry points. Until M3-11 is implemented, configuration may validate such a feature set, but execution returns an explicit unsupported-feature error; it must not silently run an M2/M3/M3P path without propagation.
+
+Configuration validation is performed before runner selection. Invalid dependency combinations, missing enabled-feature parameters, disabled-feature parameters, and profile/switch disagreement fail before simulation state changes. The M3-10 feature dispatch returns the selected base profile and run manifest without modifying the legacy runners.
+
+### 15.4 Frozen decision register
+
+| ID | Decision | Status | Frozen resolution |
+|---|---|---|---|
+| RQ-1 | Feature source and dependencies | **FROZEN** | Use `[simulation.systems]` with `relationship_graph`, `population_dynamics`, and `propagation`, defaulting each to false. Population dynamics and propagation require the relationship graph. Invalid combinations fail configuration validation. |
+| RQ-2 | Legacy profile aliases | **FROZEN** | M2 maps to no features, M3 to relationship graph only, and M3P to relationship graph plus population dynamics. If both sources are present, the graph/population bits must agree; propagation is an orthogonal opt-in bit. If neither is present, select M2. |
+| RQ-3 | Digest and manifest | **FROZEN** | Feature selection is not a digest input for legacy combinations. Record the effective feature set in a separate run manifest; put it in snapshot headers only in the new v3 format. Preserve v1/v2 bytes. |
+| RQ-4 | Disabled features | **FROZEN** | Disabled means no state fields, draws, metrics, events, ID allocation, or feature scratch allocation. |
+| RQ-5 | Unsupported propagation dispatch | **FROZEN** | M3-10 may validate a propagation-enabled set, but execution remains an explicit unsupported-feature error until the M3-11 runner exists; never fall back silently. |
+| RQ-6 | Run consistency | **FROZEN** | A feature set and its enabled-feature configuration remain fixed for a run and must match on resume. |
+
+### 15.5 Freeze record
+
+This section freezes feature-switch parsing, dependency and disagreement errors, legacy aliases, manifest separation, no-op behavior when disabled, and explicit dispatch boundaries. It authorizes the M3-10 implementation task but does not itself add runtime behavior or change any M2, M3, or M3P digest or snapshot.
