@@ -73,7 +73,57 @@ use crate::storage::SegmentedAgentStorage;
 use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, SimulationDay};
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
+
+fn record_phase6_event_count(
+    counts: &mut Vec<(u16, u64)>,
+    slots: &mut HashMap<GroupId, usize>,
+    group_id: GroupId,
+    count: u64,
+) -> u64 {
+    if let Some(&slot) = slots.get(&group_id) {
+        let previous = counts[slot].1;
+        counts[slot].1 += count;
+        previous
+    } else {
+        let slot = counts.len();
+        counts.push((group_id.0, count));
+        slots.insert(group_id, slot);
+        0
+    }
+}
+
+#[cfg(test)]
+mod phase6_event_count_tests {
+    use super::record_phase6_event_count;
+    use sim_core::GroupId;
+    use std::collections::HashMap;
+
+    #[test]
+    fn indexed_offsets_match_first_seen_vector_order() {
+        let mut counts = Vec::new();
+        let mut slots = HashMap::new();
+
+        assert_eq!(
+            record_phase6_event_count(&mut counts, &mut slots, GroupId(7), 3),
+            0
+        );
+        assert_eq!(
+            record_phase6_event_count(&mut counts, &mut slots, GroupId(2), 5),
+            0
+        );
+        assert_eq!(
+            record_phase6_event_count(&mut counts, &mut slots, GroupId(7), 4),
+            3
+        );
+        assert_eq!(
+            record_phase6_event_count(&mut counts, &mut slots, GroupId(2), 6),
+            5
+        );
+        assert_eq!(counts, [(7, 7), (2, 11)]);
+    }
+}
 
 /// Default model version string used for canonical snapshot metadata.
 pub const DEFAULT_MODEL_VERSION: &str = "0.1.0";
@@ -1292,32 +1342,30 @@ fn run_m3_storage_day_with_phase6b_and_search_reduction(
     };
     if options.events_enabled {
         let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+        let mut phase6_count_slots = HashMap::with_capacity(
+            work_resolutions
+                .len()
+                .saturating_add(targeted_resolutions.len()),
+        );
+
         for work in &work_resolutions {
             let work_events = events_from_work_resolution(executed_day, work);
-            let count = work_events.len() as u64;
-            if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(group_id, _)| *group_id == work.group_id.0)
-            {
-                entry.1 += count;
-            } else {
-                phase6_counts.push((work.group_id.0, count));
-            }
+            record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                work.group_id,
+                work_events.len() as u64,
+            );
             event_buffer.push_all(work_events);
         }
         for targeted in &targeted_resolutions {
             let mut targeted_events = events_from_targeted_resolution(executed_day, targeted);
-            let offset = if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(group_id, _)| *group_id == targeted.group_id.0)
-            {
-                let previous = entry.1;
-                entry.1 += targeted_events.len() as u64;
-                previous
-            } else {
-                phase6_counts.push((targeted.group_id.0, targeted_events.len() as u64));
-                0
-            };
+            let offset = record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                targeted.group_id,
+                targeted_events.len() as u64,
+            );
             if offset > 0 {
                 for event in &mut targeted_events {
                     event.key.local_sequence += offset;
@@ -1573,36 +1621,33 @@ fn run_native_soa_day_with_storage_and_phase_scratch(
     };
     if options.events_enabled {
         let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+        let mut phase6_count_slots = HashMap::with_capacity(
+            work_resolutions
+                .len()
+                .saturating_add(targeted_resolutions.len()),
+        );
 
-        for w in &work_resolutions {
-            let work_events = events_from_work_resolution(executed_day, w);
-            let count = work_events.len() as u64;
-            if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(gid, _)| *gid == w.group_id.0)
-            {
-                entry.1 += count;
-            } else {
-                phase6_counts.push((w.group_id.0, count));
-            }
+        for work in &work_resolutions {
+            let work_events = events_from_work_resolution(executed_day, work);
+            record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                work.group_id,
+                work_events.len() as u64,
+            );
             event_buffer.push_all(work_events);
         }
-        for t in &targeted_resolutions {
-            let mut targeted_events = events_from_targeted_resolution(executed_day, t);
-            let offset = if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(gid, _)| *gid == t.group_id.0)
-            {
-                let prev = entry.1;
-                entry.1 += targeted_events.len() as u64;
-                prev
-            } else {
-                phase6_counts.push((t.group_id.0, targeted_events.len() as u64));
-                0
-            };
+        for targeted in &targeted_resolutions {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, targeted);
+            let offset = record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                targeted.group_id,
+                targeted_events.len() as u64,
+            );
             if offset > 0 {
-                for te in &mut targeted_events {
-                    te.key.local_sequence += offset;
+                for event in &mut targeted_events {
+                    event.key.local_sequence += offset;
                 }
             }
             event_buffer.push_all(targeted_events);
@@ -2231,36 +2276,33 @@ fn run_hybrid_authority_day_with_all_scratch(
     };
     if options.events_enabled {
         let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+        let mut phase6_count_slots = HashMap::with_capacity(
+            work_resolutions
+                .len()
+                .saturating_add(targeted_resolutions.len()),
+        );
 
-        for w in &work_resolutions {
-            let work_events = events_from_work_resolution(executed_day, w);
-            let count = work_events.len() as u64;
-            if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(gid, _)| *gid == w.group_id.0)
-            {
-                entry.1 += count;
-            } else {
-                phase6_counts.push((w.group_id.0, count));
-            }
+        for work in &work_resolutions {
+            let work_events = events_from_work_resolution(executed_day, work);
+            record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                work.group_id,
+                work_events.len() as u64,
+            );
             event_buffer.push_all(work_events);
         }
-        for t in &targeted_resolutions {
-            let mut targeted_events = events_from_targeted_resolution(executed_day, t);
-            let offset = if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(gid, _)| *gid == t.group_id.0)
-            {
-                let prev = entry.1;
-                entry.1 += targeted_events.len() as u64;
-                prev
-            } else {
-                phase6_counts.push((t.group_id.0, targeted_events.len() as u64));
-                0
-            };
+        for targeted in &targeted_resolutions {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, targeted);
+            let offset = record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                targeted.group_id,
+                targeted_events.len() as u64,
+            );
             if offset > 0 {
-                for te in &mut targeted_events {
-                    te.key.local_sequence += offset;
+                for event in &mut targeted_events {
+                    event.key.local_sequence += offset;
                 }
             }
             event_buffer.push_all(targeted_events);
@@ -2763,36 +2805,33 @@ fn run_hybrid_scope_isolated_day_with_phase8_scratch(
     };
     if options.events_enabled {
         let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(work_resolutions.len());
+        let mut phase6_count_slots = HashMap::with_capacity(
+            work_resolutions
+                .len()
+                .saturating_add(targeted_resolutions.len()),
+        );
 
-        for w in &work_resolutions {
-            let work_events = events_from_work_resolution(executed_day, w);
-            let count = work_events.len() as u64;
-            if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(gid, _)| *gid == w.group_id.0)
-            {
-                entry.1 += count;
-            } else {
-                phase6_counts.push((w.group_id.0, count));
-            }
+        for work in &work_resolutions {
+            let work_events = events_from_work_resolution(executed_day, work);
+            record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                work.group_id,
+                work_events.len() as u64,
+            );
             event_buffer.push_all(work_events);
         }
-        for t in &targeted_resolutions {
-            let mut targeted_events = events_from_targeted_resolution(executed_day, t);
-            let offset = if let Some(entry) = phase6_counts
-                .iter_mut()
-                .find(|(gid, _)| *gid == t.group_id.0)
-            {
-                let prev = entry.1;
-                entry.1 += targeted_events.len() as u64;
-                prev
-            } else {
-                phase6_counts.push((t.group_id.0, targeted_events.len() as u64));
-                0
-            };
+        for targeted in &targeted_resolutions {
+            let mut targeted_events = events_from_targeted_resolution(executed_day, targeted);
+            let offset = record_phase6_event_count(
+                &mut phase6_counts,
+                &mut phase6_count_slots,
+                targeted.group_id,
+                targeted_events.len() as u64,
+            );
             if offset > 0 {
-                for te in &mut targeted_events {
-                    te.key.local_sequence += offset;
+                for event in &mut targeted_events {
+                    event.key.local_sequence += offset;
                 }
             }
             event_buffer.push_all(targeted_events);
