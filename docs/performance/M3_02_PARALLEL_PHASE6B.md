@@ -14,6 +14,8 @@ At the after-100-days horizon, all 18 cells had zero keyed entries in the three 
 
 The measured conflict fraction at day 0 stayed between **0.528892 and 0.541324** across the populations and locality values. It remained nonzero at `p_local=1`, where cross-partition interactions were zero. This is consistent with the §10.8 observation that settlement locality does not determine endpoint contention; the benchmark did not show a whole-tick parallel gain from the tested level schedule on this host.
 
+The follow-up found the first zero-keyed day on days 71–76 with only **0.21%–1.28%** of agents alive; the inference is that near-total mortality plus the static, no-rewire `k=8` graph left no eligible live neighbors. On days 1–3, GiveFood found no targets and about half of keyed StealFood entries ended in TheftFailed; measured search/setup was **8–10×** Applied-positive work, with per-entry timing splits approximate due to hook overhead.
+
 ## Host and method
 
 - **CPU:** AMD Ryzen 5 9600X, 6 physical cores / 12 logical processors
@@ -568,18 +570,18 @@ Each row corresponds to one exact horizon, population, locality, pool, and chunk
 
 The M2-40 configuration was unchanged; the six §10.7 endpoint cells use `k=8`, `K=N/200`, and `p_local ∈ {0, 0.5, 1}`. The serial M3 storage path ran from day 0 through day 100 with metrics/events enabled and snapshots disabled. Each measured day was compared with `run_m3_storage_days`: State digest and exact daily M3 metrics matched. The six final State/Metrics/Events digests are recorded below. Mean food is the mean among agents alive after Phase 9; it is `NA` when no agents remain.
 
-| N | K | p_local | first zero day | alive that day | Give/Steal choices | Give/Steal None intents | measured classification |
-|---:|---:|---:|---:|---:|---:|---:|---|
-| 10,000 | 50 | 0.00 | 74 | 50 | 23 | 23 | no_eligible_targets |
-| 10,000 | 50 | 0.50 | 73 | 55 | 28 | 28 | no_eligible_targets |
-| 10,000 | 50 | 1.00 | 71 | 128 | 53 | 53 | no_eligible_targets |
-| 100,000 | 500 | 0.00 | 76 | 207 | 105 | 105 | no_eligible_targets |
-| 100,000 | 500 | 0.50 | 76 | 217 | 108 | 108 | no_eligible_targets |
-| 100,000 | 500 | 1.00 | 74 | 420 | 179 | 179 | no_eligible_targets |
+| N | K | p_local | first zero day | alive that day | alive fraction | Give/Steal choices | Give/Steal None intents | measured classification |
+|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 10,000 | 50 | 0.00 | 74 | 50 | 0.50% | 23 | 23 | no_eligible_targets |
+| 10,000 | 50 | 0.50 | 73 | 55 | 0.55% | 28 | 28 | no_eligible_targets |
+| 10,000 | 50 | 1.00 | 71 | 128 | 1.28% | 53 | 53 | no_eligible_targets |
+| 100,000 | 500 | 0.00 | 76 | 207 | 0.21% | 105 | 105 | no_eligible_targets |
+| 100,000 | 500 | 0.50 | 76 | 217 | 0.22% | 108 | 108 | no_eligible_targets |
+| 100,000 | 500 | 1.00 | 74 | 420 | 0.42% | 179 | 179 | no_eligible_targets |
 
-All six first-zero days had living agents and nonzero GiveFood/StealFood action choices; the number of targeted `None` intents equaled those choices. **Measured classification: no eligible neighbors.** **Inference:** population collapse and action-choice shift do not explain the first zero. The candidate filters found no live graph neighbor satisfying the action's target predicate. The counters do not identify which predicate excluded each neighbor.
+All six first-zero days had nonzero GiveFood/StealFood action choices, and the number of targeted `None` intents equaled those choices. **Measured classification: no eligible neighbors.** **Inference:** only 0.21%–1.28% of agents remained alive. With a static `k=8` graph and no rewiring, near-total population collapse left almost all graph neighbors dead, so no eligible live neighbor remained. The counters do not identify which target predicate excluded each neighbor. M3-04 dynamic topology is the planned stage that changes the static-topology condition; the M2-40 configuration was designed for short benchmarks, not sustained workloads.
 
-**Inference:** these cells lose keyed Phase 6B work around days 71–76 even though some agents remain alive. Day-100 timings therefore cannot represent sustained interaction workload; conclusions about resolver cost should use the day 0–3 active period.
+**Inference:** these cells lose keyed Phase 6B work around days 71–76 because near-total mortality combines with static topology to remove eligible live neighbors. Day-100 timings therefore cannot represent sustained interaction workload; conclusions about resolver cost should use the day 0–3 active period.
 
 ### Final digest parity
 
@@ -1241,6 +1243,8 @@ The release benchmark command was `cargo bench --bench m3_02_parallel_phase6b_be
 | 100,000 | 0.50 | 0 / 66031 | 73753 / 0 | 73753 | 36851 | 66031 | 0 | 0 | 36902 | 0 |
 | 100,000 | 1.00 | 0 / 66031 | 73753 / 0 | 73753 | 36851 | 66031 | 0 | 0 | 36902 | 0 |
 
+Measured: GiveFood found zero targets in days 1–3: `0 Some / 6,585 None` at N=10,000 and `0 Some / 66,031 None` at N=100,000. Consequently, every keyed entry was StealFood. TheftFailed accounted for `3,742 / 7,421` keyed entries at N=10,000 (**50.4%**) and `36,902 / 73,753` at N=100,000 (**50.0%**); those failed theft entries made no state change.
+
 ### Timing-hook overhead
 
 Hook overhead is the paired external wall-time difference between the timed wrapper and the uninstrumented phase call; order alternated across samples. The percentage uses the untimed phase-call wall time as denominator.
@@ -1256,4 +1260,4 @@ Hook overhead is the paired external wall-time difference between the timed wrap
 
 The measured hook excess is substantial: approximately 64–114% of untimed Phase 4 intent-generation wall time and 40–43% of Phase 6B wall time. Per-target and per-keyed-entry timing splits are therefore **approximate**; the hook's extra clock reads measurably perturb total phase time, and the split intervals do not include all clock-read overhead. Timed and untimed Phase 4 intent vectors, Phase 6B resolution vectors, post-Phase-6B food columns and State digests matched. The full serial runner's per-day State/Metrics and repeated Events/Metrics/State digest traces were also exact across samples.
 
-**Inference:** the reported search/setup median is about 8–10× the measured Applied-positive work interval in these day 1–3 cells, suggesting target search and resolver setup dominate the measured positive transfer loop. The large hook overhead makes the ratio directional evidence rather than a precise cost attribution; the per-entry split is not calibrated.
+**Inference:** most measured interaction cost is spent on searching or entries that produce no state change: GiveFood target searches return `None`, and about half of keyed StealFood entries end in TheftFailed. A future optimization could skip candidate search when it can prove the same `None` result (for example, when no agent is below the starvation threshold); that behavior needs its own contract and is not implemented here. The large hook overhead makes the 8–10× search/setup-to-Applied ratio directional evidence rather than a precise cost attribution; the per-entry split is not calibrated.
