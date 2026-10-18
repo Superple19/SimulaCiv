@@ -308,9 +308,9 @@ The frozen [§14](#14-m3-09-incremental-topology-maintenance) incremental storag
 
 Feature-switch behavior is frozen in [§15](#15-m3-10-feature-switches). The implementation task is planned; existing M2, M3, and M3P paths remain the compatibility oracles.
 
-### M3-11 (formerly M3-05) — Propagation — PLANNED
+### M3-11 (formerly M3-05) — Propagation — contract frozen; implementation planned
 
-Model multi-hop spread over the graph within one tick and define intra-tick ordering.
+The synchronous multi-hop overlay semantics are frozen in [§16](#16-m3-11-propagation). Implementation and measurement remain planned.
 
 ### M3 audit and graduation
 
@@ -942,3 +942,85 @@ Configuration validation is performed before runner selection. Invalid dependenc
 ### 15.5 Freeze record
 
 This section freezes feature-switch parsing, dependency and disagreement errors, legacy aliases, manifest separation, no-op behavior when disabled, and explicit dispatch boundaries. It authorizes the M3-10 implementation task but does not itself add runtime behavior or change any M2, M3, or M3P digest or snapshot.
+
+## 16. M3-11 Propagation
+
+**Status: FROZEN**
+
+**Code basis:** [`m3p.rs::run_m3p_reference_day`](../../crates/sim-model/src/m3p.rs) currently orders Phase 9b before metrics, events, and snapshot emission; [`runner.rs::run_m3p_storage_day_inner`](../../crates/sim-model/src/runner.rs) is the storage counterpart, and [`run_m3p_storage_days_incremental_topology`](../../crates/sim-model/src/runner.rs) uses a separate incremental context. [`hashing.rs`](../../crates/sim-model/src/hashing.rs) defines the existing M2/M3/M3P domains. Phase 9c, its state, and schema v3 are new opt-in behavior and must not alter those existing encodings.
+
+### 16.1 Scope and state
+
+Propagation is a synchronous, multi-hop overlay over the directed relationship graph. It changes no action choice, intent, resolution, food, wealth, settlement, or other phase result in M3-11. Any behavioral effect outside the propagation overlay requires a later contract amendment. The serial implementation is the reference; explicit parallel execution is an opt-in comparison path.
+
+When propagation is enabled, each agent has `informed: bool` and `informed_day: u32`, keyed by `AgentId` logically and by current slot on the storage path. Initial agents and newborns start `informed = false, informed_day = 0`. On forgetting, both fields normalize to the same uninformed representation. Dead agents neither send nor receive; their propagation state remains attached to the dead record until the existing M3P compaction removes that record. Newborns are uninformed on their birth day and may participate from the next day, consistent with §13.1.
+
+Subsystem ID `8` is M3-only propagation addressing; existing subsystem IDs and the M1 manifest are unchanged. The coordinate day is the current simulation day and the coordinate phase is `9`. No propagation coordinate is evaluated while the feature is off.
+
+### 16.2 Configuration
+
+When propagation is on, `[propagation]` must provide all four values with no defaults:
+
+- `seed_probability`: finite and in `[0, 1]`.
+- `transmit_probability`: finite and in `[0, 1]`.
+- `forget_probability`: finite and in `[0, 1]`.
+- `max_hops`: integer in `[1, 64]`.
+
+When propagation is off, the section must be absent. These constraints are validated before state mutation. The effective feature set must also satisfy §15.
+
+### 16.3 Phase 9c order
+
+Run Phase 9c after Phase 9b when population dynamics is enabled, otherwise immediately after Phase 9. It runs before Phase 10 metrics, Phase 11 events, and snapshot emission. Its internal order is **forget, seed, spread**.
+
+1. **Forget.** For each informed, live agent in ascending `AgentId`, evaluate one coordinate draw with `(day D, phase 9, subsystem 8, agent, draw 0)`. If `u < forget_probability`, set `informed = false` and `informed_day = 0`. Agents already uninformed or dead receive no forget draw.
+2. **Seed.** For each currently uninformed, live agent in ascending `AgentId`, evaluate one coordinate draw `(D, 9, 8, agent, 1)`. If `u < seed_probability`, set `informed = true`, `informed_day = D`, and include the agent in today's seed set. This follows Forget, so an agent forgotten on D may be seeded on D.
+3. **Spread.** Initial frontier is the union of live agents with `informed_day == D - 1` and today's seeds, sorted by ascending `AgentId`; when `D = 0`, the prior-day set is empty. For each level `h = 1..=max_hops`, process frontier agents in ascending `AgentId` and each source row's edges in canonical row order. An edge is considered only if its target is live and uninformed at the start of that level. For each considered edge at row position `j`, evaluate one coordinate draw `(D, 9, 8, source AgentId, 2 + h * 64 + j)`; a success occurs iff `x < transmit_probability`. Stage successful target IDs, OR duplicate successes, and apply all newly informed targets together at the end of the level with `informed = true, informed_day = D`. The next frontier is those newly informed targets in ascending `AgentId`. Stop when the frontier is empty or after `max_hops` levels.
+
+No same-level transmission can chain: target eligibility is read from the level-start state and writes are applied only after all sources in that level have been evaluated. Every eligible source-edge pair gets its own coordinate even when another edge targets the same agent. Dead edges are skipped before drawing. Existing edges, including short rows allowed under §13, retain their order and use their actual edge position `j`.
+
+### 16.4 Metrics and event semantics
+
+Append the following `u64` values after the base profile metrics in each day's propagation metrics: `informed_count` (live agents informed after Phase 9c), `newly_informed` (distinct live agents that transitioned to informed during Phase 9c, including seeds and spread), `forgotten` (distinct live agents changed from informed to uninformed), `seeded` (distinct agents accepted by the seed rule), `levels_used` (spread rounds processed, including the final processed round that produces an empty next frontier), and `max_frontier_size` (largest frontier size, including the initial frontier and subsequent frontiers). A forgotten agent that is reseeded on the same day contributes once to `forgotten`, `seeded`, and `newly_informed`.
+
+Propagation emits no new events. Existing M2/M3/M3P event ordering and payload remain unchanged when propagation is off. With propagation on, their existing event records are encoded under the propagation event domain; Phase 9b Birth/Cleanup records remain in their existing positions and retain their existing tags and payloads.
+
+### 16.5 Digests and snapshot v3
+
+Any enabled propagation combination uses digest domains `SIMCIV_M3PROP_STATE_V1`, `SIMCIV_M3PROP_METRICS_V1`, and `SIMCIV_M3PROP_EVENTS_V1`. State encoding is the matching base profile's canonical fields (M3 or M3P, including its graph and allocator data as applicable), under the new state domain, followed by propagation columns in canonical ascending `AgentId` order: `AgentId` (`u32 LE`), `informed` (`u8` 0 or 1), `informed_day` (`u32 LE`). Metrics use the matching base profile's per-day field order followed by the six §16.4 `u64 LE` values, in M1 day order, under the new metrics domain. Events use the existing canonical event key and payload encoding under the new event domain; when population dynamics is on, include its existing Birth and Cleanup variants unchanged.
+
+Snapshot schema v3 is used only when propagation is enabled. It contains the base snapshot contents (schema v1 when population dynamics is off, schema v2 when it is on), the effective feature manifest, and propagation columns in canonical AgentId order. For static M3 graphs, restore regenerates the graph using the existing deterministic rule; for M3P, the base v2 snapshot retains its canonical CSR and allocator. Restore validates the feature manifest and column count/order before a run resumes. Existing v1 and v2 bytes remain unchanged.
+
+### 16.6 Parallel opt-in
+
+Serial propagation is the default. A separate explicit parallel entry point takes a caller-owned Rayon `ThreadPool` and nonzero chunk size; it never creates, resizes, or chooses a pool automatically. Each level's transmission evaluation reads an immutable level-start view and writes successful targets to chunk-local candidate lists. Merge lists by fixed global source position, deduplicate targets, and sort the next frontier by `AgentId`; only then apply writes. This must match the serial path's state, metrics, events, digests, snapshots, and errors for all pool sizes and chunk sizes. Scratch is caller-owned transient runtime state and is absent from canonical state and snapshots.
+
+### 16.7 Acceptance gates and measurement
+
+The reference golden uses `N = 300`, `K = 3`, `k = 8`, `p_local = 0.5`, master seed `81985529216486895`, replicate `7`, and 300 days. The implementation records its chosen propagation probabilities and max hops with separate M3PROP State/Metrics/Events golden values. The test run must show multi-hop spread, growth and later decline in informed population, and forgetting. Unit tests cover forget, seed, duplicate incoming successes, multiple levels, `max_hops`, empty frontier, dead senders/receivers, and newborn initialization.
+
+The storage and parallel gates compare per-day records with the WorldState reference for the golden and for `N = 300`, `K ∈ {3,10}`, `k ∈ {4,8,16}`, `max_hops ∈ {1,4,16}`, 200 days, and two seeds. Parallel pools `{1,2,4}` and chunks `{64,256}` must match serial. Also require schema-v3 pause/resume, propagation-off equality with all existing M2/M3/M3P goldens and snapshot bytes, and M3P incremental-topology parity.
+
+The measurement report is `docs/performance/M3_11_PROPAGATION.md`. On the sustained M3P configuration with propagation enabled, measure `N ∈ {10,000,100,000}`, `k ∈ {8,16}`, `max_hops ∈ {1,2,4,8,16}`, and transmit probability `{0.05,0.2}`. Record Phase 9c time, frontier sizes by level, levels used, and whole-tick time. Compare serial with explicit pools `{1,2,4,6}` using paired, interleaved runs, at least 11 samples, and state the frontier size at which parallel spread wins if any. Separate measured facts from inference.
+
+### 16.8 Non-goals
+
+M3-11 does not change any other phase's behavior, the graph topology, the M1 subsystem map, existing M2/M3/M3P digests or snapshot bytes, or the default serial execution policy. Behavioral use of information state, new propagation events, automatic parallel thresholds, and changes to birth/compaction semantics require later contract amendments.
+
+### 16.9 Frozen decision register
+
+| ID | Decision | Status | Frozen resolution |
+|---|---|---|---|
+| RQ-1 | Phase placement and ordering | **FROZEN** | Add Phase 9c after Phase 9b when population dynamics is on, otherwise after Phase 9; run Forget, Seed, Spread in that order before metrics, events, and snapshots. |
+| RQ-2 | Propagation state | **FROZEN** | Store `informed` and `informed_day` only when enabled. Initialize agents and newborns uninformed with day 0; normalize forgotten state to the same representation. Dead agents neither send nor receive and remain recorded until M3P compaction. |
+| RQ-3 | RNG mapping | **FROZEN** | Reserve M3 subsystem ID 8. Use the exact §16.3 coordinates and draw indices; existing IDs 0–7 do not change. |
+| RQ-4 | Same-level conflicts | **FROZEN** | Evaluate from level-start state; every eligible source-edge pair draws once; successful targets are OR-merged and committed after the level. |
+| RQ-5 | Metrics and events | **FROZEN** | Append the six `u64` metrics in §16.4 order. Add no events; preserve existing base event records under the new event domain. |
+| RQ-6 | Digest and persistence | **FROZEN** | Use M3PROP digest domains and append propagation columns after the matching base-profile state fields. Use schema v3 only with propagation; preserve v1/v2. |
+| RQ-7 | Configuration | **FROZEN** | Require all propagation values when enabled; validate finite probabilities and `max_hops ∈ [1,64]`; reject a propagation section when disabled. |
+| RQ-8 | Parallel execution | **FROZEN** | Serial remains default. Expose parallel only as explicit caller-owned pool/chunk opt-in; fixed per-level evaluation and deterministic merge must equal serial. |
+| RQ-9 | Golden workload | **FROZEN** | Use the fixed 300-agent workload in §16.7; the implementation records the selected probabilities and separate digests. |
+| RQ-10 | Implementation order | **FROZEN** | Implement WorldState reference and its goldens first, then storage serial path, then explicit parallel spread, then measurement. |
+
+### 16.10 Freeze record
+
+This freeze defines propagation state, draw coordinates, synchronous level semantics, metrics, digest domains, snapshot v3, and serial/parallel acceptance boundaries. It authorizes the M3-11 implementation task to be requested but does not start it. The M3-11 implementation and performance report remain separate deliverables.
