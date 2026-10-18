@@ -725,11 +725,18 @@
         });
       }
       const cursor=document.createElementNS(svg.namespaceURI,"line");cursor.setAttribute("class","day-cursor");cursor.setAttribute("y1",top);cursor.setAttribute("y2",height-bottom);svg.append(cursor);
-      svg.addEventListener("pointermove",event=>{
+      let dragging=false;
+      const selectDayFromPointer=event=>{
         const rect=svg.getBoundingClientRect(),localX=(event.clientX-rect.left)*(width/rect.width);
         const ratio=Math.max(0,Math.min(1,(localX-left)/plotW));
         updateSelectedDay(xMin+ratio*(xMax-xMin),false);
+      };
+      svg.addEventListener("pointerdown",event=>{
+        if(event.button!==undefined&&event.button!==0)return;
+        dragging=true;svg.setPointerCapture(event.pointerId);selectDayFromPointer(event);event.preventDefault();
       });
+      svg.addEventListener("pointermove",event=>{if(dragging)selectDayFromPointer(event);});
+      for(const name of ["pointerup","pointercancel","lostpointercapture"])svg.addEventListener(name,()=>{dragging=false;});
       card.append(svg);
       container.append(card);
     }
