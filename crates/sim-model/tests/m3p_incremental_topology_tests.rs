@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use sim_model::config::PopulationConfig;
 use sim_model::hashing::{
     canonical_m3p_event_hash, canonical_m3p_metrics_hash, canonical_m3p_state_hash,
@@ -214,19 +215,31 @@ fn compare_all_paths(
             metrics[index].push(outcome.metrics.as_ref().expect("metrics enabled").clone());
             events[index].extend(outcome.events.iter().cloned());
         }
-        assert_storage_state_hash(
-            &reference,
-            &storage_world,
-            storage_context.relationship_graph(),
-            storage_context.next_agent_id(),
-            &format!("storage State day {day}"),
+        let reference_state_hash =
+            canonical_m3p_state_hash(&reference).expect("reference state digest");
+        assert_eq!(
+            reference_state_hash,
+            canonical_m3p_state_hash_from_storage(
+                storage_world.storage().expect("storage exists"),
+                storage_world.world.current_day,
+                &storage_world.world.settlements,
+                storage_context.relationship_graph(),
+                storage_context.next_agent_id(),
+            )
+            .expect("storage state digest"),
+            "storage State day {day}"
         );
-        assert_storage_state_hash(
-            &reference,
-            &incremental_world,
-            incremental_context.relationship_graph(),
-            incremental_context.next_agent_id(),
-            &format!("incremental State day {day}"),
+        assert_eq!(
+            reference_state_hash,
+            canonical_m3p_state_hash_from_storage(
+                incremental_world.storage().expect("storage exists"),
+                incremental_world.world.current_day,
+                &incremental_world.world.settlements,
+                incremental_context.relationship_graph(),
+                incremental_context.next_agent_id(),
+            )
+            .expect("incremental state digest"),
+            "incremental State day {day}"
         );
         assert_eq!(
             storage_context.relationship_graph().source_ids(),
@@ -355,21 +368,35 @@ fn incremental_topology_matches_m3p_goldens_and_oracles() {
 
 #[test]
 fn incremental_topology_matches_all_36_m3p_matrix_cells() {
-    for seed in [0, 81985529216486895] {
-        for settlements in [3, 10] {
-            for degree in [4, 8, 16] {
-                for p_local in [0.0, 0.5, 1.0] {
-                    compare_all_paths(
-                        &matrix_config(seed, settlements, degree, p_local),
-                        300,
-                        false,
-                        &[],
-                        false,
-                    );
-                }
-            }
-        }
-    }
+    let cells: Vec<_> = [0, 81985529216486895]
+        .into_iter()
+        .flat_map(|seed| {
+            [3, 10].into_iter().flat_map(move |settlements| {
+                [4, 8, 16].into_iter().flat_map(move |degree| {
+                    [0.0, 0.5, 1.0]
+                        .into_iter()
+                        .map(move |p_local| (seed, settlements, degree, p_local))
+                })
+            })
+        })
+        .collect();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .expect("independent matrix-cell pool builds");
+    pool.install(|| {
+        cells
+            .into_par_iter()
+            .for_each(|(seed, settlements, degree, p_local)| {
+                compare_all_paths(
+                    &matrix_config(seed, settlements, degree, p_local),
+                    300,
+                    false,
+                    &[],
+                    false,
+                );
+            });
+    });
 }
 
 #[test]
