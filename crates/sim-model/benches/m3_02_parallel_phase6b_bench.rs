@@ -1,7 +1,9 @@
 #![allow(clippy::disallowed_methods)]
 
 use sim_core::{AgentId, SimulationDay};
-use sim_model::decision::{PrimaryActionChoice, phase4_primary_action_selection_storage_into};
+use sim_model::decision::{
+    Action, PrimaryActionChoice, phase4_primary_action_selection_storage_into,
+};
 use sim_model::features::{
     AgentFeatures, Phase3ScarcityScratch, phase3_observation_and_features_storage_with_scratch,
 };
@@ -11,7 +13,7 @@ use sim_model::hashing::{
 };
 use sim_model::intents::{
     Intent, M3Phase4SlotProjection, count_cross_partition_interactions_storage_per_day,
-    generate_intents_m3_storage_into,
+    generate_intents_m3_storage_into, generate_intents_m3_storage_into_with_timing,
 };
 use sim_model::metrics::M3DailyMetrics;
 use sim_model::partitioning::{
@@ -21,9 +23,12 @@ use sim_model::partitioning::{
 use sim_model::phases::{phase1_resource_regrowth, phase9_mortality_commitment_storage};
 use sim_model::relationship_graph::RelationshipGraph;
 use sim_model::resolution::{
-    M3Phase6BLevelStats, M3Phase6BParallelScratch, M3Phase6BStageTimings, Phase8WelfareScratch,
-    TargetedActionKind, compare_keyed_interactions, compute_m3_resolution_key,
-    phase6a_work_resolution_storage, phase6b_targeted_resolution_storage_m3_parallel_with_timing,
+    M3Phase6BLevelStats, M3Phase6BParallelScratch, M3Phase6BStageTimings, M3Phase6BStorageScratch,
+    Phase8WelfareScratch, TargetedActionKind, TargetedOutcome, compare_keyed_interactions,
+    compute_m3_resolution_key, phase6a_work_resolution_storage,
+    phase6b_targeted_resolution_storage_m3_parallel_with_timing,
+    phase6b_targeted_resolution_storage_m3_with_scratch,
+    phase6b_targeted_resolution_storage_m3_with_timing,
     phase7_market_clearance_storage_with_config,
     phase8_welfare_distribution_storage_with_config_and_scratch,
 };
@@ -142,16 +147,85 @@ struct DailyVolume {
 struct ManualRun {
     world: WorldState,
     storage: SegmentedAgentStorage,
+    relationship_graph: RelationshipGraph,
     run_context: M0RunContext,
     projection: M3Phase4SlotProjection,
     features: Vec<AgentFeatures>,
     choices: Vec<PrimaryActionChoice>,
     intents: Vec<Intent>,
     candidates: Vec<AgentId>,
+    probe_intents: Vec<Intent>,
+    probe_candidates: Vec<AgentId>,
     phase3: Phase3ScarcityScratch,
     phase5: Phase5PartitionScratch,
     phase6b_parallel: M3Phase6BParallelScratch,
+    phase6b_serial: M3Phase6BStorageScratch,
+    phase6b_probe: M3Phase6BStorageScratch,
     phase8: Phase8WelfareScratch,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct OutcomeCounts {
+    zero_target: u64,
+    initiator_ineligible: u64,
+    target_ineligible: u64,
+    theft_failed: u64,
+    applied_positive: u64,
+    applied_zero: u64,
+}
+
+struct InteractionDayProfile {
+    day: u32,
+    alive: usize,
+    mean_alive_food: Option<f64>,
+    action_counts: [u64; Action::COUNT],
+    give_some: u64,
+    give_none: u64,
+    steal_some: u64,
+    steal_none: u64,
+    keyed: u64,
+    cross_partition: u64,
+    outcomes: OutcomeCounts,
+    metrics: M3DailyMetrics,
+    phase4_intent_timing: sim_model::M3Phase4IntentTimings,
+    phase4_hook_timed_wall: Duration,
+    phase4_hook_plain_wall: Duration,
+    phase6b_timing: M3Phase6BStageTimings,
+    phase6b_hook_timed_wall: Duration,
+    phase6b_hook_plain_wall: Duration,
+}
+
+#[derive(Default, Clone, Copy)]
+struct SearchSample {
+    phase4_target_us: f64,
+    phase4_other_us: f64,
+    phase4_hook_overhead_us: f64,
+    phase4_hook_overhead_percent: f64,
+    phase6b_validation_us: f64,
+    phase6b_key_us: f64,
+    phase6b_sort_us: f64,
+    applied_us: f64,
+    other_keyed_us: f64,
+    output_us: f64,
+    search_setup_us: f64,
+    work_us: f64,
+    search_per_applied_us: f64,
+    work_per_applied_us: f64,
+    search_to_work_ratio: f64,
+    phase6b_hook_overhead_us: f64,
+    phase6b_hook_overhead_percent: f64,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct SearchCounts {
+    actions: [u64; Action::COUNT],
+    give_some: u64,
+    give_none: u64,
+    steal_some: u64,
+    steal_none: u64,
+    keyed: u64,
+    cross_partition: u64,
+    outcomes: OutcomeCounts,
 }
 
 fn config_for(cell: Cell) -> SimConfig {
@@ -199,6 +273,7 @@ impl ManualRun {
         Self {
             world,
             storage,
+            relationship_graph: graph,
             run_context,
             projection,
             features: Vec::with_capacity(n),
@@ -207,9 +282,15 @@ impl ManualRun {
             candidates: Vec::with_capacity(
                 config.interaction.relationship_degree_k.unwrap() as usize
             ),
+            probe_intents: Vec::with_capacity(n),
+            probe_candidates: Vec::with_capacity(
+                config.interaction.relationship_degree_k.unwrap() as usize
+            ),
             phase3: Phase3ScarcityScratch::with_capacity(k),
             phase5: Phase5PartitionScratch::with_capacity(k),
             phase6b_parallel: M3Phase6BParallelScratch::with_capacity(n, k, n),
+            phase6b_serial: M3Phase6BStorageScratch::with_capacity(n),
+            phase6b_probe: M3Phase6BStorageScratch::with_capacity(n),
             phase8: Phase8WelfareScratch::with_capacity(k),
         }
     }
@@ -317,6 +398,382 @@ impl ManualRun {
         phase9_mortality_commitment_storage(&mut self.storage).expect("phase 9 succeeds");
         self.world.current_day = SimulationDay(next_day);
         (volume, stage_timings, level_stats)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_profile_phase4(
+    storage: &SegmentedAgentStorage,
+    day: SimulationDay,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    projection: &M3Phase4SlotProjection,
+    candidate_scratch: &mut Vec<AgentId>,
+    out: &mut Vec<Intent>,
+    timed: bool,
+) -> (Duration, sim_model::M3Phase4IntentTimings) {
+    let started = Instant::now();
+    let timings = if timed {
+        generate_intents_m3_storage_into_with_timing(
+            storage,
+            day,
+            config,
+            choices,
+            projection,
+            candidate_scratch,
+            out,
+        )
+        .expect("timed phase 4 succeeds")
+    } else {
+        generate_intents_m3_storage_into(
+            storage,
+            day,
+            config,
+            choices,
+            projection,
+            candidate_scratch,
+            out,
+        )
+        .expect("phase 4 succeeds");
+        sim_model::M3Phase4IntentTimings::default()
+    };
+    (started.elapsed(), timings)
+}
+
+fn run_profile_phase6b(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[sim_model::state::SettlementState],
+    day: SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    scratch: &mut M3Phase6BStorageScratch,
+    timed: bool,
+) -> (
+    Duration,
+    Vec<sim_model::SettlementTargetedResolution>,
+    M3Phase6BStageTimings,
+) {
+    let started = Instant::now();
+    if timed {
+        let (output, timings) = phase6b_targeted_resolution_storage_m3_with_timing(
+            storage,
+            settlements,
+            day,
+            config,
+            partitions,
+            scratch,
+        )
+        .expect("timed phase 6B succeeds");
+        (started.elapsed(), output, timings)
+    } else {
+        let output = phase6b_targeted_resolution_storage_m3_with_scratch(
+            storage,
+            settlements,
+            day,
+            config,
+            partitions,
+            scratch,
+        )
+        .expect("phase 6B succeeds");
+        (started.elapsed(), output, M3Phase6BStageTimings::default())
+    }
+}
+
+fn advance_interaction_profile(
+    run: &mut ManualRun,
+    config: &SimConfig,
+    compare_timing_hooks: bool,
+    reverse_hook_order: bool,
+) -> InteractionDayProfile {
+    let day = run.world.current_day.as_u32();
+    let next_day = day.checked_add(1).expect("day does not overflow");
+    let current_day = run.world.current_day;
+    let mut effective = config.clone();
+    effective.world.master_seed = run.run_context.master_seed;
+    effective.world.replicate_id = run.run_context.replicate_id;
+
+    phase1_resource_regrowth(&mut run.world, &effective);
+    run.storage.phase2_degradation_with_config(&effective);
+    run.features.clear();
+    phase3_observation_and_features_storage_with_scratch(
+        &run.storage,
+        &run.world.settlements,
+        &effective,
+        &mut run.features,
+        &mut run.phase3,
+    )
+    .expect("phase 3 succeeds");
+    run.choices.clear();
+    phase4_primary_action_selection_storage_into(
+        &run.storage,
+        current_day,
+        &effective,
+        &run.features,
+        &mut run.choices,
+    )
+    .expect("phase 4 action selection succeeds");
+
+    let (phase4_intent_timing, phase4_hook_timed_wall, phase4_hook_plain_wall) =
+        if compare_timing_hooks {
+            let (timed_wall, timing, plain_wall) = if reverse_hook_order {
+                let (plain_wall, _) = run_profile_phase4(
+                    &run.storage,
+                    current_day,
+                    &effective,
+                    &run.choices,
+                    &run.projection,
+                    &mut run.probe_candidates,
+                    &mut run.probe_intents,
+                    false,
+                );
+                let (timed_wall, timing) = run_profile_phase4(
+                    &run.storage,
+                    current_day,
+                    &effective,
+                    &run.choices,
+                    &run.projection,
+                    &mut run.candidates,
+                    &mut run.intents,
+                    true,
+                );
+                (timed_wall, timing, plain_wall)
+            } else {
+                let (timed_wall, timing) = run_profile_phase4(
+                    &run.storage,
+                    current_day,
+                    &effective,
+                    &run.choices,
+                    &run.projection,
+                    &mut run.candidates,
+                    &mut run.intents,
+                    true,
+                );
+                let (plain_wall, _) = run_profile_phase4(
+                    &run.storage,
+                    current_day,
+                    &effective,
+                    &run.choices,
+                    &run.projection,
+                    &mut run.probe_candidates,
+                    &mut run.probe_intents,
+                    false,
+                );
+                (timed_wall, timing, plain_wall)
+            };
+            assert_eq!(run.intents, run.probe_intents);
+            (timing, timed_wall, plain_wall)
+        } else {
+            generate_intents_m3_storage_into(
+                &run.storage,
+                current_day,
+                &effective,
+                &run.choices,
+                &run.projection,
+                &mut run.candidates,
+                &mut run.intents,
+            )
+            .expect("phase 4 intent generation succeeds");
+            (
+                sim_model::M3Phase4IntentTimings::default(),
+                Duration::ZERO,
+                Duration::ZERO,
+            )
+        };
+
+    let mut action_counts = [0u64; Action::COUNT];
+    for choice in &run.choices {
+        action_counts[choice.action.index()] += 1;
+    }
+    let mut give_some = 0;
+    let mut give_none = 0;
+    let mut steal_some = 0;
+    let mut steal_none = 0;
+    for intent in &run.intents {
+        match intent {
+            Intent::GiveFood {
+                target_agent_id: Some(_),
+                ..
+            } => give_some += 1,
+            Intent::GiveFood {
+                target_agent_id: None,
+                ..
+            } => give_none += 1,
+            Intent::StealFood {
+                target_agent_id: Some(_),
+                ..
+            } => steal_some += 1,
+            Intent::StealFood {
+                target_agent_id: None,
+                ..
+            } => steal_none += 1,
+            _ => {}
+        }
+    }
+    let cross_partition =
+        count_cross_partition_interactions_storage_per_day(&run.intents, &run.storage)
+            .expect("cross-partition counting succeeds");
+    let partitions =
+        phase5_partition_intents_from_vec_with_scratch(&mut run.intents, &mut run.phase5)
+            .expect("phase 5 succeeds");
+    let keyed = keyed_stream_from_partitions(&partitions, current_day, run.run_context);
+    let keyed_count = keyed.len() as u64;
+    phase6a_work_resolution_storage(&mut run.storage, &mut run.world.settlements, &partitions)
+        .expect("phase 6A succeeds");
+
+    let (resolutions, phase6b_timing, phase6b_hook_timed_wall, phase6b_hook_plain_wall) =
+        if compare_timing_hooks {
+            let mut probe_storage = run.storage.clone();
+            let (timed_output, timing, plain_output, timed_wall, plain_wall) = if reverse_hook_order
+            {
+                let (plain_wall, plain_output, _) = run_profile_phase6b(
+                    &mut run.storage,
+                    &run.world.settlements,
+                    current_day,
+                    &effective,
+                    &partitions,
+                    &mut run.phase6b_serial,
+                    false,
+                );
+                let (timed_wall, timed_output, timing) = run_profile_phase6b(
+                    &mut probe_storage,
+                    &run.world.settlements,
+                    current_day,
+                    &effective,
+                    &partitions,
+                    &mut run.phase6b_probe,
+                    true,
+                );
+                (timed_output, timing, plain_output, timed_wall, plain_wall)
+            } else {
+                let (timed_wall, timed_output, timing) = run_profile_phase6b(
+                    &mut probe_storage,
+                    &run.world.settlements,
+                    current_day,
+                    &effective,
+                    &partitions,
+                    &mut run.phase6b_probe,
+                    true,
+                );
+                let (plain_wall, plain_output, _) = run_profile_phase6b(
+                    &mut run.storage,
+                    &run.world.settlements,
+                    current_day,
+                    &effective,
+                    &partitions,
+                    &mut run.phase6b_serial,
+                    false,
+                );
+                (timed_output, timing, plain_output, timed_wall, plain_wall)
+            };
+            assert_eq!(timed_output, plain_output);
+            assert_eq!(probe_storage.food(), run.storage.food());
+            assert_eq!(
+                canonical_m3_state_hash_from_storage(
+                    &probe_storage,
+                    current_day,
+                    &run.world.settlements,
+                    &run.relationship_graph,
+                )
+                .expect("timed Phase 6B state digest succeeds"),
+                canonical_m3_state_hash_from_storage(
+                    &run.storage,
+                    current_day,
+                    &run.world.settlements,
+                    &run.relationship_graph,
+                )
+                .expect("untimed Phase 6B state digest succeeds")
+            );
+            (plain_output, timing, timed_wall, plain_wall)
+        } else {
+            let (plain_wall, output, _) = run_profile_phase6b(
+                &mut run.storage,
+                &run.world.settlements,
+                current_day,
+                &effective,
+                &partitions,
+                &mut run.phase6b_serial,
+                false,
+            );
+            let _ = plain_wall;
+            (
+                output,
+                M3Phase6BStageTimings::default(),
+                Duration::ZERO,
+                Duration::ZERO,
+            )
+        };
+    let mut outcomes = OutcomeCounts::default();
+    for resolution in resolutions.iter().flat_map(|group| &group.resolutions) {
+        match resolution.outcome {
+            TargetedOutcome::ZeroTarget => outcomes.zero_target += 1,
+            TargetedOutcome::InitiatorIneligible => outcomes.initiator_ineligible += 1,
+            TargetedOutcome::TargetIneligible => outcomes.target_ineligible += 1,
+            TargetedOutcome::TheftFailed => outcomes.theft_failed += 1,
+            TargetedOutcome::Applied { amount } if amount > 0.0 => outcomes.applied_positive += 1,
+            TargetedOutcome::Applied { .. } => outcomes.applied_zero += 1,
+        }
+    }
+
+    phase7_market_clearance_storage_with_config(
+        &mut run.storage,
+        &mut run.world.settlements,
+        &partitions,
+        &effective.economy,
+    )
+    .expect("phase 7 succeeds");
+    phase8_welfare_distribution_storage_with_config_and_scratch(
+        &mut run.storage,
+        &mut run.world.settlements,
+        &effective,
+        &mut run.phase8,
+    )
+    .expect("phase 8 succeeds");
+    phase9_mortality_commitment_storage(&mut run.storage).expect("phase 9 succeeds");
+
+    let base_metrics = run
+        .storage
+        .phase10_metrics(&run.world.settlements, day)
+        .expect("phase 10 succeeds");
+    let (cross_partition_edge_count, total_directed_edge_count) =
+        run.relationship_graph.edge_ratio_counts();
+    let metrics = M3DailyMetrics {
+        metrics: base_metrics,
+        cross_partition_edge_count,
+        total_directed_edge_count,
+        cross_partition_interaction_count: cross_partition,
+    };
+    let alive = run.storage.alive().iter().filter(|&&alive| alive).count();
+    let mean_alive_food = (alive > 0).then(|| {
+        run.storage
+            .alive()
+            .iter()
+            .zip(run.storage.food())
+            .filter(|(alive, _)| **alive)
+            .map(|(_, &food)| food as f64)
+            .sum::<f64>()
+            / alive as f64
+    });
+    run.world.current_day = SimulationDay(next_day);
+
+    InteractionDayProfile {
+        day,
+        alive,
+        mean_alive_food,
+        action_counts,
+        give_some,
+        give_none,
+        steal_some,
+        steal_none,
+        keyed: keyed_count,
+        cross_partition,
+        outcomes,
+        metrics,
+        phase4_intent_timing,
+        phase4_hook_timed_wall,
+        phase4_hook_plain_wall,
+        phase6b_timing,
+        phase6b_hook_timed_wall,
+        phase6b_hook_plain_wall,
     }
 }
 
@@ -897,6 +1354,451 @@ fn run_extended_release_parity() {
     println!("EXTENDED_PASS|cells=60|configurations=300|host_max_pool={host_max}|skipped=0");
 }
 
+fn interaction_followup_cells() -> Vec<Cell> {
+    [10_000, 100_000]
+        .into_iter()
+        .flat_map(|population| {
+            [0.0, 0.5, 1.0].into_iter().map(move |p_local| Cell {
+                population,
+                settlements: (population / 200) as u32,
+                degree: 8,
+                p_local,
+            })
+        })
+        .collect()
+}
+
+fn print_decay_row(cell: Cell, profile: &InteractionDayProfile) {
+    println!(
+        "DECAY|{}|{}|{:.2}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        cell.population,
+        cell.settlements,
+        cell.p_local,
+        profile.day + 1,
+        profile.alive,
+        profile
+            .mean_alive_food
+            .map_or_else(|| "NA".to_string(), |value| format!("{value:.6}")),
+        profile.action_counts[Action::Work.index()],
+        profile.action_counts[Action::BuyFood.index()],
+        profile.action_counts[Action::SellFood.index()],
+        profile.action_counts[Action::GiveFood.index()],
+        profile.action_counts[Action::StealFood.index()],
+        profile.action_counts[Action::Idle.index()],
+        profile.give_some,
+        profile.give_none,
+        profile.steal_some,
+        profile.steal_none,
+        profile.keyed,
+        profile.cross_partition,
+        profile.outcomes.applied_positive,
+        profile.outcomes.zero_target,
+        profile.outcomes.initiator_ineligible,
+        profile.outcomes.target_ineligible,
+        profile.outcomes.theft_failed,
+        profile.outcomes.applied_zero,
+    );
+}
+
+fn run_workload_decay() {
+    println!(
+        "DECAY_HEADER|N|K|p_local|day|alive|mean_alive_food|work|buy|sell|give|steal|idle|give_some|give_none|steal_some|steal_none|keyed|cross_partition|applied_positive|zero_target|initiator_ineligible|target_ineligible|theft_failed|applied_zero"
+    );
+    for cell in interaction_followup_cells() {
+        let config = config_for(cell);
+        let base =
+            HybridWorldState::hybrid(initialize_world(&config).expect("decay world initializes"));
+        let mut measured = ManualRun::from_hybrid_world(&config, base.clone());
+        let mut oracle = base;
+        let run_context = M0RunContext::new(config.world.master_seed, config.world.replicate_id);
+        let mut oracle_context = M3StorageRunContext::new(&oracle, &config, &run_context)
+            .expect("decay oracle context builds");
+        let options = DayExecutionOptions {
+            metrics_enabled: true,
+            events_enabled: true,
+            snapshot_boundary: false,
+        };
+        let mut measured_metrics = Vec::with_capacity(100);
+        let mut oracle_metrics = Vec::with_capacity(100);
+        let mut all_events = Vec::new();
+        let mut first_zero = false;
+
+        for _ in 0..100 {
+            let profile = advance_interaction_profile(&mut measured, &config, false, false);
+            let mut outcomes =
+                run_m3_storage_days(&mut oracle, &config, &mut oracle_context, 1, &options)
+                    .expect("decay oracle day succeeds");
+            let outcome = outcomes.pop().expect("one decay outcome");
+            assert_eq!(Some(&profile.metrics), outcome.metrics.as_ref());
+            let measured_state = canonical_m3_state_hash_from_storage(
+                &measured.storage,
+                measured.world.current_day,
+                &measured.world.settlements,
+                &measured.relationship_graph,
+            )
+            .expect("measured state digest succeeds");
+            let oracle_state = canonical_m3_state_hash_from_storage(
+                oracle.storage().expect("oracle storage exists"),
+                oracle.world.current_day,
+                &oracle.world.settlements,
+                oracle_context.relationship_graph(),
+            )
+            .expect("oracle state digest succeeds");
+            assert_eq!(measured_state, oracle_state);
+            measured_metrics.push(profile.metrics.clone());
+            oracle_metrics.push(outcome.metrics.expect("metrics enabled"));
+            all_events.extend(outcome.events);
+
+            if !first_zero && profile.keyed == 0 {
+                let targeted_actions = profile.action_counts[Action::GiveFood.index()]
+                    + profile.action_counts[Action::StealFood.index()];
+                let reason = if profile.alive == 0 {
+                    "population_collapse"
+                } else if targeted_actions == 0 {
+                    "action_choice_shift"
+                } else if profile.give_some + profile.steal_some == 0 {
+                    "no_eligible_targets"
+                } else {
+                    "unexplained"
+                };
+                println!(
+                    "DECAY_FIRST_ZERO|N={}|K={}|p={:.2}|day={}|reason={reason}|alive={}|give_actions={}|steal_actions={}|give_none={}|steal_none={}",
+                    cell.population,
+                    cell.settlements,
+                    cell.p_local,
+                    profile.day + 1,
+                    profile.alive,
+                    profile.action_counts[Action::GiveFood.index()],
+                    profile.action_counts[Action::StealFood.index()],
+                    profile.give_none,
+                    profile.steal_none,
+                );
+                first_zero = true;
+            }
+            print_decay_row(cell, &profile);
+        }
+
+        assert_eq!(
+            canonical_m3_metrics_hash(&measured_metrics).expect("measured metrics hash"),
+            canonical_m3_metrics_hash(&oracle_metrics).expect("oracle metrics hash")
+        );
+        let events_hash = canonical_event_hash(&all_events).expect("decay events hash");
+        let final_state = canonical_m3_state_hash_from_storage(
+            &measured.storage,
+            measured.world.current_day,
+            &measured.world.settlements,
+            &measured.relationship_graph,
+        )
+        .expect("decay final state hash");
+        println!(
+            "DECAY_PARITY|N={}|K={}|p={:.2}|state={final_state}|metrics={}|events={events_hash}",
+            cell.population,
+            cell.settlements,
+            cell.p_local,
+            canonical_m3_metrics_hash(&measured_metrics).unwrap(),
+        );
+    }
+}
+
+fn search_counts(profiles: &[InteractionDayProfile]) -> SearchCounts {
+    let mut counts = SearchCounts::default();
+    for profile in profiles {
+        for (total, count) in counts.actions.iter_mut().zip(profile.action_counts) {
+            *total += count;
+        }
+        counts.give_some += profile.give_some;
+        counts.give_none += profile.give_none;
+        counts.steal_some += profile.steal_some;
+        counts.steal_none += profile.steal_none;
+        counts.keyed += profile.keyed;
+        counts.cross_partition += profile.cross_partition;
+        counts.outcomes.zero_target += profile.outcomes.zero_target;
+        counts.outcomes.initiator_ineligible += profile.outcomes.initiator_ineligible;
+        counts.outcomes.target_ineligible += profile.outcomes.target_ineligible;
+        counts.outcomes.theft_failed += profile.outcomes.theft_failed;
+        counts.outcomes.applied_positive += profile.outcomes.applied_positive;
+        counts.outcomes.applied_zero += profile.outcomes.applied_zero;
+    }
+    counts
+}
+
+fn signed_duration_us(left: Duration, right: Duration) -> f64 {
+    (left.as_nanos() as f64 - right.as_nanos() as f64) / 1_000.0
+}
+
+fn summarize_search_sample(
+    profiles: &[InteractionDayProfile],
+    counts: SearchCounts,
+) -> SearchSample {
+    let days = profiles.len() as f64;
+    let total_ns = |select: fn(&InteractionDayProfile) -> Duration| {
+        profiles
+            .iter()
+            .map(select)
+            .map(|duration| duration.as_nanos())
+            .sum::<u128>()
+    };
+    let us_per_tick = |nanos: u128| nanos as f64 / 1_000.0 / days;
+    let p4_candidate_ns = profiles
+        .iter()
+        .map(|profile| {
+            profile
+                .phase4_intent_timing
+                .candidate_filter_and_draw
+                .as_nanos()
+        })
+        .sum::<u128>();
+    let p4_total_ns = profiles
+        .iter()
+        .map(|profile| profile.phase4_intent_timing.total.as_nanos())
+        .sum::<u128>();
+    let p4_plain_wall_ns = profiles
+        .iter()
+        .map(|profile| profile.phase4_hook_plain_wall.as_nanos())
+        .sum::<u128>();
+    let p4_hook_delta_us = profiles
+        .iter()
+        .map(|profile| {
+            signed_duration_us(
+                profile.phase4_hook_timed_wall,
+                profile.phase4_hook_plain_wall,
+            )
+        })
+        .sum::<f64>()
+        / days;
+    let p6_plain_wall_ns = profiles
+        .iter()
+        .map(|profile| profile.phase6b_hook_plain_wall.as_nanos())
+        .sum::<u128>();
+    let p6_hook_delta_us = profiles
+        .iter()
+        .map(|profile| {
+            signed_duration_us(
+                profile.phase6b_hook_timed_wall,
+                profile.phase6b_hook_plain_wall,
+            )
+        })
+        .sum::<f64>()
+        / days;
+    let phase4_target_us = us_per_tick(p4_candidate_ns);
+    let phase4_total_us = us_per_tick(p4_total_ns);
+    let phase4_other_us = (phase4_total_us - phase4_target_us).max(0.0);
+    let phase6b_validation_us = us_per_tick(total_ns(|p| p.phase6b_timing.validation_slot_lookup));
+    let phase6b_key_us = us_per_tick(total_ns(|p| p.phase6b_timing.key_generation));
+    let phase6b_sort_us = us_per_tick(total_ns(|p| p.phase6b_timing.global_sort));
+    let applied_us = us_per_tick(total_ns(|p| p.phase6b_timing.applied_positive_entries));
+    let other_keyed_us = us_per_tick(total_ns(|p| p.phase6b_timing.other_keyed_entries));
+    let output_us = us_per_tick(total_ns(|p| p.phase6b_timing.output_assembly));
+    let search_setup_us =
+        phase4_target_us + phase6b_validation_us + phase6b_key_us + phase6b_sort_us;
+    let applied_per_day = counts.outcomes.applied_positive as f64 / days;
+    let p4_hook_overhead_us = p4_hook_delta_us;
+    let p6_hook_overhead_us = p6_hook_delta_us;
+    SearchSample {
+        phase4_target_us,
+        phase4_other_us,
+        phase4_hook_overhead_us: p4_hook_overhead_us,
+        phase4_hook_overhead_percent: p4_hook_delta_us / (p4_plain_wall_ns as f64 / 1_000.0 / days)
+            * 100.0,
+        phase6b_validation_us,
+        phase6b_key_us,
+        phase6b_sort_us,
+        applied_us,
+        other_keyed_us,
+        output_us,
+        search_setup_us,
+        work_us: applied_us,
+        search_per_applied_us: if applied_per_day > 0.0 {
+            search_setup_us / applied_per_day
+        } else {
+            f64::NAN
+        },
+        work_per_applied_us: if applied_per_day > 0.0 {
+            applied_us / applied_per_day
+        } else {
+            f64::NAN
+        },
+        search_to_work_ratio: if applied_us > 0.0 {
+            search_setup_us / applied_us
+        } else {
+            f64::NAN
+        },
+        phase6b_hook_overhead_us: p6_hook_overhead_us,
+        phase6b_hook_overhead_percent: p6_hook_delta_us
+            / (p6_plain_wall_ns as f64 / 1_000.0 / days)
+            * 100.0,
+    }
+}
+
+fn search_stat(samples: &[SearchSample], select: fn(&SearchSample) -> f64) -> (f64, f64) {
+    let mut values: Vec<_> = samples.iter().map(select).collect();
+    if values.iter().all(|value| !value.is_finite()) {
+        return (f64::NAN, f64::NAN);
+    }
+    summarize(&mut values)
+}
+
+fn print_search_counts(cell: Cell, counts: SearchCounts) {
+    println!(
+        "SEARCH_COUNTS|N={}|K={}|p={:.2}|days=3|work={}|buy={}|sell={}|give={}|steal={}|idle={}|give_some={}|give_none={}|steal_some={}|steal_none={}|keyed={}|cross_partition={}|applied_positive={}|zero_target={}|initiator_ineligible={}|target_ineligible={}|theft_failed={}|applied_zero={}",
+        cell.population,
+        cell.settlements,
+        cell.p_local,
+        counts.actions[Action::Work.index()],
+        counts.actions[Action::BuyFood.index()],
+        counts.actions[Action::SellFood.index()],
+        counts.actions[Action::GiveFood.index()],
+        counts.actions[Action::StealFood.index()],
+        counts.actions[Action::Idle.index()],
+        counts.give_some,
+        counts.give_none,
+        counts.steal_some,
+        counts.steal_none,
+        counts.keyed,
+        counts.cross_partition,
+        counts.outcomes.applied_positive,
+        counts.outcomes.zero_target,
+        counts.outcomes.initiator_ineligible,
+        counts.outcomes.target_ineligible,
+        counts.outcomes.theft_failed,
+        counts.outcomes.applied_zero,
+    );
+}
+
+fn run_search_vs_work() {
+    type SearchMetric = (&'static str, fn(&SearchSample) -> f64);
+    let metric_names: [SearchMetric; 17] = [
+        ("phase4_neighbor_filter_draw", |s| s.phase4_target_us),
+        ("phase4_other_intent_construction", |s| s.phase4_other_us),
+        ("phase6b_validation_slot", |s| s.phase6b_validation_us),
+        ("phase6b_key_generation", |s| s.phase6b_key_us),
+        ("phase6b_sort", |s| s.phase6b_sort_us),
+        ("phase6b_applied_positive", |s| s.applied_us),
+        ("phase6b_other_keyed", |s| s.other_keyed_us),
+        ("phase6b_output_assembly", |s| s.output_us),
+        ("search_setup", |s| s.search_setup_us),
+        ("applied_work", |s| s.work_us),
+        ("search_per_applied", |s| s.search_per_applied_us),
+        ("work_per_applied", |s| s.work_per_applied_us),
+        ("search_to_work_ratio", |s| s.search_to_work_ratio),
+        ("phase4_timing_hook_overhead", |s| s.phase4_hook_overhead_us),
+        ("phase4_timing_hook_overhead_pct", |s| {
+            s.phase4_hook_overhead_percent
+        }),
+        ("phase6b_timing_hook_overhead", |s| {
+            s.phase6b_hook_overhead_us
+        }),
+        ("phase6b_timing_hook_overhead_pct", |s| {
+            s.phase6b_hook_overhead_percent
+        }),
+    ];
+    println!("SEARCH_HEADER|N|K|p_local|metric|median_us_or_ratio|MAD");
+    for cell in interaction_followup_cells() {
+        let config = config_for(cell);
+        let base = HybridWorldState::hybrid(
+            initialize_world(&config).expect("search/work world initializes"),
+        );
+        let mut samples = Vec::with_capacity(SAMPLES);
+        let mut expected_trace: Option<TickDigests> = None;
+        let mut expected_counts: Option<SearchCounts> = None;
+        for sample in 0..(WARMUPS + SAMPLES) {
+            let mut measured = ManualRun::from_hybrid_world(&config, base.clone());
+            let mut oracle = base.clone();
+            let run_context =
+                M0RunContext::new(config.world.master_seed, config.world.replicate_id);
+            let mut oracle_context = M3StorageRunContext::new(&oracle, &config, &run_context)
+                .expect("search/work oracle context builds");
+            let options = DayExecutionOptions {
+                metrics_enabled: true,
+                events_enabled: true,
+                snapshot_boundary: false,
+            };
+            let mut profiles = Vec::with_capacity(3);
+            let mut oracle_outcomes = Vec::with_capacity(3);
+            for day_index in 0..3 {
+                let profile = advance_interaction_profile(
+                    &mut measured,
+                    &config,
+                    true,
+                    (sample + day_index) % 2 == 1,
+                );
+                let mut day_outcomes =
+                    run_m3_storage_days(&mut oracle, &config, &mut oracle_context, 1, &options)
+                        .expect("search/work oracle day succeeds");
+                let outcome = day_outcomes.pop().expect("one oracle outcome");
+                assert_eq!(Some(&profile.metrics), outcome.metrics.as_ref());
+                let measured_hash = canonical_m3_state_hash_from_storage(
+                    &measured.storage,
+                    measured.world.current_day,
+                    &measured.world.settlements,
+                    &measured.relationship_graph,
+                )
+                .expect("profile state hash succeeds");
+                let oracle_hash = canonical_m3_state_hash_from_storage(
+                    oracle.storage().expect("oracle storage exists"),
+                    oracle.world.current_day,
+                    &oracle.world.settlements,
+                    oracle_context.relationship_graph(),
+                )
+                .expect("oracle state hash succeeds");
+                assert_eq!(measured_hash, oracle_hash);
+                profiles.push(profile);
+                oracle_outcomes.push(outcome);
+            }
+            let trace = tick_digests(
+                &oracle,
+                oracle_context.relationship_graph(),
+                &oracle_outcomes,
+            );
+            if let Some(expected) = &expected_trace {
+                assert_eq!(trace, *expected);
+            } else {
+                expected_trace = Some(trace);
+            }
+            let counts = search_counts(&profiles);
+            if let Some(expected) = expected_counts {
+                assert_eq!(counts, expected);
+            } else {
+                expected_counts = Some(counts);
+            }
+            if sample >= WARMUPS {
+                samples.push(summarize_search_sample(&profiles, counts));
+            }
+        }
+
+        print_search_counts(cell, expected_counts.expect("search counts collected"));
+        for (name, select) in metric_names {
+            let (median, mad) = search_stat(&samples, select);
+            if median.is_finite() && mad.is_finite() {
+                println!(
+                    "SEARCH|N={}|K={}|p={:.2}|{name}|{median:.4}|{mad:.4}",
+                    cell.population, cell.settlements, cell.p_local
+                );
+            } else {
+                println!(
+                    "SEARCH|N={}|K={}|p={:.2}|{name}|NA|NA",
+                    cell.population, cell.settlements, cell.p_local
+                );
+            }
+        }
+    }
+}
+
+fn run_interaction_followup() {
+    let total_started = Instant::now();
+    print_host_info();
+    println!("FOLLOWUP_CONFIG|M2-40 unchanged|N=10000,100000|K=N/200|k=8|p_local=0,0.5,1");
+    println!(
+        "FOLLOWUP_METHOD|A=100 sequential days from day0|B=day0 through day3|warmups=2|timed_samples=11|serial M3 storage path|metrics=on|events=on|snapshots=off"
+    );
+    run_workload_decay();
+    run_search_vs_work();
+    println!(
+        "FOLLOWUP_TOTAL_SECONDS|{:.3}",
+        total_started.elapsed().as_secs_f64()
+    );
+}
+
 fn print_host_info() {
     let logical = std::thread::available_parallelism()
         .map(NonZeroUsize::get)
@@ -917,6 +1819,10 @@ fn print_host_info() {
 }
 
 fn main() {
+    if std::env::args().any(|arg| arg == "--interaction-followup") {
+        run_interaction_followup();
+        return;
+    }
     let total_started = Instant::now();
     print_host_info();
     println!("CONFIG|M2-40 fixed-group-size parameters; only M3 profile, k=8, and p_local varied");

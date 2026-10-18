@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, RngCoordinate, coordinate_prng_f32};
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
+use std::time::{Duration, Instant};
 
 /// Immutable decision-time Intent record generated during Phase 4.
 ///
@@ -1350,6 +1351,7 @@ enum Phase4CandidateSource<'a> {
 }
 
 impl Phase4CandidateSource<'_> {
+    #[allow(clippy::too_many_arguments)]
     fn target_agent(
         &mut self,
         storage: &crate::storage::SegmentedAgentStorage,
@@ -1358,7 +1360,9 @@ impl Phase4CandidateSource<'_> {
         initiator_slot: usize,
         current_day: sim_core::SimulationDay,
         config: &SimConfig,
+        timing: Option<&mut Duration>,
     ) -> Option<sim_core::AgentId> {
+        let started = timing.as_ref().map(|_| Instant::now());
         let group_id = storage.group_ids()[initiator_slot];
         let (candidate_ids, exclude_start, exclude_end) = match self {
             Self::FullScan(candidate_scratch, storage_is_sorted) => {
@@ -1434,7 +1438,7 @@ impl Phase4CandidateSource<'_> {
             }
         };
 
-        phase4_select_candidate(
+        let target = phase4_select_candidate(
             candidate_ids,
             exclude_start,
             exclude_end,
@@ -1442,7 +1446,11 @@ impl Phase4CandidateSource<'_> {
             action,
             current_day,
             config,
-        )
+        );
+        if let (Some(timing), Some(started)) = (timing, started) {
+            *timing += started.elapsed();
+        }
+        target
     }
 }
 
@@ -1453,6 +1461,7 @@ fn intent_for_valid_storage_choice(
     choice: &PrimaryActionChoice,
     slot: usize,
     candidate_source: &mut Phase4CandidateSource<'_>,
+    timing: Option<&mut Duration>,
 ) -> Intent {
     let agent_id = storage.agent_ids()[slot];
     let group_id = storage.group_ids()[slot];
@@ -1493,6 +1502,7 @@ fn intent_for_valid_storage_choice(
                 slot,
                 current_day,
                 config,
+                timing,
             );
             let requested_amount = config.interaction.gift_amount.min(food);
             Intent::GiveFood {
@@ -1510,6 +1520,7 @@ fn intent_for_valid_storage_choice(
                 slot,
                 current_day,
                 config,
+                timing,
             );
             let requested_amount = config.interaction.theft_amount;
             Intent::StealFood {
@@ -1579,6 +1590,7 @@ pub fn generate_intents_storage_with_candidate_index(
         choices,
         Phase4CandidateSource::PreIndexed(candidate_index),
         out,
+        None,
     )
 }
 
@@ -1601,7 +1613,40 @@ pub fn generate_intents_m3_storage_into(
         choices,
         Phase4CandidateSource::M3Projected(projection, candidate_scratch),
         out,
+        None,
     )
+}
+
+/// Opt-in timing for the unchanged M3 storage intent generator.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct M3Phase4IntentTimings {
+    pub candidate_filter_and_draw: Duration,
+    pub total: Duration,
+}
+
+/// Runs the M3 storage intent generator with result-neutral timing observations.
+pub fn generate_intents_m3_storage_into_with_timing(
+    storage: &crate::storage::SegmentedAgentStorage,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    choices: &[PrimaryActionChoice],
+    projection: &M3Phase4SlotProjection,
+    candidate_scratch: &mut Vec<sim_core::AgentId>,
+    out: &mut Vec<Intent>,
+) -> Result<M3Phase4IntentTimings, IntentError> {
+    let mut timings = M3Phase4IntentTimings::default();
+    candidate_scratch.clear();
+    candidate_scratch.reserve(projection.max_degree);
+    generate_intents_storage_impl(
+        storage,
+        current_day,
+        config,
+        choices,
+        Phase4CandidateSource::M3Projected(projection, candidate_scratch),
+        out,
+        Some(&mut timings),
+    )?;
+    Ok(timings)
 }
 
 /// Experimental Rayon Phase4 intent generation using the tick-built candidate index.
@@ -1800,6 +1845,7 @@ fn append_rayon_intent_chunks(
                             choice,
                             slot,
                             &mut source,
+                            None,
                         )
                     })
                     .collect::<Vec<_>>();
@@ -1836,6 +1882,7 @@ pub fn generate_intents_storage_with_scratch(
                 .all(|window| window[0] <= window[1]),
         ),
         out,
+        None,
     )
 }
 
@@ -1846,7 +1893,9 @@ fn generate_intents_storage_impl(
     choices: &[PrimaryActionChoice],
     mut candidate_source: Phase4CandidateSource<'_>,
     out: &mut Vec<Intent>,
+    mut timings: Option<&mut M3Phase4IntentTimings>,
 ) -> Result<(), IntentError> {
+    let total_started = timings.as_ref().map(|_| Instant::now());
     out.clear();
     match &mut candidate_source {
         Phase4CandidateSource::FullScan(candidate_scratch, _)
@@ -1932,6 +1981,9 @@ fn generate_intents_storage_impl(
             choice,
             slot,
             &mut candidate_source,
+            timings
+                .as_deref_mut()
+                .map(|timing| &mut timing.candidate_filter_and_draw),
         ));
     }
 
@@ -1975,6 +2027,9 @@ fn generate_intents_storage_impl(
     }
 
     out.sort_by_key(|i| i.agent_id());
+    if let (Some(timings), Some(started)) = (timings, total_started) {
+        timings.total += started.elapsed();
+    }
     Ok(())
 }
 

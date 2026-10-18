@@ -1819,6 +1819,7 @@ fn phase6b_targeted_resolution_storage_m3_serial_impl(
     }
     let evaluation_start = timings.as_ref().map(|_| Instant::now());
     for index in 0..scratch.keyed.len() {
+        let entry_start = timings.as_ref().map(|_| Instant::now());
         let item = scratch.keyed[index];
         let group_id = scratch.group_ids[item.bucket_index];
         let result = if !storage.demography.alive[item.initiator_slot]
@@ -1951,9 +1952,20 @@ fn phase6b_targeted_resolution_storage_m3_serial_impl(
                 }
             }
         };
+        let applied_positive =
+            matches!(result.outcome, TargetedOutcome::Applied { amount } if amount > 0.0);
         scratch.buckets[item.bucket_index].keyed_stream.push(result);
+        if let (Some(timings), Some(started)) = (timings.as_deref_mut(), entry_start) {
+            let elapsed = started.elapsed();
+            if applied_positive {
+                timings.applied_positive_entries += elapsed;
+            } else {
+                timings.other_keyed_entries += elapsed;
+            }
+        }
     }
 
+    let output_start = timings.as_ref().map(|_| Instant::now());
     let mut resolutions = Vec::with_capacity(group_count);
     for (index, &group_id) in scratch.group_ids.iter().enumerate() {
         let bucket = &scratch.buckets[index];
@@ -1965,6 +1977,9 @@ fn phase6b_targeted_resolution_storage_m3_serial_impl(
             keyed_stream: bucket.keyed_stream.clone(),
             resolutions: all,
         });
+    }
+    if let (Some(timings), Some(started)) = (timings.as_deref_mut(), output_start) {
+        timings.output_assembly += started.elapsed();
     }
 
     if let (Some(timings), Some(start)) = (timings, evaluation_start) {
@@ -2019,6 +2034,9 @@ pub struct M3Phase6BStageTimings {
     pub global_sort: Duration,
     pub dependency_level_build: Duration,
     pub evaluation_writeback_output: Duration,
+    pub applied_positive_entries: Duration,
+    pub other_keyed_entries: Duration,
+    pub output_assembly: Duration,
 }
 
 /// Caller-owned transient scratch for deterministic parallel M3 storage Phase 6B.
