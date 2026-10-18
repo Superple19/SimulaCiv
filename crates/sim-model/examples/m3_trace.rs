@@ -99,6 +99,7 @@ trait_weight_risk_tolerance = 1.0
 "#;
 
 const SUSTAINED_METABOLIC_COST: f32 = 0.48;
+const EQUILIBRIUM_METABOLIC_COST: f32 = 0.3129;
 
 #[derive(Debug, Clone, Copy)]
 enum Runner {
@@ -183,7 +184,7 @@ fn required<T>(name: &str, value: Option<T>) -> Result<T, Box<dyn Error>> {
 fn print_help() {
     println!(
         "Usage: cargo run --release -p sim-model --example m3_trace -- \\
-         --config <m2_40|sustained|config.toml> --n <N> --settlements <K> \\
+         --config <m2_40|sustained|equilibrium|config.toml> --n <N> --settlements <K> \\
          --k <degree> --p-local <0..1> --days <days> --seed <u64> \\
          --replicate <u32> --runner <serial|parallel:threads:chunk|search_reduction> \\
          --output <trace.jsonl>"
@@ -218,6 +219,11 @@ fn load_config(args: &Args) -> Result<SimConfig, Box<dyn Error>> {
         "sustained" => {
             let mut config = SimConfig::from_toml_str(M2_40_CONFIG)?;
             config.environment.base_metabolic_cost = SUSTAINED_METABOLIC_COST;
+            config
+        }
+        "equilibrium" => {
+            let mut config = SimConfig::from_toml_str(M2_40_CONFIG)?;
+            config.environment.base_metabolic_cost = EQUILIBRIUM_METABOLIC_COST;
             config
         }
         path => SimConfig::from_toml_str(&fs::read_to_string(path)?)?,
