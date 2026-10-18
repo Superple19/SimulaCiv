@@ -255,19 +255,25 @@ The explicit serial search-reduction path is opt-in; `run_m3_storage_days` remai
 
 The post-M3-02 evidence is summarized in the [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md). It is an interim answer, not the M3 graduation gate.
 
+### M3-E — Equilibrium workload — PLANNED (benchmark-only)
+
+Search for and measure a food-supply configuration that sustains interactions. This is a benchmark workload and does not change simulation semantics.
+
+### M3-S — Scale limit search — PLANNED (measurement-only)
+
+Measure the static-world workload's scale limits using the equilibrium configuration. This stage adds measurement only.
+
 ### Optional stage after M3-02 — Contention dial
 
 An optional hub-biased or otherwise contention-controlled graph mode may test scheduling across different endpoint-contention levels. It changes graph semantics and requires its own contract amendment before implementation.
 
-### M3-03 — Spatial migration
+### M3-P — Population dynamics — PLANNED
 
-Settlement membership changes and partitions change daily. The round-robin fast path no longer applies.
+Add births and define newborn graph attachment, dead-agent cleanup and storage reuse, deterministic `AgentId` allocation, and graph persistence in snapshots. This stage requires its own contract before implementation. The current model has no births: initialization sets every `birth_day` to zero, and no simulation phase creates agents.
 
-### M3-04 — Dynamic topology
+Spatial migration, previously listed as M3-03, remains a deferred follow-up and is not part of M3-P's planned scope.
 
-Edges are created and removed. The graph must be persisted in snapshots starting in this stage.
-
-### M3-05 — Propagation
+### M3-05 — Propagation — PLANNED
 
 Model multi-hop spread over the graph within one tick and define intra-tick ordering.
 
@@ -275,7 +281,7 @@ Model multi-hop spread over the graph within one tick and define intra-tick orde
 
 Report in the M2-40 format, answer the central research question, and decide whether a new architecture (M4) is needed.
 
-Stopping after M3-02 still provides a complete answer to the central research question. M3-03 onward deepens that answer.
+M3-E and M3-S extend the measured answer for sustained workloads and scale limits. M3-P and M3-05 deepen the research question with population dynamics and propagation.
 
 ## 9. M3-01 Optimized path and serial baseline
 
