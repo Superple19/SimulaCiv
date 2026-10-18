@@ -22,3 +22,7 @@ harness = false
 [[bench]]
 name = "m3_02_parallel_phase6b_bench"
 harness = false
+
+[[bench]]
+name = "m3_sustained_workload_bench"
+harness = false
