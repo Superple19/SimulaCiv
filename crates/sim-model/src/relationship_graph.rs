@@ -18,6 +18,13 @@ pub struct RelationshipGraph {
     csr_hash: [u8; 32],
 }
 
+#[derive(Debug)]
+pub(crate) struct RelationshipGraphAppendPlan {
+    row_ends: Vec<usize>,
+    cross_partition_edges: u64,
+    total_edges: u64,
+}
+
 /// Input, capacity, or representation error while building the M3 graph.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RelationshipGraphError {
@@ -301,6 +308,92 @@ impl RelationshipGraph {
             total_edges,
             csr_hash,
         })
+    }
+
+    pub(crate) fn plan_append_rows(
+        &self,
+        rows: &[(AgentId, GroupId, Vec<AgentId>)],
+        candidate_members: &[(AgentId, GroupId)],
+    ) -> Result<RelationshipGraphAppendPlan, RelationshipGraphError> {
+        if candidate_members
+            .windows(2)
+            .any(|pair| pair[0].0 >= pair[1].0)
+        {
+            return Err(RelationshipGraphError::RankInvariantViolation);
+        }
+
+        let mut row_ends = Vec::with_capacity(rows.len());
+        let mut row_end = self.neighbors.len();
+        let mut last_source = self.source_ids.last().copied();
+        let mut total_edges = self.total_edges;
+        let mut cross_partition_edges = self.cross_partition_edges;
+        for (source_id, source_group, neighbors) in rows {
+            if last_source.is_some_and(|previous| previous >= *source_id)
+                || neighbors.len() > 16
+                || neighbors.windows(2).any(|pair| pair[0] >= pair[1])
+                || neighbors.contains(source_id)
+            {
+                return Err(RelationshipGraphError::RankInvariantViolation);
+            }
+            for target_id in neighbors {
+                let target_index = candidate_members
+                    .binary_search_by_key(target_id, |entry| entry.0)
+                    .map_err(|_| RelationshipGraphError::RankInvariantViolation)?;
+                if self.source_ids.binary_search(target_id).is_err() {
+                    return Err(RelationshipGraphError::RankInvariantViolation);
+                }
+                if candidate_members[target_index].1 != *source_group {
+                    cross_partition_edges = cross_partition_edges
+                        .checked_add(1)
+                        .ok_or(RelationshipGraphError::EdgeCountOverflow)?;
+                }
+            }
+            total_edges = total_edges
+                .checked_add(
+                    u64::try_from(neighbors.len())
+                        .map_err(|_| RelationshipGraphError::EdgeCountOverflow)?,
+                )
+                .ok_or(RelationshipGraphError::EdgeCountOverflow)?;
+            row_end = row_end
+                .checked_add(neighbors.len())
+                .ok_or(RelationshipGraphError::EdgeCountOverflow)?;
+            row_ends.push(row_end);
+            last_source = Some(*source_id);
+        }
+
+        Ok(RelationshipGraphAppendPlan {
+            row_ends,
+            cross_partition_edges,
+            total_edges,
+        })
+    }
+
+    pub(crate) fn reserve_appended_rows(&mut self, plan: &RelationshipGraphAppendPlan) {
+        self.source_ids.reserve(plan.row_ends.len());
+        self.row_offsets.reserve(plan.row_ends.len());
+        let additional_neighbors = plan
+            .row_ends
+            .last()
+            .copied()
+            .unwrap_or(self.neighbors.len())
+            - self.neighbors.len();
+        self.neighbors.reserve(additional_neighbors);
+    }
+
+    pub(crate) fn append_prevalidated_rows(
+        &mut self,
+        rows: &[(AgentId, GroupId, Vec<AgentId>)],
+        plan: RelationshipGraphAppendPlan,
+    ) {
+        debug_assert_eq!(rows.len(), plan.row_ends.len());
+        for ((source_id, _, neighbors), &row_end) in rows.iter().zip(&plan.row_ends) {
+            self.source_ids.push(*source_id);
+            self.neighbors.extend_from_slice(neighbors);
+            self.row_offsets.push(row_end);
+        }
+        self.cross_partition_edges = plan.cross_partition_edges;
+        self.total_edges = plan.total_edges;
+        self.csr_hash = hash_csr(&self.source_ids, &self.row_offsets, &self.neighbors);
     }
 
     pub fn source_ids(&self) -> &[AgentId] {

@@ -41,8 +41,9 @@ use crate::intents::{
     phase4_generate_intents_into,
 };
 use crate::m3p::{
-    M3pDailyMetrics, M3pDayOutcome, M3pEvent, M3pEventRecord, M3pReferenceState, Phase9bResult,
-    apply_phase9b_storage, encode_m3p_snapshot,
+    M3pDailyMetrics, M3pDayOutcome, M3pEvent, M3pEventRecord, M3pIncrementalTopologyScratch,
+    M3pReferenceState, Phase9bResult, Phase9bRunParameters, apply_phase9b_storage,
+    apply_phase9b_storage_incremental, encode_m3p_snapshot,
 };
 use crate::metrics::{
     DailyMetrics, M3DailyMetrics, Phase10Error, phase10_observe_storage_with_scratch,
@@ -515,6 +516,51 @@ impl M3pStorageRunContext {
             &self.run_context,
         )?;
         Ok(())
+    }
+}
+
+/// Explicit opt-in storage context for incremental M3P topology maintenance.
+#[derive(Debug)]
+pub struct M3pIncrementalTopologyStorageRunContext {
+    storage_context: M3pStorageRunContext,
+    phase9b_scratch: M3pIncrementalTopologyScratch,
+}
+
+impl M3pIncrementalTopologyStorageRunContext {
+    pub fn new(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+    ) -> Result<Self, M0RunError> {
+        Ok(Self {
+            storage_context: M3pStorageRunContext::new(hybrid_world, config, run_context)?,
+            phase9b_scratch: M3pIncrementalTopologyScratch::default(),
+        })
+    }
+
+    pub fn from_reference_state(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+        reference: &M3pReferenceState,
+    ) -> Result<Self, M0RunError> {
+        Ok(Self {
+            storage_context: M3pStorageRunContext::from_reference_state(
+                hybrid_world,
+                config,
+                run_context,
+                reference,
+            )?,
+            phase9b_scratch: M3pIncrementalTopologyScratch::default(),
+        })
+    }
+
+    pub fn relationship_graph(&self) -> &RelationshipGraph {
+        self.storage_context.relationship_graph()
+    }
+
+    pub const fn next_agent_id(&self) -> u64 {
+        self.storage_context.next_agent_id()
     }
 }
 
@@ -1257,6 +1303,28 @@ pub fn run_m3p_storage_days(
     Ok(outcomes)
 }
 
+/// Executes M3P storage days with the explicit incremental-topology path.
+pub fn run_m3p_storage_days_incremental_topology(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pIncrementalTopologyStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<M3pDayOutcome>, M0RunError> {
+    context.storage_context.validate_for(hybrid_world, config)?;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        outcomes.push(run_m3p_storage_day_inner(
+            hybrid_world,
+            config,
+            &mut context.storage_context,
+            options,
+            Some(&mut context.phase9b_scratch),
+        )?);
+    }
+    Ok(outcomes)
+}
+
 /// Executes serial M3 storage days with opt-in target-search reduction.
 pub fn run_m3_storage_days_with_search_reduction(
     hybrid_world: &mut HybridWorldState,
@@ -1392,6 +1460,16 @@ fn run_m3p_storage_day(
     context: &mut M3pStorageRunContext,
     options: &DayExecutionOptions,
 ) -> Result<M3pDayOutcome, M0RunError> {
+    run_m3p_storage_day_inner(hybrid_world, config, context, options, None)
+}
+
+fn run_m3p_storage_day_inner(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pStorageRunContext,
+    options: &DayExecutionOptions,
+    incremental_topology_scratch: Option<&mut M3pIncrementalTopologyScratch>,
+) -> Result<M3pDayOutcome, M0RunError> {
     let HybridWorldState {
         world,
         segmented_storage,
@@ -1467,15 +1545,30 @@ fn run_m3p_storage_day(
         &mut context.phase8_scratch,
     )?;
     let mortality_resolution = storage.phase9_mortality_commitment()?;
-    let phase9b = apply_phase9b_storage(
-        storage,
-        world,
-        &mut context.relationship_graph,
-        &mut context.next_agent_id,
-        &effective_config,
-        &context.run_context,
-        executed_day,
-    )?;
+    let phase9b = if let Some(scratch) = incremental_topology_scratch {
+        apply_phase9b_storage_incremental(
+            storage,
+            world,
+            &mut context.relationship_graph,
+            &mut context.next_agent_id,
+            Phase9bRunParameters {
+                config: &effective_config,
+                run_context: &context.run_context,
+                day: executed_day,
+            },
+            scratch,
+        )?
+    } else {
+        apply_phase9b_storage(
+            storage,
+            world,
+            &mut context.relationship_graph,
+            &mut context.next_agent_id,
+            &effective_config,
+            &context.run_context,
+            executed_day,
+        )?
+    };
     context.refresh_after_phase9b(storage, &phase9b)?;
 
     let mut event_buffer = if options.events_enabled {

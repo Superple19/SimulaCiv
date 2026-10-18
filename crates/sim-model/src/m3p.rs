@@ -16,7 +16,8 @@ use crate::phases::{
     phase1_resource_regrowth, phase2_biological_degradation, phase9_mortality_commitment,
 };
 use crate::relationship_graph::{
-    RelationshipGraph, adjust_rank_for_exclusions, complement_rank_to_global_rank,
+    RelationshipGraph, RelationshipGraphAppendPlan, adjust_rank_for_exclusions,
+    complement_rank_to_global_rank,
 };
 use crate::resolution::{
     phase6a_work_resolution, phase6b_targeted_resolution_m3, phase7_market_clearance_with_config,
@@ -647,9 +648,27 @@ pub(crate) struct Phase9bResult {
 #[derive(Debug)]
 struct Phase9bPlan {
     agents: Vec<AgentState>,
-    relationship_graph: RelationshipGraph,
+    graph_update: Phase9bGraphUpdate,
     next_agent_id: u64,
     result: Phase9bResult,
+}
+
+#[derive(Debug)]
+enum Phase9bGraphUpdate {
+    Replace(RelationshipGraph),
+    Append(RelationshipGraphAppendPlan),
+    Unchanged,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct M3pIncrementalTopologyScratch {
+    pub(crate) newborn_rows: Vec<(AgentId, GroupId, Vec<AgentId>)>,
+}
+
+pub(crate) struct Phase9bRunParameters<'a> {
+    pub(crate) config: &'a SimConfig,
+    pub(crate) run_context: &'a M0RunContext,
+    pub(crate) day: u32,
 }
 
 fn apply_phase9b(
@@ -658,11 +677,22 @@ fn apply_phase9b(
     run_context: &M0RunContext,
     day: u32,
 ) -> Result<Phase9bResult, M0RunError> {
-    let plan = plan_phase9b(state, config, run_context, day)?;
-    state.world.agents = plan.agents;
-    state.relationship_graph = plan.relationship_graph;
-    state.next_agent_id = plan.next_agent_id;
-    Ok(plan.result)
+    let plan = plan_phase9b(state, config, run_context, day, None)?;
+    let Phase9bPlan {
+        agents,
+        graph_update,
+        next_agent_id,
+        result,
+    } = plan;
+    let Phase9bGraphUpdate::Replace(replacement_graph) = graph_update else {
+        return Err(invariant(
+            "M3P reference Phase 9b did not produce a replacement graph",
+        ));
+    };
+    state.world.agents = agents;
+    state.relationship_graph = replacement_graph;
+    state.next_agent_id = next_agent_id;
+    Ok(result)
 }
 
 /// Plans M3P Phase 9b against storage-derived logical state, then commits to SoA columns.
@@ -689,32 +719,126 @@ pub(crate) fn apply_phase9b_storage(
         config,
         run_context,
     )?;
-    let plan = plan_phase9b(&planning_state, config, run_context, day)?;
+    let plan = plan_phase9b(&planning_state, config, run_context, day, None)?;
     if !plan.result.compacted && plan.agents.len() < source_len {
         return Err(invariant(
             "M3P storage Phase 9b removed agents without compaction",
         ));
     }
 
-    if plan.result.compacted {
+    let Phase9bPlan {
+        agents,
+        graph_update,
+        next_agent_id: planned_next_agent_id,
+        result,
+    } = plan;
+    let Phase9bGraphUpdate::Replace(replacement_graph) = graph_update else {
+        return Err(invariant(
+            "M3P storage reference Phase 9b did not produce a replacement graph",
+        ));
+    };
+    if result.compacted {
         storage.clear();
-        storage.reserve(plan.agents.len());
-        for (slot, planned_agent) in plan.agents.iter().enumerate() {
+        storage.reserve(agents.len());
+        for (slot, planned_agent) in agents.iter().enumerate() {
             let mut agent = planned_agent.clone();
             agent.dense_slot = DenseSlot(slot as u32);
             storage.push(&agent);
         }
     } else {
-        for (slot, planned_agent) in plan.agents.iter().take(source_len).enumerate() {
+        for (slot, planned_agent) in agents.iter().take(source_len).enumerate() {
             storage.economy.food[slot] = planned_agent.food;
         }
-        for newborn in plan.agents.iter().skip(source_len) {
+        for newborn in agents.iter().skip(source_len) {
             storage.push(newborn);
         }
     }
-    *relationship_graph = plan.relationship_graph;
-    *next_agent_id = plan.next_agent_id;
-    Ok(plan.result)
+    *relationship_graph = replacement_graph;
+    *next_agent_id = planned_next_agent_id;
+    Ok(result)
+}
+
+pub(crate) fn apply_phase9b_storage_incremental(
+    storage: &mut SegmentedAgentStorage,
+    world: &WorldState,
+    relationship_graph: &mut RelationshipGraph,
+    next_agent_id: &mut u64,
+    parameters: Phase9bRunParameters<'_>,
+    scratch: &mut M3pIncrementalTopologyScratch,
+) -> Result<Phase9bResult, M0RunError> {
+    let Phase9bRunParameters {
+        config,
+        run_context,
+        day,
+    } = parameters;
+    let source_len = storage.len();
+    let planning_world = WorldState {
+        current_day: world.current_day,
+        agents: storage.to_agents(),
+        settlements: world.settlements.clone(),
+        initial_money_supply: world.initial_money_supply,
+    };
+    let planning_state = M3pReferenceState::from_parts(
+        planning_world,
+        relationship_graph.clone(),
+        *next_agent_id,
+        config,
+        run_context,
+    )?;
+    let plan = plan_phase9b(&planning_state, config, run_context, day, Some(scratch))?;
+    if !plan.result.compacted && plan.agents.len() < source_len {
+        return Err(invariant(
+            "M3P storage Phase 9b removed agents without compaction",
+        ));
+    }
+
+    let Phase9bPlan {
+        agents,
+        graph_update,
+        next_agent_id: planned_next_agent_id,
+        result,
+    } = plan;
+    match graph_update {
+        Phase9bGraphUpdate::Replace(next_graph) => {
+            if result.compacted {
+                storage.clear();
+                storage.reserve(agents.len());
+                for (slot, planned_agent) in agents.iter().enumerate() {
+                    let mut agent = planned_agent.clone();
+                    agent.dense_slot = DenseSlot(slot as u32);
+                    storage.push(&agent);
+                }
+            } else {
+                storage.reserve(agents.len().saturating_sub(source_len));
+                for (slot, planned_agent) in agents.iter().take(source_len).enumerate() {
+                    storage.economy.food[slot] = planned_agent.food;
+                }
+                for newborn in agents.iter().skip(source_len) {
+                    storage.push(newborn);
+                }
+            }
+            *relationship_graph = next_graph;
+        }
+        Phase9bGraphUpdate::Append(append_plan) => {
+            let rows = &scratch.newborn_rows;
+            storage.reserve(rows.len());
+            relationship_graph.reserve_appended_rows(&append_plan);
+            relationship_graph.append_prevalidated_rows(rows, append_plan);
+            for (slot, planned_agent) in agents.iter().take(source_len).enumerate() {
+                storage.economy.food[slot] = planned_agent.food;
+            }
+            for newborn in agents.iter().skip(source_len) {
+                storage.push(newborn);
+            }
+        }
+        Phase9bGraphUpdate::Unchanged => {
+            for (slot, planned_agent) in agents.iter().take(source_len).enumerate() {
+                storage.economy.food[slot] = planned_agent.food;
+            }
+        }
+    }
+    *next_agent_id = planned_next_agent_id;
+    Ok(result)
 }
 
 fn plan_phase9b(
@@ -722,6 +846,7 @@ fn plan_phase9b(
     config: &SimConfig,
     run_context: &M0RunContext,
     day: u32,
+    mut incremental_scratch: Option<&mut M3pIncrementalTopologyScratch>,
 ) -> Result<Phase9bPlan, M0RunError> {
     let population_config = config
         .population
@@ -842,13 +967,20 @@ fn plan_phase9b(
         planned_agents.push(child);
     }
 
+    let compacted = day.is_multiple_of(population_config.compaction_interval_days);
+    let use_incremental_append = incremental_scratch.is_some() && !compacted;
     let mut rows = BTreeMap::new();
-    for &source_id in state.relationship_graph.source_ids() {
-        let neighbors = state
-            .relationship_graph
-            .neighbors_of(source_id)
-            .ok_or_else(|| invariant("M3P graph source row is missing"))?;
-        rows.insert(source_id, neighbors.to_vec());
+    if !use_incremental_append {
+        for &source_id in state.relationship_graph.source_ids() {
+            let neighbors = state
+                .relationship_graph
+                .neighbors_of(source_id)
+                .ok_or_else(|| invariant("M3P graph source row is missing"))?;
+            rows.insert(source_id, neighbors.to_vec());
+        }
+    }
+    if let Some(scratch) = incremental_scratch.as_deref_mut() {
+        scratch.newborn_rows.clear();
     }
     for birth in &births {
         let row = build_newborn_row(
@@ -858,12 +990,17 @@ fn plan_phase9b(
             degree_k,
             &candidate_index,
         )?;
-        if rows.insert(birth.child, row).is_some() {
+        if use_incremental_append {
+            incremental_scratch
+                .as_deref_mut()
+                .expect("incremental append requires scratch")
+                .newborn_rows
+                .push((birth.child, birth.group, row));
+        } else if rows.insert(birth.child, row).is_some() {
             return Err(invariant("duplicate M3P newborn graph source"));
         }
     }
 
-    let compacted = day.is_multiple_of(population_config.compaction_interval_days);
     let mut removed = 0u64;
     let mut replaced_edges = 0u64;
     let mut dropped_edges = 0u64;
@@ -934,27 +1071,48 @@ fn plan_phase9b(
         planned_agents.sort_by_key(|agent| agent.agent_id);
     }
 
-    let graph_changed = !births.is_empty() || compacted;
-    let relationship_graph = if graph_changed {
+    let graph_update = if compacted {
         let rows: Vec<_> = rows.into_iter().collect();
         let memberships: Vec<_> = planned_agents
             .iter()
             .map(|agent| (agent.agent_id, agent.group_id))
             .collect();
-        RelationshipGraph::from_canonical_rows(rows, &memberships)?
+        Phase9bGraphUpdate::Replace(RelationshipGraph::from_canonical_rows(rows, &memberships)?)
+    } else if use_incremental_append {
+        let scratch = incremental_scratch
+            .as_deref()
+            .expect("incremental append requires scratch");
+        if births.is_empty() {
+            Phase9bGraphUpdate::Unchanged
+        } else {
+            Phase9bGraphUpdate::Append(
+                state
+                    .relationship_graph
+                    .plan_append_rows(&scratch.newborn_rows, &candidate_index.members)?,
+            )
+        }
+    } else if !births.is_empty() {
+        let rows: Vec<_> = rows.into_iter().collect();
+        let memberships: Vec<_> = planned_agents
+            .iter()
+            .map(|agent| (agent.agent_id, agent.group_id))
+            .collect();
+        Phase9bGraphUpdate::Replace(RelationshipGraph::from_canonical_rows(rows, &memberships)?)
     } else {
-        state.relationship_graph.clone()
+        Phase9bGraphUpdate::Replace(state.relationship_graph.clone())
     };
     let next_agent_id = if births.is_empty() {
         state.next_agent_id
     } else {
         next_agent_id
     };
-    validate_state_parts(&planned_agents, &relationship_graph, next_agent_id)?;
+    if let Phase9bGraphUpdate::Replace(graph) = &graph_update {
+        validate_state_parts(&planned_agents, graph, next_agent_id)?;
+    }
 
     Ok(Phase9bPlan {
         agents: planned_agents,
-        relationship_graph,
+        graph_update,
         next_agent_id,
         result: Phase9bResult {
             births,
