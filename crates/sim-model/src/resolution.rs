@@ -2,6 +2,7 @@ use crate::commands::{
     BuyerMarketUpdate, Command, CommandExecutionError, SellerMarketUpdate, WelfareRecipientUpdate,
 };
 use crate::config::SimConfig;
+use crate::features::settlement_index::SettlementIndex;
 use crate::intents::Intent;
 use crate::partitioning::SettlementIntentPartition;
 use crate::state::{AgentState, SettlementState, WorldState};
@@ -343,14 +344,15 @@ pub fn phase6a_work_resolution_storage(
     settlements: &mut [SettlementState],
     partitions: &[SettlementIntentPartition],
 ) -> Result<Vec<SettlementWorkResolution>, Phase6AError> {
+    let settlement_index = SettlementIndex::new(settlements);
     let mut plans = Vec::with_capacity(partitions.len());
     let mut seen_workers = HashSet::new();
 
     // Stage A: Validation and Planning across all partitions
     for partition in partitions {
-        let settlement = settlements
-            .iter()
-            .find(|s| s.group_id == partition.group_id)
+        let settlement = settlement_index
+            .source_index(partition.group_id)
+            .map(|index| &settlements[index])
             .ok_or(Phase6AError::MissingSettlement(partition.group_id))?;
 
         if !settlement.resource.is_finite() || settlement.resource < 0.0 {
@@ -493,10 +495,10 @@ pub fn phase6a_work_resolution_storage(
             });
         }
 
-        let settlement = settlements
-            .iter_mut()
-            .find(|s| s.group_id == plan.group_id)
+        let settlement_index = settlement_index
+            .source_index(plan.group_id)
             .expect("settlement already validated in Stage A");
+        let settlement = &mut settlements[settlement_index];
 
         settlement.resource = plan.resource_after;
 
@@ -1661,13 +1663,14 @@ fn phase6b_targeted_resolution_storage_m3_serial_impl(
             config.interaction.theft_success_probability,
         ));
     }
+    let settlement_index = SettlementIndex::new(settlements);
 
     // Validate in caller order to preserve the reference resolver's error precedence.
     for partition in partitions {
         if !scratch.seen_groups.insert(partition.group_id) {
             return Err(Phase6BError::DuplicatePartition(partition.group_id));
         }
-        if !settlements.iter().any(|s| s.group_id == partition.group_id) {
+        if settlement_index.source_index(partition.group_id).is_none() {
             return Err(Phase6BError::MissingSettlement(partition.group_id));
         }
 
@@ -2200,11 +2203,12 @@ fn phase6b_targeted_resolution_storage_m3_parallel_impl(
             config.interaction.theft_success_probability,
         ));
     }
+    let settlement_index = SettlementIndex::new(settlements);
 
     for partition in partitions {
         let header_error = if !scratch.seen_groups.insert(partition.group_id) {
             Some(Phase6BError::DuplicatePartition(partition.group_id))
-        } else if !settlements.iter().any(|s| s.group_id == partition.group_id) {
+        } else if settlement_index.source_index(partition.group_id).is_none() {
             Some(Phase6BError::MissingSettlement(partition.group_id))
         } else {
             None
@@ -2732,6 +2736,7 @@ pub fn phase6b_targeted_resolution_storage_baseline(
             config.interaction.theft_success_probability,
         ));
     }
+    let settlement_index = SettlementIndex::new(settlements);
 
     let mut seen_groups = HashSet::new();
     for partition in partitions {
@@ -2739,7 +2744,7 @@ pub fn phase6b_targeted_resolution_storage_baseline(
             return Err(Phase6BError::DuplicatePartition(partition.group_id));
         }
 
-        if !settlements.iter().any(|s| s.group_id == partition.group_id) {
+        if settlement_index.source_index(partition.group_id).is_none() {
             return Err(Phase6BError::MissingSettlement(partition.group_id));
         }
 
@@ -3168,11 +3173,12 @@ pub(crate) fn phase6b_targeted_resolution_storage_ordered_with_scratch(
             config.interaction.theft_success_probability,
         ));
     }
+    let settlement_index = SettlementIndex::new(settlements);
 
     // Phase5's strict ordering already proves partitions are unique, so this path needs no HashSet.
     // Cache each validated structural slot once; no storage operation below changes slot layout.
     for partition in partitions {
-        if !settlements.iter().any(|s| s.group_id == partition.group_id) {
+        if settlement_index.source_index(partition.group_id).is_none() {
             return Err(Phase6BError::MissingSettlement(partition.group_id));
         }
 
@@ -4241,15 +4247,16 @@ pub fn phase7_market_clearance_storage(
             return Err(Phase7Error::DuplicatePartition(p.group_id));
         }
     }
+    let settlement_index = SettlementIndex::new(settlements);
 
     let mut seen_participants = HashSet::new();
     let mut planned_settlements = Vec::with_capacity(sorted_partitions.len());
 
     // Stage A: Validation and Planning across all partitions
     for partition in sorted_partitions {
-        let settlement = settlements
-            .iter()
-            .find(|s| s.group_id == partition.group_id)
+        let settlement = settlement_index
+            .source_index(partition.group_id)
+            .map(|index| &settlements[index])
             .ok_or(Phase7Error::MissingSettlement(partition.group_id))?;
 
         if settlement.treasury < 0 {
@@ -4573,10 +4580,10 @@ pub fn phase7_market_clearance_storage(
             });
         }
 
-        let settlement_mut = settlements
-            .iter_mut()
-            .find(|s| s.group_id == partition.group_id)
+        let settlement_index = settlement_index
+            .source_index(partition.group_id)
             .expect("settlement already validated");
+        let settlement_mut = &mut settlements[settlement_index];
 
         settlement_mut
             .treasury
