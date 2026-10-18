@@ -514,12 +514,14 @@ impl std::fmt::Display for M0RunError {
 impl std::error::Error for M0RunError {}
 
 fn ensure_m2_profile(config: &SimConfig) -> Result<(), M0RunError> {
-    if config.profile == SimulationProfile::M3 {
-        Err(M0RunError::InvariantViolation(
+    match config.profile {
+        SimulationProfile::M2 => Ok(()),
+        SimulationProfile::M3 => Err(M0RunError::InvariantViolation(
             "profile = \"m3\" requires the M3 reference runner".into(),
-        ))
-    } else {
-        Ok(())
+        )),
+        SimulationProfile::M3p => Err(M0RunError::InvariantViolation(
+            "profile = \"m3p\" requires the M3P reference runner".into(),
+        )),
     }
 }
 

@@ -25,7 +25,7 @@ pub use commands::{
 };
 pub use config::{
     ConfigError, ConfigValidationError, DecisionConfig, EconomyConfig, EnvironmentConfig,
-    InteractionConfig, SimConfig, SimulationProfile, TraitConfig, WorldConfig,
+    InteractionConfig, PopulationConfig, SimConfig, SimulationProfile, TraitConfig, WorldConfig,
 };
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,

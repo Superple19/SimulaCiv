@@ -8,6 +8,7 @@ pub enum SimulationProfile {
     #[default]
     M2,
     M3,
+    M3p,
 }
 
 /// Run and world initialization configuration.
@@ -71,6 +72,17 @@ pub struct InteractionConfig {
     pub p_local: Option<f32>,
 }
 
+/// Population-dynamics parameters required by the M3P profile.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PopulationConfig {
+    pub birth_min_health: f32,
+    pub birth_food_threshold: f32,
+    pub birth_probability: f32,
+    pub birth_food_cost: f32,
+    pub births_max_per_day: u32,
+    pub compaction_interval_days: u32,
+}
+
 /// Utility decision model weights and action biases.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DecisionConfig {
@@ -93,6 +105,8 @@ pub struct SimConfig {
     pub economy: EconomyConfig,
     pub interaction: InteractionConfig,
     pub decision: DecisionConfig,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub population: Option<PopulationConfig>,
 }
 
 /// Explicit configuration validation errors.
@@ -147,8 +161,21 @@ pub enum ConfigValidationError {
     M3SettingsRequireM3Profile,
     MissingRelationshipDegreeK,
     MissingLocalityProbability,
+    PopulationSettingsRequireM3pProfile,
+    M3pMissingRelationshipDegreeK,
+    M3pMissingLocalityProbability,
+    MissingPopulationSettings,
     InvalidRelationshipDegree(i64),
     InvalidLocalityProbability(f32),
+    InvalidBirthMinHealth(f32),
+    InvalidBirthFoodThreshold(f32),
+    InvalidBirthFoodCost(f32),
+    BirthFoodThresholdBelowCost {
+        threshold: f32,
+        cost: f32,
+    },
+    InvalidBirthProbability(f32),
+    InvalidCompactionIntervalDays(u32),
 }
 
 impl std::fmt::Display for ConfigValidationError {
@@ -267,11 +294,57 @@ impl std::fmt::Display for ConfigValidationError {
             Self::MissingLocalityProbability => {
                 write!(f, "profile = \"m3\" requires interaction.p_local")
             }
+            Self::PopulationSettingsRequireM3pProfile => {
+                write!(f, "[population] settings require profile = \"m3p\"")
+            }
+            Self::M3pMissingRelationshipDegreeK => {
+                write!(
+                    f,
+                    "profile = \"m3p\" requires interaction.relationship_degree_k"
+                )
+            }
+            Self::M3pMissingLocalityProbability => {
+                write!(f, "profile = \"m3p\" requires interaction.p_local")
+            }
+            Self::MissingPopulationSettings => {
+                write!(f, "profile = \"m3p\" requires [population] settings")
+            }
             Self::InvalidRelationshipDegree(k) => {
                 write!(f, "relationship_degree_k must be within [0, 16], got {}", k)
             }
             Self::InvalidLocalityProbability(p) => {
                 write!(f, "p_local must be finite and within [0.0, 1.0], got {}", p)
+            }
+            Self::InvalidBirthMinHealth(value) => {
+                write!(
+                    f,
+                    "birth_min_health must be finite and within [0.0, 1.0], got {value}"
+                )
+            }
+            Self::InvalidBirthFoodThreshold(value) => {
+                write!(
+                    f,
+                    "birth_food_threshold must be finite and nonnegative, got {value}"
+                )
+            }
+            Self::InvalidBirthFoodCost(value) => {
+                write!(
+                    f,
+                    "birth_food_cost must be finite and nonnegative, got {value}"
+                )
+            }
+            Self::BirthFoodThresholdBelowCost { threshold, cost } => write!(
+                f,
+                "birth_food_threshold ({threshold}) must be >= birth_food_cost ({cost})"
+            ),
+            Self::InvalidBirthProbability(value) => {
+                write!(
+                    f,
+                    "birth_probability must be finite and within [0.0, 1.0], got {value}"
+                )
+            }
+            Self::InvalidCompactionIntervalDays(value) => {
+                write!(f, "compaction_interval_days must be >= 1, got {value}")
             }
         }
     }
@@ -335,8 +408,14 @@ impl SimConfig {
                 {
                     return Err(ConfigValidationError::M3SettingsRequireM3Profile);
                 }
+                if self.population.is_some() {
+                    return Err(ConfigValidationError::PopulationSettingsRequireM3pProfile);
+                }
             }
             SimulationProfile::M3 => {
+                if self.population.is_some() {
+                    return Err(ConfigValidationError::PopulationSettingsRequireM3pProfile);
+                }
                 let k = self
                     .interaction
                     .relationship_degree_k
@@ -350,6 +429,64 @@ impl SimConfig {
                 }
                 if !p_local.is_finite() || !(0.0..=1.0).contains(&p_local) {
                     return Err(ConfigValidationError::InvalidLocalityProbability(p_local));
+                }
+            }
+            SimulationProfile::M3p => {
+                let k = self
+                    .interaction
+                    .relationship_degree_k
+                    .ok_or(ConfigValidationError::M3pMissingRelationshipDegreeK)?;
+                let p_local = self
+                    .interaction
+                    .p_local
+                    .ok_or(ConfigValidationError::M3pMissingLocalityProbability)?;
+                if !(0..=16).contains(&k) {
+                    return Err(ConfigValidationError::InvalidRelationshipDegree(k));
+                }
+                if !p_local.is_finite() || !(0.0..=1.0).contains(&p_local) {
+                    return Err(ConfigValidationError::InvalidLocalityProbability(p_local));
+                }
+
+                let population = self
+                    .population
+                    .as_ref()
+                    .ok_or(ConfigValidationError::MissingPopulationSettings)?;
+                if !population.birth_min_health.is_finite()
+                    || !(0.0..=1.0).contains(&population.birth_min_health)
+                {
+                    return Err(ConfigValidationError::InvalidBirthMinHealth(
+                        population.birth_min_health,
+                    ));
+                }
+                if !population.birth_food_threshold.is_finite()
+                    || population.birth_food_threshold < 0.0
+                {
+                    return Err(ConfigValidationError::InvalidBirthFoodThreshold(
+                        population.birth_food_threshold,
+                    ));
+                }
+                if !population.birth_food_cost.is_finite() || population.birth_food_cost < 0.0 {
+                    return Err(ConfigValidationError::InvalidBirthFoodCost(
+                        population.birth_food_cost,
+                    ));
+                }
+                if population.birth_food_threshold < population.birth_food_cost {
+                    return Err(ConfigValidationError::BirthFoodThresholdBelowCost {
+                        threshold: population.birth_food_threshold,
+                        cost: population.birth_food_cost,
+                    });
+                }
+                if !population.birth_probability.is_finite()
+                    || !(0.0..=1.0).contains(&population.birth_probability)
+                {
+                    return Err(ConfigValidationError::InvalidBirthProbability(
+                        population.birth_probability,
+                    ));
+                }
+                if population.compaction_interval_days == 0 {
+                    return Err(ConfigValidationError::InvalidCompactionIntervalDays(
+                        population.compaction_interval_days,
+                    ));
                 }
             }
         }
