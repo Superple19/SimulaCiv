@@ -8,6 +8,7 @@ use sim_model::events::{
 };
 use sim_model::features::{
     AgentFeatures, Phase3ScarcityScratch, phase3_observation_and_features_storage_with_scratch,
+    phase3_observation_and_features_storage_with_timing,
 };
 use sim_model::hashing::{
     CanonicalHash, canonical_event_hash, canonical_m3_metrics_hash,
@@ -32,6 +33,7 @@ use sim_model::resolution::{
 use sim_model::runner::{
     DayExecutionOptions, M0RunContext, M3DayOutcome, M3ParallelStorageRunContext,
     M3StorageRunContext, run_m3_storage_days, run_m3_storage_days_with_parallel_phase6b,
+    run_m3_storage_days_with_parallel_phase6b_timing, run_m3_storage_days_with_phase6b_timing,
 };
 use sim_model::state::{HybridWorldState, WorldState};
 use sim_model::storage::SegmentedAgentStorage;
@@ -617,6 +619,79 @@ const P6B_STAGE_NAMES: [&str; 5] = [
 struct ProfileSample {
     phase_us: [f64; PHASE_NAMES.len()],
     p6b_stage_us: [f64; P6B_STAGE_NAMES.len()],
+    settlement_scans: SettlementScanCounts,
+}
+
+#[derive(Clone, Copy, Default)]
+struct ScanTally {
+    calls: usize,
+    elements: usize,
+}
+
+#[derive(Clone, Copy, Default)]
+struct SettlementScanCounts {
+    phase3_lookup_calls: usize,
+    phase3_lookup_comparisons: usize,
+    phase3_index_build_entries: usize,
+    phase3_index_sort_comparisons: usize,
+    phase3_output_sorted_before_sort: bool,
+    phase6a_find: ScanTally,
+    phase6b_any: ScanTally,
+    phase7_find: ScanTally,
+    phase10_duplicate_any: ScanTally,
+    phase11_group_find: ScanTally,
+}
+
+fn settlement_find_tally(
+    settlements: &[sim_model::SettlementState],
+    groups: &[GroupId],
+) -> ScanTally {
+    let mut tally = ScanTally::default();
+    for &group_id in groups {
+        tally.calls += 1;
+        tally.elements += settlements
+            .iter()
+            .position(|settlement| settlement.group_id == group_id)
+            .map_or(settlements.len(), |index| index + 1);
+    }
+    tally
+}
+
+fn phase11_group_find_tally(work_groups: &[GroupId], targeted_groups: &[GroupId]) -> ScanTally {
+    let mut tally = ScanTally::default();
+    let mut event_groups = Vec::with_capacity(work_groups.len() + targeted_groups.len());
+    for &group_id in work_groups.iter().chain(targeted_groups) {
+        tally.calls += 1;
+        let index = event_groups.iter().position(|&seen| seen == group_id);
+        let scanned = index.map_or(event_groups.len(), |index| index + 1);
+        tally.elements += scanned;
+        if index.is_none() {
+            event_groups.push(group_id);
+        }
+    }
+    tally
+}
+
+fn phase3_lookup_counts(
+    storage: &SegmentedAgentStorage,
+    scratch: &Phase3ScarcityScratch,
+) -> (usize, usize, bool) {
+    let mut calls = 0;
+    let mut comparisons = 0;
+    let mut previous = None;
+    let mut sorted_before_sort = true;
+    for slot in 0..storage.len() {
+        if storage.demography.alive[slot] && storage.demography.health[slot] > 0.0 {
+            let agent_id = storage.agent_ids[slot];
+            if previous.is_some_and(|previous| previous > agent_id) {
+                sorted_before_sort = false;
+            }
+            previous = Some(agent_id);
+            calls += 1;
+            comparisons += scratch.group_id_lookup_comparisons(storage.economy.group_id[slot]);
+        }
+    }
+    (calls, comparisons, sorted_before_sort)
 }
 
 struct ManualProfile {
@@ -673,7 +748,11 @@ impl ManualProfile {
         }
     }
 
-    fn step(&mut self, config: &SimConfig) -> (M3DayOutcome, ProfileSample) {
+    fn step(
+        &mut self,
+        config: &SimConfig,
+        collect_settlement_scans: bool,
+    ) -> (M3DayOutcome, ProfileSample) {
         let executed_day = self.world.current_day;
         let executed_day_number = executed_day.as_u32();
         let next_day = executed_day.as_u32().checked_add(1).expect("day fits u32");
@@ -701,6 +780,13 @@ impl ManualProfile {
         )
         .expect("profile phase 3 succeeds");
         phase_us[2] = micros(started.elapsed());
+        let phase3_scan_snapshot = collect_settlement_scans.then(|| {
+            (
+                phase3_lookup_counts(&self.storage, &self.phase3_scratch),
+                self.phase3_scratch.last_index_build_entries(),
+                self.phase3_scratch.last_index_sort_comparisons(),
+            )
+        });
 
         let started = Instant::now();
         self.choices.clear();
@@ -864,6 +950,51 @@ impl ManualProfile {
         phase_us[12] = event_build_us + event_flush_us;
         self.world.current_day = SimulationDay(next_day);
 
+        let settlement_scans = if collect_settlement_scans {
+            let partition_groups: Vec<_> = partitions
+                .iter()
+                .map(|partition| partition.group_id)
+                .collect();
+            let (phase3_lookup, phase3_index_build_entries, phase3_index_sort_comparisons) =
+                phase3_scan_snapshot.expect("Phase 3 scan snapshot was collected");
+            let phase10_calls = self.world.settlements.len();
+            let phase10_elements = (0..phase10_calls).sum();
+            let work_groups: Vec<_> = work_resolutions
+                .iter()
+                .map(|resolution| resolution.group_id)
+                .collect();
+            let targeted_groups: Vec<_> = targeted_resolutions
+                .iter()
+                .map(|resolution| resolution.group_id)
+                .collect();
+            let phase6a_one_pass =
+                settlement_find_tally(&self.world.settlements, &partition_groups);
+            let phase7_one_pass = settlement_find_tally(&self.world.settlements, &partition_groups);
+            SettlementScanCounts {
+                phase3_lookup_calls: phase3_lookup.0,
+                phase3_lookup_comparisons: phase3_lookup.1,
+                phase3_index_build_entries,
+                phase3_index_sort_comparisons,
+                phase3_output_sorted_before_sort: phase3_lookup.2,
+                phase6a_find: ScanTally {
+                    calls: phase6a_one_pass.calls * 2,
+                    elements: phase6a_one_pass.elements * 2,
+                },
+                phase6b_any: settlement_find_tally(&self.world.settlements, &partition_groups),
+                phase7_find: ScanTally {
+                    calls: phase7_one_pass.calls * 2,
+                    elements: phase7_one_pass.elements * 2,
+                },
+                phase10_duplicate_any: ScanTally {
+                    calls: phase10_calls,
+                    elements: phase10_elements,
+                },
+                phase11_group_find: phase11_group_find_tally(&work_groups, &targeted_groups),
+            }
+        } else {
+            SettlementScanCounts::default()
+        };
+
         (
             M3DayOutcome {
                 executed_day: executed_day.as_u32(),
@@ -874,6 +1005,7 @@ impl ManualProfile {
             ProfileSample {
                 phase_us,
                 p6b_stage_us,
+                settlement_scans,
             },
         )
     }
@@ -918,7 +1050,7 @@ fn profile_serial_cell(checkpoint: &HybridWorldState, config: &SimConfig) -> Pha
             .expect("serial profile oracle context builds");
 
         for _ in 0..DAYS_PER_SAMPLE {
-            let (manual_outcome, profile) = manual.step(config);
+            let (manual_outcome, profile) = manual.step(config, false);
             let runner_outcomes =
                 run_m3_storage_days(&mut runner_world, config, &mut runner_context, 1, &options)
                     .expect("serial profile oracle day succeeds");
@@ -1350,7 +1482,466 @@ fn report_first_breaks(
     }
 }
 
+struct DiagnosticCell {
+    population: u64,
+    settlements: u32,
+    profile: PhaseProfile,
+}
+
+fn config_for_diagnostic(population: u64, settlements: u32) -> SimConfig {
+    let mut config = config_for(population, 8);
+    config.world.settlement_count = settlements;
+    config.validate().expect("diagnostic config validates");
+    let smallest_group = population / u64::from(settlements);
+    let largest_group = population.div_ceil(u64::from(settlements));
+    assert!(smallest_group > 8, "local capacity supports k=8");
+    assert!(
+        population - largest_group >= 8,
+        "cross capacity supports k=8"
+    );
+    config
+}
+
+fn profile_diagnostic_cell(population: u64, settlements: u32, series: &str) -> DiagnosticCell {
+    let config = config_for_diagnostic(population, settlements);
+    let (base, _) = initialize(&config);
+    let profile = profile_serial_cell(&base, &config);
+    for (name, summary) in PHASE_NAMES.iter().zip(profile.phases) {
+        emit(&format!(
+            "DIAG_PHASE|series={series}|N={population}|K={settlements}|phase={name}|median_us={:.3}|mad_us={:.3}",
+            summary.median, summary.mad
+        ));
+    }
+    DiagnosticCell {
+        population,
+        settlements,
+        profile,
+    }
+}
+
+fn report_n_alphas(cells: &[DiagnosticCell]) {
+    for adjacent in cells.windows(2) {
+        for (index, name) in PHASE_NAMES.iter().enumerate() {
+            let lower = adjacent[0].profile.phases[index].median;
+            let upper = adjacent[1].profile.phases[index].median;
+            emit(&format!(
+                "DIAG_ALPHA_N|K={}|phase={name}|from_N={}|to_N={}|alpha={:.5}",
+                adjacent[0].settlements,
+                adjacent[0].population,
+                adjacent[1].population,
+                alpha(adjacent[0].population, lower, adjacent[1].population, upper)
+            ));
+        }
+    }
+}
+
+fn report_k_times(cells: &[DiagnosticCell]) {
+    for cell in cells {
+        for (name, summary) in PHASE_NAMES.iter().zip(cell.profile.phases) {
+            emit(&format!(
+                "DIAG_TIME_K|N={}|K={}|phase={name}|median_us={:.3}|mad_us={:.3}",
+                cell.population, cell.settlements, summary.median, summary.mad
+            ));
+        }
+    }
+}
+
+fn report_lookup_counts(population: u64, settlements: u32, config: &SimConfig) {
+    let (base, _) = initialize(config);
+    let mut manual = ManualProfile::from_checkpoint(&base, config);
+    let (_, sample) = manual.step(config, true);
+    let scans = sample.settlement_scans;
+    emit(&format!(
+        "DIAG_LOOKUPS|N={population}|K={settlements}|partition_count={}|phase3_index_build_entries={}|phase3_index_sort_comparisons={}|phase3_binary_lookup_calls={}|phase3_binary_comparisons={}|phase3_out_sorted_before_sort={}|phase6a_find_calls={}|phase6a_elements={}|phase6b_any_calls={}|phase6b_elements={}|phase7_find_calls={}|phase7_elements={}|phase10_duplicate_any_calls={}|phase10_elements={}|phase11_group_find_calls={}|phase11_elements={}",
+        scans.phase6a_find.calls / 2,
+        scans.phase3_index_build_entries,
+        scans.phase3_index_sort_comparisons,
+        scans.phase3_lookup_calls,
+        scans.phase3_lookup_comparisons,
+        scans.phase3_output_sorted_before_sort,
+        scans.phase6a_find.calls,
+        scans.phase6a_find.elements,
+        scans.phase6b_any.calls,
+        scans.phase6b_any.elements,
+        scans.phase7_find.calls,
+        scans.phase7_find.elements,
+        scans.phase10_duplicate_any.calls,
+        scans.phase10_duplicate_any.elements,
+        scans.phase11_group_find.calls,
+        scans.phase11_group_find.elements,
+    ));
+}
+
+fn phase3_subphase_profile(
+    storage: &SegmentedAgentStorage,
+    config: &SimConfig,
+    settlements: &[sim_model::SettlementState],
+) -> ([Summary; 4], bool) {
+    let mut values: [Vec<f64>; 4] = array::from_fn(|_| Vec::new());
+    let mut timed_features = Vec::with_capacity(storage.len());
+    let mut plain_features = Vec::with_capacity(storage.len());
+    let mut timed_scratch = Phase3ScarcityScratch::with_capacity(settlements.len());
+    let mut plain_scratch = Phase3ScarcityScratch::with_capacity(settlements.len());
+    let output_sorted_before_sort = storage.agent_ids().windows(2).all(|w| w[0] <= w[1]);
+
+    for sample_index in 0..(WARMUPS + SAMPLES) {
+        for _ in 0..DAYS_PER_SAMPLE {
+            let started = Instant::now();
+            let timings = phase3_observation_and_features_storage_with_timing(
+                storage,
+                settlements,
+                config,
+                &mut timed_features,
+                &mut timed_scratch,
+            )
+            .expect("timed Phase 3 succeeds");
+            let total = micros(started.elapsed());
+            if sample_index >= WARMUPS {
+                values[0].push(micros(timings.scarcity_prepare));
+                values[1].push(micros(timings.agent_loop));
+                values[2].push(micros(timings.final_sort));
+                values[3].push(total);
+            }
+        }
+        phase3_observation_and_features_storage_with_scratch(
+            storage,
+            settlements,
+            config,
+            &mut plain_features,
+            &mut plain_scratch,
+        )
+        .expect("untimed Phase 3 succeeds");
+        assert_eq!(
+            timed_features, plain_features,
+            "timed and plain Phase 3 parity"
+        );
+    }
+
+    (
+        values.each_mut().map(|stage| summarize(stage)),
+        output_sorted_before_sort,
+    )
+}
+
+fn diagnose_phase3() {
+    for population in [250_000, 1_000_000] {
+        let config = config_for(population, 8);
+        let (base, _) = initialize(&config);
+        let storage = base.storage().expect("diagnostic storage exists");
+        let (profile, presorted) =
+            phase3_subphase_profile(storage, &config, &base.world.settlements);
+        for (stage, summary) in [
+            "scarcity_prepare",
+            "agent_loop",
+            "final_sort",
+            "timed_phase_total",
+        ]
+        .into_iter()
+        .zip(profile)
+        {
+            emit(&format!(
+                "DIAG_P3|N={population}|K={}|stage={stage}|median_us={:.3}|mad_us={:.3}|out_sorted_before_sort={presorted}",
+                config.world.settlement_count, summary.median, summary.mad
+            ));
+        }
+    }
+}
+
+fn p6b_stage_values(timings: sim_model::resolution::M3Phase6BStageTimings) -> [f64; 5] {
+    [
+        micros(timings.validation_slot_lookup),
+        micros(timings.key_generation),
+        micros(timings.global_sort),
+        micros(timings.dependency_level_build),
+        micros(timings.evaluation_writeback_output),
+    ]
+}
+
+fn diagnose_parallel_phase6b() {
+    let population = 1_000_000;
+    let degree = 16;
+    let config = config_for(population, degree);
+    let (checkpoint, _) = initialize(&config);
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(POOL_THREADS)
+        .build()
+        .expect("diagnostic Rayon pool builds");
+    pool.install(|| ());
+    let chunk_size = NonZeroUsize::new(CHUNK_SIZE).expect("chunk size is nonzero");
+    let options = options();
+    let mut serial_values: [Vec<f64>; 5] = array::from_fn(|_| Vec::new());
+    let mut parallel_values: [Vec<f64>; 5] = array::from_fn(|_| Vec::new());
+    let mut serial_tick_values = Vec::new();
+    let mut parallel_tick_values = Vec::new();
+
+    for sample_index in 0..(WARMUPS + SAMPLES) {
+        let mut serial_world = checkpoint.clone();
+        let mut parallel_world = checkpoint.clone();
+        let run_context = M0RunContext::new(MASTER_SEED, REPLICATE_ID);
+        let mut serial_context = M3StorageRunContext::new(&serial_world, &config, &run_context)
+            .expect("serial diagnostic context builds");
+        let mut parallel_context =
+            M3ParallelStorageRunContext::new(&parallel_world, &config, &run_context)
+                .expect("parallel diagnostic context builds");
+
+        let (serial_digests, serial_timing, parallel_digests, parallel_timing) =
+            if sample_index.is_multiple_of(2) {
+                let (serial_outcomes, serial_timing) = run_m3_storage_days_with_phase6b_timing(
+                    &mut serial_world,
+                    &config,
+                    &mut serial_context,
+                    DAYS_PER_SAMPLE,
+                    &options,
+                )
+                .expect("serial timed diagnostic run succeeds");
+                let serial_digests = m3_day_digests(
+                    &serial_world,
+                    serial_context.relationship_graph(),
+                    &serial_outcomes,
+                );
+                let (parallel_outcomes, parallel_timing) =
+                    run_m3_storage_days_with_parallel_phase6b_timing(
+                        &mut parallel_world,
+                        &config,
+                        &mut parallel_context,
+                        DAYS_PER_SAMPLE,
+                        &options,
+                        &pool,
+                        chunk_size,
+                    )
+                    .expect("parallel timed diagnostic run succeeds");
+                let parallel_digests = m3_day_digests(
+                    &parallel_world,
+                    parallel_context.relationship_graph(),
+                    &parallel_outcomes,
+                );
+                (
+                    serial_digests,
+                    serial_timing,
+                    parallel_digests,
+                    parallel_timing,
+                )
+            } else {
+                let (parallel_outcomes, parallel_timing) =
+                    run_m3_storage_days_with_parallel_phase6b_timing(
+                        &mut parallel_world,
+                        &config,
+                        &mut parallel_context,
+                        DAYS_PER_SAMPLE,
+                        &options,
+                        &pool,
+                        chunk_size,
+                    )
+                    .expect("parallel timed diagnostic run succeeds");
+                let parallel_digests = m3_day_digests(
+                    &parallel_world,
+                    parallel_context.relationship_graph(),
+                    &parallel_outcomes,
+                );
+                let (serial_outcomes, serial_timing) = run_m3_storage_days_with_phase6b_timing(
+                    &mut serial_world,
+                    &config,
+                    &mut serial_context,
+                    DAYS_PER_SAMPLE,
+                    &options,
+                )
+                .expect("serial timed diagnostic run succeeds");
+                let serial_digests = m3_day_digests(
+                    &serial_world,
+                    serial_context.relationship_graph(),
+                    &serial_outcomes,
+                );
+                (
+                    serial_digests,
+                    serial_timing,
+                    parallel_digests,
+                    parallel_timing,
+                )
+            };
+
+        assert_eq!(serial_digests.state, parallel_digests.state);
+        assert_eq!(serial_digests.metrics, parallel_digests.metrics);
+        assert_eq!(serial_digests.events, parallel_digests.events);
+
+        let mut serial_tick_world = checkpoint.clone();
+        let mut parallel_tick_world = checkpoint.clone();
+        let mut serial_tick_context =
+            M3StorageRunContext::new(&serial_tick_world, &config, &run_context)
+                .expect("serial untimed context builds");
+        let mut parallel_tick_context =
+            M3ParallelStorageRunContext::new(&parallel_tick_world, &config, &run_context)
+                .expect("parallel untimed context builds");
+        let (serial_tick_digests, serial_tick, parallel_tick_digests, parallel_tick) =
+            if sample_index.is_multiple_of(2) {
+                let started = Instant::now();
+                let outcomes = run_m3_storage_days(
+                    &mut serial_tick_world,
+                    &config,
+                    &mut serial_tick_context,
+                    DAYS_PER_SAMPLE,
+                    &options,
+                )
+                .expect("serial untimed diagnostic run succeeds");
+                let serial_tick = micros(started.elapsed()) / f64::from(DAYS_PER_SAMPLE);
+                let serial_tick_digests = m3_day_digests(
+                    &serial_tick_world,
+                    serial_tick_context.relationship_graph(),
+                    &outcomes,
+                );
+                let started = Instant::now();
+                let outcomes = run_m3_storage_days_with_parallel_phase6b(
+                    &mut parallel_tick_world,
+                    &config,
+                    &mut parallel_tick_context,
+                    DAYS_PER_SAMPLE,
+                    &options,
+                    &pool,
+                    chunk_size,
+                )
+                .expect("parallel untimed diagnostic run succeeds");
+                let parallel_tick = micros(started.elapsed()) / f64::from(DAYS_PER_SAMPLE);
+                let parallel_tick_digests = m3_day_digests(
+                    &parallel_tick_world,
+                    parallel_tick_context.relationship_graph(),
+                    &outcomes,
+                );
+                (
+                    serial_tick_digests,
+                    serial_tick,
+                    parallel_tick_digests,
+                    parallel_tick,
+                )
+            } else {
+                let started = Instant::now();
+                let outcomes = run_m3_storage_days_with_parallel_phase6b(
+                    &mut parallel_tick_world,
+                    &config,
+                    &mut parallel_tick_context,
+                    DAYS_PER_SAMPLE,
+                    &options,
+                    &pool,
+                    chunk_size,
+                )
+                .expect("parallel untimed diagnostic run succeeds");
+                let parallel_tick = micros(started.elapsed()) / f64::from(DAYS_PER_SAMPLE);
+                let parallel_tick_digests = m3_day_digests(
+                    &parallel_tick_world,
+                    parallel_tick_context.relationship_graph(),
+                    &outcomes,
+                );
+                let started = Instant::now();
+                let outcomes = run_m3_storage_days(
+                    &mut serial_tick_world,
+                    &config,
+                    &mut serial_tick_context,
+                    DAYS_PER_SAMPLE,
+                    &options,
+                )
+                .expect("serial untimed diagnostic run succeeds");
+                let serial_tick = micros(started.elapsed()) / f64::from(DAYS_PER_SAMPLE);
+                let serial_tick_digests = m3_day_digests(
+                    &serial_tick_world,
+                    serial_tick_context.relationship_graph(),
+                    &outcomes,
+                );
+                (
+                    serial_tick_digests,
+                    serial_tick,
+                    parallel_tick_digests,
+                    parallel_tick,
+                )
+            };
+        assert_eq!(serial_tick_digests.state, parallel_tick_digests.state);
+        assert_eq!(serial_tick_digests.metrics, parallel_tick_digests.metrics);
+        assert_eq!(serial_tick_digests.events, parallel_tick_digests.events);
+        if sample_index >= WARMUPS {
+            serial_tick_values.push(serial_tick);
+            parallel_tick_values.push(parallel_tick);
+            for timing in serial_timing {
+                for (values, elapsed) in serial_values.iter_mut().zip(p6b_stage_values(timing)) {
+                    values.push(elapsed);
+                }
+            }
+            for timing in parallel_timing {
+                for (values, elapsed) in parallel_values.iter_mut().zip(p6b_stage_values(timing)) {
+                    values.push(elapsed);
+                }
+            }
+        }
+    }
+
+    for ((name, serial), parallel) in P6B_STAGE_NAMES
+        .iter()
+        .zip(serial_values.each_mut().map(|v| summarize(v)))
+        .zip(parallel_values.each_mut().map(|v| summarize(v)))
+    {
+        emit(&format!(
+            "DIAG_P6B_PARALLEL|N={population}|K={}|k={degree}|threads={POOL_THREADS}|chunk={CHUNK_SIZE}|stage={name}|serial_median_us={:.3}|serial_mad_us={:.3}|parallel_median_us={:.3}|parallel_mad_us={:.3}|speedup={:.4}",
+            config.world.settlement_count,
+            serial.median,
+            serial.mad,
+            parallel.median,
+            parallel.mad,
+            serial.median / parallel.median,
+        ));
+    }
+    let serial_tick = summarize(&mut serial_tick_values);
+    let parallel_tick = summarize(&mut parallel_tick_values);
+    emit(&format!(
+        "DIAG_FULL_TICK|N={population}|K={}|k={degree}|serial_median_us={:.3}|serial_mad_us={:.3}|parallel_median_us={:.3}|parallel_mad_us={:.3}|speedup={:.4}|parity=true",
+        config.world.settlement_count,
+        serial_tick.median,
+        serial_tick.mad,
+        parallel_tick.median,
+        parallel_tick.mad,
+        serial_tick.median / parallel_tick.median,
+    ));
+    emit("DIAG_P6B_PARITY|equal_state_metrics_events=true|samples=7|days_per_sample=3");
+}
+
+fn run_diagnosis() {
+    if std::env::args().any(|arg| arg == "--p3-only") {
+        diagnose_phase3();
+        return;
+    }
+    if std::env::args().any(|arg| arg == "--parallel-only") {
+        diagnose_parallel_phase6b();
+        return;
+    }
+    emit(&format!(
+        "DIAG_HOST|os={}|arch={}|seed={MASTER_SEED}|replicate={REPLICATE_ID}|metabolic_cost={EQUILIBRIUM_METABOLIC_COST}|p_local={P_LOCAL}|k=8|warmups={WARMUPS}|samples={SAMPLES}|days_per_sample={DAYS_PER_SAMPLE}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    ));
+
+    let fixed_k = [100_000, 250_000, 500_000, 1_000_000]
+        .into_iter()
+        .map(|population| profile_diagnostic_cell(population, 500, "fixed_K"))
+        .collect::<Vec<_>>();
+    report_n_alphas(&fixed_k);
+
+    let fixed_n = [250, 500, 1_250, 2_500, 5_000]
+        .into_iter()
+        .map(|settlements| profile_diagnostic_cell(250_000, settlements, "fixed_N"))
+        .collect::<Vec<_>>();
+    report_k_times(&fixed_n);
+
+    diagnose_phase3();
+    let config_500 = config_for_diagnostic(1_000_000, 500);
+    report_lookup_counts(1_000_000, 500, &config_500);
+    let config_5000 = config_for(1_000_000, 8);
+    report_lookup_counts(1_000_000, 5_000, &config_5000);
+    diagnose_parallel_phase6b();
+    emit(
+        "DIAG_COMPLETE|fixed_K_cells=4|fixed_N_cells=5|phase3_N=250000,1000000|parallel_N=1000000_k=16",
+    );
+}
+
 fn main() {
+    if std::env::args().any(|arg| arg == "--diagnose") {
+        run_diagnosis();
+        return;
+    }
     emit(&format!(
         "SCALE_HOST|os={}|arch={}|seed={MASTER_SEED}|replicate={REPLICATE_ID}|profile=equilibrium|metabolic_cost={EQUILIBRIUM_METABOLIC_COST}|p_local={P_LOCAL}|pool_threads={POOL_THREADS}|chunk={CHUNK_SIZE}|warmups={WARMUPS}|samples={SAMPLES}|days_per_sample={DAYS_PER_SAMPLE}",
         std::env::consts::OS,

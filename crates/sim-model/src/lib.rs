@@ -43,10 +43,11 @@ pub use events::{
 };
 pub use features::{
     AgentFeatures, FeatureBuffer, FeatureVector, Phase3Error, Phase3ScarcityScratch,
-    phase3_observation_and_features, phase3_observation_and_features_into,
-    phase3_observation_and_features_soa_into, phase3_observation_and_features_storage,
-    phase3_observation_and_features_storage_into,
+    Phase3StorageStageTimings, phase3_observation_and_features,
+    phase3_observation_and_features_into, phase3_observation_and_features_soa_into,
+    phase3_observation_and_features_storage, phase3_observation_and_features_storage_into,
     phase3_observation_and_features_storage_with_scratch,
+    phase3_observation_and_features_storage_with_timing,
     phase3_observation_and_features_with_scratch,
 };
 pub use hashing::{

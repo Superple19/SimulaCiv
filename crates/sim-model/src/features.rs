@@ -490,6 +490,45 @@ pub fn phase3_observation_and_features_storage_with_scratch(
     out: &mut Vec<AgentFeatures>,
     scratch: &mut Phase3ScarcityScratch,
 ) -> Result<(), Phase3Error> {
+    phase3_observation_and_features_storage_impl(storage, settlements, config, out, scratch, None)
+}
+
+/// Opt-in Phase 3 stage timings for performance diagnosis.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Phase3StorageStageTimings {
+    pub scarcity_prepare: std::time::Duration,
+    pub agent_loop: std::time::Duration,
+    pub final_sort: std::time::Duration,
+}
+
+/// Runs the unchanged storage Phase 3 path and times its three major stages.
+pub fn phase3_observation_and_features_storage_with_timing(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    config: &SimConfig,
+    out: &mut Vec<AgentFeatures>,
+    scratch: &mut Phase3ScarcityScratch,
+) -> Result<Phase3StorageStageTimings, Phase3Error> {
+    let mut timings = Phase3StorageStageTimings::default();
+    phase3_observation_and_features_storage_impl(
+        storage,
+        settlements,
+        config,
+        out,
+        scratch,
+        Some(&mut timings),
+    )?;
+    Ok(timings)
+}
+
+fn phase3_observation_and_features_storage_impl(
+    storage: &SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    config: &SimConfig,
+    out: &mut Vec<AgentFeatures>,
+    scratch: &mut Phase3ScarcityScratch,
+    mut timings: Option<&mut Phase3StorageStageTimings>,
+) -> Result<(), Phase3Error> {
     out.clear();
     let n = storage.len();
     if out.capacity() < n {
@@ -500,7 +539,11 @@ pub fn phase3_observation_and_features_storage_with_scratch(
     let starvation_threshold = config.interaction.starvation_threshold;
     let target_reserve = config.economy.target_reserve as f32;
     let target_food = config.economy.target_food;
+    let started = timings.as_ref().map(|_| std::time::Instant::now());
     scratch.prepare(settlements, k);
+    if let (Some(timings), Some(started)) = (timings.as_deref_mut(), started) {
+        timings.scarcity_prepare = started.elapsed();
+    }
 
     let alives = storage.alive();
     let healths = storage.health();
@@ -508,6 +551,7 @@ pub fn phase3_observation_and_features_storage_with_scratch(
     let wealths = storage.wealth();
     let group_ids = storage.group_ids();
     let agent_ids = storage.agent_ids();
+    let started = timings.as_ref().map(|_| std::time::Instant::now());
     for i in 0..n {
         if !alives[i] || healths[i] <= 0.0 {
             continue;
@@ -535,8 +579,15 @@ pub fn phase3_observation_and_features_storage_with_scratch(
             ]),
         });
     }
+    if let (Some(timings), Some(started)) = (timings.as_deref_mut(), started) {
+        timings.agent_loop = started.elapsed();
+    }
 
+    let started = timings.as_ref().map(|_| std::time::Instant::now());
     out.sort_by_key(|features| features.agent_id);
+    if let (Some(timings), Some(started)) = (timings, started) {
+        timings.final_sort = started.elapsed();
+    }
     Ok(())
 }
 
