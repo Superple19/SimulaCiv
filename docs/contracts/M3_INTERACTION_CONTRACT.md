@@ -249,6 +249,8 @@ Port M3 to the Segmented SoA path with index-based neighbor and target lookup, s
 
 The frozen primary method, dependency-level scheduling, passed exact State, Metrics, and Events parity against M3-01 serial. Round-based Deterministic Reservations remains a comparison-only schedule. No settlement-partition fast path was added; M3-01 measured a conflict fraction of about `0.54` even at `p_local = 1`. Serial remains the default and parallel execution remains an explicit opt-in. The release benchmark, extended parity results, per-stage timings, level structure, and contention measurements are recorded in [M3-02 Parallel Phase 6B](../performance/M3_02_PARALLEL_PHASE6B.md).
 
+The post-M3-02 evidence is summarized in the [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md). It is an interim answer, not the M3 graduation gate.
+
 ### Optional stage after M3-02 — Contention dial
 
 An optional hub-biased or otherwise contention-controlled graph mode may test scheduling across different endpoint-contention levels. It changes graph semantics and requires its own contract amendment before implementation.

@@ -10,7 +10,7 @@ The current reference workload is an agent-based synthetic society. The project 
 
 ## Status
 
-**M2 graduated — `v0.3.0-m2`. M3 is in progress; M3-00, M3-01, and M3-02 are complete.** Later stages remain planned and require their own contract freeze before implementation.
+**M2 graduated — `v0.3.0-m2`. M3 is in progress; M3-00, M3-01, and M3-02 are complete ([interim audit](docs/performance/M3_INTERIM_AUDIT.md)).** Later stages remain planned and require their own contract freeze before implementation.
 
 Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
 
