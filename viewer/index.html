@@ -90,10 +90,16 @@
     .day-cursor { stroke:var(--accent); stroke-width:1.5; stroke-dasharray:4 3; pointer-events:none; }
     .record { margin-top:10px; }
     .day-table-wrap { overflow:auto; border:1px solid var(--line); border-radius:8px; }
-    .day-table { min-width:1480px; font-size:.72rem; }
-    .day-table th { position:sticky; top:0; z-index:1; }
+    .day-table { width:max-content; min-width:100%; font-size:.72rem; }
+    .day-table th { position:sticky; top:0; z-index:1; white-space:normal; line-height:1.1; }
+    .day-table th small { display:block; color:var(--muted); font-size:.65rem; font-weight:normal; }
     .day-table td { white-space:nowrap; }
-    .day-table td.actions,.day-table td.outcomes { white-space:normal; min-width:180px; }
+    .day-table th:first-child,.day-table td:first-child { min-width:150px; }
+    .day-table th:not(:first-child),.day-table td:not(:first-child) { min-width:150px; }
+    .day-table td.metric-value { text-align:right; font-variant-numeric:tabular-nums; }
+    .day-table td.extinct { text-align:center; white-space:normal; color:var(--muted); font-weight:600; vertical-align:middle; }
+    .day-table .section-heading { color:var(--muted); font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; }
+    .day-table .section-spacer { padding:2px; background:color-mix(in srgb,var(--line) 16%,var(--card)); }
     .day-table td.diff { background:color-mix(in srgb,#e2a32d 22%,var(--card)); }
     .raw-records { margin-top:7px; }
     #tooltip { position:fixed; z-index:5; display:none; pointer-events:none; padding:7px 9px; border-radius:6px; background:var(--fg); color:var(--bg); font:12px ui-monospace,monospace; white-space:pre; box-shadow:0 2px 10px #0004; }
@@ -698,30 +704,56 @@
       card.append(svg);
       container.append(card);
     }
-    function dayCells(day) {
-      const actions=day.action_counts||{}, outcomes=day.phase6b_outcomes||{};
-      const give=[day.give_food?.some??null,day.give_food?.none??null];
-      const steal=[day.steal_food?.some??null,day.steal_food?.none??null];
-      const outcomeEntries=[
-        ["Applied+",outcomes.applied_positive], ["Applied0",outcomes.applied_zero],
-        ["TheftFailed",outcomes.theft_failed], ["TargetIneligible",outcomes.target_ineligible],
-        ["InitiatorIneligible",outcomes.initiator_ineligible], ["ZeroTarget",outcomes.zero_target]
-      ];
-      const actionEntries=["Work","BuyFood","SellFood","GiveFood","StealFood","Idle"].map(name=>[name,actions[name]??0]);
-      const actionText=actionEntries.map(([name,count])=>`${name} ${formatCount(count)}`).join(" · ");
-      const outcomeText=outcomeEntries.map(([name,count])=>`${name} ${formatCount(count??0)}`).join(" · ");
+    function stableDayRecord(day) {
+      const normalize=(value,root=false)=>{
+        if(Array.isArray(value))return value.map(item=>normalize(item));
+        if(value&&typeof value==="object")return Object.fromEntries(Object.keys(value).filter(key=>!root||key!=="day_wall_time_us").sort().map(key=>[key,normalize(value[key])]));
+        return value;
+      };
+      return JSON.stringify(normalize(day,true));
+    }
+    function dayMetricSections(columns) {
+      const standardActions=["Work","BuyFood","SellFood","GiveFood","StealFood","Idle"],extraActions=[...new Set(columns.flatMap(column=>Object.keys(column.day.action_counts||{})))].filter(action=>!standardActions.includes(action)).sort();
+      const actions=[...standardActions,...extraActions].map(action=>({label:action,format:"count",value:day=>day.action_counts?.[action]??0}));
+      const outcomes=[
+        ["Zero target","zero_target"],["Initiator ineligible","initiator_ineligible"],
+        ["Target ineligible","target_ineligible"],["Theft failed","theft_failed"],
+        ["Applied positive","applied_positive"],["Applied zero","applied_zero"]
+      ].map(([label,key])=>({label,format:"count",value:day=>day.phase6b_outcomes?.[key]??0}));
       return [
-        {text:formatCount(day.alive),compare:day.alive??null},
-        {text:formatFloat(day.food_alive?.mean),compare:day.food_alive?.mean??null},
-        {text:actionText,compare:actionEntries},
-        {text:`${formatCount(give[0])} / ${formatCount(give[1])}`,compare:give},
-        {text:`${formatCount(steal[0])} / ${formatCount(steal[1])}`,compare:steal},
-        {text:formatCount(day.keyed_entries),compare:day.keyed_entries??null},
-        {text:outcomeText,compare:outcomeEntries.map(([,count])=>count??0)},
-        {text:formatFloat(day.conflict_fraction,3),compare:day.conflict_fraction??null},
-        {text:`${formatCount(day.level_count)} / ${formatCount(day.max_level_size)}`,compare:[day.level_count??null,day.max_level_size??null]},
-        {text:`${formatCount(day.day_wall_time_us)} µs`,compare:day.day_wall_time_us??null}
+        {label:"Population",rows:[
+          {label:"Alive",format:"count",value:day=>day.alive},
+          {label:"Food mean",format:"float",value:day=>day.food_alive?.mean},
+          {label:"Food min",format:"float",value:day=>day.food_alive?.min},
+          {label:"Food max",format:"float",value:day=>day.food_alive?.max}
+        ]},
+        {label:"Actions",rows:actions},
+        {label:"Targets",rows:[
+          {label:"Give Some",format:"count",value:day=>day.give_food?.some},
+          {label:"Give None",format:"count",value:day=>day.give_food?.none},
+          {label:"Steal Some",format:"count",value:day=>day.steal_food?.some},
+          {label:"Steal None",format:"count",value:day=>day.steal_food?.none}
+        ]},
+        {label:"Phase 6B",rows:[
+          {label:"Keyed",format:"count",value:day=>day.keyed_entries},
+          {label:"Cross-partition",format:"count",value:day=>day.cross_partition_interactions},
+          ...outcomes
+        ]},
+        {label:"Scheduling",rows:[
+          {label:"Conflict fraction",format:"fraction",value:day=>day.conflict_fraction},
+          {label:"Mean contention",format:"float",value:day=>day.mean_contention},
+          {label:"Levels",format:"count",value:day=>day.level_count},
+          {label:"Max level",format:"count",value:day=>day.max_level_size}
+        ]},
+        {label:"Wall time",rows:[{label:"Wall time",format:"time",value:()=>null,wallTime:true}]}
       ];
+    }
+    function metricText(value,format) {
+      if(value===null||value===undefined)return "—";
+      if(format==="float")return formatFloat(value,2);
+      if(format==="fraction")return formatFloat(value,3);
+      if(format==="time")return `${formatCount(value)} µs`;
+      return formatCount(value);
     }
     function renderDayRecords(shown) {
       const section=document.getElementById("record"), slider=document.getElementById("day-slider");
@@ -730,32 +762,67 @@
       const maxDay=Math.max(0,...shown.flatMap(t=>t.days.map(d=>d.day)));
       slider.max=String(maxDay); if(Number(slider.value)>maxDay)slider.value=String(maxDay);
       const selectedDay=Number(slider.value);document.getElementById("day-label").textContent=String(selectedDay);
-      const root=document.getElementById("day-records");root.replaceChildren();
-      const rows=shown.map(trace=>({trace,day:trace.days.find(record=>record.day===selectedDay)})).filter(row=>row.day);
-      const headings=["Trace","Alive","Food mean","Action counts","Give Some / None","Steal Some / None","Keyed","Phase 6B outcomes","Conflict","Levels / max","Wall time"];
-      const table=element("table",undefined,"day-table"),thead=document.createElement("thead"),headRow=document.createElement("tr");
-      headings.forEach(heading=>headRow.append(element("th",heading)));thead.append(headRow);table.append(thead);
-      const body=document.createElement("tbody"),values=rows.map(row=>dayCells(row.day));
-      for(let rowIndex=0;rowIndex<rows.length;rowIndex++) {
-        const {trace}=rows[rowIndex],row=document.createElement("tr");
-        const file=element("td",trace.name);file.style.borderLeft=`4px solid ${trace.color}`;row.append(file);
-        for(let column=0;column<headings.length-1;column++) {
-          const cell=values[rowIndex][column];
-          const td=element("td",cell.text);
-          if(column===2)td.classList.add("actions");
-          if(column===6)td.classList.add("outcomes");
-          if(column!==9) {
-            const peers=rows.map((candidate,index)=>sameTraceConfig(trace,candidate.trace)?index:-1).filter(index=>index>=0);
-            const valuesInConfig=peers.map(index=>JSON.stringify(values[index][column].compare));
-            if(new Set(valuesInConfig).size>1)td.classList.add("diff");
-          }
-          row.append(td);
-        }
-        body.append(row);
+      const root=document.getElementById("day-records"),rawWasOpen=root.querySelector(".raw-records")?.open??false;root.replaceChildren();
+      const rows=shown.map(trace=>({trace,day:trace.days.find(record=>record.day===selectedDay)})).filter(row=>row.day),groups=loadedConfigGroups(),columns=[];
+      for(const group of groups) {
+        const records=group.traces.map(trace=>({trace,day:trace.days.find(record=>record.day===selectedDay)})).filter(record=>record.day);
+        if(!records.length)continue;
+        const identical=records.length>1&&records.every(record=>stableDayRecord(record.day)===stableDayRecord(records[0].day));
+        if(identical)columns.push({group,records,groupRecords:records,day:records[0].day,collapsed:true});
+        else for(const record of records)columns.push({group,records:[record],groupRecords:records,day:record.day,collapsed:false});
       }
-      table.append(body);const tableWrap=element("div",undefined,"day-table-wrap");tableWrap.append(table);root.append(tableWrap);
+      if(!columns.length)root.append(element("p","No day record for the selected day."));
+      else {
+        const metricSections=dayMetricSections(columns),bodyRowCount=metricSections.length+metricSections.reduce((count,item)=>count+item.rows.length,0);
+        const table=element("table",undefined,"day-table"),head=document.createElement("thead"),headRow=document.createElement("tr");
+        headRow.append(element("th","Metric"));
+        for(const column of columns) {
+          const heading=element("th"),collapsed=column.collapsed&&column.records.length>1;
+          heading.textContent=collapsed?`${column.group.label} (×${column.records.length} identical)`:column.group.label;
+          if(!collapsed) {
+            const runners=column.group.traces.map(trace=>trace.header.runner||trace.name),runner=column.records[0].trace.header.runner||column.records[0].trace.name;
+            const runnerLabel=runners.filter(value=>value===runner).length>1?`${runner} · ${column.records[0].trace.name}`:runner;
+            heading.append(element("small",runnerLabel));
+          }
+          headRow.append(heading);
+        }
+        head.append(headRow);table.append(head);
+        const body=document.createElement("tbody");
+        for(const [sectionIndex,metricSection] of metricSections.entries()) {
+          const sectionRow=document.createElement("tr"),sectionHeading=element("th",metricSection.label,"section-heading");sectionHeading.scope="rowgroup";sectionRow.append(sectionHeading);
+          for(const column of columns) {
+            if(column.day.alive===0) {
+              if(sectionIndex===0) {
+                const extinct=element("td"),firstZero=Math.max(...column.records.map(({trace})=>trace.days.filter(day=>Number(day.alive)===0).reduce((first,day)=>Math.min(first,day.day),Infinity)));
+                extinct.rowSpan=bodyRowCount-1;extinct.className="extinct";extinct.textContent=`extinct since day ${Number.isFinite(firstZero)?firstZero:selectedDay}`;sectionRow.append(extinct);
+              }
+            } else sectionRow.append(element("td",undefined,"section-spacer"));
+          }
+          body.append(sectionRow);
+          for(const metric of metricSection.rows) {
+            const row=element("tr"),label=element("th",metric.label);label.scope="row";row.append(label);
+            for(const column of columns) {
+              if(column.day.alive===0&&!metric.wallTime)continue;
+              if(metric.wallTime) {
+                const counts=new Map();for(const {trace} of column.groupRecords){const runner=trace.header.runner||trace.name;counts.set(runner,(counts.get(runner)||0)+1);}
+                const text=column.records.map(({trace,day})=>{
+                  const runner=trace.header.runner||trace.name,label=counts.get(runner)>1?`${runner} (${trace.name})`:runner;
+                  return `${label} ${metricText(day.day_wall_time_us,"time")}`;
+                }).join(" · ");row.append(element("td",text,"metric-value"));continue;
+              }
+              const value=metric.value(column.day),cell=element("td",metricText(value,metric.format),"metric-value");
+              const siblingValues=column.groupRecords.map(record=>metric.value(record.day));
+              if(!metric.wallTime&&new Set(siblingValues.map(item=>JSON.stringify(item??null))).size>1)cell.classList.add("diff");
+              cell.title=value===null||value===undefined?"":String(value);row.append(cell);
+            }
+            body.append(row);
+          }
+        }
+        table.append(body);const tableWrap=element("div",undefined,"day-table-wrap");tableWrap.append(table);root.append(tableWrap);
+      }
       const raw=element("details",undefined,"raw-records");raw.append(element("summary","Raw JSON records"));
       for(const {trace,day} of rows){raw.append(element("h3",`${trace.name} · day ${selectedDay}`),element("pre",JSON.stringify(day,null,2)));}
+      raw.open=rawWasOpen;
       root.append(raw);
     }
     function render() {
