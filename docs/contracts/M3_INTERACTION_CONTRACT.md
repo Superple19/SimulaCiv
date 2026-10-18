@@ -292,9 +292,9 @@ Index repeated GroupId lookups on the shared M2/M3 storage path without changing
 
 Determine whether post-M3-06 superlinear scaling is measurement noise, memory-hierarchy effects, or remaining algorithmic cost. Findings are recorded in [M3-07 Scale Residual](../performance/M3_07_SCALE_RESIDUAL.md).
 
-### M3-08 (formerly M3-P) — Population dynamics — PLANNED
+### M3-08 (formerly M3-P) — Population dynamics — COMPLETE
 
-Add births and define newborn graph attachment, dead-agent cleanup and storage reuse, deterministic `AgentId` allocation, and graph persistence in snapshots. The frozen M3-08 contract is in [§13](#13-m3-08-formerly-m3-p-population-dynamics); its freeze authorizes the implementation task to be requested but does not start it. The current model has no births: initialization sets every `birth_day` to zero, and no simulation phase creates agents.
+The frozen M3-08 contract in [§13](#13-m3-08-formerly-m3-p-population-dynamics) is implemented on the reference and serial storage paths. The sustained configuration, 1,000-day CI gate, and performance measurements are recorded in [M3-08 Population Dynamics](../performance/M3_08_POPULATION_DYNAMICS.md).
 
 Spatial migration, previously listed as M3-03, remains a deferred follow-up and is not part of M3-08's planned scope.
 
