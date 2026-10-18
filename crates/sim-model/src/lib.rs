@@ -62,7 +62,8 @@ pub use hashing::{
     canonical_m3_state_bytes, canonical_m3_state_bytes_from_storage, canonical_m3_state_hash,
     canonical_m3_state_hash_from_storage, canonical_m3p_event_bytes, canonical_m3p_event_hash,
     canonical_m3p_metrics_bytes, canonical_m3p_metrics_hash, canonical_m3p_state_bytes,
-    canonical_m3p_state_hash, canonical_metrics_bytes, canonical_metrics_hash,
+    canonical_m3p_state_bytes_from_storage, canonical_m3p_state_hash,
+    canonical_m3p_state_hash_from_storage, canonical_metrics_bytes, canonical_metrics_hash,
     canonical_state_bytes, canonical_state_hash,
 };
 pub use initialization::{InitializationError, initialize_world};

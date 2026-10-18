@@ -352,6 +352,46 @@ pub fn canonical_m3_state_hash_from_storage(
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
+/// Encodes M3P State from authoritative segmented storage, followed by the allocator cursor.
+pub fn canonical_m3p_state_bytes_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    next_agent_id: u64,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let m3_bytes = canonical_m3_state_bytes_from_storage(storage, current_day, settlements, graph)?;
+    let fields = &m3_bytes[DOMAIN_M3_STATE.len()..];
+    let capacity = DOMAIN_M3P_STATE
+        .len()
+        .checked_add(fields.len())
+        .and_then(|len| len.checked_add(8))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(DOMAIN_M3P_STATE);
+    bytes.extend_from_slice(fields);
+    bytes.extend_from_slice(&next_agent_id.to_le_bytes());
+    Ok(bytes)
+}
+
+/// Computes the M3P State digest directly from authoritative segmented storage.
+pub fn canonical_m3p_state_hash_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    next_agent_id: u64,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    let bytes = canonical_m3p_state_bytes_from_storage(
+        storage,
+        current_day,
+        settlements,
+        graph,
+        next_agent_id,
+    )?;
+    Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
 // =========================================================================
 // 2. CanonicalMetricsHash
 // =========================================================================
