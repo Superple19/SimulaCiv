@@ -2,9 +2,9 @@
 
 **Status: FROZEN**
 
-**Scope: Frozen M3-00 workload and single-threaded semantic reference**
+**Scope: M3-00 semantic reference (§1–§7) and M3-01 optimized serial contract (§9)**
 
-This document freezes the M3-00 workload and single-threaded semantic reference. Later M3 stages (M3-01 onward) remain out of scope and will extend this document.
+This document freezes M3-00 (§1–§7) and M3-01 (§9); later M3 stages are planned in §8.
 
 The research question is: **How much interaction complexity can a deterministic simulation runtime support before its execution model or data architecture must fundamentally change?** The M3-00 reference workload deliberately breaks the assumption that a settlement is an independent interaction partition.
 
@@ -241,11 +241,9 @@ This plan is non-frozen. Each stage has its own contract section and must pass t
 
 Single-threaded reference with the relationship graph, neighbor targeting, global Phase 6B resolution, and separate M3 goldens.
 
-### M3-01 — Optimized path and serial baseline
+### M3-01 — Optimized path and serial baseline — COMPLETE
 
-Port M3 to the Segmented SoA path with index-based neighbor and target lookup. Do not add parallelism.
-
-**Gate:** exact digest parity with the M3-00 reference, including larger differential runs with hundreds to thousands of agents beyond the small golden. Measure per-phase time across `p_local ∈ {0, 0.25, 0.5, 0.75, 1}` and `k ∈ {4, 8, 16}`; use `p_local = 1` as the baseline for the global stream's cost. Also record conflict density: the fraction of keyed Phase 6B entries that share an initiator or target with another entry on the same day, as a predictor for M3-02.
+Port M3 to the Segmented SoA path with index-based neighbor and target lookup, serially. The golden, §9.7 differential, snapshot-resume, shuffled-slot, and release-differential gates passed. The serial baseline and conflict-density results are recorded in [M3-01 Serial Baseline](../performance/M3_01_SERIAL_BASELINE.md).
 
 ### M3-02 — Deterministic parallel Phase 6B
 

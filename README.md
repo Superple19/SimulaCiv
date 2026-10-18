@@ -10,7 +10,7 @@ The current reference workload is an agent-based synthetic society. The project 
 
 ## Status
 
-**M2 graduated — `v0.3.0-m2`. M3 is in progress; M3-00 is complete.** Later stages remain planned and require their own contract freeze before implementation.
+**M2 graduated — `v0.3.0-m2`. M3 is in progress; M3-00 and M3-01 are complete.** Later stages remain planned and require their own contract freeze before implementation.
 
 Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
 
@@ -19,7 +19,7 @@ Canonical State, Metrics, and Events digests and snapshots are verified on Linux
 | M0 — `v0.1.0-m0` | Complete | Deterministic executable reference semantics and replay gate |
 | M1 — `v0.2.0-m1` | Complete | Frozen semantic contracts and machine-readable contract manifest |
 | M2 — `v0.3.0-m2` | Graduated | High-performance runtime with canonical parity |
-| M3 | In progress — M3-00 complete | Reference relationship-graph workload, global Phase 6B resolution, and separate M3 goldens verified on Linux, Windows, and macOS |
+| M3 | In progress — M3-00 and M3-01 complete | Reference and optimized serial relationship-graph paths, exact digests, and [serial baseline](docs/performance/M3_01_SERIAL_BASELINE.md); M3-00 goldens verified on Linux, Windows, and macOS |
 
 The M2 production path uses authoritative Segmented SoA storage. Serial remains the default; deterministic Phase4 Rayon execution is an explicit opt-in, and Auto policy remains experimental. Canonical State, Metrics, Events, and Day 100/250/500 snapshots were validated for exact parity. The measured workloads scale near-linearly through 100k agents; the 200k high-K results remain follow-up evidence. Timings depend on workload and host.
 
@@ -63,7 +63,7 @@ The model represents a synthetic population with biological, economic, group, an
 ## M3 stage plan
 
 - **M3-00 — Reference workload:** complete; relationship graph, neighbor targeting, global Phase 6B, and separate M3 goldens.
-- **M3-01 — Optimized serial path:** port the reference to Segmented SoA and measure phase costs and interaction conflicts.
+- **M3-01 — Optimized serial path:** complete; exact M3-00 parity and [serial baseline profile](docs/performance/M3_01_SERIAL_BASELINE.md).
 - **M3-02 — Deterministic parallel Phase 6B:** conflict-based scheduling with serial as the default and parallel as explicit opt-in.
 - **M3-03 — Spatial migration:** change settlement membership and daily partitions.
 - **M3-04 — Dynamic topology:** create and remove graph edges, persisting topology in snapshots.
