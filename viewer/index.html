@@ -38,9 +38,36 @@
     .digest-cell { white-space:nowrap; font-family:ui-monospace,monospace; }
     .digest-cell code { font-size:.75rem; }
     .copy-button,.expand-button { padding:2px 5px; margin-left:3px; font-size:.72rem; }
-    .trace-details td { padding:9px 12px; }
-    .trace-details pre,.raw-records pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow:auto; font-size:.75rem; margin:5px 0; }
-    .trace-details-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:8px 18px; }
+    .trace-details td { padding:9px 12px; text-align:left; }
+    .trace-details-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); align-items:start; gap:8px 18px; }
+    .trace-config-panel,.trace-digests { min-width:0; text-align:left; }
+    .config-section { margin:0 0 9px; text-align:left; }
+    .config-section dl { margin:0; }
+    .config-section h4 { margin:0 0 3px; color:var(--muted); font-size:.76rem; }
+    .config-row { display:grid; grid-template-columns:minmax(130px,.4fr) minmax(0,1fr); gap:8px; padding:2px 5px; text-align:left; }
+    .config-row.different { background:color-mix(in srgb,#e2a32d 16%,var(--card)); }
+    .config-row[hidden],.config-section[hidden] { display:none; }
+    .config-row dt { font-weight:600; overflow-wrap:anywhere; }
+    .config-row.different dt { color:var(--accent); }
+    .config-row dd { margin:0; min-width:0; text-align:left; overflow-wrap:anywhere; }
+    .config-other { color:var(--muted); margin-left:5px; }
+    .config-no-differences { margin:5px; color:var(--muted); }
+    .config-value,.config-other code { font-family:ui-monospace,monospace; font-size:.75rem; }
+    .weight-matrix { display:inline-table; width:auto; margin:2px 0; font: .72rem ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+    .weight-matrix td { padding:1px 5px; text-align:right; white-space:nowrap; }
+    .config-diff-strip { margin:5px 0 9px; overflow:auto; border:1px solid var(--line); border-radius:7px; background:var(--card); }
+    .config-diff-strip p { margin:6px 8px; }
+    .config-diff-table { min-width:100%; width:max-content; font-size:.76rem; }
+    .config-diff-table th:first-child,.config-diff-table td:first-child { position:sticky; left:0; background:var(--card); }
+    .config-diff-table td { font-family:ui-monospace,monospace; white-space:pre; }
+    .trace-config-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:5px 12px; }
+    .trace-config-heading label { color:var(--muted); font-size:.8rem; font-weight:normal; }
+    .same-config { margin:3px 5px 8px; color:var(--muted); }
+    .raw-config { margin-top:7px; text-align:left; }
+    .raw-config pre { margin:5px 0; max-height:220px; overflow:auto; white-space:pre; text-align:left; font: .74rem ui-monospace,monospace; }
+    .digest-detail { display:grid; grid-template-columns:75px minmax(0,1fr) auto; align-items:center; gap:6px; margin:4px 0; text-align:left; }
+    .digest-detail code { min-width:0; overflow-wrap:anywhere; text-align:left; font: .72rem ui-monospace,monospace; }
+    .trace-digests h4 { margin:0 0 5px; color:var(--muted); font-size:.76rem; }
     .section-title { margin:8px 0 5px; font-size:.95rem; }
     #chart-legend { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; margin:4px 0 7px; color:var(--muted); font-size:.76rem; }
     .legend-item { display:inline-flex; align-items:center; gap:5px; }
@@ -105,7 +132,8 @@
   <section id="status-bar" aria-label="Digest comparison status"></section>
   <main>
     <section id="trace-section" hidden>
-      <h2 class="section-title">Traces</h2>
+      <div class="trace-config-heading"><h2 class="section-title">Traces</h2><label><input id="config-diff-only" type="checkbox" checked> Differences only</label></div>
+      <div id="config-differences" class="config-diff-strip"></div>
       <div class="table-wrap"><table class="trace-table">
         <thead><tr><th>Show</th><th>Color</th><th>File</th><th>Runner</th><th>Config (N · K · k · p_local · preset)</th><th>State digest</th><th>Metrics digest</th><th>Events digest</th><th>Details</th></tr></thead>
         <tbody id="trace-rows"></tbody>
@@ -290,6 +318,194 @@
       const preset=tracePreset(trace);
       return `N ${configNumber(trace,"initial_population")??"?"} · K ${configNumber(trace,"settlement_count")??"?"} · k ${configNumber(trace,"relationship_degree_k")??"?"} · p_local ${configNumber(trace,"p_local")??"?"} · ${preset}`;
     }
+    function stripTomlComment(line) {
+      let quote="",escaped=false;
+      for(let index=0;index<line.length;index++) {
+        const char=line[index];
+        if(escaped){escaped=false;continue;}
+        if(char==="\\"&&quote==="\""){escaped=true;continue;}
+        if((char==='"'||char==="'")&&(!quote||quote===char)){quote=quote?"":char;continue;}
+        if(char==="#"&&!quote)return line.slice(0,index);
+      }
+      return line;
+    }
+    function tomlArrayBalance(value) {
+      let balance=0,quote="",escaped=false;
+      for(const char of value) {
+        if(escaped){escaped=false;continue;}
+        if(char==="\\"&&quote==='"'){escaped=true;continue;}
+        if((char==='"'||char==="'")&&(!quote||quote===char)){quote=quote?"":char;continue;}
+        if(!quote){if(char==="[")balance++;else if(char==="]")balance--;}
+      }
+      return balance;
+    }
+    function parseTomlValue(raw) {
+      const trimmed=raw.trim(),numeric=trimmed.replace(/_/g,"");
+      if(trimmed.startsWith("[")) {
+        try {
+          const parsed=JSON.parse(trimmed.replace(/(?<=\d)_(?=\d)/g,"").replace(/,\s*]/g,"]"));
+          return {raw:trimmed,parsed,canonical:`array:${JSON.stringify(parsed)}`};
+        } catch {}
+      }
+      if(trimmed==="true"||trimmed==="false")return {raw:trimmed,parsed:trimmed==="true",canonical:`bool:${trimmed}`};
+      if(/^[+-]?\d[\d_]*$/.test(trimmed)) {
+        try { return {raw:trimmed,parsed:numeric,canonical:`integer:${BigInt(numeric).toString()}`}; } catch {}
+      }
+      if(/^[+-]?(?:\d[\d_]*)(?:\.\d[\d_]*)?(?:[eE][+-]?\d[\d_]*)?$/.test(trimmed)) {
+        const parsed=Number(numeric);
+        if(Number.isFinite(parsed))return {raw:trimmed,parsed,canonical:`number:${parsed}`};
+      }
+      if(trimmed.startsWith('"')&&trimmed.endsWith('"')) {
+        try { const parsed=JSON.parse(trimmed);return {raw:trimmed,parsed,canonical:`string:${parsed}`}; } catch {}
+      }
+      if(trimmed.startsWith("'")&&trimmed.endsWith("'")) {
+        const parsed=trimmed.slice(1,-1);return {raw:trimmed,parsed,canonical:`string:${parsed}`};
+      }
+      return {raw:trimmed,parsed:trimmed,canonical:`raw:${trimmed.replace(/\s+/g," ")}`};
+    }
+    function parseConfigToml(source) {
+      const fields=new Map();let section="",pending=null;
+      const save=()=>{
+        const path=pending.section?`${pending.section}.${pending.key}`:pending.key;
+        fields.set(path,{...pending,...parseTomlValue(pending.raw)});pending=null;
+      };
+      for(const sourceLine of String(source||"").split(/\r?\n/)) {
+        const line=stripTomlComment(sourceLine).trim();if(!line)continue;
+        if(pending) {
+          pending.raw+=` ${line}`;
+          if(tomlArrayBalance(pending.raw)<=0)save();
+          continue;
+        }
+        const sectionMatch=line.match(/^\[([^\]]+)\]$/);
+        if(sectionMatch){section=sectionMatch[1].trim();continue;}
+        const assignment=line.match(/^([A-Za-z0-9_-]+)\s*=\s*(.*)$/);
+        if(!assignment)continue;
+        pending={section,key:assignment[1],raw:assignment[2].trim()};
+        if(!pending.raw.startsWith("[")||tomlArrayBalance(pending.raw)<=0)save();
+      }
+      if(pending)save();
+      return fields;
+    }
+    function loadedConfigGroups() {
+      const groups=new Map();
+      for(const trace of traces) {
+        const values=parseConfigToml(trace.header.config_toml);
+        const key=JSON.stringify([...values].map(([name,value])=>[name,value.canonical]).sort(([a],[b])=>a.localeCompare(b)));
+        if(!groups.has(key))groups.set(key,{key,values,traces:[]});
+        groups.get(key).traces.push(trace);
+      }
+      const result=[...groups.values()],presetCounts=new Map();
+      for(const group of result) {
+        group.preset=tracePreset(group.traces[0]);
+        presetCounts.set(group.preset,(presetCounts.get(group.preset)||0)+1);
+      }
+      for(const group of result)group.label=presetCounts.get(group.preset)===1?group.preset:`${group.preset} · ${group.traces[0].name}`;
+      return result;
+    }
+    function configFields(groups) {
+      const fields=new Map();
+      for(const group of groups)for(const [path,entry] of group.values)if(!fields.has(path))fields.set(path,entry);
+      return [...fields.values()];
+    }
+    function configFieldDiffers(path,groups) {
+      return new Set(groups.map(group=>group.values.get(path)?.canonical??"<missing>")).size>1;
+    }
+    function compactTomlValue(entry) {
+      return entry.raw.replace(/\s+/g," ").replace(/\s*,\s*/g,", ").replace(/\[\s+/g,"[").replace(/\s+\]/g,"]").trim();
+    }
+    function arrayDimensions(value) {
+      const dimensions=[];let current=value;
+      while(Array.isArray(current)){dimensions.push(current.length);current=current[0];}
+      return dimensions;
+    }
+    function allZero(value) {
+      return Array.isArray(value)?value.length>0&&value.every(allZero):typeof value==="number"&&value===0;
+    }
+    function configValueText(entry) {
+      if(!entry)return "—";
+      if(Array.isArray(entry.parsed)&&allZero(entry.parsed))return `all 0 (${arrayDimensions(entry.parsed).join("x")})`;
+      return Array.isArray(entry.parsed)?compactTomlValue(entry):entry.raw;
+    }
+    function renderConfigValue(entry) {
+      if(!entry)return document.createTextNode("—");
+      if(!Array.isArray(entry.parsed)||!entry.parsed.some(Array.isArray)||allZero(entry.parsed))return document.createTextNode(configValueText(entry));
+      const table=element("table",undefined,"weight-matrix"),body=document.createElement("tbody");
+      for(const values of entry.parsed) {
+        const row=document.createElement("tr");
+        for(const value of values)row.append(element("td",String(value)));
+        body.append(row);
+      }
+      table.append(body);return table;
+    }
+    function renderConfigDifferences(groups) {
+      const root=document.getElementById("config-differences");root.replaceChildren();
+      const differing=configFields(groups).filter(entry=>configFieldDiffers(entry.section?`${entry.section}.${entry.key}`:entry.key,groups));
+      if(!differing.length){root.append(element("p","all configs identical except runner"));return;}
+      const table=element("table",undefined,"config-diff-table"),head=document.createElement("thead"),headRow=document.createElement("tr");
+      headRow.append(element("th","Key"));for(const group of groups)headRow.append(element("th",group.label));head.append(headRow);table.append(head);
+      const body=document.createElement("tbody");
+      for(const field of differing) {
+        const path=field.section?`${field.section}.${field.key}`:field.key,row=document.createElement("tr");row.append(element("th",path));
+        for(const group of groups) {
+          const cell=element("td"),value=group.values.get(path);
+          cell.textContent=configValueText(value);cell.title=cell.textContent;row.append(cell);
+        }
+        body.append(row);
+      }
+      table.append(body);root.append(table);
+    }
+    function applyConfigDifferenceFilter() {
+      const only=document.getElementById("config-diff-only").checked;
+      document.querySelectorAll(".config-section").forEach(section=>{
+        const rows=[...section.querySelectorAll(".config-row")];
+        for(const row of rows)row.hidden=only&&!row.classList.contains("different");
+        section.hidden=!rows.some(row=>!row.hidden);
+      });
+    }
+    function renderTraceDetails(trace,cell,duplicateName,groups) {
+      cell.replaceChildren();const grid=element("div",undefined,"trace-details-grid"),configPanel=element("div",undefined,"trace-config-panel");
+      const group=groups.find(candidate=>candidate.traces.includes(trace));
+      if(duplicateName)configPanel.append(element("p",`same config as ${duplicateName}`,"same-config"));
+      else {
+        const values=element("div",undefined,"config-values"),sections=new Map();
+        const fields=configFields(groups);
+        for(const entry of fields) {
+          const section=entry.section||"general";if(!sections.has(section))sections.set(section,[]);sections.get(section).push(entry);
+        }
+        for(const [sectionName,entries] of sections) {
+          const section=element("section",undefined,"config-section"),heading=element("h4",sectionName==="general"?"General":`[${sectionName}]`),list=element("dl");
+          for(const field of entries) {
+            const path=field.section?`${field.section}.${field.key}`:field.key,entry=group?.values.get(path),different=configFieldDiffers(path,groups),row=element("div",undefined,`config-row${different?" different":""}`);
+            row.dataset.different=String(different);row.append(element("dt",field.key));
+            const value=element("dd"),mainValue=element("span",undefined,"config-value");mainValue.append(renderConfigValue(entry));value.append(mainValue);
+            if(different)for(const other of groups)if(other!==group) {
+              const otherEntry=other.values.get(path);if((otherEntry?.canonical??"<missing>")===(entry?.canonical??"<missing>"))continue;
+              const label=element("span",undefined,"config-other");label.append(document.createTextNode(`· ${other.label}: `),element("code",configValueText(otherEntry)));value.append(label);
+            }
+            row.append(value);list.append(row);
+          }
+          section.append(heading,list);values.append(section);
+        }
+        if(!fields.some(entry=>configFieldDiffers(entry.section?`${entry.section}.${entry.key}`:entry.key,groups)))values.append(element("p","all configs identical except runner","config-no-differences"));
+        configPanel.append(values);
+      }
+      const raw=element("details",undefined,"raw-config"),pre=element("pre",trace.header.config_toml||"");raw.open=Boolean(trace.rawTomlOpen);raw.addEventListener("toggle",()=>{trace.rawTomlOpen=raw.open;});raw.append(element("summary","raw TOML"),pre);configPanel.append(raw);
+      const digests=element("div",undefined,"trace-digests");digests.append(element("h4","Canonical digests"));
+      for(const [label,key] of [["State","state"],["Metrics","metrics"],["Events","events"]]) {
+        const row=element("div",undefined,"digest-detail"),value=String(trace.digests[key]||""),button=element("button","copy","copy-button");
+        row.append(element("strong",label),element("code",value));button.type="button";button.title=`Copy full ${label} digest`;button.addEventListener("click",()=>copyDigest(value,button));row.append(button);digests.append(row);
+      }
+      grid.append(configPanel,digests);cell.append(grid);
+    }
+    function refreshExpandedDetails(groups) {
+      const root=document.getElementById("trace-rows"),owners=new Map();
+      for(const row of root.querySelectorAll(".trace-details:not([hidden])")) {
+        const trace=row.trace,owner=owners.get(row.dataset.configKey);
+        renderTraceDetails(trace,row.detailCell,owner?.name,groups);
+        if(!owner)owners.set(row.dataset.configKey,trace);
+      }
+      applyConfigDifferenceFilter();
+    }
     function copyDigest(value,button) {
       const fallback=()=>{
         const input=document.createElement("textarea");input.value=value;input.style.position="fixed";input.style.opacity="0";document.body.append(input);input.select();
@@ -304,7 +520,7 @@
       const button=element("button","copy","copy-button");button.type="button";button.title=`Copy full ${label} digest`;button.addEventListener("click",()=>copyDigest(full,button));cell.append(button);
       return cell;
     }
-    function renderTraceTable() {
+    function renderTraceTable(groups) {
       const section=document.getElementById("trace-section"),root=document.getElementById("trace-rows");
       section.hidden=traces.length===0;root.replaceChildren();
       for(const trace of traces) {
@@ -314,13 +530,14 @@
         const nameCell=element("td",trace.name,"file-name");nameCell.title=trace.name;row.append(nameCell);
         row.append(element("td",trace.header.runner||"?"),element("td",configSummary(trace),"config-summary"));
         row.append(digestCell(trace.digests.state,"State"),digestCell(trace.digests.metrics,"Metrics"),digestCell(trace.digests.events,"Events"));
-        const detailsCell=element("td"),expand=element("button","expand","expand-button");expand.type="button";expand.setAttribute("aria-expanded","false");detailsCell.append(expand);row.append(detailsCell);
-        const detailsRow=document.createElement("tr");detailsRow.className="trace-details";detailsRow.hidden=true;
-        const detailCell=element("td");detailCell.colSpan=9;const grid=element("div",undefined,"trace-details-grid");
-        grid.append(element("pre",trace.header.config_toml||""),element("pre",`State: ${trace.digests.state||""}\nMetrics: ${trace.digests.metrics||""}\nEvents: ${trace.digests.events||""}`));detailCell.append(grid);detailsRow.append(detailCell);
-        expand.addEventListener("click",()=>{detailsRow.hidden=!detailsRow.hidden;expand.textContent=detailsRow.hidden?"expand":"collapse";expand.setAttribute("aria-expanded",String(!detailsRow.hidden));});
+        const detailsCell=element("td"),expand=element("button",trace.expanded?"collapse":"expand","expand-button");expand.type="button";expand.setAttribute("aria-expanded",String(Boolean(trace.expanded)));detailsCell.append(expand);row.append(detailsCell);
+        const detailsRow=document.createElement("tr");detailsRow.className="trace-details";detailsRow.hidden=!trace.expanded;
+        const detailCell=element("td");detailCell.colSpan=9;detailsRow.append(detailCell);detailsRow.trace=trace;detailsRow.detailCell=detailCell;
+        detailsRow.dataset.configKey=groups.find(group=>group.traces.includes(trace))?.key||"";
+        expand.addEventListener("click",()=>{trace.expanded=!trace.expanded;detailsRow.hidden=!trace.expanded;expand.textContent=trace.expanded?"collapse":"expand";expand.setAttribute("aria-expanded",String(trace.expanded));refreshExpandedDetails(groups);});
         root.append(row,detailsRow);
       }
+      refreshExpandedDetails(groups);
     }
     function renderSharedLegend(shown) {
       const root=document.getElementById("chart-legend");root.replaceChildren();
@@ -544,8 +761,10 @@
     function render() {
       assignGroupColors();
       renderDigestStatus();
-      renderTraceTable();
       const shown=selectedTraces();
+      const groups=loadedConfigGroups();
+      renderConfigDifferences(groups);
+      renderTraceTable(groups);
       const chartSection=document.getElementById("chart-section"),chartRoot=document.getElementById("charts");chartRoot.replaceChildren();
       const overlay=document.getElementById("overlay").checked?shown:shown.slice(0,1);
       const slider=document.getElementById("day-slider"),maxDay=Math.max(0,...traces.flatMap(trace=>trace.days.map(day=>day.day)));
@@ -569,6 +788,7 @@
     files.addEventListener("change",event=>acceptFiles(event.target.files));
     document.getElementById("overlay").addEventListener("change",render);
     document.getElementById("wall-log").addEventListener("change",render);
+    document.getElementById("config-diff-only").addEventListener("change",applyConfigDifferenceFilter);
     document.getElementById("day-slider").addEventListener("input",event=>updateSelectedDay(Number(event.target.value),true));
     document.getElementById("clear").addEventListener("click",()=>{traces.length=0;files.value="";render();});
     for(const name of ["dragenter","dragover"])drop.addEventListener(name,event=>{event.preventDefault();drop.classList.add("over");});
