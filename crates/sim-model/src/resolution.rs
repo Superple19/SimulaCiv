@@ -7,9 +7,12 @@ use crate::partitioning::SettlementIntentPartition;
 use crate::state::{AgentState, SettlementState, WorldState};
 use crate::storage::SegmentedAgentStorage;
 use crate::subsystems::Subsystem;
+use rayon::ThreadPool;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, K_PRIME, Money, RngCoordinate, coordinate_prng_f32, mix64};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::num::NonZeroUsize;
 
 /// Outcome of a single agent's Work intent during Phase 6A.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1906,6 +1909,643 @@ pub fn phase6b_targeted_resolution_storage_m3_with_scratch(
     }
 
     Ok(resolutions)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct M3ParallelValidationTask {
+    partition_group_id: GroupId,
+    agent_id: AgentId,
+    intent_group_id: GroupId,
+    target_agent_id: Option<AgentId>,
+    requested_amount: f32,
+    action_kind: TargetedActionKind,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct M3ParallelKeyedItem {
+    item: M3StorageKeyedItem,
+    staging_order: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct M3ParallelFoodUpdate {
+    from_slot: usize,
+    from_food: f32,
+    to_slot: usize,
+    to_food: f32,
+}
+
+#[derive(Debug)]
+struct M3ParallelEvaluation {
+    resolution: TargetedResolution,
+    food_update: Option<M3ParallelFoodUpdate>,
+}
+
+/// Read-only dependency-level counts from the most recent successful parallel resolution.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct M3Phase6BLevelStats {
+    pub non_empty_level_count: usize,
+    pub max_level_size: usize,
+}
+
+/// Caller-owned transient scratch for deterministic parallel M3 storage Phase 6B.
+#[derive(Debug, Default)]
+pub struct M3Phase6BParallelScratch {
+    validation_tasks: Vec<M3ParallelValidationTask>,
+    validation_results: Vec<Option<Result<ValidatedM3StorageInteraction, Phase6BError>>>,
+    partition_task_ranges: Vec<(usize, usize)>,
+    partition_header_errors: Vec<Option<Phase6BError>>,
+    partition_order: Vec<usize>,
+    validated: Vec<ValidatedM3StorageInteraction>,
+    group_ids: Vec<GroupId>,
+    keyed: Vec<M3ParallelKeyedItem>,
+    levels: Vec<Vec<usize>>,
+    level_evaluations: Vec<Vec<Option<M3ParallelEvaluation>>>,
+    last_level: Vec<usize>,
+    keyed_level_assignments: Vec<usize>,
+    keyed_results: Vec<Option<TargetedResolution>>,
+    buckets: Vec<M3StorageResolutionBucket>,
+    seen_groups: HashSet<GroupId>,
+    level_stats: M3Phase6BLevelStats,
+}
+
+impl M3Phase6BParallelScratch {
+    /// Preallocates reusable entry and per-slot scratch for an expected workload.
+    pub fn with_capacity(
+        agent_count: usize,
+        partition_count: usize,
+        targeted_intents: usize,
+    ) -> Self {
+        Self {
+            validation_tasks: Vec::with_capacity(targeted_intents),
+            validation_results: Vec::with_capacity(targeted_intents),
+            partition_task_ranges: Vec::with_capacity(partition_count),
+            partition_header_errors: Vec::with_capacity(partition_count),
+            partition_order: Vec::with_capacity(partition_count),
+            validated: Vec::with_capacity(targeted_intents),
+            group_ids: Vec::with_capacity(partition_count),
+            keyed: Vec::with_capacity(targeted_intents),
+            levels: Vec::new(),
+            level_evaluations: Vec::new(),
+            last_level: vec![0; agent_count],
+            keyed_level_assignments: Vec::with_capacity(targeted_intents),
+            keyed_results: Vec::with_capacity(targeted_intents),
+            buckets: Vec::with_capacity(partition_count),
+            seen_groups: HashSet::with_capacity(partition_count),
+            level_stats: M3Phase6BLevelStats::default(),
+        }
+    }
+
+    /// Returns dependency-level counts from the most recent successful call.
+    pub fn level_stats(&self) -> M3Phase6BLevelStats {
+        self.level_stats
+    }
+
+    /// Returns one-based levels indexed by position in the sorted global keyed stream.
+    pub fn keyed_level_assignments(&self) -> &[usize] {
+        &self.keyed_level_assignments
+    }
+
+    fn clear(&mut self) {
+        self.validation_tasks.clear();
+        self.validation_results.clear();
+        self.partition_task_ranges.clear();
+        self.partition_header_errors.clear();
+        self.partition_order.clear();
+        self.validated.clear();
+        self.group_ids.clear();
+        self.keyed.clear();
+        for level in &mut self.levels {
+            level.clear();
+        }
+        for evaluations in &mut self.level_evaluations {
+            evaluations.clear();
+        }
+        self.last_level.clear();
+        self.keyed_level_assignments.clear();
+        self.keyed_results.clear();
+        for bucket in &mut self.buckets {
+            bucket.zero_target.clear();
+            bucket.keyed_stream.clear();
+        }
+        self.seen_groups.clear();
+        self.level_stats = M3Phase6BLevelStats::default();
+    }
+}
+
+/// Resolves M3 Phase 6B against storage using deterministic parallel validation and
+/// dependency-level evaluation. The caller owns the Rayon pool and reusable scratch.
+#[allow(clippy::too_many_arguments)]
+pub fn phase6b_targeted_resolution_storage_m3_parallel_with_scratch(
+    storage: &mut SegmentedAgentStorage,
+    settlements: &[SettlementState],
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+    partitions: &[SettlementIntentPartition],
+    scratch: &mut M3Phase6BParallelScratch,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<Vec<SettlementTargetedResolution>, Phase6BError> {
+    scratch.clear();
+    if !config.interaction.theft_success_probability.is_finite()
+        || config.interaction.theft_success_probability < 0.0
+        || config.interaction.theft_success_probability > 1.0
+    {
+        return Err(Phase6BError::InvalidTheftSuccessProbability(
+            config.interaction.theft_success_probability,
+        ));
+    }
+
+    for partition in partitions {
+        let header_error = if !scratch.seen_groups.insert(partition.group_id) {
+            Some(Phase6BError::DuplicatePartition(partition.group_id))
+        } else if !settlements.iter().any(|s| s.group_id == partition.group_id) {
+            Some(Phase6BError::MissingSettlement(partition.group_id))
+        } else {
+            None
+        };
+        scratch.partition_header_errors.push(header_error);
+        let start = scratch.validation_tasks.len();
+        for intent in &partition.intents {
+            let task = match *intent {
+                Intent::GiveFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                } => Some(M3ParallelValidationTask {
+                    partition_group_id: partition.group_id,
+                    agent_id,
+                    intent_group_id: group_id,
+                    target_agent_id,
+                    requested_amount,
+                    action_kind: TargetedActionKind::GiveFood,
+                }),
+                Intent::StealFood {
+                    agent_id,
+                    group_id,
+                    target_agent_id,
+                    requested_amount,
+                } => Some(M3ParallelValidationTask {
+                    partition_group_id: partition.group_id,
+                    agent_id,
+                    intent_group_id: group_id,
+                    target_agent_id,
+                    requested_amount,
+                    action_kind: TargetedActionKind::StealFood,
+                }),
+                _ => None,
+            };
+            if let Some(task) = task {
+                scratch.validation_tasks.push(task);
+            }
+        }
+        scratch
+            .partition_task_ranges
+            .push((start, scratch.validation_tasks.len()));
+    }
+
+    scratch
+        .validation_results
+        .resize_with(scratch.validation_tasks.len(), || None);
+    let chunk_len = chunk_size.get();
+    let validation_tasks = &scratch.validation_tasks;
+    let validation_results = &mut scratch.validation_results;
+    pool.install(|| {
+        validation_tasks
+            .par_chunks(chunk_len)
+            .zip(validation_results.par_chunks_mut(chunk_len))
+            .for_each(|(task_chunk, result_chunk)| {
+                for (&task, result) in task_chunk.iter().zip(result_chunk) {
+                    *result = Some(validate_m3_storage_task(storage, task));
+                }
+            });
+    });
+
+    // Select the same earliest error as the serial partition/header/intent traversal.
+    for partition_index in 0..partitions.len() {
+        if let Some(error) = scratch.partition_header_errors[partition_index] {
+            return Err(error);
+        }
+        let (start, end) = scratch.partition_task_ranges[partition_index];
+        for result in &scratch.validation_results[start..end] {
+            if let Some(Err(error)) = result {
+                return Err(*error);
+            }
+        }
+    }
+
+    scratch
+        .group_ids
+        .extend(partitions.iter().map(|p| p.group_id));
+    scratch.group_ids.sort_unstable();
+    while scratch.buckets.len() < scratch.group_ids.len() {
+        scratch.buckets.push(M3StorageResolutionBucket::default());
+    }
+    scratch.partition_order.extend(0..partitions.len());
+    scratch
+        .partition_order
+        .sort_unstable_by_key(|&index| partitions[index].group_id);
+
+    for &partition_index in &scratch.partition_order {
+        let (start, end) = scratch.partition_task_ranges[partition_index];
+        for task_index in start..end {
+            let Some(Ok(validated)) = scratch.validation_results[task_index] else {
+                unreachable!("all parallel structural validation completed successfully")
+            };
+            scratch.validated.push(validated);
+        }
+    }
+
+    for validated in &scratch.validated {
+        let bucket_index = scratch
+            .group_ids
+            .binary_search(&validated.group_id)
+            .expect("validated interactions belong to a partition");
+        match (validated.target_agent_id, validated.target_slot) {
+            (None, None) => scratch.buckets[bucket_index]
+                .zero_target
+                .push(TargetedResolution {
+                    group_id: validated.group_id,
+                    initiator_agent_id: validated.initiator_agent_id,
+                    target_agent_id: None,
+                    action_kind: validated.action_kind,
+                    resolution_key: None,
+                    theft_success_draw: None,
+                    outcome: TargetedOutcome::ZeroTarget,
+                }),
+            (Some(target_agent_id), Some(target_slot)) => {
+                let staging_order = scratch.keyed.len();
+                scratch.keyed.push(M3ParallelKeyedItem {
+                    item: M3StorageKeyedItem {
+                        bucket_index,
+                        key: 0,
+                        initiator_agent_id: validated.initiator_agent_id,
+                        target_agent_id,
+                        initiator_slot: validated.initiator_slot,
+                        target_slot,
+                        action_kind: validated.action_kind,
+                        requested_amount: validated.requested_amount,
+                    },
+                    staging_order,
+                });
+            }
+            _ => unreachable!("validated target and slot fields must agree"),
+        }
+    }
+
+    let master_seed = config.world.master_seed;
+    let replicate_id = config.world.replicate_id;
+    let day = current_day.as_u32();
+    pool.install(|| {
+        scratch.keyed.par_chunks_mut(chunk_len).for_each(|chunk| {
+            for keyed in chunk {
+                let item = &mut keyed.item;
+                item.key = compute_m3_resolution_key(
+                    master_seed,
+                    replicate_id,
+                    day,
+                    item.target_agent_id.as_u32(),
+                    item.initiator_agent_id.as_u32(),
+                    item.action_kind.action_kind(),
+                );
+            }
+        });
+    });
+    scratch.keyed.sort_unstable_by(|a, b| {
+        compare_keyed_interactions(
+            a.item.key,
+            a.item.target_agent_id,
+            a.item.initiator_agent_id,
+            a.item.action_kind,
+            b.item.key,
+            b.item.target_agent_id,
+            b.item.initiator_agent_id,
+            b.item.action_kind,
+        )
+        .then_with(|| a.staging_order.cmp(&b.staging_order))
+    });
+
+    scratch.last_level.resize(storage.len(), 0);
+    scratch.last_level.fill(0);
+    let keyed = &scratch.keyed;
+    let (last_level, levels, keyed_level_assignments) = (
+        &mut scratch.last_level,
+        &mut scratch.levels,
+        &mut scratch.keyed_level_assignments,
+    );
+    for (stream_index, keyed_item) in keyed.iter().enumerate() {
+        let item = keyed_item.item;
+        let level = last_level[item.initiator_slot].max(last_level[item.target_slot]) + 1;
+        if levels.len() < level {
+            levels.resize_with(level, Vec::new);
+        }
+        levels[level - 1].push(stream_index);
+        last_level[item.initiator_slot] = level;
+        last_level[item.target_slot] = level;
+        keyed_level_assignments.push(level);
+    }
+
+    let active_level_count = scratch
+        .keyed_level_assignments
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(0);
+    let mut max_level_size = 0;
+    for level in &scratch.levels[..active_level_count] {
+        if !level.is_empty() {
+            scratch.level_stats.non_empty_level_count += 1;
+            max_level_size = max_level_size.max(level.len());
+        }
+    }
+    scratch.level_stats.max_level_size = max_level_size;
+    while scratch.level_evaluations.len() < active_level_count {
+        scratch.level_evaluations.push(Vec::new());
+    }
+    scratch
+        .keyed_results
+        .resize_with(scratch.keyed.len(), || None);
+
+    for level_index in 0..active_level_count {
+        let level_entries = &scratch.levels[level_index];
+        let level_results = &mut scratch.level_evaluations[level_index];
+        level_results.resize_with(level_entries.len(), || None);
+        let keyed = &scratch.keyed;
+        let group_ids = &scratch.group_ids;
+        pool.install(|| {
+            level_entries
+                .par_chunks(chunk_len)
+                .zip(level_results.par_chunks_mut(chunk_len))
+                .for_each(|(entry_chunk, result_chunk)| {
+                    for (&stream_index, result) in entry_chunk.iter().zip(result_chunk) {
+                        let keyed_item = keyed[stream_index].item;
+                        let group_id = group_ids[keyed_item.bucket_index];
+                        *result = Some(evaluate_m3_parallel_entry(
+                            storage,
+                            keyed_item,
+                            group_id,
+                            current_day,
+                            config,
+                        ));
+                    }
+                });
+        });
+
+        for (level_position, &stream_index) in level_entries.iter().enumerate() {
+            let evaluation = scratch.level_evaluations[level_index][level_position]
+                .take()
+                .expect("parallel level evaluation filled every result");
+            if let Some(update) = evaluation.food_update {
+                storage.economy.food[update.from_slot] = update.from_food;
+                storage.economy.food[update.to_slot] = update.to_food;
+            }
+            scratch.keyed_results[stream_index] = Some(evaluation.resolution);
+        }
+    }
+
+    for stream_index in 0..scratch.keyed.len() {
+        let bucket_index = scratch.keyed[stream_index].item.bucket_index;
+        let resolution = scratch.keyed_results[stream_index]
+            .take()
+            .expect("every keyed stream entry was evaluated");
+        scratch.buckets[bucket_index].keyed_stream.push(resolution);
+    }
+
+    let group_count = scratch.group_ids.len();
+    for bucket in &mut scratch.buckets[..group_count] {
+        bucket
+            .zero_target
+            .sort_unstable_by_key(|record| (record.initiator_agent_id, record.action_kind));
+    }
+
+    let mut resolutions = Vec::with_capacity(group_count);
+    for (index, &group_id) in scratch.group_ids.iter().enumerate() {
+        let bucket = &scratch.buckets[index];
+        let mut all = bucket.zero_target.clone();
+        all.extend(bucket.keyed_stream.iter().cloned());
+        resolutions.push(SettlementTargetedResolution {
+            group_id,
+            zero_target: bucket.zero_target.clone(),
+            keyed_stream: bucket.keyed_stream.clone(),
+            resolutions: all,
+        });
+    }
+
+    Ok(resolutions)
+}
+
+fn validate_m3_storage_task(
+    storage: &SegmentedAgentStorage,
+    task: M3ParallelValidationTask,
+) -> Result<ValidatedM3StorageInteraction, Phase6BError> {
+    if task.intent_group_id != task.partition_group_id {
+        return Err(Phase6BError::PartitionGroupMismatch {
+            agent_id: task.agent_id,
+            intent_group_id: task.intent_group_id,
+            partition_group_id: task.partition_group_id,
+        });
+    }
+    if !task.requested_amount.is_finite() || task.requested_amount < 0.0 {
+        return Err(Phase6BError::InvalidRequestedAmount {
+            agent_id: task.agent_id,
+            requested_amount: task.requested_amount,
+        });
+    }
+    let initiator_slot = storage
+        .slot_of(task.agent_id)
+        .ok_or(Phase6BError::MissingInitiator(task.agent_id))?;
+    let target_slot = match task.target_agent_id {
+        Some(target_id) => Some(
+            storage
+                .slot_of(target_id)
+                .ok_or(Phase6BError::MissingTarget(target_id))?,
+        ),
+        None => None,
+    };
+    Ok(ValidatedM3StorageInteraction {
+        group_id: task.intent_group_id,
+        initiator_agent_id: task.agent_id,
+        target_agent_id: task.target_agent_id,
+        initiator_slot,
+        target_slot,
+        action_kind: task.action_kind,
+        requested_amount: task.requested_amount,
+    })
+}
+
+fn evaluate_m3_parallel_entry(
+    storage: &SegmentedAgentStorage,
+    item: M3StorageKeyedItem,
+    group_id: GroupId,
+    current_day: sim_core::SimulationDay,
+    config: &SimConfig,
+) -> M3ParallelEvaluation {
+    let no_food_update = None;
+    if !storage.demography.alive[item.initiator_slot]
+        || storage.demography.health[item.initiator_slot] <= 0.0
+        || storage.economy.group_id[item.initiator_slot] != group_id
+    {
+        M3ParallelEvaluation {
+            resolution: TargetedResolution {
+                group_id,
+                initiator_agent_id: item.initiator_agent_id,
+                target_agent_id: Some(item.target_agent_id),
+                action_kind: item.action_kind,
+                resolution_key: Some(item.key),
+                theft_success_draw: None,
+                outcome: TargetedOutcome::InitiatorIneligible,
+            },
+            food_update: no_food_update,
+        }
+    } else {
+        match item.action_kind {
+            TargetedActionKind::GiveFood => {
+                let target_valid = storage.demography.alive[item.target_slot]
+                    && storage.demography.health[item.target_slot] > 0.0
+                    && item.target_agent_id != item.initiator_agent_id
+                    && storage.economy.food[item.target_slot]
+                        < config.interaction.starvation_threshold
+                    && storage.economy.food[item.initiator_slot] > 0.0;
+                if !target_valid {
+                    M3ParallelEvaluation {
+                        resolution: TargetedResolution {
+                            group_id,
+                            initiator_agent_id: item.initiator_agent_id,
+                            target_agent_id: Some(item.target_agent_id),
+                            action_kind: item.action_kind,
+                            resolution_key: Some(item.key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::TargetIneligible,
+                        },
+                        food_update: no_food_update,
+                    }
+                } else {
+                    let amount = item
+                        .requested_amount
+                        .min(storage.economy.food[item.initiator_slot]);
+                    if amount <= 0.0 {
+                        M3ParallelEvaluation {
+                            resolution: TargetedResolution {
+                                group_id,
+                                initiator_agent_id: item.initiator_agent_id,
+                                target_agent_id: Some(item.target_agent_id),
+                                action_kind: item.action_kind,
+                                resolution_key: Some(item.key),
+                                theft_success_draw: None,
+                                outcome: TargetedOutcome::Applied { amount: 0.0 },
+                            },
+                            food_update: no_food_update,
+                        }
+                    } else {
+                        let initiator_food = storage.economy.food[item.initiator_slot];
+                        let target_food = storage.economy.food[item.target_slot];
+                        M3ParallelEvaluation {
+                            resolution: TargetedResolution {
+                                group_id,
+                                initiator_agent_id: item.initiator_agent_id,
+                                target_agent_id: Some(item.target_agent_id),
+                                action_kind: item.action_kind,
+                                resolution_key: Some(item.key),
+                                theft_success_draw: None,
+                                outcome: TargetedOutcome::Applied { amount },
+                            },
+                            food_update: Some(M3ParallelFoodUpdate {
+                                from_slot: item.initiator_slot,
+                                from_food: initiator_food - amount,
+                                to_slot: item.target_slot,
+                                to_food: target_food + amount,
+                            }),
+                        }
+                    }
+                }
+            }
+            TargetedActionKind::StealFood => {
+                let target_valid = storage.demography.alive[item.target_slot]
+                    && storage.demography.health[item.target_slot] > 0.0
+                    && item.target_agent_id != item.initiator_agent_id
+                    && storage.economy.food[item.target_slot] > 0.0;
+                if !target_valid {
+                    M3ParallelEvaluation {
+                        resolution: TargetedResolution {
+                            group_id,
+                            initiator_agent_id: item.initiator_agent_id,
+                            target_agent_id: Some(item.target_agent_id),
+                            action_kind: item.action_kind,
+                            resolution_key: Some(item.key),
+                            theft_success_draw: None,
+                            outcome: TargetedOutcome::TargetIneligible,
+                        },
+                        food_update: no_food_update,
+                    }
+                } else {
+                    let coordinate = RngCoordinate::new(
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        current_day.as_u32(),
+                        6,
+                        Subsystem::TheftSuccess.id(),
+                        item.initiator_agent_id.as_u32(),
+                        0,
+                    );
+                    let draw = coordinate_prng_f32(&coordinate);
+                    let theft_succeeded = draw < config.interaction.theft_success_probability;
+                    if !theft_succeeded {
+                        M3ParallelEvaluation {
+                            resolution: TargetedResolution {
+                                group_id,
+                                initiator_agent_id: item.initiator_agent_id,
+                                target_agent_id: Some(item.target_agent_id),
+                                action_kind: item.action_kind,
+                                resolution_key: Some(item.key),
+                                theft_success_draw: Some(draw),
+                                outcome: TargetedOutcome::TheftFailed,
+                            },
+                            food_update: no_food_update,
+                        }
+                    } else {
+                        let amount = item
+                            .requested_amount
+                            .min(storage.economy.food[item.target_slot]);
+                        if amount <= 0.0 {
+                            M3ParallelEvaluation {
+                                resolution: TargetedResolution {
+                                    group_id,
+                                    initiator_agent_id: item.initiator_agent_id,
+                                    target_agent_id: Some(item.target_agent_id),
+                                    action_kind: item.action_kind,
+                                    resolution_key: Some(item.key),
+                                    theft_success_draw: Some(draw),
+                                    outcome: TargetedOutcome::Applied { amount: 0.0 },
+                                },
+                                food_update: no_food_update,
+                            }
+                        } else {
+                            let target_food = storage.economy.food[item.target_slot];
+                            let initiator_food = storage.economy.food[item.initiator_slot];
+                            M3ParallelEvaluation {
+                                resolution: TargetedResolution {
+                                    group_id,
+                                    initiator_agent_id: item.initiator_agent_id,
+                                    target_agent_id: Some(item.target_agent_id),
+                                    action_kind: item.action_kind,
+                                    resolution_key: Some(item.key),
+                                    theft_success_draw: Some(draw),
+                                    outcome: TargetedOutcome::Applied { amount },
+                                },
+                                food_update: Some(M3ParallelFoodUpdate {
+                                    from_slot: item.target_slot,
+                                    from_food: target_food - amount,
+                                    to_slot: item.initiator_slot,
+                                    to_food: initiator_food + amount,
+                                }),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Executes Phase 6B: Targeted Interaction Resolution directly against authoritative [`SegmentedAgentStorage`].
