@@ -74,6 +74,7 @@
     .legend-line { width:17px; border-top:3px solid var(--swatch); }
     .legend-note { margin-left:auto; }
     .legend-identical { color:var(--muted); font-size:.72rem; }
+    .wall-log-hint { color:var(--muted); font-size:.76rem; white-space:nowrap; }
     .charts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
     .chart { min-width:0; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:6px 8px; }
     .chart h2 { margin:0; font-size:.85rem; }
@@ -129,7 +130,8 @@
       <label class="file-button" for="files">Load JSONL traces</label>
       <input id="files" type="file" accept=".jsonl,.json,.txt,application/json" multiple>
       <label><input id="overlay" type="checkbox" checked> Overlay selected traces</label>
-      <label><input id="wall-log" type="checkbox"> Log wall time</label>
+      <label><input id="wall-log" type="checkbox"> Log scale</label>
+      <small class="wall-log-hint">each gridline is ×10; use when values span orders of magnitude</small>
       <button id="clear" type="button">Clear traces</button>
     </div>
     <div id="drop" class="drop">Drop one or more JSONL files here</div>
@@ -592,12 +594,38 @@
       const max=Math.ceil(dataMax/step)*step;
       return {min,max:max>min?max:min+step,step};
     }
-    function seriesSegments(trace, definition, part, x, y, valueLimit=null, clippedY=null) {
+    function logWallAxis(values) {
+      const positive=values.filter(value=>Number.isFinite(value)&&value>0);
+      if(!positive.length)return {min:1,max:10,hasValues:false};
+      const minValue=positive.reduce((current,value)=>Math.min(current,value),Infinity),maxValue=positive.reduce((current,value)=>Math.max(current,value),-Infinity);
+      const min=Math.pow(10,Math.floor(Math.log10(minValue))),max=Math.pow(10,Math.ceil(Math.log10(maxValue)));
+      return {min,max,hasValues:true};
+    }
+    function logWallTicks(min,max,pixelHeight,minGap=18) {
+      const low=Math.log10(min),high=Math.log10(max),candidates=[];
+      for(let exponent=Math.floor(low);exponent<=Math.ceil(high);exponent++)for(const multiplier of [1,2,5]) {
+        const value=multiplier*Math.pow(10,exponent);
+        if(value>=min*(1-1e-12)&&value<=max*(1+1e-12))candidates.push(value);
+      }
+      const y=value=>(high-Math.log10(value))/(high-low)*pixelHeight,selected=[];
+      for(const value of candidates)if(!selected.length||Math.abs(y(value)-y(selected[selected.length-1]))>=minGap)selected.push(value);
+      const last=candidates[candidates.length-1];
+      if(last!==undefined&&selected[selected.length-1]!==last) {
+        while(selected.length>1&&Math.abs(y(last)-y(selected[selected.length-1]))<minGap)selected.pop();
+        if(!selected.length||Math.abs(y(last)-y(selected[selected.length-1]))>=minGap)selected.push(last);
+      }
+      return selected;
+    }
+    function formatLogWallTick(value) {
+      if(value>=1)return `${formatCount(value)} µs`;
+      return `${Number(value.toPrecision(2))} µs`;
+    }
+    function seriesSegments(trace, definition, part, x, y, valueLimit=null, clippedY=null, positiveOnly=false) {
       const segments=[]; let segment=[];
       for (const day of trace.days) {
         const series=metricSeries(definition,day);
         const value=definition.multi?series.find(item=>item.name===part)?.value:series[0]?.value;
-        if(value===null || value===undefined || !Number.isFinite(Number(value))) {
+        if(value===null || value===undefined || !Number.isFinite(Number(value)) || positiveOnly&&Number(value)<=0) {
           if(segment.length)segments.push(segment);
           segment=[];
           continue;
@@ -645,23 +673,24 @@
         const values=metricSeries(definition,day);
         values.forEach(value=>{if (value.value !== null && value.value !== undefined && Number.isFinite(Number(value.value))) rawSeries.push({trace,day,name:value.name,value:Number(value.value),dash:value.dash||""});});
       }));
-      const hasValues=rawSeries.length>0;
+      const hasValues=rawSeries.length>0,wallTime=definition.format==="time",logScale=wallTime&&document.getElementById("wall-log").checked;
       if(!hasValues)card.append(element("p","No values for this chart."));
-      const wallTime=definition.format==="time";
       const wallValues=wallTime?traces.flatMap(trace=>trace.days.map(day=>day.day_wall_time_us).filter(value=>value!==null&&value!==undefined).map(Number).filter(Number.isFinite)):[];
       const percentile99=wallTime?percentile(wallValues,.99):null;
-      const wallLimit=percentile99??1,yMax=wallTime?(wallLimit>0?wallLimit:1):undefined;
-      const axis=wallTime?{min:0,max:yMax,step:niceStep(0,yMax)}:hasValues?axisRange(rawSeries.map(point=>point.value),definition.zeroBaseline===true):{min:0,max:1,step:.2};
+      const wallLimit=percentile99??1,positiveShown=wallTime?rawSeries.map(point=>point.value).filter(value=>value>0):[],logAxis=logScale?logWallAxis(positiveShown):null;
+      if(logScale&&hasValues&&!logAxis.hasValues)card.append(element("p","No positive wall-time values for log scale."));
+      const axis=wallTime?(logScale?logAxis:{min:0,max:wallLimit>0?wallLimit:1,step:niceStep(0,wallLimit>0?wallLimit:1)}):hasValues?axisRange(rawSeries.map(point=>point.value),definition.zeroBaseline===true):{min:0,max:1,step:.2};
       const yMin=axis.min;
-      const logScale=wallTime&&document.getElementById("wall-log").checked;
-      const transform=value=>logScale?Math.log10(Math.max(0,value)+1):value;
+      const transform=value=>logScale?Math.log10(value):value;
       const transformedMin=transform(yMin),transformedMax=transform(axis.max);
       const x=value=>left+(xMax===xMin ? .5 : (value-xMin)/(xMax-xMin))*plotW;
-      const y=value=>top+(transformedMax-transform(value))/(transformedMax-transformedMin)*plotH;
-      for(let value=yMin,index=0;value<=axis.max+axis.step*1e-9;value=yMin+axis.step*++index) {
-        value=Number(value.toPrecision(12));const yy=y(value);
+      const y=value=>transformedMax===transformedMin?top+plotH/2:top+(transformedMax-transform(value))/(transformedMax-transformedMin)*plotH;
+      const yTicks=logScale?logWallTicks(axis.min,axis.max,plotH):[];
+      if(!logScale)for(let value=yMin,index=0;value<=axis.max+axis.step*1e-9;value=yMin+axis.step*++index)yTicks.push(Number(value.toPrecision(12)));
+      for(const value of yTicks) {
+        const yy=y(value);
         const grid=document.createElementNS(svg.namespaceURI,"line"); grid.setAttribute("x1",left);grid.setAttribute("x2",width-right);grid.setAttribute("y1",yy);grid.setAttribute("y2",yy);grid.setAttribute("class","gridline");svg.append(grid);
-        const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",left-7);label.setAttribute("y",yy+4);label.setAttribute("text-anchor","end");label.setAttribute("class","axis-label");label.textContent=formatMetric(value,definition.format);svg.append(label);
+        const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x",left-7);label.setAttribute("y",yy+4);label.setAttribute("text-anchor","end");label.setAttribute("class","axis-label");label.textContent=logScale?formatLogWallTick(value):formatMetric(value,definition.format);svg.append(label);
       }
       for(const tick of niceDayTicks(xMin,xMax)) {
         const xx=x(tick),grid=document.createElementNS(svg.namespaceURI,"line");grid.setAttribute("x1",xx);grid.setAttribute("x2",xx);grid.setAttribute("y1",top);grid.setAttribute("y2",height-bottom);grid.setAttribute("class","gridline");svg.append(grid);
@@ -671,7 +700,7 @@
         const {trace,collapsed}=entry;
         const parts=definition.multi ? metricSeries(definition,trace.days[0]||{}).map(item=>item.name) : [""];
         parts.forEach(part=>{
-          const segments=seriesSegments(trace,definition,part,x,y,wallTime?wallLimit:null,axis.max);
+          const segments=seriesSegments(trace,definition,part,x,y,wallTime?wallLimit:null,axis.max,logScale);
           if (!segments.length) return;
           for(const points of segments) {
             const path=document.createElementNS(svg.namespaceURI,"path");path.setAttribute("d",linePath(points));path.setAttribute("class","series-line");path.setAttribute("stroke",trace.color);
