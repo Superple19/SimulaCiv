@@ -26,3 +26,7 @@ harness = false
 [[bench]]
 name = "m3_sustained_workload_bench"
 harness = false
+
+[[bench]]
+name = "m3_02b_search_reduction_bench"
+harness = false
