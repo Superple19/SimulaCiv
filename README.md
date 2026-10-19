@@ -10,7 +10,7 @@ The current reference workload is an agent-based synthetic society. The project 
 
 ## Status
 
-**M3 graduated — M3-00 through M3-11 complete ([final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)); spatial migration remains deferred without a stage number.**
+**M3 graduated — `v0.4.0-m3`. M3-00 through M3-11 complete ([final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)); spatial migration remains deferred without a stage number.**
 
 Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
 
@@ -19,7 +19,7 @@ Canonical State, Metrics, and Events digests and snapshots are verified on Linux
 | M0 — `v0.1.0-m0` | Complete | Deterministic executable reference semantics and replay gate |
 | M1 — `v0.2.0-m1` | Complete | Frozen semantic contracts and machine-readable contract manifest |
 | M2 — `v0.3.0-m2` | Graduated | High-performance runtime with canonical parity |
-| M3 | Graduated — M3-00 through M3-11 complete; spatial migration deferred | Deterministic relationship-graph runtime, M3P population dynamics, incremental topology, feature switches, and propagation; [final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md) |
+| M3 — `v0.4.0-m3` | Graduated — M3-00 through M3-11 complete; spatial migration deferred | Deterministic relationship-graph runtime, M3P population dynamics, incremental topology, feature switches, and propagation; [final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md) |
 
 The M2 production path uses authoritative Segmented SoA storage. Serial remains the default; deterministic Phase4 Rayon execution is an explicit opt-in, and Auto policy remains experimental. Canonical State, Metrics, Events, and Day 100/250/500 snapshots were validated for exact parity. The measured workloads scale near-linearly through 100k agents; the 200k high-K results remain follow-up evidence. Timings depend on workload and host.
 

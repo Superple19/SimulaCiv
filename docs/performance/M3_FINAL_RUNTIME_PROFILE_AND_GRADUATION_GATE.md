@@ -1,6 +1,6 @@
 # M3 Final Runtime Profile and Graduation Gate
 
-**Decision: M3-GRADUATE (provisional pending hosted CI)**
+**Decision: M3-GRADUATE**
 **Scope:** M3-00 through M3-11 complete; spatial migration remains deferred without a stage number.
 **Evidence:** committed M3 contract, parity tests, and performance reports listed below.
 
@@ -8,7 +8,7 @@
 
 M3 now has a deterministic reference and optimized serial paths for relationship-graph interactions, optional explicit parallel execution for Phase 6B and propagation, dynamic M3P population/topology maintenance, and explicit feature dispatch. Existing M2/M3/M3P behavior is preserved by separate profiles, digest domains, snapshots, and parity gates. The stage record and evidence links follow.
 
-The measurements support graduating M3 without replacing the architecture for the workloads tested. This is provisional until hosted CI passes on Linux, Windows, and macOS for the graduation commit. M3 static-world profiling completed through one million agents, M3P sustained profiling reached one hundred thousand, and M3-11 measured multi-hop propagation on both populations. High-K scaling, M3P/propagation whole-tick variance, and deferred spatial migration remain limitations. [M3-05 Scale Limit](M3_SCALE_LIMIT.md#executive-summary), [M3-08 Population Dynamics](M3_08_POPULATION_DYNAMICS.md#full-tick-timings-and-compaction-intervals), [M3-11 Propagation](M3_11_PROPAGATION.md#summary)
+The measurements support graduating M3 without replacing the architecture for the workloads tested. Hosted CI passed on Linux, Windows, and macOS for graduation commit `f568376c509040cda4cccdd87e888e739a5514dd` ([Actions run 39194209453](https://github.com/Superple19/SimulaCiv/actions/runs/39194209453)). M3 static-world profiling completed through one million agents, M3P sustained profiling reached one hundred thousand, and M3-11 measured multi-hop propagation on both populations. High-K scaling, M3P/propagation whole-tick variance, and deferred spatial migration remain limitations. [M3-05 Scale Limit](M3_SCALE_LIMIT.md#executive-summary), [M3-08 Population Dynamics](M3_08_POPULATION_DYNAMICS.md#full-tick-timings-and-compaction-intervals), [M3-11 Propagation](M3_11_PROPAGATION.md#summary)
 
 ## Milestone questions
 
@@ -53,7 +53,7 @@ M3-00 through M3-11 are complete. Spatial migration, previously M3-03, remains d
 - M2 goldens, snapshots, and behavior remain unchanged. M3 and M3P use separate profile digests and committed goldens; M3P propagation adds its own golden checkpoints. The M3-01 and M3-11 reports record reference/storage differential and snapshot-resume parity. [M3-01 release differential and parity](M3_01_SERIAL_BASELINE.md#release-differential-and-parity), [M3-11 golden and parity tables](M3_11_PROPAGATION.md#m3-11-golden-daily-spread)
 - M3-01 records its complete 100-day CI differential matrix, snapshot pause/resume, and shuffled-slot parity. M3-02 records extended release parity across the frozen matrix and chunk sweep. [M3-01 serial baseline](M3_01_SERIAL_BASELINE.md), [M3-02 extended release parity](M3_02_PARALLEL_PHASE6B.md#extended-release-parity)
 - M3-08 and M3-09 preserve birth, compaction, incremental topology, snapshot, and sustained-population parity. M3-11 tests compare daily propagation records across reference, serial storage, and parallel storage, including M3P births, compaction, and schema-v3 resume. [M3-08 sustained gate](M3_08_POPULATION_DYNAMICS.md#sustained-gate), [M3-09 test runtime and parity](M3_09_INCREMENTAL_TOPOLOGY.md#test-runtime), [M3-11 implementation gates](M3_11_PROPAGATION.md#workload-and-method)
-- Formatting, Clippy, and the workspace test suite passed locally on Windows. Hosted CI results for the latest unpushed commits were not available in this task.
+- Formatting, Clippy, and the workspace test suite passed locally on Windows. Hosted CI passed on Linux, Windows, and macOS for graduation commit `f568376c509040cda4cccdd87e888e739a5514dd` ([Actions run 39194209453](https://github.com/Superple19/SimulaCiv/actions/runs/39194209453)).
 
 ## Runtime and scaling evidence
 
@@ -77,12 +77,12 @@ The sustained M3P extension also measured a clear Phase 9c gain at one hundred t
 
 ## Limitations and remaining follow-up
 
-- Performance reports use one Windows host. The newer M3P propagation run had variable whole-tick MADs, and hosted CI results for the graduation commit remain pending. [M3-11 method and noise note](M3_11_PROPAGATION.md#workload-and-method)
+- Performance reports use one Windows host. The newer M3P propagation run had variable whole-tick MADs. [M3-11 method and noise note](M3_11_PROPAGATION.md#workload-and-method)
 - M3 static scale testing reached one million agents, but the M3P propagation performance extension covered the sustained configuration through one hundred thousand agents only. The fixed-topology and M3P cells use different configurations and should not be combined into a single scaling curve. [M3-05 Scale Limit](M3_SCALE_LIMIT.md#host-configuration-and-method), [M3-11 M3P extension](M3_11_PROPAGATION.md#m3p-sustained-population-extension)
 - Spatial migration remains deferred. The optional contention dial is also unselected. [M3 Interim Audit](M3_INTERIM_AUDIT.md), [M3-02 Parallel Phase 6B](M3_02_PARALLEL_PHASE6B.md)
 
 ## Graduation record
 
-**M3-GRADUATE (provisional).** M3-00 through M3-11 are complete, their documented correctness gates passed locally, and the measured evidence does not identify an architectural or correctness blocker. Serial remains the default; explicit parallel execution remains opt-in. Spatial migration is deferred.
+**M3-GRADUATE.** M3-00 through M3-11 are complete, their documented correctness gates passed locally and in hosted CI, and the measured evidence does not identify an architectural or correctness blocker. Serial remains the default; explicit parallel execution remains opt-in. Spatial migration is deferred.
 
-**Hosted gate:** graduation becomes final only after hosted CI passes on Linux, Windows, and macOS for the graduation commit. Create the M3 tag only after all three hosted jobs pass.
+**Hosted CI record:** graduation commit `f568376c509040cda4cccdd87e888e739a5514dd` passed all three operating-system jobs in [Actions run 39194209453](https://github.com/Superple19/SimulaCiv/actions/runs/39194209453).

@@ -312,9 +312,9 @@ Feature-switch behavior is frozen in [§15](#15-m3-10-feature-switches) and impl
 
 The synchronous multi-hop overlay semantics are frozen in [§16](#16-m3-11-propagation). Reference, storage, M3P, snapshot-v3, and explicit parallel paths passed their recorded parity gates. Fixed-topology and sustained M3P measurements are in [M3-11 Propagation](../performance/M3_11_PROPAGATION.md).
 
-### M3 audit and graduation — COMPLETE
+### M3 audit and graduation — M3-GRADUATE (`v0.4.0-m3`)
 
-**Decision: M3-GRADUATE.** The [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md) records the completed stages, correctness evidence, runtime findings, limitations, and the conclusion that the measured results do not require a new architecture (M4). Spatial migration remains deferred.
+**Decision: M3-GRADUATE.** The [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md) records hosted CI passing on Linux, Windows, and macOS for the graduation commit, along with completed stages, correctness evidence, runtime findings, and limitations. The measured results do not require a new architecture (M4). Spatial migration remains deferred.
 
 M3-04 and M3-05 extend the measured answer for sustained workloads and scale limits. M3-08 through M3-11 deepen the research question with population dynamics, incremental topology maintenance, feature switches, and propagation; M3-07 diagnoses residual scaling after indexed settlement lookups.
 
