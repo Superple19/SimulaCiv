@@ -1,8 +1,8 @@
 # M4 Counterfactual Contract
 
-**Status: M4-00 FROZEN; §10 DRAFT — NOT FROZEN**
+**Status: M4-00 FROZEN; §10 M4-01 FROZEN**
 
-**Scope:** M4-00 freezes the counterfactual framework, terminology, invariants, and planned stage boundaries. §10 drafts M4-01 system registration architecture; it is not frozen. Each later stage still requires its own DRAFT → review → FROZEN contract.
+**Scope:** M4-00 freezes the counterfactual framework; §10 freezes the M4-01 system registration architecture. Each later stage still requires its own DRAFT → review → FROZEN contract.
 
 **Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
@@ -124,9 +124,9 @@ This freeze resolves the M4-00 framework decisions for first-version interventio
 
 ## 10. M4-01 System registration architecture
 
-**Status: DRAFT — NOT FROZEN**
+**Status: M4-01 FROZEN**
 
-**Scope:** draft a static, compile-time registry for the existing M3 extensions only. This section is a design proposal, not implementation authorization. M1/M2 core phases remain fixed.
+**Scope:** freeze a static, compile-time registry for the existing M3 extensions only. M1/M2 core phases remain fixed; implementation follows the §10.5 migration and gates.
 
 ### 10.1 Current state and OQ-8 test-time measurement
 
@@ -158,11 +158,11 @@ OQ-8 was measured on the local Windows host at HEAD `47d00659fba40ce65c3bcc07a29
 
 The current GitHub Actions workflow runs `cargo test --workspace` as one required step in each of its Linux, Windows, and macOS jobs ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)). The per-target sum is useful for locating expensive suites but should not be treated as the hosted job duration or a direct comparison with a single Cargo invocation.
 
-### 10.2 Proposed static descriptor
+### 10.2 Static descriptor
 
-**Proposal:** define a typed `SystemDescriptor` registry as a compile-time static slice. It contains no dynamic loading or runtime plugin discovery. A descriptor records:
+Use a typed `SystemDescriptor` registry as a compile-time static slice. It contains no dynamic loading or runtime plugin discovery. A descriptor records:
 
-| Field | Proposed content |
+| Field | Frozen descriptor content |
 |---|---|
 | `system_id`, `name` | Stable registry identity and readable name, distinct from RNG subsystem IDs. |
 | `feature_switch_key` | The key in `[simulation.systems]` that enables this system. |
@@ -177,13 +177,13 @@ The current GitHub Actions workflow runs `cargo test --workspace` as one require
 
 The initial descriptors cover only:
 
-| System | Existing mapping and proposed access summary |
+| System | Existing mapping and frozen access ownership |
 |---|---|
-| Relationship graph | RNG subsystem ID 6; built at initialization. Owns canonical CSR/hash. Read by Phase 4 neighbor targeting and Phase 9c propagation; Phase 6B consumes already-generated intents and does not read CSR. For M3P, graph mutation at Phase 9b is declared as a population-dynamics write ordered after the relationship-graph dependency. |
+| Relationship graph | RNG subsystem ID 6; built at initialization. Owns canonical CSR/hash. Phase 4 neighbor targeting and Phase 9c propagation read CSR. When enabled, its Phase 6B hook selects the M3 global resolver, which consumes already-generated intents and does not read CSR. For M3P, graph mutation at Phase 9b is declared as a population-dynamics write ordered after the relationship-graph dependency. |
 | Population dynamics | RNG subsystem ID 7; Phase 9b after mortality. Owns the monotonic `next_agent_id` cursor and birth/cleanup metrics/events; reads eligible parent and graph-pool data, writes core agent rows, allocator state, and graph rows through its declared dependency. |
 | Propagation | RNG subsystem ID 8; Phase 9c after Phase 9b when enabled, otherwise after Phase 9. Owns `informed` and `informed_day`; reads live-agent and graph columns and writes its own columns and daily counters. |
 
-The IDs and phase behavior above are the existing frozen M3 mapping, not newly assigned IDs ([M3 §2.1, §13.3, §16.1–16.3](M3_INTERACTION_CONTRACT.md); [`M3_RELATIONSHIP_GRAPH_SUBSYSTEM_ID`](../../crates/sim-model/src/relationship_graph.rs); [`M3P_BIRTH_SUBSYSTEM_ID`](../../crates/sim-model/src/m3p.rs); [`M3_PROPAGATION_SUBSYSTEM_ID`](../../crates/sim-model/src/propagation.rs)). The table is a proposed descriptor projection; exact per-phase read/write sets remain to be audited against the phase implementations before the M4-01 freeze.
+The IDs and phase behavior above are the existing frozen M3 mapping, not newly assigned IDs ([M3 §2.1, §13.3, §16.1–16.3](M3_INTERACTION_CONTRACT.md); [`M3_RELATIONSHIP_GRAPH_SUBSYSTEM_ID`](../../crates/sim-model/src/relationship_graph.rs); [`M3P_BIRTH_SUBSYSTEM_ID`](../../crates/sim-model/src/m3p.rs); [`M3_PROPAGATION_SUBSYSTEM_ID`](../../crates/sim-model/src/propagation.rs)). The descriptor schema and access-validation rules are frozen here. Implementations must derive per-slot read/write sets from the phase code and verify their completeness in review/tests; these declarations do not grant additional state access or scheduling authority.
 
 ### 10.3 M4-01 scope and compatibility map
 
@@ -199,6 +199,8 @@ Keep the M1/M2 core phases 1–11 fixed. Register only the relationship graph, p
 
 This mapping mirrors `SimulationSystems::for_profile`, `effective_systems`, and `runner_selection`; the propagation combinations are an orthogonal opt-in ([`SimulationSystems::for_profile`, `SimConfig::effective_systems`, `SimConfig::runner_selection`](../../crates/sim-model/src/config.rs); [M3 §15.1–15.3](M3_INTERACTION_CONTRACT.md)). For every combination, the registry must select encoders/codecs that produce byte-identical State/Metrics/Events digests and snapshot bytes to the current path. Feature manifests remain outside legacy digest preimages, and v1/v2/v3 snapshot contents and order remain unchanged ([`canonical_*_bytes`](../../crates/sim-model/src/hashing.rs); [`encode_snapshot`](../../crates/sim-model/src/snapshot.rs); [`encode_m3p_snapshot`](../../crates/sim-model/src/m3p.rs); [`encode_m3prop_snapshot`](../../crates/sim-model/src/m3prop.rs); M3 §15.2 and §16.5).
 
+**Primary goal — FROZEN:** provide one generic day loop per storage layout: one for the `WorldState` reference layout and one for `SegmentedAgentStorage`. Each loop executes fixed core phases 1–11 and invokes registered system hooks at their declared phase slots. A per-system execution option selects serial execution, incremental topology maintenance, or explicit parallel execution with a caller-owned pool; the option is passed to the generic loop rather than selecting a separate runner function. Serial remains the default and the loop never creates or resizes a pool. Existing public profile-specific runner entrypoints and signatures remain as thin wrappers that select the same system set/options and call the appropriate generic loop. Their day results, errors, and compatibility behavior stay unchanged.
+
 ### 10.4 Startup validation and execution limits
 
 Before state construction or mutation, validate the static registry and selected feature set:
@@ -213,7 +215,7 @@ The current feature validation already rejects missing dependencies and profile/
 
 ### 10.5 Migration plan
 
-Port one extension at a time behind the registry, keeping each current reference/storage path as the oracle:
+Port one extension at a time behind the registry. For each step, keep the legacy runner as the oracle until exact parity passes; only then convert that legacy public entrypoint into a thin wrapper over the generic loop:
 
 1. Register relationship graph and route the existing M3 Phase 4/6B paths through its descriptor.
 2. Register Phase 9b population dynamics while retaining the M3P reference and storage runners, including the incremental-topology path.
@@ -224,9 +226,10 @@ After each port, require unchanged M2/M3/M3P/propagation goldens, snapshot bytes
 ### 10.6 Success criteria
 
 - All existing tests, profile goldens, snapshot byte checks, deterministic replay gates, and hosted 3-OS CI pass unchanged.
-- Report before/after counts using the §10.1 inventory method: source modules, runner/context entrypoints, and approximate runner wiring lines. The registry must reduce duplicated per-profile dispatch/wiring; it need not merge distinct canonical encoders if that risks bytes.
-- A placeholder no-op test descriptor can be enabled and disabled without changing any existing profile digest, snapshot bytes, events, or metrics. It owns no columns, consumes no RNG, and contributes no encoded fields.
-- Whole-tick performance remains within the measured noise of the current runners. Proposed method: identical initialized checkpoints and config; construct contexts/scratch outside the timer; metrics/events on and snapshots off; two warmups; at least 11 paired, interleaved samples; each sample runs three consecutive days with scratch reuse; report uninstrumented median ± MAD. Compare the median delta with the larger per-path MAD and record all cells. The exact acceptance threshold and cell set remain for the M4-01 freeze.
+- Report runner entrypoints and M3-family wiring lines before/after using the §10.1 inventory method. The target is to replace per-combination day-loop functions with the two generic layout loops while keeping profile-specific wrappers thin.
+- A test-only no-op system can be switched on/off without changing existing digests, snapshot bytes, events, or metrics; adding it requires zero new runner functions and zero generic-loop edits beyond the registry entry.
+- The same no-new-runner/no-generic-loop-edit condition is a forward gate for M4-06 settlement migration and must be recorded in that stage's report.
+- Whole-tick performance gate: compare the registry path with the current runner for M3 and M3P at `N = 10,000` and `N = 100,000` on their sustained configurations, plus M3+propagation at `N = 100,000`. Use paired, uninstrumented whole-tick samples from identical checkpoints, contexts/scratch built outside timing, metrics/events on, snapshots off, two warmups, at least 11 paired interleaved samples, and three consecutive days per sample with scratch reuse. For every cell, require `abs(median_registry - median_current) <= max(0.02 * median_current, MAD_registry, MAD_current)` and report the medians, MADs, and result.
 
 ### 10.7 Non-goals
 
@@ -236,14 +239,35 @@ After each port, require unchanged M2/M3/M3P/propagation goldens, snapshot bytes
 - No counterfactual branch/intervention implementation; those belong to M4-02 onward.
 - No dynamic loading or GPU execution.
 
-### 10.8 Open questions
+### 10.8 Review questions and adopted answers
 
-| ID | Question | Status | Recommended answer |
+The answers below are adopted by the M4-01 decision register in §10.9. They are retained here to show the questions each decision resolves.
+
+| ID | Question | Status | Adopted answer |
 |---|---|---|---|
-| Q1 | How are registry and system IDs represented and ordered? | Blocking for M4-01 | Use stable typed IDs in a compile-time static slice; keep them separate from RNG subsystem IDs and avoid hash-map iteration. |
-| Q2 | How are multiple hooks and write conflicts represented when a system participates at more than one phase slot? | Blocking for M4-01 | Declare per-slot access sets and an explicit total order for the few permitted write overlaps; reject undeclared overlap before state construction. |
-| Q3 | How are state ownership and cross-system mutation represented for graph updates during Phase 9b? | Blocking for M4-01 | RelationshipGraph owns CSR/hash; PopulationDynamics declares ordered write access through its graph dependency. Keep transient slot projections and scratch outside owned canonical columns. |
-| Q4 | Should descriptor-driven digest/snapshot encoding replace legacy codecs or select them? | Blocking for M4-01 | Have descriptors select existing profile encoders and exact section order first; do not generically concatenate contributions until byte-equivalence is proven. |
-| Q5 | How are no-op registration tests kept out of legacy production feature sets? | Blocking for M4-01 | Use a test-only descriptor with empty state/digest/snapshot/metrics/event contributions and assert every existing profile's bytes remain exact. |
-| Q6 | What is the final performance-noise threshold and representative cell set? | Blocking for M4-01 success gate | Use the paired median ± MAD protocol in §10.6 at representative 10k/100k M3/M3P workloads; freeze the non-regression threshold with the implementation gate. |
-| Q7 | How should CI use the measured per-target timings? | Non-blocking for this draft; decide before M4-01 CI gates freeze | Keep the full workspace test gate required on all three OSes. If splitting heavy targets later, every split job remains required and covers the same tests; do not use scheduled-only tests as a substitute. The §10.1 serialized sum is not the one-shot hosted job duration. |
+| Q1 | How are registry and system IDs represented and ordered? | **FROZEN** | Use stable typed IDs in a compile-time static slice; keep them separate from RNG subsystem IDs and avoid hash-map iteration. |
+| Q2 | How are multiple hooks and write conflicts represented when a system participates at more than one phase slot? | **FROZEN** | Declare per-slot access sets and an explicit total order for the few permitted write overlaps; reject undeclared overlap before state construction. |
+| Q3 | How are state ownership and cross-system mutation represented for graph updates during Phase 9b? | **FROZEN** | RelationshipGraph owns CSR/hash; PopulationDynamics declares ordered write access through its graph dependency. Keep transient slot projections and scratch outside owned canonical columns. |
+| Q4 | Should descriptor-driven digest/snapshot encoding replace legacy codecs or select them? | **FROZEN** | Have descriptors select existing profile encoders and exact section order first; do not generically concatenate contributions until byte-equivalence is proven. |
+| Q5 | How are no-op registration tests kept out of legacy production feature sets? | **FROZEN** | Use a test-only descriptor with empty state/digest/snapshot/metrics/event contributions and assert every existing profile's bytes remain exact. |
+| Q6 | What is the final performance-noise threshold and representative cell set? | **FROZEN** | Use the §10.6 M3/M3P/M3+propagation cell set and require the registry median to be within `max(2% of current median, larger per-path MAD)`; report every cell. |
+| Q7 | How should CI use the measured per-target timings? | **FROZEN** | Keep the full workspace test step required on Linux, Windows, and macOS. Any later split keeps every split job required and covers exactly the same tests. |
+
+### 10.9 Decision register
+
+| ID | Status | Frozen decision |
+|---|---|---|
+| D0 — generic loops | **FROZEN** | Implement one phase 1–11 generic day loop for `WorldState` reference execution and one for `SegmentedAgentStorage`. Each dispatches registered hooks at frozen slots. Per-system execution options carry serial, incremental-topology, or explicit caller-pool parallel behavior into the loop; do not create a runner function per combination or mode. Keep existing public APIs and signatures as thin wrappers. |
+| Q1 | **FROZEN** | Use stable typed registry IDs in a compile-time static slice, distinct from RNG subsystem IDs. Use a deterministic registry order and no dynamic loading. |
+| Q2 | **FROZEN** | Declare access by phase slot. Reject conflicting writes unless an explicit deterministic order is recorded; phase-slot ordering is total and stable. |
+| Q3 | **FROZEN** | RelationshipGraph owns canonical CSR/hash. PopulationDynamics may write graph rows at Phase 9b through its declared dependency. Transient projection/scratch are not owned canonical columns. |
+| Q4 | **FROZEN** | Descriptors select existing profile encoders and exact snapshot section order. Do not replace legacy codecs with generic concatenation unless byte equivalence is proven. |
+| Q5 | **FROZEN** | The no-op descriptor is test-only, contributes no state, RNG, digest, snapshot, metrics, or events, and must leave all existing profile bytes unchanged. Adding it requires no runner function and no generic-loop changes beyond its registry entry. |
+| Q6 | **FROZEN** | Measure M3 and M3P at 10k/100k on sustained configurations and M3+propagation at 100k. On paired uninstrumented whole-tick medians, require `abs(median_registry - median_current) <= max(0.02 * median_current, MAD_registry, MAD_current)`. Report every cell using the §10.6 protocol. |
+| Q7 | **FROZEN** | Keep the full workspace test step required on all three OSes. Any later split remains fully required and covers the same tests. |
+| Migration | **FROZEN** | Port one system at a time. The legacy runner remains the oracle until exact parity passes; then that public entrypoint becomes a thin wrapper over the generic loop. |
+| M4-06 forward gate | **FROZEN** | Settlement migration must add no runner function and no generic-loop edit beyond its system/registry entry; record this in the M4-06 report. |
+
+### 10.10 Freeze record
+
+This freeze sets §10 to FROZEN and fixes the static descriptor fields, validation rules, legacy profile compatibility map, two generic day loops, per-system execution options, migration order, parity requirements, performance gate, and CI requirement. It authorizes the M4-01 implementation task to be requested; it does not start implementation. M4-06 must preserve the no-new-runner/no-generic-loop-edit forward gate recorded above.
