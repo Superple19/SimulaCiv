@@ -121,6 +121,63 @@ The phase-recorder rerun used two ordinary one-day passes as its baseline and pa
 
 The storage lockstep recorder reduced the old overhead from 125.019 ms to 11.344 ms at 10k, and from 10,464.374 ms to 190.443 ms at 100k. Both still exceed the frozen 10% recorder budget.
 
-### Proposed review amendment
+### Final follow-up: frozen §11.7 A-1 paired measurement
 
-Four of seven orchestration cells and both recorder cells still fail. M4-02 therefore remains **not complete**; §3 and the README were not changed. The measurements support review of the proposed, unfrozen **§11.7 A-1** appended to the contract. It separates required per-day digest/`D_d`/lineage work from runner overhead and measures the recorder's required replay-to-first-difference prefix separately from the comparisons performed during that replay. In this run, the N=100,000 M3P recorder added 190.443 ms against a 583.251 ms two-day baseline (32.7%); at N=10,000 it added 11.344 ms against 41.273 ms (27.5%). Those figures show that the current recorder budget also counts replaying the two states through the first differing boundary, even though that replay is required to locate the phase. No budget change is made without review.
+This run applies the user-approved, frozen [§11.7 A-1 protocol](../contracts/M4_COUNTERFACTUAL_CONTRACT.md#117-a-1--measurement-protocol-amendment-frozen). It supersedes the adjusted-cost calculations above for the gate decision; those earlier runs remain as historical measurements.
+
+The release harness ran in one process on the AMD Ryzen 5 9600X (6 physical cores / 12 logical processors), at High priority with processor affinity `0x555` (logical-to-physical mapping was not independently verified). CPU load was 8% before and 100% after; free RAM changed from 59,256,460 KB to 51,412,508 KB. The run started at 21:21:29 and finished at 22:40:41 local time, for **79m 12.1s**. Intermediate host load was not sampled.
+
+The harness used one Day 0 snapshot per cell, metrics and events enabled, snapshots disabled, and a 30-day horizon. Every direct-pair sample restored the same snapshot twice inside the timed region. It paired that direct pair with the analysis-disabled branch API and the ordinary full branch API, alternating their order. A same-sample instrumented full-analysis call supplied the digest, `D_d`, lineage, and clone breakdown. No cost estimate from a separate probe was subtracted. Each cell began with two warmups and 21 timed samples; because at least one measured series in each cell exceeded 5% MAD/median, each cell was rerun with 41 timed samples. The final table uses only those 41-sample reruns.
+
+The paired-delta spread ratio below is `MAD / abs(median(delta))`; the absolute value makes cells with a negative overhead delta comparable. The gate limit remains `max(5% of direct-pair median, larger paired MAD)`. The analysis increment has no absolute limit under A-1.
+
+#### Orchestration gate
+
+Times are milliseconds per 30-day base-plus-branch pair. “Analysis-disabled” is the branch API with daily digests, `D_d`, lineage matching, component flags, and day-start clones disabled. “Full” is the normal `run_counterfactual_branch` API.
+
+| Profile / execution | N | Direct pair ± MAD | Analysis-disabled API ± MAD | Full API ± MAD | Disabled − direct ± paired MAD | Limit | Delta MAD / \|median\| | Result |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| M3 serial | 10,000 | 132.480 ± 3.911 | 129.669 ± 4.414 | 173.514 ± 4.151 | -3.441 ± 2.918 | 6.624 | 84.8% | **INCONCLUSIVE** |
+| M3 serial | 100,000 | 1,319.605 ± 17.468 | 1,306.890 ± 5.844 | 1,870.942 ± 20.761 | -5.934 ± 10.037 | 65.980 | 169.1% | **INCONCLUSIVE** |
+| M3P serial | 10,000 | 473.710 ± 2.567 | 472.065 ± 2.765 | 539.894 ± 2.787 | 0.004 ± 3.047 | 23.685 | 72,555% | **INCONCLUSIVE** |
+| M3P incremental topology | 10,000 | 155.099 ± 0.603 | 152.849 ± 1.382 | 231.449 ± 1.685 | -2.548 ± 1.297 | 7.755 | 50.9% | **INCONCLUSIVE** |
+| M3P serial | 100,000 | 7,626.565 ± 662.237 | 7,344.919 ± 479.093 | 8,667.315 ± 797.475 | 11.255 ± 202.801 | 662.237 | 1,802% | **INCONCLUSIVE** |
+| M3P incremental topology | 100,000 | 2,223.660 ± 36.769 | 2,193.550 ± 39.109 | 3,231.525 ± 37.940 | -44.728 ± 23.627 | 111.183 | 52.8% | **INCONCLUSIVE** |
+| M3 + propagation serial | 100,000 | 3,806.915 ± 455.620 | 3,710.369 ± 286.251 | 4,956.131 ± 639.222 | -27.331 ± 75.570 | 455.620 | 276.5% | **INCONCLUSIVE** |
+
+All seven cells remain inconclusive because the paired disabled-minus-direct delta still had MAD/median above 5% after 41 samples. The 100k M3P serial and M3 + propagation cells also retained above-5% spread in their individual path timings after the rerun. No cell was omitted. The median disabled-minus-direct deltas are within the calculated limits, but A-1 does not allow those noisy cells to be reported as PASS.
+
+#### Analysis cost record
+
+The decomposition below reports the medians of instrumented full-analysis costs per alive agent-day. The agent-day denominator is the sum of daily live populations in both base and branch runs. The last column is the independently paired median of the ordinary full API minus the analysis-disabled API for the same cell.
+
+| Profile / execution | N | Digest ns / agent-day | `D_d` + flags ns / agent-day | Lineage ns / agent-day | Day-start clones ns / agent-day | Full − disabled per pair |
+|---|---:|---:|---:|---:|---:|---:|
+| M3 serial | 10,000 | 57.894 | 0.0072 | 0.0080 | 8.828 | 46.174 ms |
+| M3 serial | 100,000 | 69.540 | 0.0014 | 0.0026 | 16.447 | 557.582 ms |
+| M3P serial | 10,000 | 106.258 | 0.0115 | 0.3026 | 4.666 | 67.340 ms |
+| M3P incremental topology | 10,000 | 125.353 | 0.0078 | 0.2798 | 3.837 | 78.143 ms |
+| M3P serial | 100,000 | 135.038 | 0.0013 | 0.4157 | 14.748 | 877.895 ms |
+| M3P incremental topology | 100,000 | 163.426 | 0.0013 | 0.3883 | 14.715 | 1,062.624 ms |
+| M3 + propagation serial | 100,000 | 131.926 | 0.0015 | 0.0027 | 29.709 | 1,161.911 ms |
+
+The full-minus-disabled figures are a regression baseline only; A-1 sets no absolute limit for them. The instrumented component medians are measured independently inside the same sample sets and need not sum exactly to the externally timed delta.
+
+#### Recorder gate
+
+The replay baseline is the comparison-disabled lockstep replay to the same first-difference boundary. Replay and comparison-stage timings are reported separately from the full one-day branch API timings.
+
+| Profile | N | Full locator API ± MAD | Comparison-disabled API ± MAD | Paired overhead ± MAD | Replay stage median | Comparison timer median | Limit | Delta MAD / \|median\| | Result |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| M3P serial | 10,000 | 54.339 ± 3.779 | 53.018 ± 3.627 | 1.106 ± 1.894 ms | 2.111 ms | 0.465 ms | 3.779 ms | 171% | **INCONCLUSIVE** |
+| M3P serial | 100,000 | 877.184 ± 147.298 | 893.782 ± 144.911 | -1.693 ± 27.008 ms | 35.798 ms | 5.865 ms | 147.298 ms | 1,595% | **INCONCLUSIVE** |
+
+Both recorder cells remain inconclusive after 41 samples. Their paired comparison deltas were noisy relative to their near-zero medians; the 100k full and replay API paths also remained above 5% MAD/median. The paired overhead medians are below the frozen limits, but they cannot be called PASS under A-1.
+
+#### Decision
+
+No §11.7 A-1 cell is PASS: all seven orchestration cells and both recorder cells are inconclusive. M4-02 therefore remains **not complete**. The M4 contract §3 and README status are unchanged. No gate budget, simulation behavior, digest, snapshot, test, golden, or CI setting was changed by this measurement follow-up.
+
+### Historical proposed review amendment (later frozen)
+
+Four of seven orchestration cells and both recorder cells failed in that earlier run. M4-02 remained **not complete**; §3 and the README were not changed. At the time, those measurements supported review of the then-proposed **§11.7 A-1**. The user later approved and froze that measurement protocol; the controlled rerun above applies it. The earlier run measured the N=100,000 M3P recorder at 190.443 ms against a 583.251 ms two-day baseline (32.7%), and the N=10,000 recorder at 11.344 ms against 41.273 ms (27.5%). No budget was changed in that earlier run.
