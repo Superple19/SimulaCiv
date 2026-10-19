@@ -424,6 +424,19 @@ pub fn run_m3p_reference_day(
     run_context: &M0RunContext,
     options: &DayExecutionOptions,
 ) -> Result<M3pDayOutcome, M0RunError> {
+    run_m3p_reference_day_with_post_phase9b(state, config, run_context, options, None)
+}
+
+type M3pReferencePostPhase9b<'a> =
+    dyn FnMut(&WorldState, &RelationshipGraph, &[AgentId], u32) -> Result<(), M0RunError> + 'a;
+
+pub(crate) fn run_m3p_reference_day_with_post_phase9b(
+    state: &mut M3pReferenceState,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    options: &DayExecutionOptions,
+    post_phase9b: Option<&mut M3pReferencePostPhase9b<'_>>,
+) -> Result<M3pDayOutcome, M0RunError> {
     state.validate_for(config, run_context)?;
 
     let executed_day = state.world.current_day.as_u32();
@@ -463,6 +476,15 @@ pub fn run_m3p_reference_day(
         phase8_welfare_distribution_with_config(&mut state.world, &effective_config)?;
     let mortality_resolution = phase9_mortality_commitment(&mut state.world)?;
     let phase9b = apply_phase9b(state, &effective_config, run_context, executed_day)?;
+    if let Some(callback) = post_phase9b {
+        let newborn_ids: Vec<_> = phase9b.births.iter().map(|birth| birth.child).collect();
+        callback(
+            &state.world,
+            &state.relationship_graph,
+            &newborn_ids,
+            executed_day,
+        )?;
+    }
 
     let mut event_buffer = if options.events_enabled {
         let estimated_cap = state

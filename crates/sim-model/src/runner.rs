@@ -47,9 +47,14 @@ use crate::m3p::{
     M3pReferenceState, Phase9bResult, Phase9bRunParameters, apply_phase9b_storage,
     apply_phase9b_storage_incremental, encode_m3p_snapshot,
 };
+use crate::m3pprop::{
+    M3pPropagationDailyMetrics, M3pPropagationDayOutcome, M3pPropagationReferenceState,
+    encode_m3pprop_snapshot, m3p_base_config, sync_propagation_storage_rows,
+    validate_m3pprop_config,
+};
 use crate::m3prop::{
-    M3PropDailyMetrics, M3PropDayOutcome, M3PropagationReferenceState, encode_m3prop_snapshot,
-    m3_base_config,
+    M3PROP_SNAPSHOT_SCHEMA_VERSION, M3PropDailyMetrics, M3PropDayOutcome,
+    M3PropagationReferenceState, encode_m3prop_snapshot, m3_base_config,
 };
 use crate::metrics::{
     DailyMetrics, M3DailyMetrics, Phase10Error, phase10_observe_storage_with_scratch,
@@ -65,7 +70,7 @@ use crate::phases::{
 };
 use crate::propagation::{
     PropagationAgentState, PropagationDailyCounts, apply_phase9c_storage,
-    apply_phase9c_storage_parallel,
+    apply_phase9c_storage_m3p, apply_phase9c_storage_m3p_parallel, apply_phase9c_storage_parallel,
 };
 use crate::relationship_graph::{RelationshipGraph, RelationshipGraphError};
 use crate::resolution::{
@@ -162,6 +167,7 @@ pub enum ConfiguredStorageRunContext {
     M3(M3StorageRunContext),
     M3p(M3pStorageRunContext),
     M3Propagation(M3PropagationStorageRunContext),
+    M3pPropagation(M3pPropagationStorageRunContext),
 }
 
 /// Typed result from one of the existing legacy storage/reference runner families.
@@ -171,6 +177,7 @@ pub enum ConfiguredDayOutcome {
     M3(M3DayOutcome),
     M3p(M3pDayOutcome),
     M3Propagation(M3PropDayOutcome),
+    M3pPropagation(M3pPropagationDayOutcome),
 }
 
 /// Effective feature manifest and the outcomes produced by the selected existing runner.
@@ -655,6 +662,130 @@ impl M3pIncrementalTopologyStorageRunContext {
     pub const fn next_agent_id(&self) -> u64 {
         self.storage_context.next_agent_id()
     }
+}
+
+/// Propagation columns and the base M3P storage context for serial execution.
+pub struct M3pPropagationStorageRunContext {
+    storage_context: M3pStorageRunContext,
+    propagation: BTreeMap<AgentId, PropagationAgentState>,
+}
+
+impl M3pPropagationStorageRunContext {
+    pub fn new(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+    ) -> Result<Self, M0RunError> {
+        validate_m3pprop_config(config)?;
+        let base_config = m3p_base_config(config);
+        let storage_context = M3pStorageRunContext::new(hybrid_world, &base_config, run_context)?;
+        let storage = m3p_storage_from_hybrid(hybrid_world)?;
+        let propagation = initial_propagation_storage(storage);
+        Ok(Self {
+            storage_context,
+            propagation,
+        })
+    }
+
+    pub fn from_reference_state(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+        reference: &M3pPropagationReferenceState,
+    ) -> Result<Self, M0RunError> {
+        validate_m3pprop_config(config)?;
+        let base_config = m3p_base_config(config);
+        let storage_context = M3pStorageRunContext::from_reference_state(
+            hybrid_world,
+            &base_config,
+            run_context,
+            reference.base_state(),
+        )?;
+        Ok(Self {
+            storage_context,
+            propagation: reference.propagation().clone(),
+        })
+    }
+
+    pub fn relationship_graph(&self) -> &RelationshipGraph {
+        self.storage_context.relationship_graph()
+    }
+
+    pub fn propagation(&self) -> &BTreeMap<AgentId, PropagationAgentState> {
+        &self.propagation
+    }
+
+    pub const fn next_agent_id(&self) -> u64 {
+        self.storage_context.next_agent_id
+    }
+}
+
+/// Propagation columns and incremental-topology scratch for the explicit M3P path.
+pub struct M3pPropagationIncrementalTopologyStorageRunContext {
+    storage_context: M3pIncrementalTopologyStorageRunContext,
+    propagation: BTreeMap<AgentId, PropagationAgentState>,
+}
+
+impl M3pPropagationIncrementalTopologyStorageRunContext {
+    pub fn new(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+    ) -> Result<Self, M0RunError> {
+        validate_m3pprop_config(config)?;
+        let base_config = m3p_base_config(config);
+        let storage_context =
+            M3pIncrementalTopologyStorageRunContext::new(hybrid_world, &base_config, run_context)?;
+        let storage = m3p_storage_from_hybrid(hybrid_world)?;
+        let propagation = initial_propagation_storage(storage);
+        Ok(Self {
+            storage_context,
+            propagation,
+        })
+    }
+
+    pub fn from_reference_state(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+        reference: &M3pPropagationReferenceState,
+    ) -> Result<Self, M0RunError> {
+        validate_m3pprop_config(config)?;
+        let base_config = m3p_base_config(config);
+        let storage_context = M3pIncrementalTopologyStorageRunContext::from_reference_state(
+            hybrid_world,
+            &base_config,
+            run_context,
+            reference.base_state(),
+        )?;
+        Ok(Self {
+            storage_context,
+            propagation: reference.propagation().clone(),
+        })
+    }
+
+    pub fn relationship_graph(&self) -> &RelationshipGraph {
+        self.storage_context.relationship_graph()
+    }
+
+    pub fn propagation(&self) -> &BTreeMap<AgentId, PropagationAgentState> {
+        &self.propagation
+    }
+
+    pub const fn next_agent_id(&self) -> u64 {
+        self.storage_context.next_agent_id()
+    }
+}
+
+fn initial_propagation_storage(
+    storage: &SegmentedAgentStorage,
+) -> BTreeMap<AgentId, PropagationAgentState> {
+    storage
+        .agent_ids()
+        .iter()
+        .copied()
+        .map(|agent_id| (agent_id, PropagationAgentState::default()))
+        .collect()
 }
 
 fn ensure_m3p_storage_profile(config: &SimConfig) -> Result<(), M0RunError> {
@@ -1630,9 +1761,209 @@ pub fn run_m3p_storage_days_incremental_topology(
             &mut context.storage_context,
             options,
             Some(&mut context.phase9b_scratch),
+            None,
         )?);
     }
     Ok(outcomes)
+}
+
+/// Executes serial M3P storage days with the M3PROP Phase 9c overlay.
+pub fn run_m3p_propagation_storage_days(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pPropagationStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<M3pPropagationDayOutcome>, M0RunError> {
+    validate_m3pprop_config(config)?;
+    context
+        .storage_context
+        .validate_for(hybrid_world, &m3p_base_config(config))?;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        outcomes.push(run_m3p_propagation_storage_day(
+            hybrid_world,
+            config,
+            &mut context.storage_context,
+            &mut context.propagation,
+            options,
+            None,
+            None,
+        )?);
+    }
+    Ok(outcomes)
+}
+
+/// Executes M3P storage days with caller-owned parallel Phase 9c spread.
+pub fn run_m3p_propagation_storage_days_with_parallel_spread(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pPropagationStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<Vec<M3pPropagationDayOutcome>, M0RunError> {
+    validate_m3pprop_config(config)?;
+    context
+        .storage_context
+        .validate_for(hybrid_world, &m3p_base_config(config))?;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        outcomes.push(run_m3p_propagation_storage_day(
+            hybrid_world,
+            config,
+            &mut context.storage_context,
+            &mut context.propagation,
+            options,
+            None,
+            Some((pool, chunk_size)),
+        )?);
+    }
+    Ok(outcomes)
+}
+
+/// Executes M3P storage days with incremental topology and serial Phase 9c spread.
+pub fn run_m3p_propagation_storage_days_incremental_topology(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pPropagationIncrementalTopologyStorageRunContext,
+    days: u32,
+    options: &DayExecutionOptions,
+) -> Result<Vec<M3pPropagationDayOutcome>, M0RunError> {
+    validate_m3pprop_config(config)?;
+    context
+        .storage_context
+        .storage_context
+        .validate_for(hybrid_world, &m3p_base_config(config))?;
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for _ in 0..days {
+        outcomes.push(run_m3p_propagation_storage_day(
+            hybrid_world,
+            config,
+            &mut context.storage_context.storage_context,
+            &mut context.propagation,
+            options,
+            Some(&mut context.storage_context.phase9b_scratch),
+            None,
+        )?);
+    }
+    Ok(outcomes)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_m3p_propagation_storage_day(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    storage_context: &mut M3pStorageRunContext,
+    propagation: &mut BTreeMap<AgentId, PropagationAgentState>,
+    options: &DayExecutionOptions,
+    incremental_topology_scratch: Option<&mut M3pIncrementalTopologyScratch>,
+    parallel: Option<(&ThreadPool, NonZeroUsize)>,
+) -> Result<M3pPropagationDayOutcome, M0RunError> {
+    let base_config = m3p_base_config(config);
+    let run_context = storage_context.run_context;
+    let mut propagation_counts = None;
+    let mut post_phase9b = |storage: &SegmentedAgentStorage,
+                            graph: &RelationshipGraph,
+                            newborn_ids: &[AgentId],
+                            day: u32|
+     -> Result<(), M0RunError> {
+        sync_propagation_storage_rows(storage, propagation);
+        let propagation_config = config.propagation.expect("validated propagation settings");
+        let result = match parallel {
+            Some((pool, chunk_size)) => apply_phase9c_storage_m3p_parallel(
+                storage,
+                graph,
+                propagation,
+                propagation_config,
+                run_context.master_seed,
+                run_context.replicate_id,
+                day,
+                newborn_ids,
+                pool,
+                chunk_size,
+            ),
+            None => apply_phase9c_storage_m3p(
+                storage,
+                graph,
+                propagation,
+                propagation_config,
+                run_context.master_seed,
+                run_context.replicate_id,
+                day,
+                newborn_ids,
+            ),
+        };
+        propagation_counts = Some(result.map_err(M0RunError::InvariantViolation)?);
+        Ok(())
+    };
+    let mut base_options = *options;
+    base_options.snapshot_boundary = false;
+    let mut base_outcome = run_m3p_storage_day_inner(
+        hybrid_world,
+        &base_config,
+        storage_context,
+        &base_options,
+        incremental_topology_scratch,
+        Some(&mut post_phase9b),
+    )?;
+    let propagation_counts = propagation_counts.expect("Phase 9c callback runs once per day");
+    let metrics = base_outcome
+        .metrics
+        .take()
+        .map(|m3p_metrics| M3pPropagationDailyMetrics {
+            m3p_metrics,
+            propagation: propagation_counts,
+        });
+    let snapshot = if options.snapshot_boundary {
+        let HybridWorldState {
+            world,
+            segmented_storage,
+            ..
+        } = hybrid_world;
+        let storage = segmented_storage
+            .as_ref()
+            .ok_or_else(|| M0RunError::InvariantViolation("hybrid mode without storage".into()))?;
+        let base_state = M3pReferenceState::from_parts(
+            m3p_world_from_storage(world, storage),
+            storage_context.relationship_graph.clone(),
+            storage_context.next_agent_id,
+            &base_config,
+            &storage_context.run_context,
+        )?;
+        let reference_state =
+            M3pPropagationReferenceState::from_parts(base_state, propagation.clone(), config)?;
+        let metadata = SnapshotMetadata::new(
+            world.current_day.as_u32(),
+            storage_context.run_context.master_seed,
+            storage_context.run_context.replicate_id,
+            DEFAULT_MODEL_VERSION,
+            DEFAULT_CONFIG_VERSION,
+        );
+        let snapshot = encode_m3pprop_snapshot(&reference_state, &metadata)?;
+        if options.events_enabled {
+            base_outcome.events.push(M3pEventRecord {
+                key: EventKey::new(base_outcome.executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                event: M3pEvent::Existing(Event::Observation(ObservationEvent::SnapshotEmitted {
+                    day: metadata.day,
+                    master_seed: metadata.master_seed,
+                    replicate_id: metadata.replicate_id,
+                    schema_version: M3PROP_SNAPSHOT_SCHEMA_VERSION,
+                })),
+            });
+            base_outcome.events.sort_by_key(|record| record.key);
+        }
+        Some(snapshot)
+    } else {
+        None
+    };
+    Ok(M3pPropagationDayOutcome {
+        executed_day: base_outcome.executed_day,
+        metrics,
+        events: base_outcome.events,
+        snapshot,
+    })
 }
 
 /// Selects an existing serial storage runner from the validated feature set.
@@ -1673,6 +2004,13 @@ pub fn run_configured_storage_days(
         ) => run_m3prop_storage_days(hybrid_world, config, run_context, days, options)?
             .into_iter()
             .map(ConfiguredDayOutcome::M3Propagation)
+            .collect(),
+        (
+            SimulationRunnerSelection::M3pPropagation,
+            ConfiguredStorageRunContext::M3pPropagation(run_context),
+        ) => run_m3p_propagation_storage_days(hybrid_world, config, run_context, days, options)?
+            .into_iter()
+            .map(ConfiguredDayOutcome::M3pPropagation)
             .collect(),
         (
             SimulationRunnerSelection::M3Propagation | SimulationRunnerSelection::M3pPropagation,
@@ -1829,7 +2167,7 @@ fn run_m3p_storage_day(
     context: &mut M3pStorageRunContext,
     options: &DayExecutionOptions,
 ) -> Result<M3pDayOutcome, M0RunError> {
-    run_m3p_storage_day_inner(hybrid_world, config, context, options, None)
+    run_m3p_storage_day_inner(hybrid_world, config, context, options, None, None)
 }
 
 fn run_m3p_storage_day_inner(
@@ -1838,6 +2176,7 @@ fn run_m3p_storage_day_inner(
     context: &mut M3pStorageRunContext,
     options: &DayExecutionOptions,
     mut incremental_topology_scratch: Option<&mut M3pIncrementalTopologyScratch>,
+    post_phase9b: Option<&mut M3pStoragePostPhase9b<'_>>,
 ) -> Result<M3pDayOutcome, M0RunError> {
     let HybridWorldState {
         world,
@@ -1949,6 +2288,15 @@ fn run_m3p_storage_day_inner(
         }
     } else {
         context.refresh_after_phase9b(storage, &phase9b)?;
+    }
+    if let Some(callback) = post_phase9b {
+        let newborn_ids: Vec<_> = phase9b.births.iter().map(|birth| birth.child).collect();
+        callback(
+            storage,
+            &context.relationship_graph,
+            &newborn_ids,
+            executed_day,
+        )?;
     }
 
     let mut event_buffer = if options.events_enabled {
@@ -2138,6 +2486,9 @@ enum M3StoragePhase6BMode<'a> {
 
 type M3StoragePostPhase9<'a> =
     dyn FnMut(&SegmentedAgentStorage, &RelationshipGraph, u32) -> Result<(), M0RunError> + 'a;
+
+type M3pStoragePostPhase9b<'a> = dyn FnMut(&SegmentedAgentStorage, &RelationshipGraph, &[AgentId], u32) -> Result<(), M0RunError>
+    + 'a;
 
 fn run_m3_storage_day_with_phase6b(
     hybrid_world: &mut HybridWorldState,

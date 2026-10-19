@@ -49,6 +49,37 @@ pub fn apply_phase9c(
         replicate_id,
         day,
         None,
+        &[],
+    )
+}
+
+/// Applies Phase 9c for M3P while keeping same-day newborns inactive.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_phase9c_m3p(
+    world: &WorldState,
+    graph: &RelationshipGraph,
+    propagation: &mut BTreeMap<AgentId, PropagationAgentState>,
+    config: PropagationConfig,
+    master_seed: u64,
+    replicate_id: u32,
+    day: u32,
+    newborn_ids: &[AgentId],
+) -> Result<PropagationDailyCounts, String> {
+    let agent_layout: Vec<_> = world
+        .agents
+        .iter()
+        .map(|agent| (agent.agent_id, agent.alive))
+        .collect();
+    apply_phase9c_for_layout(
+        &agent_layout,
+        graph,
+        propagation,
+        config,
+        master_seed,
+        replicate_id,
+        day,
+        None,
+        newborn_ids,
     )
 }
 
@@ -79,6 +110,41 @@ pub fn apply_phase9c_storage(
         replicate_id,
         day,
         None,
+        &[],
+    )
+}
+
+/// Applies storage Phase 9c for M3P with newborns inactive until the next day.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_phase9c_storage_m3p(
+    storage: &SegmentedAgentStorage,
+    graph: &RelationshipGraph,
+    propagation: &mut BTreeMap<AgentId, PropagationAgentState>,
+    config: PropagationConfig,
+    master_seed: u64,
+    replicate_id: u32,
+    day: u32,
+    newborn_ids: &[AgentId],
+) -> Result<PropagationDailyCounts, String> {
+    if storage.agent_ids().len() != storage.alive().len() {
+        return Err("storage propagation columns have inconsistent lengths".into());
+    }
+    let agent_layout: Vec<_> = storage
+        .agent_ids()
+        .iter()
+        .copied()
+        .zip(storage.alive().iter().copied())
+        .collect();
+    apply_phase9c_for_layout(
+        &agent_layout,
+        graph,
+        propagation,
+        config,
+        master_seed,
+        replicate_id,
+        day,
+        None,
+        newborn_ids,
     )
 }
 
@@ -112,6 +178,42 @@ pub fn apply_phase9c_storage_parallel(
         replicate_id,
         day,
         Some((pool, chunk_size)),
+        &[],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn apply_phase9c_storage_m3p_parallel(
+    storage: &SegmentedAgentStorage,
+    graph: &RelationshipGraph,
+    propagation: &mut BTreeMap<AgentId, PropagationAgentState>,
+    config: PropagationConfig,
+    master_seed: u64,
+    replicate_id: u32,
+    day: u32,
+    newborn_ids: &[AgentId],
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<PropagationDailyCounts, String> {
+    if storage.agent_ids().len() != storage.alive().len() {
+        return Err("storage propagation columns have inconsistent lengths".into());
+    }
+    let agent_layout: Vec<_> = storage
+        .agent_ids()
+        .iter()
+        .copied()
+        .zip(storage.alive().iter().copied())
+        .collect();
+    apply_phase9c_for_layout(
+        &agent_layout,
+        graph,
+        propagation,
+        config,
+        master_seed,
+        replicate_id,
+        day,
+        Some((pool, chunk_size)),
+        newborn_ids,
     )
 }
 
@@ -125,6 +227,7 @@ fn apply_phase9c_for_layout(
     replicate_id: u32,
     day: u32,
     parallel: Option<(&ThreadPool, NonZeroUsize)>,
+    newborn_ids: &[AgentId],
 ) -> Result<PropagationDailyCounts, String> {
     if [
         config.seed_probability,
@@ -149,11 +252,29 @@ fn apply_phase9c_for_layout(
         return Err("propagation columns do not match world AgentIds".into());
     }
 
-    let live: BTreeSet<_> = agent_layout
-        .iter()
-        .filter(|(_, alive)| *alive)
-        .map(|(agent_id, _)| *agent_id)
-        .collect();
+    let newborns =
+        (!newborn_ids.is_empty()).then(|| newborn_ids.iter().copied().collect::<BTreeSet<_>>());
+    if let Some(newborns) = &newborns
+        && newborns
+            .iter()
+            .any(|agent_id| agent_ids.binary_search(agent_id).is_err())
+    {
+        return Err("M3P newborn list contains an unknown AgentId".into());
+    }
+
+    let live: BTreeSet<_> = if let Some(newborns) = &newborns {
+        agent_layout
+            .iter()
+            .filter(|(agent_id, alive)| *alive && !newborns.contains(agent_id))
+            .map(|(agent_id, _)| *agent_id)
+            .collect()
+    } else {
+        agent_layout
+            .iter()
+            .filter(|(_, alive)| *alive)
+            .map(|(agent_id, _)| *agent_id)
+            .collect()
+    };
     let mut counts = PropagationDailyCounts::default();
     for agent_id in &agent_ids {
         if !live.contains(agent_id) || !propagation[agent_id].informed {

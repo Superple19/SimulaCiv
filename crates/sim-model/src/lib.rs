@@ -10,6 +10,7 @@ pub mod hashing;
 pub mod initialization;
 pub mod intents;
 pub mod m3p;
+pub mod m3pprop;
 pub mod m3prop;
 pub mod metrics;
 pub mod partitioning;
@@ -68,11 +69,15 @@ pub use hashing::{
     canonical_m3_state_hash_from_storage, canonical_m3p_event_bytes, canonical_m3p_event_hash,
     canonical_m3p_metrics_bytes, canonical_m3p_metrics_hash, canonical_m3p_state_bytes,
     canonical_m3p_state_bytes_from_storage, canonical_m3p_state_hash,
-    canonical_m3p_state_hash_from_storage, canonical_m3prop_event_bytes,
-    canonical_m3prop_event_hash, canonical_m3prop_metrics_bytes, canonical_m3prop_metrics_hash,
-    canonical_m3prop_state_bytes, canonical_m3prop_state_bytes_from_storage,
-    canonical_m3prop_state_hash, canonical_m3prop_state_hash_from_storage, canonical_metrics_bytes,
-    canonical_metrics_hash, canonical_state_bytes, canonical_state_hash,
+    canonical_m3p_state_hash_from_storage, canonical_m3pprop_event_bytes,
+    canonical_m3pprop_event_hash, canonical_m3pprop_metrics_bytes, canonical_m3pprop_metrics_hash,
+    canonical_m3pprop_state_bytes, canonical_m3pprop_state_bytes_from_storage,
+    canonical_m3pprop_state_hash, canonical_m3pprop_state_hash_from_storage,
+    canonical_m3prop_event_bytes, canonical_m3prop_event_hash, canonical_m3prop_metrics_bytes,
+    canonical_m3prop_metrics_hash, canonical_m3prop_state_bytes,
+    canonical_m3prop_state_bytes_from_storage, canonical_m3prop_state_hash,
+    canonical_m3prop_state_hash_from_storage, canonical_metrics_bytes, canonical_metrics_hash,
+    canonical_state_bytes, canonical_state_hash,
 };
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
@@ -92,6 +97,11 @@ pub use m3p::{
     M3P_BIRTH_SUBSYSTEM_ID, M3P_SNAPSHOT_SCHEMA_VERSION, M3pDailyMetrics, M3pDayOutcome, M3pEvent,
     M3pEventRecord, M3pReferenceState, RestoredM3pSnapshot, decode_m3p_snapshot,
     encode_m3p_snapshot, run_m3p_reference_day,
+};
+pub use m3pprop::{
+    M3pPropagationDailyMetrics, M3pPropagationDayOutcome, M3pPropagationReferenceState,
+    RestoredM3pPropagationSnapshot, decode_m3pprop_snapshot, encode_m3pprop_snapshot,
+    run_m3pprop_reference_day,
 };
 pub use m3prop::{
     M3PROP_SNAPSHOT_SCHEMA_VERSION, M3PropDailyMetrics, M3PropDayOutcome, M3PropPopulationMetrics,
@@ -121,7 +131,8 @@ pub use phases::{
 };
 pub use propagation::{
     M3_PROPAGATION_SUBSYSTEM_ID, PropagationAgentState, PropagationDailyCounts, apply_phase9c,
-    apply_phase9c_storage, apply_phase9c_storage_parallel,
+    apply_phase9c_m3p, apply_phase9c_storage, apply_phase9c_storage_m3p,
+    apply_phase9c_storage_m3p_parallel, apply_phase9c_storage_parallel,
 };
 pub use relationship_graph::{
     M3_RELATIONSHIP_GRAPH_SUBSYSTEM_ID, RelationshipGraph, RelationshipGraphError,
@@ -154,8 +165,9 @@ pub use runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, DayOutcome, M0RunContext,
     M0RunError, M3DayOutcome, M3ParallelStorageRunContext, M3PropagationStorageRunContext,
     M3ReferenceContext, M3SearchReductionRunContext, M3StorageRunContext,
-    M3pIncrementalTopologyStorageRunContext, M3pStorageRunContext, Phase4Backend,
-    Phase4ExecutionPolicy, run_configured_storage_days, run_hybrid_authority_day,
+    M3pIncrementalTopologyStorageRunContext, M3pPropagationIncrementalTopologyStorageRunContext,
+    M3pPropagationStorageRunContext, M3pStorageRunContext, Phase4Backend, Phase4ExecutionPolicy,
+    run_configured_storage_days, run_hybrid_authority_day,
     run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
@@ -166,7 +178,9 @@ pub use runner::{
     run_hybrid_scope_isolated_days, run_m0_day, run_m0_days, run_m3_reference_day,
     run_m3_storage_days, run_m3_storage_days_with_parallel_phase6b,
     run_m3_storage_days_with_parallel_phase6b_timing, run_m3_storage_days_with_phase6b_timing,
-    run_m3_storage_days_with_search_reduction, run_m3p_storage_days,
+    run_m3_storage_days_with_search_reduction, run_m3p_propagation_storage_days,
+    run_m3p_propagation_storage_days_incremental_topology,
+    run_m3p_propagation_storage_days_with_parallel_spread, run_m3p_storage_days,
     run_m3p_storage_days_incremental_topology, run_m3prop_storage_days,
     run_m3prop_storage_days_with_parallel_spread, run_native_soa_day,
     run_native_soa_day_with_storage, run_native_soa_days,
