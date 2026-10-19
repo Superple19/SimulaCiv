@@ -45,6 +45,7 @@ use sha2::{Digest, Sha256};
 use sim_core::{AgentId, Money};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentField {
@@ -223,6 +224,43 @@ pub struct BranchDayRecord {
     pub events: BranchEventsRecord,
     pub events_digest: CanonicalHash,
     pub snapshot: Option<CanonicalSnapshot>,
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum BranchAnalysisMode {
+    Full,
+    Disabled,
+    RecorderComparisonsDisabled { expected: FirstDivergence },
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BranchAnalysisCosts {
+    pub digest_ns: u128,
+    pub d_d_ns: u128,
+    pub lineage_ns: u128,
+    pub day_start_clone_ns: u128,
+    pub recorder_replay_ns: u128,
+    pub recorder_compare_ns: u128,
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchSimulationResult {
+    pub base_days: Vec<BranchSimulationDay>,
+    pub branch_days: Vec<BranchSimulationDay>,
+    pub forced_action: Option<ForcedActionOutcome>,
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum BranchAnalysisOutput {
+    Full {
+        result: BranchResult,
+        costs: BranchAnalysisCosts,
+    },
+    AnalysisDisabled(BranchSimulationResult),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -751,13 +789,35 @@ impl BranchRuntime {
         snapshot: bool,
         forced_action: Option<&mut ForcedActionDirective>,
     ) -> Result<BranchDayRecord, BranchError> {
+        let outcome = self.run_day_outcome(config, snapshot, forced_action)?;
+        self.day_record(outcome, run_context, None)
+    }
+
+    fn day_with_analysis_costs(
+        &mut self,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+        snapshot: bool,
+        forced_action: Option<&mut ForcedActionDirective>,
+        costs: &mut BranchAnalysisCosts,
+    ) -> Result<BranchDayRecord, BranchError> {
+        let outcome = self.run_day_outcome(config, snapshot, forced_action)?;
+        self.day_record(outcome, run_context, Some(costs))
+    }
+
+    fn run_day_outcome(
+        &mut self,
+        config: &SimConfig,
+        snapshot: bool,
+        forced_action: Option<&mut ForcedActionDirective>,
+    ) -> Result<BranchSimulationDay, BranchError> {
         let options = DayExecutionOptions {
             metrics_enabled: true,
             events_enabled: true,
             snapshot_boundary: snapshot,
         };
         let outcome = match &mut self.context {
-            StorageContext::M3(context) => BranchOutcome::M3(run_m3_storage_day_for_branch(
+            StorageContext::M3(context) => BranchSimulationDay::M3(run_m3_storage_day_for_branch(
                 &mut self.world,
                 config,
                 context,
@@ -765,7 +825,7 @@ impl BranchRuntime {
                 forced_action,
             )?),
             StorageContext::M3Propagation(context) => {
-                BranchOutcome::M3Propagation(run_m3prop_storage_day_for_branch(
+                BranchSimulationDay::M3Propagation(run_m3prop_storage_day_for_branch(
                     &mut self.world,
                     config,
                     context,
@@ -773,15 +833,17 @@ impl BranchRuntime {
                     forced_action,
                 )?)
             }
-            StorageContext::M3p(context) => BranchOutcome::M3p(run_m3p_storage_day_for_branch(
-                &mut self.world,
-                config,
-                context,
-                &options,
-                forced_action,
-            )?),
+            StorageContext::M3p(context) => {
+                BranchSimulationDay::M3p(run_m3p_storage_day_for_branch(
+                    &mut self.world,
+                    config,
+                    context,
+                    &options,
+                    forced_action,
+                )?)
+            }
             StorageContext::M3pIncremental(context) => {
-                BranchOutcome::M3p(run_m3p_storage_day_incremental_for_branch(
+                BranchSimulationDay::M3p(run_m3p_storage_day_incremental_for_branch(
                     &mut self.world,
                     config,
                     context,
@@ -790,7 +852,7 @@ impl BranchRuntime {
                 )?)
             }
             StorageContext::M3pPropagation(context) => {
-                BranchOutcome::M3pPropagation(run_m3pprop_storage_day_for_branch(
+                BranchSimulationDay::M3pPropagation(run_m3pprop_storage_day_for_branch(
                     &mut self.world,
                     config,
                     context,
@@ -799,7 +861,7 @@ impl BranchRuntime {
                 )?)
             }
             StorageContext::M3pPropagationIncremental(context) => {
-                BranchOutcome::M3pPropagation(run_m3pprop_storage_day_incremental_for_branch(
+                BranchSimulationDay::M3pPropagation(run_m3pprop_storage_day_incremental_for_branch(
                     &mut self.world,
                     config,
                     context,
@@ -808,6 +870,16 @@ impl BranchRuntime {
                 )?)
             }
         };
+        Ok(outcome)
+    }
+
+    fn day_record(
+        &self,
+        outcome: BranchSimulationDay,
+        run_context: &M0RunContext,
+        costs: Option<&mut BranchAnalysisCosts>,
+    ) -> Result<BranchDayRecord, BranchError> {
+        let digest_start = costs.as_ref().map(|_| Instant::now());
         let storage = self
             .world
             .segmented_storage
@@ -816,7 +888,7 @@ impl BranchRuntime {
         let day = outcome.executed_day();
         let (state_digest, metrics, metrics_digest, events, events_digest, snapshot) = match outcome
         {
-            BranchOutcome::M3(value) => {
+            BranchSimulationDay::M3(value) => {
                 let context = match &self.context {
                     StorageContext::M3(c) => c,
                     _ => unreachable!(),
@@ -839,7 +911,7 @@ impl BranchRuntime {
                     value.snapshot,
                 )
             }
-            BranchOutcome::M3Propagation(value) => {
+            BranchSimulationDay::M3Propagation(value) => {
                 let context = match &self.context {
                     StorageContext::M3Propagation(c) => c,
                     _ => unreachable!(),
@@ -863,7 +935,7 @@ impl BranchRuntime {
                     value.snapshot,
                 )
             }
-            BranchOutcome::M3p(value) => {
+            BranchSimulationDay::M3p(value) => {
                 let (graph, cursor) = match &self.context {
                     StorageContext::M3p(c) => (c.relationship_graph(), c.next_agent_id()),
                     StorageContext::M3pIncremental(c) => {
@@ -890,7 +962,7 @@ impl BranchRuntime {
                     value.snapshot,
                 )
             }
-            BranchOutcome::M3pPropagation(value) => {
+            BranchSimulationDay::M3pPropagation(value) => {
                 let (graph, cursor, propagation) = match &self.context {
                     StorageContext::M3pPropagation(c) => {
                         (c.relationship_graph(), c.next_agent_id(), c.propagation())
@@ -921,6 +993,9 @@ impl BranchRuntime {
                 )
             }
         };
+        if let (Some(costs), Some(start)) = (costs, digest_start) {
+            costs.digest_ns += start.elapsed().as_nanos();
+        }
         let _ = run_context;
         Ok(BranchDayRecord {
             day,
@@ -1306,7 +1381,15 @@ fn m3p_storage_phase_difference(
     Ok((!differing.is_empty()).then(|| first_divergence_at(day, boundary, differing, first_agent)))
 }
 
+fn recorded_slot_for_boundary(boundary: crate::runner::RegisteredWorldBoundary) -> RecordedSlot {
+    match boundary {
+        crate::runner::RegisteredWorldBoundary::Core(phase) => RecordedSlot::Core(phase),
+        crate::runner::RegisteredWorldBoundary::Hook(hook) => RecordedSlot::Hook(hook),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn locate_m3p_storage_day_divergence(
     base_start: &BranchStartState,
     branch_start: &BranchStartState,
@@ -1315,8 +1398,42 @@ fn locate_m3p_storage_day_divergence(
     run_context: &M0RunContext,
     execution: BranchExecutionOption,
     day: u32,
-    mut forced_action: Option<ForcedActionDirective>,
+    forced_action: Option<ForcedActionDirective>,
 ) -> Result<Option<FirstDivergence>, BranchError> {
+    locate_m3p_storage_day_divergence_with_mode(
+        base_start,
+        branch_start,
+        config,
+        branch_config,
+        run_context,
+        execution,
+        day,
+        forced_action,
+        RecorderComparisonMode::Enabled,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn locate_m3p_storage_day_divergence_with_mode(
+    base_start: &BranchStartState,
+    branch_start: &BranchStartState,
+    config: &SimConfig,
+    branch_config: &SimConfig,
+    run_context: &M0RunContext,
+    execution: BranchExecutionOption,
+    day: u32,
+    mut forced_action: Option<ForcedActionDirective>,
+    recorder_mode: RecorderComparisonMode<'_>,
+    analysis_costs: Option<&mut BranchAnalysisCosts>,
+) -> Result<Option<FirstDivergence>, BranchError> {
+    if let RecorderComparisonMode::DisabledUntil(expected) = &recorder_mode
+        && expected.day != day
+    {
+        return Err(BranchError::InvalidIntervention(
+            "measurement recorder boundary day does not match replay day".into(),
+        ));
+    }
     let mut base = base_start.restore_m3p_storage_runtime(config, run_context, execution)?;
     let mut branch =
         branch_start.restore_m3p_storage_runtime(branch_config, run_context, execution)?;
@@ -1347,11 +1464,15 @@ fn locate_m3p_storage_day_divergence(
             ..SystemExecutionOptions::default()
         },
     };
+    let replay_started = analysis_costs.as_ref().map(|_| Instant::now());
     let (base_storage, mut base_day) = base.phase_storage_day(config, &options, None)?;
     let (branch_storage, mut branch_day) =
         branch.phase_storage_day(branch_config, &options, forced_action.as_mut())?;
     let mut compare = M3pStoragePhaseCompareScratch::default();
-    compare.refresh(base_storage, branch_storage);
+    if matches!(&recorder_mode, RecorderComparisonMode::Enabled) {
+        compare.refresh(base_storage, branch_storage);
+    }
+    let mut comparison_ns = 0u128;
     let result = run_registered_storage_day_pair_with_recorder(
         base_storage,
         &mut base_day,
@@ -1364,13 +1485,18 @@ fn locate_m3p_storage_day_divergence(
         },
         |day, hook, storage, state, execution| state.run_system_hook(day, hook, storage, execution),
         |boundary, left_storage, left_state, right_storage, right_state| {
+            if let RecorderComparisonMode::DisabledUntil(expected) = &recorder_mode {
+                return Ok((recorded_slot_for_boundary(boundary) == expected.slot)
+                    .then(|| (*expected).clone()));
+            }
+            let compare_started = analysis_costs.as_ref().map(|_| Instant::now());
             if matches!(boundary, crate::runner::RegisteredWorldBoundary::Hook(hook)
                 if hook.system_id == SystemId::PopulationDynamics
                     && hook.slot == crate::system_registry::PhaseSlot::Phase9B)
             {
                 compare.refresh(left_storage, right_storage);
             }
-            m3p_storage_phase_difference(
+            let difference = m3p_storage_phase_difference(
                 day,
                 boundary,
                 &compare,
@@ -1378,9 +1504,22 @@ fn locate_m3p_storage_day_divergence(
                 left_state,
                 right_storage,
                 right_state,
-            )
+            );
+            if let Some(started) = compare_started {
+                comparison_ns += started.elapsed().as_nanos();
+            }
+            difference
         },
     )?;
+    if let (Some(costs), Some(started)) = (analysis_costs, replay_started) {
+        costs.recorder_replay_ns += started.elapsed().as_nanos();
+        costs.recorder_compare_ns += comparison_ns;
+    }
+    if matches!(recorder_mode, RecorderComparisonMode::DisabledUntil(_)) && result.is_none() {
+        return Err(BranchError::InvalidIntervention(
+            "measurement recorder boundary was not reached".into(),
+        ));
+    }
     Ok(result)
 }
 
@@ -1603,15 +1742,17 @@ impl BranchStartState {
     }
 }
 
-enum BranchOutcome {
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum BranchSimulationDay {
     M3(M3DayOutcome),
     M3Propagation(crate::m3prop::M3PropDayOutcome),
     M3p(crate::m3p::M3pDayOutcome),
     M3pPropagation(crate::m3pprop::M3pPropagationDayOutcome),
 }
 
-impl BranchOutcome {
-    fn executed_day(&self) -> u32 {
+impl BranchSimulationDay {
+    pub fn executed_day(&self) -> u32 {
         match self {
             Self::M3(value) => value.executed_day,
             Self::M3Propagation(value) => value.executed_day,
@@ -2046,6 +2187,7 @@ fn equal_birth_difference(births: &[(AgentId, AgentId, AgentMatchKey)]) -> Birth
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn difference_for_day_fast(
     day: u32,
     base: &BranchRuntime,
@@ -2059,11 +2201,72 @@ fn difference_for_day_fast(
     state_digests_equal: bool,
     all_day_digests_equal: bool,
 ) -> DailyDifference {
+    difference_for_day_fast_impl(
+        DailyDifferenceInput {
+            day,
+            base,
+            branch,
+            base_initial,
+            branch_initial,
+            base_lineage_agents,
+            branch_lineage_agents,
+            base_births,
+            branch_births: Some(branch_births),
+            state_digests_equal,
+            all_day_digests_equal,
+        },
+        None,
+    )
+}
+
+struct DailyDifferenceInput<'a> {
+    day: u32,
+    base: &'a BranchRuntime,
+    branch: &'a BranchRuntime,
+    base_initial: &'a BTreeSet<AgentId>,
+    branch_initial: &'a BTreeSet<AgentId>,
+    base_lineage_agents: &'a HashMap<AgentMatchKey, AgentId>,
+    branch_lineage_agents: &'a HashMap<AgentMatchKey, AgentId>,
+    base_births: &'a [(AgentId, AgentId, AgentMatchKey)],
+    branch_births: Option<&'a [(AgentId, AgentId, AgentMatchKey)]>,
+    state_digests_equal: bool,
+    all_day_digests_equal: bool,
+}
+
+fn difference_for_day_fast_measured(
+    input: DailyDifferenceInput<'_>,
+    costs: &mut BranchAnalysisCosts,
+) -> DailyDifference {
+    difference_for_day_fast_impl(input, Some(costs))
+}
+
+fn difference_for_day_fast_impl(
+    input: DailyDifferenceInput<'_>,
+    costs: Option<&mut BranchAnalysisCosts>,
+) -> DailyDifference {
+    let DailyDifferenceInput {
+        day,
+        base,
+        branch,
+        base_initial,
+        branch_initial,
+        base_lineage_agents,
+        branch_lineage_agents,
+        base_births,
+        branch_births,
+        state_digests_equal,
+        all_day_digests_equal,
+    } = input;
+    let branch_births = branch_births.unwrap_or(base_births);
+    let lineage_started = costs.as_ref().map(|_| Instant::now());
     let births = if all_day_digests_equal && base_births == branch_births {
         equal_birth_difference(base_births)
     } else {
         canonical_birth_difference(base_births, branch_births)
     };
+    if let (Some(costs), Some(started)) = (costs, lineage_started) {
+        costs.lineage_ns += started.elapsed().as_nanos();
+    }
     if state_digests_equal {
         return DailyDifference {
             day,
@@ -2157,6 +2360,60 @@ fn intervention_boundary_divergence(
 
 /// Runs one snapshot-backed base/branch pair for the requested horizon.
 pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult, BranchError> {
+    run_counterfactual_branch_inner(request, RecorderComparisonMode::Enabled, None)
+}
+
+#[doc(hidden)]
+pub fn run_counterfactual_branch_with_analysis_mode(
+    request: &BranchRequest,
+    mode: BranchAnalysisMode,
+) -> Result<BranchAnalysisOutput, BranchError> {
+    match mode {
+        BranchAnalysisMode::Disabled => Ok(BranchAnalysisOutput::AnalysisDisabled(
+            run_counterfactual_branch_simulation_only(request)?,
+        )),
+        BranchAnalysisMode::Full => {
+            let mut costs = BranchAnalysisCosts::default();
+            let result = run_counterfactual_branch_inner(
+                request,
+                RecorderComparisonMode::Enabled,
+                Some(&mut costs),
+            )?;
+            Ok(BranchAnalysisOutput::Full { result, costs })
+        }
+        BranchAnalysisMode::RecorderComparisonsDisabled { expected } => {
+            if !matches!(
+                request.config.runner_selection(),
+                SimulationRunnerSelection::M3p | SimulationRunnerSelection::M3pPropagation
+            ) {
+                return Err(BranchError::UnsupportedProfile);
+            }
+            let mut costs = BranchAnalysisCosts::default();
+            let result = run_counterfactual_branch_inner(
+                request,
+                RecorderComparisonMode::DisabledUntil(&expected),
+                Some(&mut costs),
+            )?;
+            Ok(BranchAnalysisOutput::Full { result, costs })
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RecorderComparisonMode<'a> {
+    Enabled,
+    DisabledUntil(&'a FirstDivergence),
+}
+
+struct PreparedBranch {
+    branch_config: SimConfig,
+    base: BranchRuntime,
+    branch: BranchRuntime,
+    start_day: u32,
+    forced_directive: Option<ForcedActionDirective>,
+}
+
+fn prepare_branch(request: &BranchRequest) -> Result<PreparedBranch, BranchError> {
     if request.execution == BranchExecutionOption::ExplicitParallel {
         return Err(BranchError::UnsupportedExecutionOption);
     }
@@ -2168,7 +2425,7 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
     if let BranchIntervention::ConfigOverride { parameter, value } = request.intervention {
         apply_config_override(&mut branch_config, parameter, value)?;
     }
-    let mut base = BranchRuntime::restore(
+    let base = BranchRuntime::restore(
         &request.snapshot,
         &request.config,
         &request.run_context,
@@ -2208,6 +2465,68 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
         BranchIntervention::ConfigOverride { .. } => {}
     }
     set_intervention_field(&mut branch, &request.intervention)?;
+    let forced_directive = match request.intervention {
+        BranchIntervention::ForcedAction { agent_id, action } => {
+            Some(ForcedActionDirective::new(agent_id, action, start_day))
+        }
+        _ => None,
+    };
+    Ok(PreparedBranch {
+        branch_config,
+        base,
+        branch,
+        start_day,
+        forced_directive,
+    })
+}
+
+fn run_counterfactual_branch_simulation_only(
+    request: &BranchRequest,
+) -> Result<BranchSimulationResult, BranchError> {
+    let PreparedBranch {
+        branch_config,
+        mut base,
+        mut branch,
+        mut forced_directive,
+        ..
+    } = prepare_branch(request)?;
+    let mut base_days = Vec::with_capacity(request.horizon_days as usize);
+    let mut branch_days = Vec::with_capacity(request.horizon_days as usize);
+    for _ in 0..request.horizon_days {
+        let day = base.world.world.current_day.as_u32();
+        if day != branch.world.world.current_day.as_u32() {
+            return Err(BranchError::InvalidIntervention(
+                "base and branch resume cursors diverged".into(),
+            ));
+        }
+        let include_snapshot = request.snapshot_days.binary_search(&day).is_ok();
+        base_days.push(base.run_day_outcome(&request.config, include_snapshot, None)?);
+        branch_days.push(branch.run_day_outcome(
+            &branch_config,
+            include_snapshot,
+            forced_directive.as_mut(),
+        )?);
+    }
+    let forced_action = forced_directive.and_then(|directive| directive.outcome);
+    Ok(BranchSimulationResult {
+        base_days,
+        branch_days,
+        forced_action,
+    })
+}
+
+fn run_counterfactual_branch_inner(
+    request: &BranchRequest,
+    recorder_mode: RecorderComparisonMode<'_>,
+    mut analysis_costs: Option<&mut BranchAnalysisCosts>,
+) -> Result<BranchResult, BranchError> {
+    let PreparedBranch {
+        branch_config,
+        mut base,
+        mut branch,
+        start_day,
+        mut forced_directive,
+    } = prepare_branch(request)?;
     let base_initial = base.initial_agent_ids();
     let branch_initial = branch.initial_agent_ids();
     let mut base_lineage = LineageTracker::default();
@@ -2217,12 +2536,6 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
     let mut daily_differences = Vec::with_capacity(request.horizon_days as usize);
     let mut first_divergence = None;
     let mut lineage_contexts_equal = true;
-    let mut forced_directive = match request.intervention {
-        BranchIntervention::ForcedAction { agent_id, action } => {
-            Some(ForcedActionDirective::new(agent_id, action, start_day))
-        }
-        _ => None,
-    };
     for _ in 0..request.horizon_days {
         let day = base.world.world.current_day.as_u32();
         if day != branch.world.world.current_day.as_u32() {
@@ -2231,9 +2544,14 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
             ));
         }
         let include_snapshot = request.snapshot_days.binary_search(&day).is_ok();
+        let clone_started = analysis_costs.as_ref().map(|_| Instant::now());
         let start_states = first_divergence
             .is_none()
             .then(|| (base.start_state(), branch.start_state()));
+        if let (Some(costs), Some(started)) = (analysis_costs.as_deref_mut(), clone_started) {
+            costs.day_start_clone_ns += started.elapsed().as_nanos();
+        }
+        let start_digest_started = analysis_costs.as_ref().map(|_| Instant::now());
         let start_states_differ = if day == start_day {
             match &start_states {
                 Some((base_start, branch_start)) => {
@@ -2244,73 +2562,103 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
         } else {
             false
         };
-        let base_record = base.day(
-            &request.config,
-            &request.run_context,
-            include_snapshot,
-            None,
-        )?;
-        let branch_record = branch.day(
-            &branch_config,
-            &request.run_context,
-            include_snapshot,
-            forced_directive.as_mut(),
-        )?;
+        if let (Some(costs), Some(started)) = (analysis_costs.as_deref_mut(), start_digest_started)
+        {
+            costs.digest_ns += started.elapsed().as_nanos();
+        }
+        let base_record = match analysis_costs.as_deref_mut() {
+            Some(costs) => base.day_with_analysis_costs(
+                &request.config,
+                &request.run_context,
+                include_snapshot,
+                None,
+                costs,
+            )?,
+            None => base.day(
+                &request.config,
+                &request.run_context,
+                include_snapshot,
+                None,
+            )?,
+        };
+        let branch_record = match analysis_costs.as_deref_mut() {
+            Some(costs) => branch.day_with_analysis_costs(
+                &branch_config,
+                &request.run_context,
+                include_snapshot,
+                forced_directive.as_mut(),
+                costs,
+            )?,
+            None => branch.day(
+                &branch_config,
+                &request.run_context,
+                include_snapshot,
+                forced_directive.as_mut(),
+            )?,
+        };
         let state_digests_equal = base_record.state_digest == branch_record.state_digest;
         let all_day_digests_equal = state_digests_equal
             && base_record.metrics_digest == branch_record.metrics_digest
             && base_record.events_digest == branch_record.events_digest
             && base_record.events == branch_record.events;
-        let difference = if all_day_digests_equal && lineage_contexts_equal {
-            let birth_records = record_shared_births(
-                &base_record.events,
-                &base_initial,
-                &mut base_lineage,
-                &mut branch_lineage,
-            );
-            difference_for_day_fast(
-                day,
-                &base,
-                &branch,
-                &base_initial,
-                &branch_initial,
-                &base_lineage.agents,
-                &branch_lineage.agents,
-                &birth_records,
-                &birth_records,
-                state_digests_equal,
-                true,
-            )
-        } else {
-            lineage_contexts_equal = false;
-            let base_birth_records =
-                record_births(&base_record.events, &base_initial, &mut base_lineage);
-            let branch_birth_records =
-                record_births(&branch_record.events, &branch_initial, &mut branch_lineage);
-            difference_for_day_fast(
-                day,
-                &base,
-                &branch,
-                &base_initial,
-                &branch_initial,
-                &base_lineage.agents,
-                &branch_lineage.agents,
-                &base_birth_records,
-                &branch_birth_records,
-                state_digests_equal,
-                false,
-            )
+        let lineage_started = analysis_costs.as_ref().map(|_| Instant::now());
+        let (base_birth_records, branch_birth_records) =
+            if all_day_digests_equal && lineage_contexts_equal {
+                let birth_records = record_shared_births(
+                    &base_record.events,
+                    &base_initial,
+                    &mut base_lineage,
+                    &mut branch_lineage,
+                );
+                (birth_records, None)
+            } else {
+                lineage_contexts_equal = false;
+                let base_birth_records =
+                    record_births(&base_record.events, &base_initial, &mut base_lineage);
+                let branch_birth_records =
+                    record_births(&branch_record.events, &branch_initial, &mut branch_lineage);
+                (base_birth_records, Some(branch_birth_records))
+            };
+        if let (Some(costs), Some(started)) = (analysis_costs.as_deref_mut(), lineage_started) {
+            costs.lineage_ns += started.elapsed().as_nanos();
+        }
+        let lineage_before_difference = analysis_costs.as_ref().map_or(0, |costs| costs.lineage_ns);
+        let difference_started = analysis_costs.as_ref().map(|_| Instant::now());
+        let difference_input = DailyDifferenceInput {
+            day,
+            base: &base,
+            branch: &branch,
+            base_initial: &base_initial,
+            branch_initial: &branch_initial,
+            base_lineage_agents: &base_lineage.agents,
+            branch_lineage_agents: &branch_lineage.agents,
+            base_births: &base_birth_records,
+            branch_births: branch_birth_records.as_deref(),
+            state_digests_equal,
+            all_day_digests_equal,
         };
+        let difference = match analysis_costs.as_deref_mut() {
+            Some(costs) => difference_for_day_fast_measured(difference_input, costs),
+            None => difference_for_day_fast_impl(difference_input, None),
+        };
+        if let (Some(costs), Some(started)) = (analysis_costs.as_deref_mut(), difference_started) {
+            let total_ns = started.elapsed().as_nanos();
+            let lineage_ns = costs.lineage_ns.saturating_sub(lineage_before_difference);
+            costs.d_d_ns += total_ns.saturating_sub(lineage_ns);
+        }
         if first_divergence.is_none() && base_record.state_digest != branch_record.state_digest {
             let (base_start, branch_start) = start_states
                 .as_ref()
                 .expect("day-start state retained until divergence analysis");
             first_divergence = if start_states_differ {
-                Some(intervention_boundary_divergence(
-                    day,
-                    base_start,
-                    branch_start,
-                )?)
+                match recorder_mode {
+                    RecorderComparisonMode::DisabledUntil(expected) => Some(expected.clone()),
+                    RecorderComparisonMode::Enabled => Some(intervention_boundary_divergence(
+                        day,
+                        base_start,
+                        branch_start,
+                    )?),
+                }
             } else {
                 let phase_force = match request.intervention {
                     BranchIntervention::ForcedAction { agent_id, action } => {
@@ -2322,7 +2670,7 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
                     base_start.profile,
                     SimulationRunnerSelection::M3p | SimulationRunnerSelection::M3pPropagation
                 ) {
-                    locate_m3p_storage_day_divergence(
+                    locate_m3p_storage_day_divergence_with_mode(
                         base_start,
                         branch_start,
                         &request.config,
@@ -2331,8 +2679,13 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
                         request.execution,
                         day,
                         phase_force,
+                        recorder_mode,
+                        analysis_costs.as_deref_mut(),
                     )?
                 } else {
+                    if matches!(recorder_mode, RecorderComparisonMode::DisabledUntil(_)) {
+                        return Err(BranchError::UnsupportedProfile);
+                    }
                     None
                 };
                 if storage_result.is_some() {
