@@ -73,4 +73,54 @@ Configuration: M3P sustained fixture, N=10,000, K=50, k=8, p_local=0.5, seed 819
 
 `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test --workspace` passed. The existing M2/M3/M3P/propagation tests, goldens, and snapshot checks passed unchanged; the new M4 no-op identity test passed for all four supported profile combinations. No existing test, golden, snapshot, or CI file was changed.
 
-M4-02 remains **not complete**: five of seven orchestration cells and both phase-recorder cells failed their frozen performance limits. The report does not update the M4 contract's §3 stage status or the README. Before M4-02 can be marked complete, the remaining orchestration and phase-recorder costs need to be reduced and all §11.7 cells rerun.
+At the initial gate run, five of seven orchestration cells and both phase-recorder cells failed their frozen performance limits. M4-02 remains **not complete** after the follow-up: four of seven orchestration cells and both phase-recorder cells still fail. The report does not update the M4 contract's §3 stage status or the README.
+
+## Follow-up after attribution and fixes
+
+The historical failed run above is retained. Steps A–C were completed in commits `5a1b050` and `89c3587`; no M4-02 gate budget or runtime semantics were changed.
+
+### Step A: cost attribution before the fixes
+
+Temporary release timers split the 30-day branch scan at `N=100,000`. Values are milliseconds per paired branch call; the day-start clone column covers all 60 retained branch states.
+
+| Profile / execution | Day runner | Day digests | `D_d` | Lineage | Component flags | Day-start clones | Start-state digest | Result assembly | Other | Total loop |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| M3 serial | 1,025.026 | 423.563 | 220.804 | 0.070 | 0.006 | 111.235 | 8.459 | 0.023 | 35.365 | 1,824.551 |
+| M3P incremental topology | 1,810.434 | 882.348 | 218.580 | 6.845 | 0.005 | 103.863 | 9.309 | 0.018 | 31.764 | 3,063.166 |
+
+For the forced-action M3P recorder case, the old WorldState reference locator took 10,462.159 ms. Two plain reference-day executions accounted for about 10,200 ms (5,100 ms/day median); canonical row fingerprints added 211.851 ms over 3,200,060 slot-hash operations, or 66.20 ns/slot; the remaining recorder overhead was about 50.308 ms. One plain M3P storage day took 119.15 ms median. The measured WorldState reference loop, rather than the fingerprint operation alone, dominated that recorder run.
+
+### Steps B–C: changes and parity
+
+- Equal State/Metrics/Events digest days now return `D_d = 0` and skip the agent-row, lineage, and component-difference scans. Matching, ascending AgentId slot maps use direct SoA row comparisons; other layouts use a canonical AgentId merge. Shared birth records are processed once when both branches remain equal.
+- M3P and M3P+propagation phase-location now replays both states through the generic SegmentedAgentStorage loop in lockstep and stops at the first differing boundary. It compares rows in canonical AgentId order and uses the sorted fallback when physical slots differ. At the Phase 9B boundary it excludes newborn propagation rows because the reference path creates those rows at Phase 9C.
+- The new storage-vs-reference locator test covers serial and incremental M3P/M3P+propagation paths, divergent births, and shuffled slots. `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` passed. Existing goldens, snapshots, and integration test files were unchanged.
+
+### Step D: paired gate rerun
+
+Host: AMD Ryzen 5 9600X, 6 physical cores / 12 logical processors. The release measurement process ran at High priority with affinity `0x555`; as in the historical run, the logical-to-physical mapping was not independently verified. CPU load was 21.2% before and 16.1% after; available RAM was 61,150,852 KB before and 59,681,040 KB after. The harness used two warmups, 21 samples, alternating direct-first and branch-first order, `H=30`, metrics/events on, snapshots off, and scratch reuse. Total wall time was **939.4 seconds**. The direct-runner samples below time two ordinary storage passes without analysis hashing; direct digest medians are added from the existing isolated digest probe to show the comparable direct-pair reference. Clone and branch digest exclusions reuse the existing probe, except at `N=100,000`, where the current Step A clone/hash timings are used. The hashing and clone implementations were not changed by Steps B–C.
+
+| Profile / execution | N | Direct runner pair ± MAD | Direct digest estimate | Comparable direct pair | Branch API ± MAD | Branch digest estimate | Clone estimate | Adjusted overhead | Limit | Result |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| M3 serial | 10,000 | 112.959 ± 0.558 | 41.067 | 154.026 | 156.872 ± 2.252 | 31.738 | 2.682 | 9.493 | 7.701 | **FAIL** |
+| M3 serial | 100,000 | 1,296.505 ± 6.153 | 382.554 | 1,679.059 | 1,930.721 ± 46.053 | 423.563 | 111.235 | 99.418 | 83.953 | **FAIL** |
+| M3P serial | 10,000 | 483.532 ± 4.267 | 69.772 | 553.304 | 552.472 ± 4.447 | 66.098 | 2.145 | 0.697 | 27.665 | **PASS** |
+| M3P incremental topology | 10,000 | 158.134 ± 2.783 | 70.860 | 228.994 | 241.435 ± 6.920 | 62.469 | 2.112 | 18.720 | 11.450 | **FAIL** |
+| M3P serial | 100,000 | 8,225.486 ± 280.556 | 673.469 | 8,898.955 | 9,033.230 ± 289.305 | 882.348 | 103.863 | -178.467 | 444.948 | **PASS** |
+| M3P incremental topology | 100,000 | 2,712.470 ± 324.297 | 593.645 | 3,306.115 | 4,133.385 ± 570.245 | 882.348 | 103.863 | 434.704 | 570.245 | **PASS** |
+| M3 + propagation serial | 100,000 | 4,032.641 ± 32.378 | 390.181 | 4,422.822 | 4,985.860 ± 49.732 | 669.345 | 102.726 | 181.148 | 221.141 | **PASS** |
+
+Adjusted overhead is `branch API − direct runner pair − branch digest − day-start clones`. The comparable direct pair adds the previously isolated direct-digest estimate and is used for the 5% limit; the directly timed runner pair intentionally excludes hashing. The limit is `max(5% of comparable direct pair, larger observed runner/branch MAD)`. The `N=100,000` M3P incremental samples have high spread (11.9% direct MAD/median and 13.8% branch MAD/median); their recorded limit therefore uses the larger MAD as §11.7 specifies.
+
+The phase-recorder rerun used two ordinary one-day passes as its baseline and paired the no-op branch against a forced-Idle branch. It used the same 21-sample alternating order and noise controls.
+
+| Profile | N | Two direct days ± MAD | No-op branch ± MAD | Recorder overhead ± MAD | Limit | Result |
+|---|---:|---:|---:|---:|---:|---|
+| M3P serial | 10,000 | 41.273 ± 2.949 | 41.160 ± 3.602 | 11.344 ± 2.757 | 4.127 | **FAIL** |
+| M3P serial | 100,000 | 583.251 ± 14.088 | 578.451 ± 19.543 | 190.443 ± 26.899 | 58.325 | **FAIL** |
+
+The storage lockstep recorder reduced the old overhead from 125.019 ms to 11.344 ms at 10k, and from 10,464.374 ms to 190.443 ms at 100k. Both still exceed the frozen 10% recorder budget.
+
+### Proposed review amendment
+
+Four of seven orchestration cells and both recorder cells still fail. M4-02 therefore remains **not complete**; §3 and the README were not changed. The measurements support review of the proposed, unfrozen **§11.7 A-1** appended to the contract. It separates required per-day digest/`D_d`/lineage work from runner overhead and measures the recorder's required replay-to-first-difference prefix separately from the comparisons performed during that replay. In this run, the N=100,000 M3P recorder added 190.443 ms against a 583.251 ms two-day baseline (32.7%); at N=10,000 it added 11.344 ms against 41.273 ms (27.5%). Those figures show that the current recorder budget also counts replaying the two states through the first differing boundary, even though that replay is required to locate the phase. No budget change is made without review.

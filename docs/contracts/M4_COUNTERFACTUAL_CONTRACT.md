@@ -409,3 +409,24 @@ Measure phase-locate replay separately. Recorder overhead must be at most max(10
 ### 11.10 Freeze record
 
 This freeze authorizes the M4-02 implementation task; it does not itself alter any runtime profile. Existing digest domains, snapshot schemas, events, and RNG coordinates remain unchanged.
+
+## §11.7 A-1 — Proposed performance-gate amendment (DRAFT — NOT FROZEN)
+
+This proposal leaves the frozen §11.7 budgets above unchanged pending review. The follow-up measurements show that the remaining failures include costs required to produce the frozen analysis outputs:
+
+| Measurement | Observed result |
+|---|---|
+| M3 serial orchestration, `N=10,000` | 9.493 ms adjusted overhead against a 7.701 ms limit. |
+| M3 serial orchestration, `N=100,000` | 99.418 ms adjusted overhead against an 83.953 ms limit. |
+| M3P incremental orchestration, `N=10,000` | 18.720 ms adjusted overhead against an 11.450 ms limit. |
+| M3P recorder, `N=10,000` | 11.344 ms over a 41.273 ms two-day baseline; 4.127 ms limit. |
+| M3P recorder, `N=100,000` | 190.443 ms over a 583.251 ms two-day baseline; 58.325 ms limit. |
+
+The complete paired tables, exclusion probes, and Step A attribution are recorded in the [M4-02 follow-up report](../performance/M4_02_BRANCHING.md#follow-up-after-attribution-and-fixes). The recorder follows the required two states in lockstep and stops at the first differing boundary; its 10k and 100k costs are 27.5% and 32.7% of the two ordinary-day baselines, respectively.
+
+**Proposed treatment for review:**
+
+1. Keep the 5% orchestration budget for runner dispatch and result assembly. Continue to report per-day canonical digest work separately. When state digests differ, report the required `D_d` and lineage scans per changed day and population, with a separate bound approved in this amendment rather than counting them as dispatch overhead. Equal-digest days already skip those scans.
+2. Split phase-location cost into (a) the required paired replay from day start through the first differing boundary and (b) component comparison/fingerprint work. Compare (a) to two ordinary executions of the same phase prefix and report the prefix length and time; apply the existing 10% recorder budget to (b) after removing the matched prefix replay baseline. Freeze a separate cap for (a) during amendment review.
+
+This amendment is **not frozen** and does not authorize changing runtime semantics, recorder outputs, or the existing M4-02 gates. Review decisions still needed: the bound for changed-day `D_d`/lineage analysis, the cap for phase-prefix replay, and whether the §11.7 gate should use this split for all profiles or only profiles whose phase-locate path uses storage.
