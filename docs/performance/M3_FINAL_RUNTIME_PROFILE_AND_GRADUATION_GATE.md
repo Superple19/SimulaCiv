@@ -1,22 +1,41 @@
 # M3 Final Runtime Profile and Graduation Gate
 
-**Decision: M3-GRADUATE**
+**Decision: M3-GRADUATE (provisional pending hosted CI)**
 **Scope:** M3-00 through M3-11 complete; spatial migration remains deferred without a stage number.
 **Evidence:** committed M3 contract, parity tests, and performance reports listed below.
 
 ## Executive summary
 
-M3 now has a deterministic reference and optimized serial paths for relationship-graph interactions, optional explicit parallel execution for Phase 6B and propagation, dynamic M3P population/topology maintenance, and explicit feature dispatch. Existing M2/M3/M3P behavior is preserved by separate profiles, digest domains, snapshots, and parity gates. Stage completion and evidence are recorded in [§8 of the M3 Interaction Contract](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen).
+M3 now has a deterministic reference and optimized serial paths for relationship-graph interactions, optional explicit parallel execution for Phase 6B and propagation, dynamic M3P population/topology maintenance, and explicit feature dispatch. Existing M2/M3/M3P behavior is preserved by separate profiles, digest domains, snapshots, and parity gates. The stage record and evidence links follow.
 
-The data supports graduating M3 without an M4 architecture change for the measured workloads. This is a scoped conclusion: M3 static-world profiling reached one million agents, M3P sustained profiling reached one hundred thousand, and M3-11 propagation tested multi-hop spread on both populations. The high-K scale extension, M3P/propagation whole-tick variance, and deferred spatial migration remain follow-up boundaries rather than evidence that the current architecture must be replaced. [M3-05 Scale Limit](M3_SCALE_LIMIT.md#executive-summary), [M3-09 Incremental Topology](M3_09_INCREMENTAL_TOPOLOGY.md#follow-up-m3p-phase-9b-materialization-reduction), [M3-11 Propagation](M3_11_PROPAGATION.md#summary)
+The measurements support graduating M3 without replacing the architecture for the workloads tested. This is provisional until hosted CI passes on Linux, Windows, and macOS for the graduation commit. M3 static-world profiling completed through one million agents, M3P sustained profiling reached one hundred thousand, and M3-11 measured multi-hop propagation on both populations. High-K scaling, M3P/propagation whole-tick variance, and deferred spatial migration remain limitations. [M3-05 Scale Limit](M3_SCALE_LIMIT.md#executive-summary), [M3-08 Population Dynamics](M3_08_POPULATION_DYNAMICS.md#full-tick-timings-and-compaction-intervals), [M3-11 Propagation](M3_11_PROPAGATION.md#summary)
+
+## Milestone questions
+
+| Milestone | Question | One-line answer | Recorded evidence |
+|---|---|---|---|
+| M0 | Is simulation replay reproducible? | Yes: deterministic reference execution and canonical replay establish the baseline. | [M2-40 final gate](M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#1-baseline-and-objective), [M3-01 parity](M3_01_SERIAL_BASELINE.md#release-differential-and-parity) |
+| M1 | Can semantics be frozen before optimization? | Yes: subsequent optimized paths are checked against the frozen canonical behavior. | [M2-40 correctness gate](M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#20-graduation-criteria) |
+| M2 | Can runtime speed improve while canonical behavior stays exact? | Yes: the SoA runtime and explicit parallel option preserve digests and snapshots through the measured 100k range. | [M2-40 executive summary](M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary) |
+| M3 | When does interaction complexity force an execution-model or data-architecture change? | Static structures held to 1M agents; dynamic topology broke the rebuild-per-change design (M3P/M3 5.23x at 100k), and incremental maintenance fixed it without replacement (1.49x). Parallelism paid off only when per-level work was large (propagation). | [M3-05 scale results](M3_SCALE_LIMIT.md#executive-summary), [M3-11 propagation](M3_11_PROPAGATION.md#summary), [M3-08 equal-live comparison](M3_08_POPULATION_DYNAMICS.md#equal-live-population-tick-comparison), [M3-09 follow-up](M3_09_INCREMENTAL_TOPOLOGY.md#follow-up-m3p-phase-9b-materialization-reduction) |
+
+## How M3 answered its question
+
+1. **Static world:** the scale search completed its static M3 workload through one million agents. It also flagged first-break criteria beginning in the 100k-to-250k interval, so completion at one million is not a claim of linear scaling at every size. [M3-05 Scale Limit](M3_SCALE_LIMIT.md#executive-summary)
+2. **Small parallel work and search savings:** parallel Phase 6B measured a `0.967×` median whole-tick speedup, and search reduction produced no paired whole-tick saving beyond MAD. **Inference:** the per-entry work and skipped target-search work were too small to repay parallel dispatch or search setup on those workloads. [M3-02 Parallel Phase 6B](M3_02_PARALLEL_PHASE6B.md#executive-summary), [M3-03 Search Reduction](M3_02B_SEARCH_REDUCTION.md#executive-summary)
+3. **Settlement lookup debt:** the scale diagnosis identified repeated settlement-keyed linear scans whose per-partition work grows with K, yielding an O(K²) family when K partitions each scan K settlements. M3-06 replaced these scans with indexed lookups. At one million agents, the paired serial whole-tick median was `17.7%` lower after the change; the measurement report cautions that the entire difference cannot be attributed to indexing alone. [M3 Scale Diagnosis](M3_SCALE_DIAGNOSIS.md#settlement-keyed-lookup-work-per-day), [M3 Settlement Index](M3_SETTLEMENT_INDEX.md#whole-tick-result-at-n1000000)
+4. **Residual locality:** after indexing, the controlled residual profile found large layout-sensitive slowdowns in Phase 4 and noisy phase-level alpha outliers; many high alphas did not pass the report's MAD reliability gate. **Inference:** access pattern and locality explain some residual cost, but the report does not attribute every noisy phase to a specific cache or TLB effect. [M3-07 Scale Residual](M3_07_SCALE_RESIDUAL.md#normal-versus-reversed-slot-layout), [re-measured alphas](M3_07_SCALE_RESIDUAL.md#remeasured-scaling-alphas)
+5. **Dynamic topology:** births invalidated the static design's assumption that the graph and slot projection could be rebuilt cheaply after every change. At equal live population of 103,241, the M3-08 M3P/M3 tick ratio was `5.23×` at 100k. [M3-08 Population Dynamics](M3_08_POPULATION_DYNAMICS.md#equal-live-population-tick-comparison)
+6. **Incremental maintenance:** M3-09 appended graph/projection rows between compactions; its follow-up reduced normal-day Phase 9b to `1.375 ms` median and the equal-live M3P/M3 ratio to `1.49×` paired. [M3-09 incremental append path](M3_09_INCREMENTAL_TOPOLOGY.md#incremental-append-path), [follow-up equal-live comparison](M3_09_INCREMENTAL_TOPOLOGY.md#equal-live-m3pm3-rerun-and-interleaving)
+7. **Propagation parallelism:** among the M3 interaction workloads compared here, M3-11 was the first to show a large parallel win: about `3.2×` Phase 9c and `2.26×` whole-tick speedup at a large frontier. **Inference:** this is the other side of M3-02's result: parallelizing tiny keyed entries did not repay coordination, while processing a sufficiently large propagation level did. [M3-11 Phase 9c measurements](M3_11_PROPAGATION.md#phase-9c-measurements), [whole-tick measurements](M3_11_PROPAGATION.md#whole-tick-measurements)
 
 ## Scope and stage record
 
-M3-00 through M3-11 are complete. Spatial migration, previously M3-03, remains deferred and unnumbered. The optional contention dial remains an unselected future stage and would need its own contract amendment. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
+M3-00 through M3-11 are complete. Spatial migration, previously M3-03, remains deferred and unnumbered. The optional contention dial remains unselected. [M3 Interim Audit](M3_INTERIM_AUDIT.md), [M3-02 Parallel Phase 6B](M3_02_PARALLEL_PHASE6B.md)
 
 | Stage | Result | Evidence |
 |---|---|---|
-| M3-00 reference workload | Complete | [Frozen contract and reference gates](../contracts/M3_INTERACTION_CONTRACT.md#1-baseline-and-terminology) |
+| M3-00 reference workload | Complete | [M3-01 serial baseline and reference gates](M3_01_SERIAL_BASELINE.md#release-differential-and-parity) |
 | M3-01 optimized serial path | Complete; exact reference parity | [Serial baseline](M3_01_SERIAL_BASELINE.md) |
 | M3-02 parallel Phase 6B | Complete; explicit opt-in, serial remains default | [Parallel Phase 6B](M3_02_PARALLEL_PHASE6B.md) |
 | M3-03 search/bookkeeping reduction | Complete; explicit serial opt-in | [Search reduction](M3_02B_SEARCH_REDUCTION.md) |
@@ -26,7 +45,7 @@ M3-00 through M3-11 are complete. Spatial migration, previously M3-03, remains d
 | M3-07 residual scaling diagnosis | Complete; measurement-only | [Scale residual](M3_07_SCALE_RESIDUAL.md) |
 | M3-08 population dynamics | Complete; M3P births, cleanup, snapshots, sustained gate | [Population dynamics](M3_08_POPULATION_DYNAMICS.md) |
 | M3-09 incremental topology | Complete; incremental M3P append path | [Incremental topology and follow-up](M3_09_INCREMENTAL_TOPOLOGY.md) |
-| M3-10 feature switches | Complete; explicit configured dispatch | [Frozen feature-switch contract](../contracts/M3_INTERACTION_CONTRACT.md#15-m3-10-feature-switches) |
+| M3-10 feature switches | Complete; explicit configured dispatch | — |
 | M3-11 propagation | Complete; reference, storage, M3P, snapshot-v3, and explicit parallel paths | [Propagation profile](M3_11_PROPAGATION.md) |
 
 ## Correctness and compatibility record
@@ -34,7 +53,7 @@ M3-00 through M3-11 are complete. Spatial migration, previously M3-03, remains d
 - M2 goldens, snapshots, and behavior remain unchanged. M3 and M3P use separate profile digests and committed goldens; M3P propagation adds its own golden checkpoints. The M3-01 and M3-11 reports record reference/storage differential and snapshot-resume parity. [M3-01 release differential and parity](M3_01_SERIAL_BASELINE.md#release-differential-and-parity), [M3-11 golden and parity tables](M3_11_PROPAGATION.md#m3-11-golden-daily-spread)
 - M3-01 records its complete 100-day CI differential matrix, snapshot pause/resume, and shuffled-slot parity. M3-02 records extended release parity across the frozen matrix and chunk sweep. [M3-01 serial baseline](M3_01_SERIAL_BASELINE.md), [M3-02 extended release parity](M3_02_PARALLEL_PHASE6B.md#extended-release-parity)
 - M3-08 and M3-09 preserve birth, compaction, incremental topology, snapshot, and sustained-population parity. M3-11 tests compare daily propagation records across reference, serial storage, and parallel storage, including M3P births, compaction, and schema-v3 resume. [M3-08 sustained gate](M3_08_POPULATION_DYNAMICS.md#sustained-gate), [M3-09 test runtime and parity](M3_09_INCREMENTAL_TOPOLOGY.md#test-runtime), [M3-11 implementation gates](M3_11_PROPAGATION.md#workload-and-method)
-- The CI workflow runs formatting, Clippy, and the workspace test suite on Linux, Windows, and macOS. This local graduation run was executed on Windows; hosted CI results for the latest unpushed commits were not available in this task. [CI workflow](../../.github/workflows/ci.yml)
+- Formatting, Clippy, and the workspace test suite passed locally on Windows. Hosted CI results for the latest unpushed commits were not available in this task.
 
 ## Runtime and scaling evidence
 
@@ -52,14 +71,18 @@ The sustained M3P extension also measured a clear Phase 9c gain at one hundred t
 
 ## Does the runtime need a new architecture?
 
-**Inference:** the evidence does not show that the M3 execution model or data architecture must fundamentally change. Segmented SoA storage, transient AgentId-to-slot projections, indexed settlement lookups, incremental M3P topology updates, and deterministic per-level propagation cover the measured graph, population, and parallel workloads. The data instead identifies bounded improvements and extensions: graph/projection setup at scale, high-K behavior, one-host performance variance, and workloads with spatial migration. M4 is not justified by the current results; it can be reconsidered if a later workload demonstrates a limit that these structures cannot address. [M3-05 Scale Limit](M3_SCALE_LIMIT.md), [M3-07 Scale Residual](M3_07_SCALE_RESIDUAL.md), [M3-09 follow-up](M3_09_INCREMENTAL_TOPOLOGY.md), [M3-11 Propagation](M3_11_PROPAGATION.md)
+**Measured-scope conclusion:** no architecture replacement is required for the measured workloads. Segmented SoA storage, transient AgentId-to-slot projections, indexed settlement lookups, incremental M3P topology updates, and deterministic per-level propagation cover the tested graph and population workloads. [M3-05 Scale Limit](M3_SCALE_LIMIT.md), [M3-07 Scale Residual](M3_07_SCALE_RESIDUAL.md), [M3-09 follow-up](M3_09_INCREMENTAL_TOPOLOGY.md), [M3-11 Propagation](M3_11_PROPAGATION.md)
+
+**Proposed M4 research direction — not frozen:** study deterministic counterfactual branching using coordinate-based RNG as common random numbers. Build it on an extensible system-registration architecture that generalizes the M3-10 feature switches, with settlement migration as the first plugin-style feature. This is a proposal, not a conclusion measured by M3 or an implementation commitment.
 
 ## Limitations and remaining follow-up
 
-- Performance reports use one Windows host. The newer M3P propagation run had variable whole-tick MADs, and no post-commit Linux/macOS CI run was observed locally. The workflow remains configured for all three operating systems. [M3-11 method and noise note](M3_11_PROPAGATION.md#workload-and-method), [CI workflow](../../.github/workflows/ci.yml)
+- Performance reports use one Windows host. The newer M3P propagation run had variable whole-tick MADs, and hosted CI results for the graduation commit remain pending. [M3-11 method and noise note](M3_11_PROPAGATION.md#workload-and-method)
 - M3 static scale testing reached one million agents, but the M3P propagation performance extension covered the sustained configuration through one hundred thousand agents only. The fixed-topology and M3P cells use different configurations and should not be combined into a single scaling curve. [M3-05 Scale Limit](M3_SCALE_LIMIT.md#host-configuration-and-method), [M3-11 M3P extension](M3_11_PROPAGATION.md#m3p-sustained-population-extension)
-- Spatial migration remains deferred. Reactivating it requires a contract that defines membership changes, graph updates, deterministic partition changes, and snapshot behavior. The optional contention dial is also unselected and requires its own amendment. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
+- Spatial migration remains deferred. The optional contention dial is also unselected. [M3 Interim Audit](M3_INTERIM_AUDIT.md), [M3-02 Parallel Phase 6B](M3_02_PARALLEL_PHASE6B.md)
 
 ## Graduation record
 
-**M3-GRADUATE.** M3-00 through M3-11 are complete, their documented correctness gates passed locally, and the measured evidence does not identify an architectural or correctness blocker. Serial remains the default; explicit parallel execution remains opt-in. Spatial migration is deferred. This audit does not create a new version or tag.
+**M3-GRADUATE (provisional).** M3-00 through M3-11 are complete, their documented correctness gates passed locally, and the measured evidence does not identify an architectural or correctness blocker. Serial remains the default; explicit parallel execution remains opt-in. Spatial migration is deferred.
+
+**Hosted gate:** graduation becomes final only after hosted CI passes on Linux, Windows, and macOS for the graduation commit. Create the M3 tag only after all three hosted jobs pass.
