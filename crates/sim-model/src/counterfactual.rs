@@ -944,18 +944,39 @@ impl BranchRuntime {
     fn agent_record(&self, id: AgentId) -> Option<CanonicalAgentRecord> {
         let storage = self.world.segmented_storage.as_ref()?;
         let slot = storage.slot_of(id)?;
-        Some(CanonicalAgentRecord {
-            alive: storage.alive()[slot],
-            birth_day: storage.demography.birth_day[slot].0,
-            health: storage.health()[slot].to_bits(),
-            food: storage.food()[slot].to_bits(),
-            wealth: storage.wealth()[slot],
-            productivity: storage.personality.productivity[slot].to_bits(),
-            cooperation: storage.personality.cooperation[slot].to_bits(),
-            aggression: storage.personality.aggression[slot].to_bits(),
-            risk_tolerance: storage.personality.risk_tolerance[slot].to_bits(),
-            group_id: storage.group_ids()[slot].0,
-        })
+        Some(agent_record_at(storage, slot))
+    }
+
+    fn same_slot_mapping(&self, other: &Self) -> bool {
+        let left = self
+            .world
+            .segmented_storage
+            .as_ref()
+            .expect("hybrid authority has storage");
+        let right = other
+            .world
+            .segmented_storage
+            .as_ref()
+            .expect("hybrid authority has storage");
+        left.agent_ids() == right.agent_ids() && left.group_ids() == right.group_ids()
+    }
+}
+
+fn agent_record_at(
+    storage: &crate::storage::SegmentedAgentStorage,
+    slot: usize,
+) -> CanonicalAgentRecord {
+    CanonicalAgentRecord {
+        alive: storage.alive()[slot],
+        birth_day: storage.demography.birth_day[slot].0,
+        health: storage.health()[slot].to_bits(),
+        food: storage.food()[slot].to_bits(),
+        wealth: storage.wealth()[slot],
+        productivity: storage.personality.productivity[slot].to_bits(),
+        cooperation: storage.personality.cooperation[slot].to_bits(),
+        aggression: storage.personality.aggression[slot].to_bits(),
+        risk_tolerance: storage.personality.risk_tolerance[slot].to_bits(),
+        group_id: storage.group_ids()[slot].0,
     }
 }
 
@@ -1280,61 +1301,114 @@ fn set_intervention_field(
     }
 }
 
-fn births(events: &BranchEventsRecord) -> Vec<(AgentId, AgentId)> {
-    match events {
-        BranchEventsRecord::Standard(_) => Vec::new(),
-        BranchEventsRecord::Population(records) => records
-            .iter()
-            .filter_map(|record| match record.event {
-                crate::m3p::M3pEvent::Birth { parent, child, .. } => Some((parent, child)),
-                _ => None,
-            })
-            .collect(),
-    }
-}
-
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct LineageState {
     root: AgentId,
     path: Vec<u32>,
 }
 
+#[derive(Default)]
+struct LineageTracker {
+    lineages: HashMap<AgentId, LineageState>,
+    agents: HashMap<AgentMatchKey, AgentId>,
+    ordinals: HashMap<AgentId, u32>,
+}
+
 fn record_births(
     events: &BranchEventsRecord,
     initial_ids: &BTreeSet<AgentId>,
-    lineages: &mut HashMap<AgentId, LineageState>,
-    lineage_agents: &mut HashMap<AgentMatchKey, AgentId>,
-    ordinals: &mut HashMap<AgentId, u32>,
+    lineage: &mut LineageTracker,
 ) -> Vec<(AgentId, AgentId, AgentMatchKey)> {
-    births(events)
-        .into_iter()
-        .filter_map(|(parent, child)| {
-            let ordinal = ordinals.entry(parent).or_default();
-            let current_ordinal = *ordinal;
-            *ordinal = ordinal.saturating_add(1);
-            let lineage = if initial_ids.contains(&parent) {
-                LineageState {
-                    root: parent,
-                    path: vec![current_ordinal],
-                }
-            } else {
-                let mut parent_lineage = lineages.get(&parent)?.clone();
-                parent_lineage.path.push(current_ordinal);
-                parent_lineage
+    let BranchEventsRecord::Population(records) = events else {
+        return Vec::new();
+    };
+    let mut births = Vec::new();
+    for record in records {
+        let crate::m3p::M3pEvent::Birth { parent, child, .. } = record.event else {
+            continue;
+        };
+        let ordinal = lineage.ordinals.entry(parent).or_default();
+        let current_ordinal = *ordinal;
+        *ordinal = ordinal.saturating_add(1);
+        let lineage_state = if initial_ids.contains(&parent) {
+            LineageState {
+                root: parent,
+                path: vec![current_ordinal],
+            }
+        } else {
+            let Some(mut parent_lineage) = lineage.lineages.get(&parent).cloned() else {
+                continue;
             };
-            let key = AgentMatchKey::Birth {
-                ancestor: lineage.root,
-                ordinal_path: lineage.path.clone(),
+            parent_lineage.path.push(current_ordinal);
+            parent_lineage
+        };
+        let key = AgentMatchKey::Birth {
+            ancestor: lineage_state.root,
+            ordinal_path: lineage_state.path.clone(),
+        };
+        lineage.lineages.insert(child, lineage_state);
+        lineage.agents.insert(key.clone(), child);
+        births.push((parent, child, key));
+    }
+    births
+}
+
+fn record_shared_births(
+    events: &BranchEventsRecord,
+    initial_ids: &BTreeSet<AgentId>,
+    base: &mut LineageTracker,
+    branch: &mut LineageTracker,
+) -> Vec<(AgentId, AgentId, AgentMatchKey)> {
+    let BranchEventsRecord::Population(records) = events else {
+        return Vec::new();
+    };
+    let mut births = Vec::new();
+    for record in records {
+        let crate::m3p::M3pEvent::Birth { parent, child, .. } = record.event else {
+            continue;
+        };
+        let ordinal = base.ordinals.entry(parent).or_default();
+        let current_ordinal = *ordinal;
+        *ordinal = ordinal.saturating_add(1);
+        let branch_ordinal = branch.ordinals.entry(parent).or_default();
+        debug_assert_eq!(*branch_ordinal, current_ordinal);
+        *branch_ordinal = branch_ordinal.saturating_add(1);
+        let lineage = if initial_ids.contains(&parent) {
+            LineageState {
+                root: parent,
+                path: vec![current_ordinal],
+            }
+        } else {
+            let Some(mut parent_lineage) = base.lineages.get(&parent).cloned() else {
+                continue;
             };
-            lineages.insert(child, lineage);
-            lineage_agents.insert(key.clone(), child);
-            Some((parent, child, key))
-        })
-        .collect()
+            debug_assert_eq!(
+                base.lineages
+                    .get(&parent)
+                    .map(|lineage| (&lineage.root, &lineage.path)),
+                branch
+                    .lineages
+                    .get(&parent)
+                    .map(|lineage| (&lineage.root, &lineage.path))
+            );
+            parent_lineage.path.push(current_ordinal);
+            parent_lineage
+        };
+        let key = AgentMatchKey::Birth {
+            ancestor: lineage.root,
+            ordinal_path: lineage.path.clone(),
+        };
+        base.lineages.insert(child, lineage.clone());
+        branch.lineages.insert(child, lineage);
+        base.agents.insert(key.clone(), child);
+        branch.agents.insert(key.clone(), child);
+        births.push((parent, child, key));
+    }
+    births
 }
 
 #[allow(clippy::too_many_arguments)]
-fn difference_for_day(
+fn difference_for_day_canonical(
     day: u32,
     base: &BranchRuntime,
     branch: &BranchRuntime,
@@ -1406,6 +1480,158 @@ fn difference_for_day(
         unmatched_base_births,
         unmatched_branch_births,
         newborn_crn_loss,
+    }
+}
+
+struct BirthDifference {
+    matched_births: Vec<(AgentId, AgentId)>,
+    unmatched_base_births: Vec<AgentId>,
+    unmatched_branch_births: Vec<AgentId>,
+    newborn_crn_loss: u64,
+}
+
+fn canonical_birth_difference(
+    base_births: &[(AgentId, AgentId, AgentMatchKey)],
+    branch_births: &[(AgentId, AgentId, AgentMatchKey)],
+) -> BirthDifference {
+    let base_birth_keys: BTreeSet<_> = base_births.iter().map(|(_, _, key)| key.clone()).collect();
+    let branch_birth_keys: BTreeSet<_> = branch_births
+        .iter()
+        .map(|(_, _, key)| key.clone())
+        .collect();
+    let branch_ids_by_key: BTreeMap<_, _> = branch_births
+        .iter()
+        .map(|(_, child, key)| (key.clone(), *child))
+        .collect();
+    let base_ids_by_key: BTreeMap<_, _> = base_births
+        .iter()
+        .map(|(_, child, key)| (key.clone(), *child))
+        .collect();
+    let matched_births: Vec<_> = base_birth_keys
+        .intersection(&branch_birth_keys)
+        .map(|key| (base_ids_by_key[key], branch_ids_by_key[key]))
+        .collect();
+    let unmatched_base_births = base_births
+        .iter()
+        .filter(|(_, _, key)| !branch_birth_keys.contains(key))
+        .map(|(_, child, _)| *child)
+        .collect();
+    let unmatched_branch_births = branch_births
+        .iter()
+        .filter(|(_, _, key)| !base_birth_keys.contains(key))
+        .map(|(_, child, _)| *child)
+        .collect();
+    let newborn_crn_loss = matched_births
+        .iter()
+        .filter(|(left, right)| left != right)
+        .count() as u64;
+    BirthDifference {
+        matched_births,
+        unmatched_base_births,
+        unmatched_branch_births,
+        newborn_crn_loss,
+    }
+}
+
+fn equal_birth_difference(births: &[(AgentId, AgentId, AgentMatchKey)]) -> BirthDifference {
+    let mut sorted: Vec<_> = births.iter().map(|(_, child, key)| (key, *child)).collect();
+    sorted.sort_by(|left, right| left.0.cmp(right.0));
+    let mut matched_births = Vec::with_capacity(sorted.len());
+    let mut index = 0;
+    while index < sorted.len() {
+        let key = sorted[index].0;
+        let mut child = sorted[index].1;
+        index += 1;
+        while index < sorted.len() && sorted[index].0 == key {
+            child = sorted[index].1;
+            index += 1;
+        }
+        matched_births.push((child, child));
+    }
+    BirthDifference {
+        matched_births,
+        unmatched_base_births: Vec::new(),
+        unmatched_branch_births: Vec::new(),
+        newborn_crn_loss: 0,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn difference_for_day_fast(
+    day: u32,
+    base: &BranchRuntime,
+    branch: &BranchRuntime,
+    base_initial: &BTreeSet<AgentId>,
+    branch_initial: &BTreeSet<AgentId>,
+    base_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+    branch_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+    base_births: &[(AgentId, AgentId, AgentMatchKey)],
+    branch_births: &[(AgentId, AgentId, AgentMatchKey)],
+    state_digests_equal: bool,
+    all_day_digests_equal: bool,
+) -> DailyDifference {
+    let births = if all_day_digests_equal && base_births == branch_births {
+        equal_birth_difference(base_births)
+    } else {
+        canonical_birth_difference(base_births, branch_births)
+    };
+    if state_digests_equal {
+        return DailyDifference {
+            day,
+            changed_agent_records: 0,
+            graph_changed: false,
+            allocator_changed: false,
+            propagation_changed: false,
+            matched_births: births.matched_births,
+            unmatched_base_births: births.unmatched_base_births,
+            unmatched_branch_births: births.unmatched_branch_births,
+            newborn_crn_loss: births.newborn_crn_loss,
+        };
+    }
+
+    let changed_agent_records = if base_initial == branch_initial
+        && base_lineage_agents == branch_lineage_agents
+        && base.same_slot_mapping(branch)
+    {
+        let left = base
+            .world
+            .segmented_storage
+            .as_ref()
+            .expect("hybrid authority has storage");
+        let right = branch
+            .world
+            .segmented_storage
+            .as_ref()
+            .expect("hybrid authority has storage");
+        left.agent_ids()
+            .iter()
+            .enumerate()
+            .filter(|(slot, _)| agent_record_at(left, *slot) != agent_record_at(right, *slot))
+            .count() as u64
+    } else {
+        return difference_for_day_canonical(
+            day,
+            base,
+            branch,
+            base_initial,
+            branch_initial,
+            base_lineage_agents,
+            branch_lineage_agents,
+            base_births,
+            branch_births,
+        );
+    };
+
+    DailyDifference {
+        day,
+        changed_agent_records,
+        graph_changed: base.graph().csr_hash() != branch.graph().csr_hash(),
+        allocator_changed: base.allocator_cursor() != branch.allocator_cursor(),
+        propagation_changed: base.propagation() != branch.propagation(),
+        matched_births: births.matched_births,
+        unmatched_base_births: births.unmatched_base_births,
+        unmatched_branch_births: births.unmatched_branch_births,
+        newborn_crn_loss: births.newborn_crn_loss,
     }
 }
 
@@ -1495,16 +1721,13 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
     set_intervention_field(&mut branch, &request.intervention)?;
     let base_initial = base.initial_agent_ids();
     let branch_initial = branch.initial_agent_ids();
-    let mut base_lineages = HashMap::new();
-    let mut branch_lineages = HashMap::new();
-    let mut base_lineage_agents = HashMap::new();
-    let mut branch_lineage_agents = HashMap::new();
-    let mut base_ordinals = HashMap::new();
-    let mut branch_ordinals = HashMap::new();
+    let mut base_lineage = LineageTracker::default();
+    let mut branch_lineage = LineageTracker::default();
     let mut base_days = Vec::with_capacity(request.horizon_days as usize);
     let mut branch_days = Vec::with_capacity(request.horizon_days as usize);
     let mut daily_differences = Vec::with_capacity(request.horizon_days as usize);
     let mut first_divergence = None;
+    let mut lineage_contexts_equal = true;
     let mut forced_directive = match request.intervention {
         BranchIntervention::ForcedAction { agent_id, action } => {
             Some(ForcedActionDirective::new(agent_id, action, start_day))
@@ -1544,31 +1767,51 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
             include_snapshot,
             forced_directive.as_mut(),
         )?;
-        let base_birth_records = record_births(
-            &base_record.events,
-            &base_initial,
-            &mut base_lineages,
-            &mut base_lineage_agents,
-            &mut base_ordinals,
-        );
-        let branch_birth_records = record_births(
-            &branch_record.events,
-            &branch_initial,
-            &mut branch_lineages,
-            &mut branch_lineage_agents,
-            &mut branch_ordinals,
-        );
-        let difference = difference_for_day(
-            day,
-            &base,
-            &branch,
-            &base_initial,
-            &branch_initial,
-            &base_lineage_agents,
-            &branch_lineage_agents,
-            &base_birth_records,
-            &branch_birth_records,
-        );
+        let state_digests_equal = base_record.state_digest == branch_record.state_digest;
+        let all_day_digests_equal = state_digests_equal
+            && base_record.metrics_digest == branch_record.metrics_digest
+            && base_record.events_digest == branch_record.events_digest
+            && base_record.events == branch_record.events;
+        let difference = if all_day_digests_equal && lineage_contexts_equal {
+            let birth_records = record_shared_births(
+                &base_record.events,
+                &base_initial,
+                &mut base_lineage,
+                &mut branch_lineage,
+            );
+            difference_for_day_fast(
+                day,
+                &base,
+                &branch,
+                &base_initial,
+                &branch_initial,
+                &base_lineage.agents,
+                &branch_lineage.agents,
+                &birth_records,
+                &birth_records,
+                state_digests_equal,
+                true,
+            )
+        } else {
+            lineage_contexts_equal = false;
+            let base_birth_records =
+                record_births(&base_record.events, &base_initial, &mut base_lineage);
+            let branch_birth_records =
+                record_births(&branch_record.events, &branch_initial, &mut branch_lineage);
+            difference_for_day_fast(
+                day,
+                &base,
+                &branch,
+                &base_initial,
+                &branch_initial,
+                &base_lineage.agents,
+                &branch_lineage.agents,
+                &base_birth_records,
+                &branch_birth_records,
+                state_digests_equal,
+                false,
+            )
+        };
         if first_divergence.is_none() && base_record.state_digest != branch_record.state_digest {
             let (base_start, branch_start) = start_states
                 .as_ref()
@@ -1684,6 +1927,139 @@ mod tests {
     }
 
     #[test]
+    fn fast_daily_differences_match_canonical_birth_and_slot_paths() {
+        let (base, _, _) = m3_runtime(false);
+        let (shuffled, _, _) = m3_runtime(true);
+        let base_initial = base.initial_agent_ids();
+        let shuffled_initial = shuffled.initial_agent_ids();
+        let empty_lineages = HashMap::new();
+        let empty_births = Vec::new();
+        let unchanged_canonical = difference_for_day_canonical(
+            0,
+            &base,
+            &shuffled,
+            &base_initial,
+            &shuffled_initial,
+            &empty_lineages,
+            &empty_lineages,
+            &empty_births,
+            &empty_births,
+        );
+        let unchanged_fast = difference_for_day_fast(
+            0,
+            &base,
+            &shuffled,
+            &base_initial,
+            &shuffled_initial,
+            &empty_lineages,
+            &empty_lineages,
+            &empty_births,
+            &empty_births,
+            true,
+            true,
+        );
+        assert_eq!(unchanged_fast, unchanged_canonical);
+
+        let (base, _, _) = m3_runtime(false);
+        let (mut changed, _, _) = m3_runtime(false);
+        let storage = changed.world.segmented_storage.as_mut().unwrap();
+        let slot = storage.slot_of(AgentId(0)).unwrap();
+        storage.food_mut()[slot] += 1.0;
+        let changed_initial = changed.initial_agent_ids();
+        let canonical = difference_for_day_canonical(
+            1,
+            &base,
+            &changed,
+            &base_initial,
+            &changed_initial,
+            &empty_lineages,
+            &empty_lineages,
+            &empty_births,
+            &empty_births,
+        );
+        let fast = difference_for_day_fast(
+            1,
+            &base,
+            &changed,
+            &base_initial,
+            &changed_initial,
+            &empty_lineages,
+            &empty_lineages,
+            &empty_births,
+            &empty_births,
+            false,
+            false,
+        );
+        assert_eq!(fast, canonical);
+        assert_eq!(fast.changed_agent_records, 1);
+
+        let (base, _, _) = m3_runtime(false);
+        let (branch, _, _) = m3_runtime(false);
+        let key = AgentMatchKey::Birth {
+            ancestor: AgentId(1),
+            ordinal_path: vec![0],
+        };
+        let base_births = vec![(AgentId(1), AgentId(300), key.clone())];
+        let branch_births = vec![(AgentId(1), AgentId(301), key.clone())];
+        let base_birth_map = HashMap::from([(key.clone(), AgentId(300))]);
+        let branch_birth_map = HashMap::from([(key, AgentId(301))]);
+        let canonical = difference_for_day_canonical(
+            2,
+            &base,
+            &branch,
+            &base_initial,
+            &base_initial,
+            &base_birth_map,
+            &branch_birth_map,
+            &base_births,
+            &branch_births,
+        );
+        let fast = difference_for_day_fast(
+            2,
+            &base,
+            &branch,
+            &base_initial,
+            &base_initial,
+            &base_birth_map,
+            &branch_birth_map,
+            &base_births,
+            &branch_births,
+            false,
+            false,
+        );
+        assert_eq!(fast, canonical);
+        assert_eq!(fast.matched_births, vec![(AgentId(300), AgentId(301))]);
+        assert_eq!(fast.newborn_crn_loss, 1);
+
+        let (branch, _, _) = m3_runtime(true);
+        let canonical = difference_for_day_canonical(
+            2,
+            &base,
+            &branch,
+            &base_initial,
+            &base_initial,
+            &base_birth_map,
+            &branch_birth_map,
+            &base_births,
+            &branch_births,
+        );
+        let fast = difference_for_day_fast(
+            2,
+            &base,
+            &branch,
+            &base_initial,
+            &base_initial,
+            &base_birth_map,
+            &branch_birth_map,
+            &base_births,
+            &branch_births,
+            false,
+            false,
+        );
+        assert_eq!(fast, canonical);
+    }
+
+    #[test]
     fn lineage_paths_match_nested_births_after_agent_id_shifts() {
         let initial = BTreeSet::from([AgentId(1)]);
         let base_events = BranchEventsRecord::Population(vec![
@@ -1696,23 +2072,10 @@ mod tests {
             birth_event(1, 11, 1),
             birth_event(10, 12, 2),
         ]);
-        let (mut base_lineages, mut branch_lineages) = (HashMap::new(), HashMap::new());
-        let (mut base_lineage_agents, mut branch_lineage_agents) = (HashMap::new(), HashMap::new());
-        let (mut base_ordinals, mut branch_ordinals) = (HashMap::new(), HashMap::new());
-        let base = record_births(
-            &base_events,
-            &initial,
-            &mut base_lineages,
-            &mut base_lineage_agents,
-            &mut base_ordinals,
-        );
-        let branch = record_births(
-            &branch_events,
-            &initial,
-            &mut branch_lineages,
-            &mut branch_lineage_agents,
-            &mut branch_ordinals,
-        );
+        let mut base_lineage = LineageTracker::default();
+        let mut branch_lineage = LineageTracker::default();
+        let base = record_births(&base_events, &initial, &mut base_lineage);
+        let branch = record_births(&branch_events, &initial, &mut branch_lineage);
         let base_keys: Vec<_> = base.iter().map(|(_, _, key)| key).collect();
         let branch_keys: Vec<_> = branch.iter().map(|(_, _, key)| key).collect();
         assert_eq!(base_keys, branch_keys);
@@ -1730,5 +2093,61 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn shared_lineage_update_matches_independent_birth_tracking() {
+        let initial = BTreeSet::from([AgentId(1)]);
+        let events =
+            BranchEventsRecord::Population(vec![birth_event(1, 2, 0), birth_event(2, 3, 1)]);
+        let mut base_lineage = LineageTracker::default();
+        let mut branch_lineage = LineageTracker::default();
+        let base_records = record_births(&events, &initial, &mut base_lineage);
+        let branch_records = record_births(&events, &initial, &mut branch_lineage);
+        let mut shared_base_lineage = LineageTracker::default();
+        let mut shared_branch_lineage = LineageTracker::default();
+        let shared_records = record_shared_births(
+            &events,
+            &initial,
+            &mut shared_base_lineage,
+            &mut shared_branch_lineage,
+        );
+        assert_eq!(base_records, branch_records);
+        assert_eq!(shared_records, base_records);
+        assert_eq!(shared_base_lineage.lineages, base_lineage.lineages);
+        assert_eq!(shared_branch_lineage.lineages, branch_lineage.lineages);
+        assert_eq!(shared_base_lineage.agents, base_lineage.agents);
+        assert_eq!(shared_branch_lineage.agents, branch_lineage.agents);
+        assert_eq!(shared_base_lineage.ordinals, base_lineage.ordinals);
+        assert_eq!(shared_branch_lineage.ordinals, branch_lineage.ordinals);
+
+        let (base, _, _) = m3_runtime(false);
+        let (branch, _, _) = m3_runtime(false);
+        let initial_ids = base.initial_agent_ids();
+        let canonical = difference_for_day_canonical(
+            0,
+            &base,
+            &branch,
+            &initial_ids,
+            &initial_ids,
+            &base_lineage.agents,
+            &branch_lineage.agents,
+            &base_records,
+            &branch_records,
+        );
+        let fast = difference_for_day_fast(
+            0,
+            &base,
+            &branch,
+            &initial_ids,
+            &initial_ids,
+            &shared_base_lineage.agents,
+            &shared_branch_lineage.agents,
+            &shared_records,
+            &shared_records,
+            true,
+            true,
+        );
+        assert_eq!(fast, canonical);
     }
 }
