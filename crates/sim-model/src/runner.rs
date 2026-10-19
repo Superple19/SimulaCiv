@@ -506,6 +506,151 @@ where
     Ok(outcomes)
 }
 
+/// Replays two storage states in lockstep for opt-in phase divergence location.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_registered_storage_day_pair_with_recorder<C, T, Core, Hook, Record>(
+    left_storage: &mut SegmentedAgentStorage,
+    left_context: &mut C,
+    right_storage: &mut SegmentedAgentStorage,
+    right_context: &mut C,
+    run_options: &RegisteredSystemRunOptions<'_>,
+    day: u32,
+    mut run_core_phase: Core,
+    mut run_hook: Hook,
+    mut record: Record,
+) -> Result<Option<T>, M0RunError>
+where
+    Core: FnMut(
+        u32,
+        RegisteredCorePhase,
+        &[RegisteredHook],
+        &mut SegmentedAgentStorage,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Hook: FnMut(
+        u32,
+        RegisteredHook,
+        &mut SegmentedAgentStorage,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Record: FnMut(
+        RegisteredWorldBoundary,
+        &SegmentedAgentStorage,
+        &C,
+        &SegmentedAgentStorage,
+        &C,
+    ) -> Result<Option<T>, M0RunError>,
+{
+    let hooks = registered_hooks(run_options.enabled_systems)?;
+    for &hook in hooks
+        .iter()
+        .filter(|hook| hook.slot == PhaseSlot::Initialization)
+    {
+        run_hook(0, hook, left_storage, left_context, &run_options.execution)?;
+        run_hook(
+            0,
+            hook,
+            right_storage,
+            right_context,
+            &run_options.execution,
+        )?;
+        if let Some(difference) = record(
+            RegisteredWorldBoundary::Hook(hook),
+            left_storage,
+            left_context,
+            right_storage,
+            right_context,
+        )? {
+            return Ok(Some(difference));
+        }
+    }
+
+    for &phase in REGISTERED_CORE_PHASES {
+        run_core_phase(
+            day,
+            phase,
+            &hooks,
+            left_storage,
+            left_context,
+            &run_options.execution,
+        )?;
+        run_core_phase(
+            day,
+            phase,
+            &hooks,
+            right_storage,
+            right_context,
+            &run_options.execution,
+        )?;
+        if let Some(difference) = record(
+            RegisteredWorldBoundary::Core(phase),
+            left_storage,
+            left_context,
+            right_storage,
+            right_context,
+        )? {
+            return Ok(Some(difference));
+        }
+        if let Some(slot) = extension_slot_for_core_phase(phase) {
+            for &hook in hooks.iter().filter(|hook| hook.slot == slot) {
+                run_hook(
+                    day,
+                    hook,
+                    left_storage,
+                    left_context,
+                    &run_options.execution,
+                )?;
+                run_hook(
+                    day,
+                    hook,
+                    right_storage,
+                    right_context,
+                    &run_options.execution,
+                )?;
+                if let Some(difference) = record(
+                    RegisteredWorldBoundary::Hook(hook),
+                    left_storage,
+                    left_context,
+                    right_storage,
+                    right_context,
+                )? {
+                    return Ok(Some(difference));
+                }
+            }
+            if phase == RegisteredCorePhase::Phase9 {
+                for &hook in hooks.iter().filter(|hook| hook.slot == PhaseSlot::Phase9C) {
+                    run_hook(
+                        day,
+                        hook,
+                        left_storage,
+                        left_context,
+                        &run_options.execution,
+                    )?;
+                    run_hook(
+                        day,
+                        hook,
+                        right_storage,
+                        right_context,
+                        &run_options.execution,
+                    )?;
+                    if let Some(difference) = record(
+                        RegisteredWorldBoundary::Hook(hook),
+                        left_storage,
+                        left_context,
+                        right_storage,
+                        right_context,
+                    )? {
+                        return Ok(Some(difference));
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 impl Default for DayExecutionOptions {
     fn default() -> Self {
         Self {
@@ -972,6 +1117,15 @@ impl M3pIncrementalTopologyStorageRunContext {
     pub const fn next_agent_id(&self) -> u64 {
         self.storage_context.next_agent_id()
     }
+
+    pub(crate) fn phase_recorder_parts_mut(
+        &mut self,
+    ) -> (
+        &mut M3pStorageRunContext,
+        &mut M3pIncrementalTopologyScratch,
+    ) {
+        (&mut self.storage_context, &mut self.phase9b_scratch)
+    }
 }
 
 /// Propagation columns and the base M3P storage context for serial execution.
@@ -1027,6 +1181,15 @@ impl M3pPropagationStorageRunContext {
 
     pub const fn next_agent_id(&self) -> u64 {
         self.storage_context.next_agent_id
+    }
+
+    pub(crate) fn phase_recorder_parts_mut(
+        &mut self,
+    ) -> (
+        &mut M3pStorageRunContext,
+        &mut BTreeMap<AgentId, PropagationAgentState>,
+    ) {
+        (&mut self.storage_context, &mut self.propagation)
     }
 }
 
@@ -1084,6 +1247,20 @@ impl M3pPropagationIncrementalTopologyStorageRunContext {
 
     pub const fn next_agent_id(&self) -> u64 {
         self.storage_context.next_agent_id()
+    }
+
+    pub(crate) fn phase_recorder_parts_mut(
+        &mut self,
+    ) -> (
+        &mut M3pStorageRunContext,
+        &mut M3pIncrementalTopologyScratch,
+        &mut BTreeMap<AgentId, PropagationAgentState>,
+    ) {
+        (
+            &mut self.storage_context.storage_context,
+            &mut self.storage_context.phase9b_scratch,
+            &mut self.propagation,
+        )
     }
 }
 
@@ -3105,7 +3282,7 @@ where
     )
 }
 
-struct M3pStorageRegisteredDay<'a> {
+pub(crate) struct M3pStorageRegisteredDay<'a> {
     world: &'a mut WorldState,
     context: &'a mut M3pStorageRunContext,
     effective_config: SimConfig,
@@ -3135,7 +3312,7 @@ struct M3pStorageRegisteredDay<'a> {
 
 impl<'a> M3pStorageRegisteredDay<'a> {
     #[allow(clippy::too_many_arguments)]
-    fn new(
+    pub(crate) fn new(
         world: &'a mut WorldState,
         config: &SimConfig,
         context: &'a mut M3pStorageRunContext,
@@ -3177,7 +3354,7 @@ impl<'a> M3pStorageRegisteredDay<'a> {
         }
     }
 
-    fn run_core_phase(
+    pub(crate) fn run_core_phase(
         &mut self,
         _day: u32,
         phase: RegisteredCorePhase,
@@ -3259,7 +3436,7 @@ impl<'a> M3pStorageRegisteredDay<'a> {
         Ok(())
     }
 
-    fn run_system_hook(
+    pub(crate) fn run_system_hook(
         &mut self,
         _day: u32,
         hook: RegisteredHook,
@@ -3404,6 +3581,32 @@ impl<'a> M3pStorageRegisteredDay<'a> {
             }
             _ => Ok(()),
         }
+    }
+
+    pub(crate) fn phase_recorder_graph(&self) -> &RelationshipGraph {
+        self.context.relationship_graph()
+    }
+
+    pub(crate) const fn phase_recorder_allocator(&self) -> u64 {
+        self.context.next_agent_id
+    }
+
+    pub(crate) fn phase_recorder_propagation(
+        &self,
+    ) -> Option<&BTreeMap<AgentId, PropagationAgentState>> {
+        self.propagation.as_deref()
+    }
+
+    pub(crate) fn phase_recorder_newborn_ids(&self) -> &[AgentId] {
+        &self.newborn_ids
+    }
+
+    pub(crate) fn phase_recorder_metrics(&self) -> Option<&crate::m3p::M3pDailyMetrics> {
+        self.metrics.as_ref()
+    }
+
+    pub(crate) const fn phase_recorder_propagation_counts(&self) -> Option<PropagationDailyCounts> {
+        self.propagation_counts
     }
 
     fn observe(&mut self, storage: &SegmentedAgentStorage) -> Result<(), M0RunError> {

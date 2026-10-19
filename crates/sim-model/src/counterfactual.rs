@@ -30,13 +30,17 @@ use crate::runner::{
     DayExecutionOptions, M0RunContext, M0RunError, M3DayOutcome, M3PropagationStorageRunContext,
     M3ReferenceContext, M3StorageRunContext, M3pIncrementalTopologyStorageRunContext,
     M3pPropagationIncrementalTopologyStorageRunContext, M3pPropagationStorageRunContext,
-    M3pStorageRunContext, run_m3_reference_day_with_phase_recorder, run_m3_storage_day_for_branch,
-    run_m3p_storage_day_for_branch, run_m3p_storage_day_incremental_for_branch,
-    run_m3pprop_storage_day_for_branch, run_m3pprop_storage_day_incremental_for_branch,
-    run_m3prop_storage_day_for_branch,
+    M3pStorageRegisteredDay, M3pStorageRunContext, run_m3_reference_day_with_phase_recorder,
+    run_m3_storage_day_for_branch, run_m3p_storage_day_for_branch,
+    run_m3p_storage_day_incremental_for_branch, run_m3pprop_storage_day_for_branch,
+    run_m3pprop_storage_day_incremental_for_branch, run_m3prop_storage_day_for_branch,
+    run_registered_storage_day_pair_with_recorder,
 };
 use crate::snapshot::{CanonicalSnapshot, SnapshotError, SnapshotMetadata, decode_snapshot};
 use crate::state::{AgentState, AuthorityMode, HybridWorldState, WorldState};
+use crate::system_registry::{
+    RegisteredSystemRunOptions, SystemExecutionOptions, SystemExecutionPolicy, SystemId,
+};
 use sha2::{Digest, Sha256};
 use sim_core::{AgentId, Money};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -395,7 +399,21 @@ fn first_divergence_record(
     differing_components: Vec<&'static str>,
     first_differing_agent: Option<AgentId>,
 ) -> FirstDivergence {
-    let (slot, system_id) = match record.boundary {
+    first_divergence_at(
+        day,
+        record.boundary,
+        differing_components,
+        first_differing_agent,
+    )
+}
+
+fn first_divergence_at(
+    day: u32,
+    boundary: crate::runner::RegisteredWorldBoundary,
+    differing_components: Vec<&'static str>,
+    first_differing_agent: Option<AgentId>,
+) -> FirstDivergence {
+    let (slot, system_id) = match boundary {
         crate::runner::RegisteredWorldBoundary::Core(phase) => (RecordedSlot::Core(phase), None),
         crate::runner::RegisteredWorldBoundary::Hook(hook) => {
             (RecordedSlot::Hook(hook), Some(hook.system_id))
@@ -644,6 +662,86 @@ impl BranchRuntime {
             SimulationRunnerSelection::M2 => return Err(BranchError::UnsupportedProfile),
         };
         Ok(runtime)
+    }
+
+    fn phase_storage_day<'a>(
+        &'a mut self,
+        config: &SimConfig,
+        options: &DayExecutionOptions,
+        forced_action: Option<&'a mut ForcedActionDirective>,
+    ) -> Result<
+        (
+            &'a mut crate::storage::SegmentedAgentStorage,
+            M3pStorageRegisteredDay<'a>,
+        ),
+        BranchError,
+    > {
+        let BranchRuntime { world, context, .. } = self;
+        let HybridWorldState {
+            world: logical_world,
+            segmented_storage,
+            authority_mode: _,
+        } = world;
+        let storage = segmented_storage.as_mut().ok_or_else(|| {
+            BranchError::InvalidIntervention("branch requires segmented storage".into())
+        })?;
+        let state = match context {
+            StorageContext::M3p(context) => M3pStorageRegisteredDay::new(
+                logical_world,
+                config,
+                context,
+                options,
+                None,
+                None,
+                None,
+                forced_action,
+            ),
+            StorageContext::M3pIncremental(context) => {
+                let (storage_context, scratch) = context.phase_recorder_parts_mut();
+                M3pStorageRegisteredDay::new(
+                    logical_world,
+                    config,
+                    storage_context,
+                    options,
+                    Some(scratch),
+                    None,
+                    None,
+                    forced_action,
+                )
+            }
+            StorageContext::M3pPropagation(context) => {
+                let base_config = crate::m3pprop::m3p_base_config(config);
+                let (storage_context, propagation) = context.phase_recorder_parts_mut();
+                M3pStorageRegisteredDay::new(
+                    logical_world,
+                    &base_config,
+                    storage_context,
+                    options,
+                    None,
+                    Some(propagation),
+                    Some(config),
+                    forced_action,
+                )
+            }
+            StorageContext::M3pPropagationIncremental(context) => {
+                let base_config = crate::m3pprop::m3p_base_config(config);
+                let (storage_context, scratch, propagation) = context.phase_recorder_parts_mut();
+                M3pStorageRegisteredDay::new(
+                    logical_world,
+                    &base_config,
+                    storage_context,
+                    options,
+                    Some(scratch),
+                    Some(propagation),
+                    Some(config),
+                    forced_action,
+                )
+            }
+            StorageContext::M3(_) | StorageContext::M3Propagation(_) => {
+                return Err(BranchError::UnsupportedProfile);
+            }
+        };
+        Ok((storage, state))
     }
 
     fn day(
@@ -980,7 +1078,398 @@ fn agent_record_at(
     }
 }
 
+#[derive(Clone, Copy)]
+struct StorageAgentSlotPair {
+    id: AgentId,
+    left: Option<usize>,
+    right: Option<usize>,
+}
+
+#[derive(Default)]
+struct M3pStoragePhaseCompareScratch {
+    same_ordered_mapping: bool,
+    left_slots: Vec<(AgentId, usize)>,
+    right_slots: Vec<(AgentId, usize)>,
+    merged: Vec<StorageAgentSlotPair>,
+}
+
+impl M3pStoragePhaseCompareScratch {
+    fn refresh(
+        &mut self,
+        left: &crate::storage::SegmentedAgentStorage,
+        right: &crate::storage::SegmentedAgentStorage,
+    ) {
+        self.same_ordered_mapping = left.agent_ids().len() == right.agent_ids().len()
+            && left
+                .agent_ids()
+                .iter()
+                .zip(right.agent_ids())
+                .all(|(left, right)| left == right)
+            && left.agent_ids().windows(2).all(|pair| pair[0] < pair[1]);
+        if self.same_ordered_mapping {
+            self.left_slots.clear();
+            self.right_slots.clear();
+            self.merged.clear();
+            return;
+        }
+        self.left_slots.clear();
+        self.left_slots.extend(
+            left.agent_ids()
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(slot, id)| (id, slot)),
+        );
+        let left_sorted = self.left_slots.windows(2).all(|pair| pair[0].0 < pair[1].0);
+        if !left_sorted {
+            self.left_slots.sort_unstable_by_key(|pair| pair.0);
+        }
+        self.right_slots.clear();
+        self.right_slots.extend(
+            right
+                .agent_ids()
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(slot, id)| (id, slot)),
+        );
+        let right_sorted = self
+            .right_slots
+            .windows(2)
+            .all(|pair| pair[0].0 < pair[1].0);
+        if !right_sorted {
+            self.right_slots.sort_unstable_by_key(|pair| pair.0);
+        }
+        self.merged.clear();
+        let (mut left_index, mut right_index) = (0, 0);
+        while left_index < self.left_slots.len() || right_index < self.right_slots.len() {
+            match (
+                self.left_slots.get(left_index),
+                self.right_slots.get(right_index),
+            ) {
+                (Some(&(left_id, left_slot)), Some(&(right_id, right_slot))) => {
+                    match left_id.cmp(&right_id) {
+                        std::cmp::Ordering::Less => {
+                            self.merged.push(StorageAgentSlotPair {
+                                id: left_id,
+                                left: Some(left_slot),
+                                right: None,
+                            });
+                            left_index += 1;
+                        }
+                        std::cmp::Ordering::Greater => {
+                            self.merged.push(StorageAgentSlotPair {
+                                id: right_id,
+                                left: None,
+                                right: Some(right_slot),
+                            });
+                            right_index += 1;
+                        }
+                        std::cmp::Ordering::Equal => {
+                            self.merged.push(StorageAgentSlotPair {
+                                id: left_id,
+                                left: Some(left_slot),
+                                right: Some(right_slot),
+                            });
+                            left_index += 1;
+                            right_index += 1;
+                        }
+                    }
+                }
+                (Some(&(left_id, left_slot)), None) => {
+                    self.merged.push(StorageAgentSlotPair {
+                        id: left_id,
+                        left: Some(left_slot),
+                        right: None,
+                    });
+                    left_index += 1;
+                }
+                (None, Some(&(right_id, right_slot))) => {
+                    self.merged.push(StorageAgentSlotPair {
+                        id: right_id,
+                        left: None,
+                        right: Some(right_slot),
+                    });
+                    right_index += 1;
+                }
+                (None, None) => break,
+            }
+        }
+    }
+
+    fn first_difference(
+        &self,
+        left: &crate::storage::SegmentedAgentStorage,
+        right: &crate::storage::SegmentedAgentStorage,
+    ) -> Option<AgentId> {
+        if self.same_ordered_mapping {
+            return left.agent_ids().iter().enumerate().find_map(|(slot, id)| {
+                (agent_record_at(left, slot) != agent_record_at(right, slot)).then_some(*id)
+            });
+        }
+        self.merged
+            .iter()
+            .find_map(|row| match (row.left, row.right) {
+                (Some(left_slot), Some(right_slot))
+                    if agent_record_at(left, left_slot) == agent_record_at(right, right_slot) =>
+                {
+                    None
+                }
+                _ => Some(row.id),
+            })
+    }
+}
+
+fn storage_recorder_metrics_hash(
+    state: &M3pStorageRegisteredDay<'_>,
+) -> Result<Option<CanonicalHash>, M0RunError> {
+    let Some(metrics) = state.phase_recorder_metrics() else {
+        return Ok(None);
+    };
+    if let Some(propagation) = state.phase_recorder_propagation_counts() {
+        let metrics = crate::m3pprop::M3pPropagationDailyMetrics {
+            m3p_metrics: metrics.clone(),
+            propagation,
+        };
+        crate::hashing::canonical_m3pprop_metrics_hash(std::slice::from_ref(&metrics))
+            .map(Some)
+            .map_err(|error| {
+                M0RunError::InvariantViolation(format!(
+                    "phase recorder M3PPROP metrics hash failed: {error}"
+                ))
+            })
+    } else {
+        canonical_m3p_metrics_hash(std::slice::from_ref(metrics))
+            .map(Some)
+            .map_err(|error| {
+                M0RunError::InvariantViolation(format!(
+                    "phase recorder metrics hash failed: {error}"
+                ))
+            })
+    }
+}
+
+fn m3p_storage_phase_difference(
+    day: u32,
+    boundary: crate::runner::RegisteredWorldBoundary,
+    scratch: &M3pStoragePhaseCompareScratch,
+    left_storage: &crate::storage::SegmentedAgentStorage,
+    left_state: &M3pStorageRegisteredDay<'_>,
+    right_storage: &crate::storage::SegmentedAgentStorage,
+    right_state: &M3pStorageRegisteredDay<'_>,
+) -> Result<Option<FirstDivergence>, M0RunError> {
+    let first_agent = scratch.first_difference(left_storage, right_storage);
+    let mut differing = Vec::with_capacity(5);
+    if first_agent.is_some() {
+        differing.push("agent_rows");
+    }
+    if left_state.phase_recorder_graph().csr_hash() != right_state.phase_recorder_graph().csr_hash()
+    {
+        differing.push("graph");
+    }
+    if left_state.phase_recorder_allocator() != right_state.phase_recorder_allocator() {
+        differing.push("allocator");
+    }
+    let phase9b_population_hook = matches!(
+        boundary,
+        crate::runner::RegisteredWorldBoundary::Hook(hook)
+            if hook.system_id == SystemId::PopulationDynamics
+                && hook.slot == crate::system_registry::PhaseSlot::Phase9B
+    );
+    // The reference path materializes newborn propagation rows at Phase 9C.
+    let propagation_differs = match (
+        left_state.phase_recorder_propagation(),
+        right_state.phase_recorder_propagation(),
+    ) {
+        (Some(left), Some(right)) if phase9b_population_hook => left
+            .iter()
+            .filter(|(id, _)| {
+                left_state
+                    .phase_recorder_newborn_ids()
+                    .binary_search(id)
+                    .is_err()
+            })
+            .ne(right.iter().filter(|(id, _)| {
+                right_state
+                    .phase_recorder_newborn_ids()
+                    .binary_search(id)
+                    .is_err()
+            })),
+        (left, right) => left != right,
+    };
+    if propagation_differs {
+        differing.push("propagation");
+    }
+    if storage_recorder_metrics_hash(left_state)? != storage_recorder_metrics_hash(right_state)? {
+        differing.push("metrics_so_far");
+    }
+    Ok((!differing.is_empty()).then(|| first_divergence_at(day, boundary, differing, first_agent)))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn locate_m3p_storage_day_divergence(
+    base_start: &BranchStartState,
+    branch_start: &BranchStartState,
+    config: &SimConfig,
+    branch_config: &SimConfig,
+    run_context: &M0RunContext,
+    execution: BranchExecutionOption,
+    day: u32,
+    mut forced_action: Option<ForcedActionDirective>,
+) -> Result<Option<FirstDivergence>, BranchError> {
+    let mut base = base_start.restore_m3p_storage_runtime(config, run_context, execution)?;
+    let mut branch =
+        branch_start.restore_m3p_storage_runtime(branch_config, run_context, execution)?;
+    let options = DayExecutionOptions {
+        metrics_enabled: true,
+        events_enabled: false,
+        snapshot_boundary: false,
+    };
+    let enabled_systems: &[SystemId] =
+        if base_start.profile == SimulationRunnerSelection::M3pPropagation {
+            &[
+                SystemId::RelationshipGraph,
+                SystemId::PopulationDynamics,
+                SystemId::Propagation,
+            ]
+        } else {
+            &[SystemId::RelationshipGraph, SystemId::PopulationDynamics]
+        };
+    let population_dynamics = if execution == BranchExecutionOption::IncrementalTopology {
+        SystemExecutionPolicy::IncrementalTopology
+    } else {
+        SystemExecutionPolicy::Serial
+    };
+    let run_options = RegisteredSystemRunOptions {
+        enabled_systems,
+        execution: SystemExecutionOptions {
+            population_dynamics,
+            ..SystemExecutionOptions::default()
+        },
+    };
+    let (base_storage, mut base_day) = base.phase_storage_day(config, &options, None)?;
+    let (branch_storage, mut branch_day) =
+        branch.phase_storage_day(branch_config, &options, forced_action.as_mut())?;
+    let mut compare = M3pStoragePhaseCompareScratch::default();
+    compare.refresh(base_storage, branch_storage);
+    let result = run_registered_storage_day_pair_with_recorder(
+        base_storage,
+        &mut base_day,
+        branch_storage,
+        &mut branch_day,
+        &run_options,
+        day,
+        |day, phase, hooks, storage, state, _execution| {
+            state.run_core_phase(day, phase, hooks, storage)
+        },
+        |day, hook, storage, state, execution| state.run_system_hook(day, hook, storage, execution),
+        |boundary, left_storage, left_state, right_storage, right_state| {
+            if matches!(boundary, crate::runner::RegisteredWorldBoundary::Hook(hook)
+                if hook.system_id == SystemId::PopulationDynamics
+                    && hook.slot == crate::system_registry::PhaseSlot::Phase9B)
+            {
+                compare.refresh(left_storage, right_storage);
+            }
+            m3p_storage_phase_difference(
+                day,
+                boundary,
+                &compare,
+                left_storage,
+                left_state,
+                right_storage,
+                right_state,
+            )
+        },
+    )?;
+    Ok(result)
+}
+
 impl BranchStartState {
+    fn restore_m3p_storage_runtime(
+        &self,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+        execution: BranchExecutionOption,
+    ) -> Result<BranchRuntime, BranchError> {
+        let world = self.world.clone();
+        match self.profile {
+            SimulationRunnerSelection::M3p => {
+                let reference = M3pReferenceState::from_parts(
+                    self.world.world.clone(),
+                    self.graph.clone(),
+                    self.allocator.expect("M3P allocator"),
+                    config,
+                    run_context,
+                )?;
+                let context = if execution == BranchExecutionOption::IncrementalTopology {
+                    StorageContext::M3pIncremental(
+                        M3pIncrementalTopologyStorageRunContext::from_reference_state(
+                            &world,
+                            config,
+                            run_context,
+                            &reference,
+                        )?,
+                    )
+                } else {
+                    StorageContext::M3p(M3pStorageRunContext::from_reference_state(
+                        &world,
+                        config,
+                        run_context,
+                        &reference,
+                    )?)
+                };
+                Ok(BranchRuntime {
+                    world,
+                    context,
+                    profile: self.profile,
+                })
+            }
+            SimulationRunnerSelection::M3pPropagation => {
+                let base_config = crate::m3pprop::m3p_base_config(config);
+                let base = M3pReferenceState::from_parts(
+                    self.world.world.clone(),
+                    self.graph.clone(),
+                    self.allocator.expect("M3P allocator"),
+                    &base_config,
+                    run_context,
+                )?;
+                let reference = crate::m3pprop::M3pPropagationReferenceState::from_parts(
+                    base,
+                    self.propagation.clone().expect("M3P propagation rows"),
+                    config,
+                )?;
+                let context = if execution == BranchExecutionOption::IncrementalTopology {
+                    StorageContext::M3pPropagationIncremental(
+                        M3pPropagationIncrementalTopologyStorageRunContext::from_reference_state(
+                            &world,
+                            config,
+                            run_context,
+                            &reference,
+                        )?,
+                    )
+                } else {
+                    StorageContext::M3pPropagation(
+                        M3pPropagationStorageRunContext::from_reference_state(
+                            &world,
+                            config,
+                            run_context,
+                            &reference,
+                        )?,
+                    )
+                };
+                Ok(BranchRuntime {
+                    world,
+                    context,
+                    profile: self.profile,
+                })
+            }
+            SimulationRunnerSelection::M3 | SimulationRunnerSelection::M3Propagation => {
+                Err(BranchError::UnsupportedProfile)
+            }
+            SimulationRunnerSelection::M2 => Err(BranchError::UnsupportedProfile),
+        }
+    }
+
     fn state_digest(&self) -> Result<CanonicalHash, BranchError> {
         let storage = self
             .world
@@ -1823,27 +2312,54 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
                     branch_start,
                 )?)
             } else {
-                let mut base_trace = Vec::new();
-                let mut branch_trace = Vec::new();
-                base_start.record_reference_day(
-                    &request.config,
-                    &request.run_context,
-                    None,
-                    &mut base_trace,
-                )?;
-                let mut phase_force = match request.intervention {
+                let phase_force = match request.intervention {
                     BranchIntervention::ForcedAction { agent_id, action } => {
                         Some(ForcedActionDirective::new(agent_id, action, day))
                     }
                     _ => None,
                 };
-                branch_start.record_reference_day(
-                    &branch_config,
-                    &request.run_context,
-                    phase_force.as_mut(),
-                    &mut branch_trace,
-                )?;
-                first_phase_difference(&base_trace, &branch_trace, day)
+                let storage_result = if matches!(
+                    base_start.profile,
+                    SimulationRunnerSelection::M3p | SimulationRunnerSelection::M3pPropagation
+                ) {
+                    locate_m3p_storage_day_divergence(
+                        base_start,
+                        branch_start,
+                        &request.config,
+                        &branch_config,
+                        &request.run_context,
+                        request.execution,
+                        day,
+                        phase_force,
+                    )?
+                } else {
+                    None
+                };
+                if storage_result.is_some() {
+                    storage_result
+                } else {
+                    let mut base_trace = Vec::new();
+                    let mut branch_trace = Vec::new();
+                    base_start.record_reference_day(
+                        &request.config,
+                        &request.run_context,
+                        None,
+                        &mut base_trace,
+                    )?;
+                    let mut phase_force = match request.intervention {
+                        BranchIntervention::ForcedAction { agent_id, action } => {
+                            Some(ForcedActionDirective::new(agent_id, action, day))
+                        }
+                        _ => None,
+                    };
+                    branch_start.record_reference_day(
+                        &branch_config,
+                        &request.run_context,
+                        phase_force.as_mut(),
+                        &mut branch_trace,
+                    )?;
+                    first_phase_difference(&base_trace, &branch_trace, day)
+                }
             };
         }
         daily_differences.push(difference);
@@ -2149,5 +2665,117 @@ mod tests {
             true,
         );
         assert_eq!(fast, canonical);
+    }
+
+    #[test]
+    fn storage_phase_locator_matches_reference_for_m3p_execution_options() {
+        for (with_propagation, execution, shuffled_branch_slots) in [
+            (false, BranchExecutionOption::Serial, false),
+            (false, BranchExecutionOption::IncrementalTopology, false),
+            (true, BranchExecutionOption::Serial, false),
+            (true, BranchExecutionOption::IncrementalTopology, false),
+            (false, BranchExecutionOption::Serial, true),
+        ] {
+            let mut config = crate::config::SimConfig::parse_and_validate(include_str!(
+                "../tests/fixtures/m3p_propagation_sustained.toml"
+            ))
+            .unwrap();
+            if !with_propagation {
+                config.simulation = None;
+                config.propagation = None;
+            }
+            config.validate().unwrap();
+            let run_context =
+                M0RunContext::new(config.world.master_seed, config.world.replicate_id);
+            let world = crate::initialization::initialize_world(&config).unwrap();
+            let metadata = SnapshotMetadata::new(
+                world.current_day.as_u32(),
+                run_context.master_seed,
+                run_context.replicate_id,
+                DEFAULT_MODEL_VERSION,
+                DEFAULT_CONFIG_VERSION,
+            );
+            let snapshot = if with_propagation {
+                let state =
+                    crate::m3pprop::M3pPropagationReferenceState::new(world, &config, &run_context)
+                        .unwrap();
+                crate::m3pprop::encode_m3pprop_snapshot(&state, &metadata).unwrap()
+            } else {
+                let state = M3pReferenceState::new(world, &config, &run_context).unwrap();
+                crate::m3p::encode_m3p_snapshot(&state, &metadata).unwrap()
+            };
+            let mut branch_config = config.clone();
+            apply_config_override(
+                &mut branch_config,
+                ConfigParameter::BirthProbability,
+                ConfigValue::F32(1.0),
+            )
+            .unwrap();
+            let request = BranchRequest {
+                snapshot: snapshot.clone(),
+                config: config.clone(),
+                run_context,
+                intervention: BranchIntervention::ConfigOverride {
+                    parameter: ConfigParameter::BirthProbability,
+                    value: ConfigValue::F32(1.0),
+                },
+                horizon_days: 1,
+                execution,
+                snapshot_days: Vec::new(),
+            };
+            let result = run_counterfactual_branch(&request).unwrap();
+
+            let mut base_runtime =
+                BranchRuntime::restore(&snapshot, &config, &run_context, execution).unwrap();
+            let mut branch_runtime =
+                BranchRuntime::restore(&snapshot, &branch_config, &run_context, execution).unwrap();
+            let base_start = base_runtime.start_state();
+            let mut branch_start = branch_runtime.start_state();
+            if shuffled_branch_slots {
+                let storage = branch_start.world.segmented_storage.as_ref().unwrap();
+                let mut agents = storage.to_agents();
+                agents.reverse();
+                branch_start.world.segmented_storage =
+                    Some(SegmentedAgentStorage::from_agents(&agents));
+            }
+            let mut base_trace = Vec::new();
+            let mut branch_trace = Vec::new();
+            base_start
+                .record_reference_day(&config, &run_context, None, &mut base_trace)
+                .unwrap();
+            branch_start
+                .record_reference_day(&branch_config, &run_context, None, &mut branch_trace)
+                .unwrap();
+            let reference_result = first_phase_difference(&base_trace, &branch_trace, 0);
+            let storage_result = if shuffled_branch_slots {
+                locate_m3p_storage_day_divergence(
+                    &base_start,
+                    &branch_start,
+                    &config,
+                    &branch_config,
+                    &run_context,
+                    execution,
+                    0,
+                    None,
+                )
+                .unwrap()
+            } else {
+                result.first_divergence.clone()
+            };
+            assert_eq!(
+                storage_result, reference_result,
+                "propagation={with_propagation}, execution={execution:?}, shuffled={shuffled_branch_slots}"
+            );
+            assert!(
+                result
+                    .first_divergence
+                    .as_ref()
+                    .is_some_and(|difference| difference.slot
+                        == RecordedSlot::Hook(crate::system_registry::RegisteredHook {
+                            system_id: SystemId::PopulationDynamics,
+                            slot: crate::system_registry::PhaseSlot::Phase9B,
+                        }))
+            );
+        }
     }
 }
