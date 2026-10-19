@@ -1,6 +1,7 @@
 //! M3-08 population dynamics reference path.
 
 use crate::config::{SimConfig, SimulationProfile};
+use crate::counterfactual::{ForcedActionDirective, PhaseComponentHashes, record_phase_components};
 use crate::decision::phase4_primary_action_selection_into;
 use crate::events::{
     Event, EventBuffer, EventKey, EventRecord, GLOBAL_PARTITION_KEY, ObservationEvent,
@@ -9,6 +10,7 @@ use crate::events::{
     phase11_flush_events,
 };
 use crate::features::phase3_observation_and_features_into;
+use crate::hashing::canonical_m3p_metrics_hash;
 use crate::intents::{
     Intent, M3Phase4SlotProjection, count_cross_partition_interactions_per_day,
     generate_intents_m3_into,
@@ -28,7 +30,8 @@ use crate::resolution::{
 };
 use crate::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext, M0RunError,
-    RegisteredCorePhase, run_registered_world_day_loop,
+    RegisteredCorePhase, RegisteredWorldBoundary, run_registered_world_day_loop,
+    run_registered_world_day_loop_with_recorder,
 };
 use crate::snapshot::{
     CanonicalSnapshot, SNAPSHOT_MAGIC, SnapshotError, SnapshotMetadata, decode_snapshot,
@@ -429,7 +432,53 @@ pub fn run_m3p_reference_day(
     run_context: &M0RunContext,
     options: &DayExecutionOptions,
 ) -> Result<M3pDayOutcome, M0RunError> {
-    run_m3p_reference_day_registered(state, config, run_context, options, None)
+    run_m3p_reference_day_registered(state, config, run_context, options, None, None, None, None)
+}
+
+pub(crate) fn run_m3p_reference_day_with_phase_recorder(
+    state: &mut M3pReferenceState,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    options: &DayExecutionOptions,
+    forced_action: Option<&mut ForcedActionDirective>,
+    records: &mut Vec<PhaseComponentHashes>,
+) -> Result<M3pDayOutcome, M0RunError> {
+    run_m3p_reference_day_registered(
+        state,
+        config,
+        run_context,
+        options,
+        None,
+        forced_action,
+        Some(records),
+        None,
+    )
+}
+
+pub(crate) type M3pReferenceRecorderOverlay<'a> =
+    dyn FnMut(Option<&M3pDailyMetrics>, &mut PhaseComponentHashes) -> Result<(), M0RunError> + 'a;
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_m3p_reference_day_with_post_phase9c_recorder(
+    state: &mut M3pReferenceState,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    options: &DayExecutionOptions,
+    post_phase9c: &mut M3pReferencePhase9cHook<'_>,
+    forced_action: Option<&mut ForcedActionDirective>,
+    records: &mut Vec<PhaseComponentHashes>,
+    overlay: &mut M3pReferenceRecorderOverlay<'_>,
+) -> Result<M3pDayOutcome, M0RunError> {
+    run_m3p_reference_day_registered(
+        state,
+        config,
+        run_context,
+        options,
+        Some(post_phase9c),
+        forced_action,
+        Some(records),
+        Some(overlay),
+    )
 }
 
 type M3pReferencePhase9cHook<'a> =
@@ -442,15 +491,28 @@ pub(crate) fn run_m3p_reference_day_with_post_phase9c_registered(
     options: &DayExecutionOptions,
     post_phase9c: &mut M3pReferencePhase9cHook<'_>,
 ) -> Result<M3pDayOutcome, M0RunError> {
-    run_m3p_reference_day_registered(state, config, run_context, options, Some(post_phase9c))
+    run_m3p_reference_day_registered(
+        state,
+        config,
+        run_context,
+        options,
+        Some(post_phase9c),
+        None,
+        None,
+        None,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_m3p_reference_day_registered(
     state: &mut M3pReferenceState,
     config: &SimConfig,
     run_context: &M0RunContext,
     options: &DayExecutionOptions,
     mut post_phase9c: Option<&mut M3pReferencePhase9cHook<'_>>,
+    forced_action: Option<&mut ForcedActionDirective>,
+    mut recorder: Option<&mut Vec<PhaseComponentHashes>>,
+    mut recorder_overlay: Option<&mut M3pReferenceRecorderOverlay<'_>>,
 ) -> Result<M3pDayOutcome, M0RunError> {
     state.validate_for(config, run_context)?;
     let M3pReferenceState {
@@ -467,6 +529,7 @@ fn run_m3p_reference_day_registered(
         relationship_graph,
         next_agent_id,
         options,
+        forced_action,
     );
     let enabled_systems: &[SystemId] = if post_phase9c.is_some() {
         &[
@@ -481,33 +544,89 @@ fn run_m3p_reference_day_registered(
         enabled_systems,
         execution: SystemExecutionOptions::default(),
     };
-    let mut outcomes = run_registered_world_day_loop(
-        world,
-        &mut day_state,
-        &run_options,
-        1,
-        |day, phase, hooks, world, state, _| state.run_core_phase(day, phase, hooks, world),
-        |day, hook, world, state, execution| {
-            if hook.system_id == SystemId::Propagation && hook.slot == PhaseSlot::Phase9C {
-                let phase9b = state
-                    .phase9b
+    let mut outcomes = if let Some(records) = recorder.take() {
+        run_registered_world_day_loop_with_recorder(
+            world,
+            &mut day_state,
+            &run_options,
+            1,
+            |day, phase, hooks, world, state, _| state.run_core_phase(day, phase, hooks, world),
+            |day, hook, world, state, execution| {
+                if hook.system_id == SystemId::Propagation && hook.slot == PhaseSlot::Phase9C {
+                    let phase9b = state
+                        .phase9b
+                        .as_ref()
+                        .expect("Phase 9b hook runs before Phase 9c");
+                    let newborn_ids: Vec<_> =
+                        phase9b.births.iter().map(|birth| birth.child).collect();
+                    post_phase9c
+                        .as_deref_mut()
+                        .ok_or_else(|| invariant("registered Phase 9c hook has no callback"))?(
+                        world,
+                        state.relationship_graph,
+                        &newborn_ids,
+                        state.executed_day,
+                    )
+                } else {
+                    state.run_system_hook(day, hook, world, execution)
+                }
+            },
+            |_, world, state| state.finish_day(world),
+            &mut |boundary: RegisteredWorldBoundary, world, state| {
+                let metrics = state
+                    .metrics
                     .as_ref()
-                    .expect("Phase 9b hook runs before Phase 9c");
-                let newborn_ids: Vec<_> = phase9b.births.iter().map(|birth| birth.child).collect();
-                post_phase9c
-                    .as_deref_mut()
-                    .ok_or_else(|| invariant("registered Phase 9c hook has no callback"))?(
+                    .map(|metrics| {
+                        canonical_m3p_metrics_hash(std::slice::from_ref(metrics)).map_err(|error| {
+                            invariant(format!("phase recorder metrics hash failed: {error}"))
+                        })
+                    })
+                    .transpose()?;
+                let mut components = record_phase_components(
+                    boundary,
                     world,
                     state.relationship_graph,
-                    &newborn_ids,
-                    state.executed_day,
-                )
-            } else {
-                state.run_system_hook(day, hook, world, execution)
-            }
-        },
-        |_, world, state| state.finish_day(world),
-    )?;
+                    Some(*state.next_agent_id),
+                    None,
+                    metrics,
+                )?;
+                if let Some(overlay) = recorder_overlay.as_deref_mut() {
+                    overlay(state.metrics.as_ref(), &mut components)?;
+                }
+                records.push(components);
+                Ok(())
+            },
+        )?
+    } else {
+        run_registered_world_day_loop(
+            world,
+            &mut day_state,
+            &run_options,
+            1,
+            |day, phase, hooks, world, state, _| state.run_core_phase(day, phase, hooks, world),
+            |day, hook, world, state, execution| {
+                if hook.system_id == SystemId::Propagation && hook.slot == PhaseSlot::Phase9C {
+                    let phase9b = state
+                        .phase9b
+                        .as_ref()
+                        .expect("Phase 9b hook runs before Phase 9c");
+                    let newborn_ids: Vec<_> =
+                        phase9b.births.iter().map(|birth| birth.child).collect();
+                    post_phase9c
+                        .as_deref_mut()
+                        .ok_or_else(|| invariant("registered Phase 9c hook has no callback"))?(
+                        world,
+                        state.relationship_graph,
+                        &newborn_ids,
+                        state.executed_day,
+                    )
+                } else {
+                    state.run_system_hook(day, hook, world, execution)
+                }
+            },
+            |_, world, state| state.finish_day(world),
+        )?
+    };
     Ok(outcomes.remove(0))
 }
 
@@ -520,6 +639,7 @@ struct M3pRegisteredReferenceDay<'a> {
     run_context: M0RunContext,
     relationship_graph: &'a mut RelationshipGraph,
     next_agent_id: &'a mut u64,
+    forced_action: Option<&'a mut ForcedActionDirective>,
     options: DayExecutionOptions,
     executed_day: u32,
     next_day: u32,
@@ -547,6 +667,7 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
         relationship_graph: &'a mut RelationshipGraph,
         next_agent_id: &'a mut u64,
         options: &DayExecutionOptions,
+        forced_action: Option<&'a mut ForcedActionDirective>,
     ) -> Self {
         let mut effective_config = config.clone();
         effective_config.world.master_seed = run_context.master_seed;
@@ -556,6 +677,7 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
             run_context: *run_context,
             relationship_graph,
             next_agent_id,
+            forced_action,
             options: *options,
             executed_day: 0,
             next_day: 0,
@@ -610,6 +732,9 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
                     &self.features,
                     &mut self.choices,
                 )?;
+                if let Some(forced_action) = self.forced_action.as_deref_mut() {
+                    forced_action.apply_choices(self.executed_day, &mut self.choices);
+                }
             }
             RegisteredCorePhase::Phase5 => {
                 self.partitions = phase5_partition_intents_baseline(&self.intents)?;
@@ -655,6 +780,9 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
                     self.relationship_graph,
                     &mut self.intents,
                 )?;
+                if let Some(forced_action) = self.forced_action.as_deref_mut() {
+                    forced_action.observe_intents(self.executed_day, &self.intents);
+                }
                 self.cross_partition_interaction_count =
                     count_cross_partition_interactions_per_day(&self.intents, world)?;
                 Ok(())

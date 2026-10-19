@@ -3,6 +3,7 @@
 
 pub mod commands;
 pub mod config;
+pub mod counterfactual;
 pub mod decision;
 pub mod events;
 pub mod features;
@@ -33,6 +34,12 @@ pub use config::{
     InteractionConfig, PopulationConfig, PropagationConfig, SimConfig, SimulationConfig,
     SimulationProfile, SimulationRunManifest, SimulationRunnerSelection, SimulationSystems,
     TraitConfig, WorldConfig,
+};
+pub use counterfactual::{
+    AgentField, AgentFieldValue, AgentMatchKey, BranchDayRecord, BranchError, BranchEventsRecord,
+    BranchExecutionOption, BranchIntervention, BranchMetricsRecord, BranchRequest, BranchResult,
+    ConfigParameter, ConfigValue, DailyDifference, FirstDivergence, ForcedActionOutcome,
+    RecordedSlot, run_counterfactual_branch,
 };
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,

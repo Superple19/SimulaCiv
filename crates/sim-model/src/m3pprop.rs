@@ -3,12 +3,16 @@
 use crate::config::{
     PropagationConfig, SimConfig, SimulationConfig, SimulationProfile, SimulationSystems,
 };
+use crate::counterfactual::{ForcedActionDirective, PhaseComponentHashes, hash_propagation_rows};
 use crate::events::{Event, EventKey, GLOBAL_PARTITION_KEY, ObservationEvent};
-use crate::hashing::{CanonicalHash, CanonicalHashError, canonical_m3pprop_state_hash};
+use crate::hashing::{
+    CanonicalHash, CanonicalHashError, canonical_m3pprop_metrics_hash, canonical_m3pprop_state_hash,
+};
 #[cfg(test)]
 use crate::m3p::run_m3p_reference_day_with_post_phase9b;
 use crate::m3p::{
-    M3pEvent, M3pEventRecord, M3pReferenceState, decode_m3p_snapshot, encode_m3p_snapshot,
+    M3pEvent, M3pEventRecord, M3pReferenceRecorderOverlay, M3pReferenceState, decode_m3p_snapshot,
+    encode_m3p_snapshot, run_m3p_reference_day_with_post_phase9c_recorder,
     run_m3p_reference_day_with_post_phase9c_registered,
 };
 use crate::m3prop::M3PROP_SNAPSHOT_SCHEMA_VERSION;
@@ -21,6 +25,7 @@ use crate::snapshot::{CanonicalSnapshot, SNAPSHOT_MAGIC, SnapshotError, Snapshot
 use crate::state::WorldState;
 use crate::storage::SegmentedAgentStorage;
 use sim_core::AgentId;
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -200,6 +205,96 @@ pub fn run_m3pprop_reference_day(
         options,
         executed_day,
         propagation_counts.expect("Phase 9c callback runs once per day"),
+        outcome,
+    )
+}
+
+pub(crate) fn run_m3pprop_reference_day_with_phase_recorder(
+    state: &mut M3pPropagationReferenceState,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    options: &DayExecutionOptions,
+    forced_action: Option<&mut ForcedActionDirective>,
+    records: &mut Vec<PhaseComponentHashes>,
+) -> Result<M3pPropagationDayOutcome, M0RunError> {
+    state.validate_for(config, run_context)?;
+    let executed_day = state.world().current_day.as_u32();
+    let base_config = m3p_base_config(config);
+    let mut base_options = *options;
+    base_options.snapshot_boundary = false;
+    let (outcome, propagation_counts) = {
+        let M3pPropagationReferenceState {
+            base,
+            propagation,
+            propagation_config,
+        } = state;
+        let propagation_cell = RefCell::new(std::mem::take(propagation));
+        let counts_cell = RefCell::new(None);
+        let outcome = {
+            let mut apply_propagation = |world: &WorldState,
+                                         graph: &RelationshipGraph,
+                                         newborn_ids: &[AgentId],
+                                         day: u32|
+             -> Result<(), M0RunError> {
+                sync_propagation_rows(world, &mut propagation_cell.borrow_mut());
+                let counts = apply_phase9c_m3p(
+                    world,
+                    graph,
+                    &mut propagation_cell.borrow_mut(),
+                    *propagation_config,
+                    run_context.master_seed,
+                    run_context.replicate_id,
+                    day,
+                    newborn_ids,
+                )
+                .map_err(invariant)?;
+                *counts_cell.borrow_mut() = Some(counts);
+                Ok(())
+            };
+            let mut overlay: &mut M3pReferenceRecorderOverlay<'_> = &mut |base_metrics, record| {
+                record.propagation = Some(hash_propagation_rows(&propagation_cell.borrow()));
+                if let (Some(base_metrics), Some(propagation_counts)) =
+                    (base_metrics, *counts_cell.borrow())
+                {
+                    let metrics = M3pPropagationDailyMetrics {
+                        m3p_metrics: base_metrics.clone(),
+                        propagation: propagation_counts,
+                    };
+                    record.metrics_so_far = Some(
+                        canonical_m3pprop_metrics_hash(std::slice::from_ref(&metrics)).map_err(
+                            |error| {
+                                invariant(format!(
+                                    "phase recorder M3PPROP metrics hash failed: {error}"
+                                ))
+                            },
+                        )?,
+                    );
+                }
+                Ok(())
+            };
+            run_m3p_reference_day_with_post_phase9c_recorder(
+                base,
+                &base_config,
+                run_context,
+                &base_options,
+                &mut apply_propagation,
+                forced_action,
+                records,
+                &mut overlay,
+            )?
+        };
+        let counts = counts_cell
+            .into_inner()
+            .expect("Phase 9c callback runs once per day");
+        *propagation = propagation_cell.into_inner();
+        (outcome, counts)
+    };
+    finish_m3pprop_reference_day(
+        state,
+        run_context,
+        options,
+        executed_day,
+        propagation_counts,
         outcome,
     )
 }

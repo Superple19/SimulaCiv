@@ -18,6 +18,7 @@ use crate::config::{
     PropagationConfig, SimConfig, SimulationProfile, SimulationRunManifest,
     SimulationRunnerSelection,
 };
+use crate::counterfactual::{ForcedActionDirective, PhaseComponentHashes, record_phase_components};
 use crate::decision::{
     DecisionError, PrimaryActionChoice, phase4_primary_action_selection_into,
     phase4_primary_action_selection_storage_into,
@@ -33,6 +34,7 @@ use crate::features::{
     AgentFeatures, Phase3Error, Phase3ScarcityScratch, phase3_observation_and_features_into,
     phase3_observation_and_features_storage_with_scratch,
 };
+use crate::hashing::canonical_m3_metrics_hash;
 use crate::intents::{
     CrossPartitionCountError, Intent, IntentError, M3Phase4GlobalEligibility,
     M3Phase4SlotProjection, Phase4CandidateIndexScratch,
@@ -266,9 +268,9 @@ pub fn run_registered_world_day_loop<C, T, Core, Hook, Finish>(
     context: &mut C,
     run_options: &RegisteredSystemRunOptions<'_>,
     days: u32,
-    mut run_core_phase: Core,
-    mut run_hook: Hook,
-    mut finish_day: Finish,
+    run_core_phase: Core,
+    run_hook: Hook,
+    finish_day: Finish,
 ) -> Result<Vec<T>, M0RunError>
 where
     Core: FnMut(
@@ -288,24 +290,158 @@ where
     ) -> Result<(), M0RunError>,
     Finish: FnMut(u32, &mut WorldState, &mut C) -> Result<T, M0RunError>,
 {
+    run_registered_world_day_loop_impl(
+        world,
+        context,
+        run_options,
+        days,
+        run_core_phase,
+        run_hook,
+        finish_day,
+        &mut NoWorldBoundaryRecorder,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RegisteredWorldBoundary {
+    Core(RegisteredCorePhase),
+    Hook(RegisteredHook),
+}
+
+trait WorldBoundaryRecorder<C> {
+    fn record(
+        &mut self,
+        boundary: RegisteredWorldBoundary,
+        world: &WorldState,
+        context: &C,
+    ) -> Result<(), M0RunError>;
+}
+
+struct NoWorldBoundaryRecorder;
+
+impl<C> WorldBoundaryRecorder<C> for NoWorldBoundaryRecorder {
+    #[inline(always)]
+    fn record(
+        &mut self,
+        _boundary: RegisteredWorldBoundary,
+        _world: &WorldState,
+        _context: &C,
+    ) -> Result<(), M0RunError> {
+        Ok(())
+    }
+}
+
+struct CallbackWorldBoundaryRecorder<'a, F>(&'a mut F);
+
+impl<C, F> WorldBoundaryRecorder<C> for CallbackWorldBoundaryRecorder<'_, F>
+where
+    F: FnMut(RegisteredWorldBoundary, &WorldState, &C) -> Result<(), M0RunError>,
+{
+    #[inline]
+    fn record(
+        &mut self,
+        boundary: RegisteredWorldBoundary,
+        world: &WorldState,
+        context: &C,
+    ) -> Result<(), M0RunError> {
+        (self.0)(boundary, world, context)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_registered_world_day_loop_with_recorder<C, T, Core, Hook, Finish, Record>(
+    world: &mut WorldState,
+    context: &mut C,
+    run_options: &RegisteredSystemRunOptions<'_>,
+    days: u32,
+    run_core_phase: Core,
+    run_hook: Hook,
+    finish_day: Finish,
+    recorder: &mut Record,
+) -> Result<Vec<T>, M0RunError>
+where
+    Core: FnMut(
+        u32,
+        RegisteredCorePhase,
+        &[RegisteredHook],
+        &mut WorldState,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Hook: FnMut(
+        u32,
+        RegisteredHook,
+        &mut WorldState,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Finish: FnMut(u32, &mut WorldState, &mut C) -> Result<T, M0RunError>,
+    Record: FnMut(RegisteredWorldBoundary, &WorldState, &C) -> Result<(), M0RunError>,
+{
+    run_registered_world_day_loop_impl(
+        world,
+        context,
+        run_options,
+        days,
+        run_core_phase,
+        run_hook,
+        finish_day,
+        &mut CallbackWorldBoundaryRecorder(recorder),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_registered_world_day_loop_impl<C, T, Core, Hook, Finish, Recorder>(
+    world: &mut WorldState,
+    context: &mut C,
+    run_options: &RegisteredSystemRunOptions<'_>,
+    days: u32,
+    mut run_core_phase: Core,
+    mut run_hook: Hook,
+    mut finish_day: Finish,
+    recorder: &mut Recorder,
+) -> Result<Vec<T>, M0RunError>
+where
+    Core: FnMut(
+        u32,
+        RegisteredCorePhase,
+        &[RegisteredHook],
+        &mut WorldState,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Hook: FnMut(
+        u32,
+        RegisteredHook,
+        &mut WorldState,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Finish: FnMut(u32, &mut WorldState, &mut C) -> Result<T, M0RunError>,
+    Recorder: WorldBoundaryRecorder<C>,
+{
     let hooks = registered_hooks(run_options.enabled_systems)?;
     for &hook in hooks
         .iter()
         .filter(|hook| hook.slot == PhaseSlot::Initialization)
     {
         run_hook(0, hook, world, context, &run_options.execution)?;
+        recorder.record(RegisteredWorldBoundary::Hook(hook), world, context)?;
     }
     let mut outcomes = Vec::with_capacity(days as usize);
     for day in 0..days {
         for &phase in REGISTERED_CORE_PHASES {
             run_core_phase(day, phase, &hooks, world, context, &run_options.execution)?;
+            recorder.record(RegisteredWorldBoundary::Core(phase), world, context)?;
             if let Some(slot) = extension_slot_for_core_phase(phase) {
                 for &hook in hooks.iter().filter(|hook| hook.slot == slot) {
                     run_hook(day, hook, world, context, &run_options.execution)?;
+                    recorder.record(RegisteredWorldBoundary::Hook(hook), world, context)?;
                 }
                 if phase == RegisteredCorePhase::Phase9 {
                     for &hook in hooks.iter().filter(|hook| hook.slot == PhaseSlot::Phase9C) {
                         run_hook(day, hook, world, context, &run_options.execution)?;
+                        recorder.record(RegisteredWorldBoundary::Hook(hook), world, context)?;
                     }
                 }
             }
@@ -562,6 +698,18 @@ impl M3PropagationStorageRunContext {
             storage_context,
             propagation,
         })
+    }
+
+    /// Rebuilds transient storage projections while retaining restored reference propagation rows.
+    pub fn from_reference_state(
+        hybrid_world: &HybridWorldState,
+        config: &SimConfig,
+        run_context: &M0RunContext,
+        reference: &M3PropagationReferenceState,
+    ) -> Result<Self, M0RunError> {
+        let mut context = Self::new(hybrid_world, config, run_context)?;
+        context.propagation.clone_from(reference.propagation());
+        Ok(context)
     }
 
     pub fn propagation(&self) -> &BTreeMap<AgentId, PropagationAgentState> {
@@ -1167,6 +1315,16 @@ impl M3ReferenceContext {
         })
     }
 
+    pub(crate) fn from_relationship_graph(
+        relationship_graph: RelationshipGraph,
+        run_context: &M0RunContext,
+    ) -> Self {
+        Self {
+            run_context: *run_context,
+            relationship_graph,
+        }
+    }
+
     pub fn relationship_graph(&self) -> &RelationshipGraph {
         &self.relationship_graph
     }
@@ -1574,7 +1732,53 @@ pub fn run_m3_reference_day(
     context: &M3ReferenceContext,
     options: &DayExecutionOptions,
 ) -> Result<M3DayOutcome, M0RunError> {
-    run_m3_reference_day_registered(world, config, context, options, None)
+    run_m3_reference_day_registered(world, config, context, options, None, None, None, None)
+}
+
+pub(crate) fn run_m3_reference_day_with_phase_recorder(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M3ReferenceContext,
+    options: &DayExecutionOptions,
+    forced_action: Option<&mut ForcedActionDirective>,
+    records: &mut Vec<PhaseComponentHashes>,
+) -> Result<M3DayOutcome, M0RunError> {
+    run_m3_reference_day_registered(
+        world,
+        config,
+        context,
+        options,
+        None,
+        forced_action,
+        Some(records),
+        None,
+    )
+}
+
+pub(crate) type M3ReferenceRecorderOverlay<'a> =
+    dyn FnMut(Option<&M3DailyMetrics>, &mut PhaseComponentHashes) -> Result<(), M0RunError> + 'a;
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_m3_reference_day_with_post_phase9c_recorder(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M3ReferenceContext,
+    options: &DayExecutionOptions,
+    post_phase9c: &mut M3ReferencePhase9cHook<'_>,
+    forced_action: Option<&mut ForcedActionDirective>,
+    records: &mut Vec<PhaseComponentHashes>,
+    overlay: &mut M3ReferenceRecorderOverlay<'_>,
+) -> Result<M3DayOutcome, M0RunError> {
+    run_m3_reference_day_registered(
+        world,
+        config,
+        context,
+        options,
+        Some(post_phase9c),
+        forced_action,
+        Some(records),
+        Some(overlay),
+    )
 }
 
 type M3ReferencePhase9cHook<'a> = dyn FnMut(&mut WorldState, u32) -> Result<(), M0RunError> + 'a;
@@ -1586,18 +1790,31 @@ pub(crate) fn run_m3_reference_day_with_post_phase9c_registered(
     options: &DayExecutionOptions,
     post_phase9c: &mut M3ReferencePhase9cHook<'_>,
 ) -> Result<M3DayOutcome, M0RunError> {
-    run_m3_reference_day_registered(world, config, context, options, Some(post_phase9c))
+    run_m3_reference_day_registered(
+        world,
+        config,
+        context,
+        options,
+        Some(post_phase9c),
+        None,
+        None,
+        None,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_m3_reference_day_registered(
     world: &mut WorldState,
     config: &SimConfig,
     context: &M3ReferenceContext,
     options: &DayExecutionOptions,
     mut post_phase9c: Option<&mut M3ReferencePhase9cHook<'_>>,
+    forced_action: Option<&mut ForcedActionDirective>,
+    mut recorder: Option<&mut Vec<PhaseComponentHashes>>,
+    mut recorder_overlay: Option<&mut M3ReferenceRecorderOverlay<'_>>,
 ) -> Result<M3DayOutcome, M0RunError> {
     ensure_m3_profile(config)?;
-    let mut state = M3ReferenceRegisteredDay::new(config, context, options);
+    let mut state = M3ReferenceRegisteredDay::new(config, context, options, forced_action);
     let enabled_systems: &[SystemId] = if post_phase9c.is_some() {
         &[SystemId::RelationshipGraph, SystemId::Propagation]
     } else {
@@ -1607,25 +1824,67 @@ fn run_m3_reference_day_registered(
         enabled_systems,
         execution: SystemExecutionOptions::default(),
     };
-    let mut outcomes = run_registered_world_day_loop(
-        world,
-        &mut state,
-        &run_options,
-        1,
-        |day, phase, hooks, world, state, _| state.run_core_phase(day, phase, hooks, world),
-        |day, hook, world, state, _| {
-            if hook.system_id == SystemId::Propagation && hook.slot == PhaseSlot::Phase9C {
-                post_phase9c.as_deref_mut().ok_or_else(|| {
-                    M0RunError::InvariantViolation(
-                        "registered Phase 9c hook has no callback".into(),
-                    )
-                })?(world, state.executed_day)
-            } else {
-                state.run_system_hook(day, hook, world)
-            }
-        },
-        |_, world, state| state.finish_day(world),
-    )?;
+    let mut outcomes = if let Some(records) = recorder.take() {
+        run_registered_world_day_loop_with_recorder(
+            world,
+            &mut state,
+            &run_options,
+            1,
+            |day, phase, hooks, world, state, _| state.run_core_phase(day, phase, hooks, world),
+            |day, hook, world, state, _| {
+                if hook.system_id == SystemId::Propagation && hook.slot == PhaseSlot::Phase9C {
+                    post_phase9c.as_deref_mut().ok_or_else(|| {
+                        M0RunError::InvariantViolation(
+                            "registered Phase 9c hook has no callback".into(),
+                        )
+                    })?(world, state.executed_day)
+                } else {
+                    state.run_system_hook(day, hook, world)
+                }
+            },
+            |_, world, state| state.finish_day(world),
+            &mut |boundary, world, state| {
+                let metrics = state
+                    .metrics
+                    .as_ref()
+                    .map(|metrics| {
+                        canonical_m3_metrics_hash(std::slice::from_ref(metrics)).map_err(|error| {
+                            M0RunError::InvariantViolation(format!(
+                                "phase recorder metrics hash failed: {error}"
+                            ))
+                        })
+                    })
+                    .transpose()?;
+                let mut components =
+                    record_phase_components(boundary, world, state.graph, None, None, metrics)?;
+                if let Some(overlay) = recorder_overlay.as_deref_mut() {
+                    overlay(state.metrics.as_ref(), &mut components)?;
+                }
+                records.push(components);
+                Ok(())
+            },
+        )?
+    } else {
+        run_registered_world_day_loop(
+            world,
+            &mut state,
+            &run_options,
+            1,
+            |day, phase, hooks, world, state, _| state.run_core_phase(day, phase, hooks, world),
+            |day, hook, world, state, _| {
+                if hook.system_id == SystemId::Propagation && hook.slot == PhaseSlot::Phase9C {
+                    post_phase9c.as_deref_mut().ok_or_else(|| {
+                        M0RunError::InvariantViolation(
+                            "registered Phase 9c hook has no callback".into(),
+                        )
+                    })?(world, state.executed_day)
+                } else {
+                    state.run_system_hook(day, hook, world)
+                }
+            },
+            |_, world, state| state.finish_day(world),
+        )?
+    };
     Ok(outcomes.remove(0))
 }
 
@@ -1633,6 +1892,7 @@ struct M3ReferenceRegisteredDay<'a> {
     effective_config: SimConfig,
     run_context: M0RunContext,
     graph: &'a RelationshipGraph,
+    forced_action: Option<&'a mut ForcedActionDirective>,
     options: DayExecutionOptions,
     executed_day: u32,
     next_day: u32,
@@ -1657,6 +1917,7 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
         config: &SimConfig,
         context: &'a M3ReferenceContext,
         options: &DayExecutionOptions,
+        forced_action: Option<&'a mut ForcedActionDirective>,
     ) -> Self {
         let mut effective_config = config.clone();
         effective_config.world.master_seed = context.run_context.master_seed;
@@ -1665,6 +1926,7 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
             effective_config,
             run_context: context.run_context,
             graph: &context.relationship_graph,
+            forced_action,
             options: *options,
             executed_day: 0,
             next_day: 0,
@@ -1718,6 +1980,9 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
                     &self.features,
                     &mut self.choices,
                 )?;
+                if let Some(forced_action) = self.forced_action.as_deref_mut() {
+                    forced_action.apply_choices(self.executed_day, &mut self.choices);
+                }
             }
             RegisteredCorePhase::Phase5 => {
                 self.partitions = phase5_partition_intents_baseline(&self.intents)?;
@@ -1762,6 +2027,9 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
                     self.graph,
                     &mut self.intents,
                 )?;
+                if let Some(forced_action) = self.forced_action.as_deref_mut() {
+                    forced_action.observe_intents(self.executed_day, &self.intents);
+                }
                 self.cross_partition_interaction_count =
                     count_cross_partition_interactions_per_day(&self.intents, world)?;
                 Ok(())
@@ -2069,7 +2337,29 @@ pub fn run_m3_storage_days(
         options,
         M3StoragePhase6BMode::Serial,
         None,
+        None,
     )
+}
+
+pub(crate) fn run_m3_storage_day_with_forced_action(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3StorageRunContext,
+    options: &DayExecutionOptions,
+    forced_action: &mut ForcedActionDirective,
+) -> Result<M3DayOutcome, M0RunError> {
+    context.validate_for(hybrid_world, config)?;
+    Ok(run_m3_storage_days_registered(
+        hybrid_world,
+        config,
+        context,
+        1,
+        options,
+        M3StoragePhase6BMode::Serial,
+        None,
+        Some(forced_action),
+    )?
+    .remove(0))
 }
 
 /// Executes serial M3 storage days with Phase 9c propagation.
@@ -2080,7 +2370,26 @@ pub fn run_m3prop_storage_days(
     days: u32,
     options: &DayExecutionOptions,
 ) -> Result<Vec<M3PropDayOutcome>, M0RunError> {
-    run_m3prop_storage_days_inner(hybrid_world, config, context, days, options, None)
+    run_m3prop_storage_days_inner(hybrid_world, config, context, days, options, None, None)
+}
+
+pub(crate) fn run_m3prop_storage_day_with_forced_action(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3PropagationStorageRunContext,
+    options: &DayExecutionOptions,
+    forced_action: &mut ForcedActionDirective,
+) -> Result<M3PropDayOutcome, M0RunError> {
+    Ok(run_m3prop_storage_days_inner(
+        hybrid_world,
+        config,
+        context,
+        1,
+        options,
+        None,
+        Some(forced_action),
+    )?
+    .remove(0))
 }
 
 pub fn run_m3prop_storage_days_with_parallel_spread(
@@ -2099,6 +2408,7 @@ pub fn run_m3prop_storage_days_with_parallel_spread(
         days,
         options,
         Some((pool, chunk_size)),
+        None,
     )
 }
 
@@ -2109,6 +2419,7 @@ fn run_m3prop_storage_days_inner(
     days: u32,
     options: &DayExecutionOptions,
     parallel: Option<(&ThreadPool, NonZeroUsize)>,
+    forced_action: Option<&mut ForcedActionDirective>,
 ) -> Result<Vec<M3PropDayOutcome>, M0RunError> {
     validate_m3prop_runner_config(config)?;
     let base_config = m3_base_config(config);
@@ -2141,6 +2452,7 @@ fn run_m3prop_storage_days_inner(
         options,
         phase6b_mode,
         None,
+        forced_action,
     )
     .with_propagation(config, &mut context.propagation);
     run_registered_storage_day_loop(
@@ -2176,9 +2488,36 @@ pub fn run_m3p_storage_days(
             propagation: None,
             propagation_config: None,
             propagation_policy: SystemExecutionPolicy::Serial,
+            forced_action: None,
         },
         |_, storage, state| state.finish_day(storage),
     )
+}
+
+pub(crate) fn run_m3p_storage_day_with_forced_action(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pStorageRunContext,
+    options: &DayExecutionOptions,
+    forced_action: &mut ForcedActionDirective,
+) -> Result<M3pDayOutcome, M0RunError> {
+    context.validate_for(hybrid_world, config)?;
+    Ok(run_m3p_storage_days_registered(
+        hybrid_world,
+        config,
+        context,
+        1,
+        options,
+        M3pStorageExecutionConfig {
+            incremental_topology_scratch: None,
+            propagation: None,
+            propagation_config: None,
+            propagation_policy: SystemExecutionPolicy::Serial,
+            forced_action: Some(forced_action),
+        },
+        |_, storage, state| state.finish_day(storage),
+    )?
+    .remove(0))
 }
 
 /// Executes M3P storage days with the explicit incremental-topology path.
@@ -2201,9 +2540,36 @@ pub fn run_m3p_storage_days_incremental_topology(
             propagation: None,
             propagation_config: None,
             propagation_policy: SystemExecutionPolicy::Serial,
+            forced_action: None,
         },
         |_, storage, state| state.finish_day(storage),
     )
+}
+
+pub(crate) fn run_m3p_storage_day_incremental_with_forced_action(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pIncrementalTopologyStorageRunContext,
+    options: &DayExecutionOptions,
+    forced_action: &mut ForcedActionDirective,
+) -> Result<M3pDayOutcome, M0RunError> {
+    context.storage_context.validate_for(hybrid_world, config)?;
+    Ok(run_m3p_storage_days_registered(
+        hybrid_world,
+        config,
+        &mut context.storage_context,
+        1,
+        options,
+        M3pStorageExecutionConfig {
+            incremental_topology_scratch: Some(&mut context.phase9b_scratch),
+            propagation: None,
+            propagation_config: None,
+            propagation_policy: SystemExecutionPolicy::Serial,
+            forced_action: Some(forced_action),
+        },
+        |_, storage, state| state.finish_day(storage),
+    )?
+    .remove(0))
 }
 
 /// Executes serial M3P storage days with the M3PROP Phase 9c overlay.
@@ -2229,9 +2595,39 @@ pub fn run_m3p_propagation_storage_days(
             propagation: Some(&mut context.propagation),
             propagation_config: Some(config),
             propagation_policy: SystemExecutionPolicy::Serial,
+            forced_action: None,
         },
         |_, storage, state| state.finish_propagation_day(storage),
     )
+}
+
+pub(crate) fn run_m3pprop_storage_day_with_forced_action(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pPropagationStorageRunContext,
+    options: &DayExecutionOptions,
+    forced_action: &mut ForcedActionDirective,
+) -> Result<M3pPropagationDayOutcome, M0RunError> {
+    validate_m3pprop_config(config)?;
+    context
+        .storage_context
+        .validate_for(hybrid_world, &m3p_base_config(config))?;
+    Ok(run_m3p_storage_days_registered(
+        hybrid_world,
+        &m3p_base_config(config),
+        &mut context.storage_context,
+        1,
+        options,
+        M3pStorageExecutionConfig {
+            incremental_topology_scratch: None,
+            propagation: Some(&mut context.propagation),
+            propagation_config: Some(config),
+            propagation_policy: SystemExecutionPolicy::Serial,
+            forced_action: Some(forced_action),
+        },
+        |_, storage, state| state.finish_propagation_day(storage),
+    )?
+    .remove(0))
 }
 
 /// Executes M3P storage days with caller-owned parallel Phase 9c spread.
@@ -2259,6 +2655,7 @@ pub fn run_m3p_propagation_storage_days_with_parallel_spread(
             propagation: Some(&mut context.propagation),
             propagation_config: Some(config),
             propagation_policy: SystemExecutionPolicy::Parallel { pool, chunk_size },
+            forced_action: None,
         },
         |_, storage, state| state.finish_propagation_day(storage),
     )
@@ -2288,9 +2685,40 @@ pub fn run_m3p_propagation_storage_days_incremental_topology(
             propagation: Some(&mut context.propagation),
             propagation_config: Some(config),
             propagation_policy: SystemExecutionPolicy::Serial,
+            forced_action: None,
         },
         |_, storage, state| state.finish_propagation_day(storage),
     )
+}
+
+pub(crate) fn run_m3pprop_storage_day_incremental_with_forced_action(
+    hybrid_world: &mut HybridWorldState,
+    config: &SimConfig,
+    context: &mut M3pPropagationIncrementalTopologyStorageRunContext,
+    options: &DayExecutionOptions,
+    forced_action: &mut ForcedActionDirective,
+) -> Result<M3pPropagationDayOutcome, M0RunError> {
+    validate_m3pprop_config(config)?;
+    context
+        .storage_context
+        .storage_context
+        .validate_for(hybrid_world, &m3p_base_config(config))?;
+    Ok(run_m3p_storage_days_registered(
+        hybrid_world,
+        &m3p_base_config(config),
+        &mut context.storage_context.storage_context,
+        1,
+        options,
+        M3pStorageExecutionConfig {
+            incremental_topology_scratch: Some(&mut context.storage_context.phase9b_scratch),
+            propagation: Some(&mut context.propagation),
+            propagation_config: Some(config),
+            propagation_policy: SystemExecutionPolicy::Serial,
+            forced_action: Some(forced_action),
+        },
+        |_, storage, state| state.finish_propagation_day(storage),
+    )?
+    .remove(0))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2495,6 +2923,7 @@ pub fn run_m3_storage_days_with_search_reduction(
         options,
         M3StoragePhase6BMode::Serial,
         Some(&mut context.scratch),
+        None,
     )
 }
 
@@ -2518,6 +2947,7 @@ pub fn run_m3_storage_days_with_phase6b_timing(
         M3StoragePhase6BMode::SerialTimed {
             timings: &mut phase6b_timings,
         },
+        None,
         None,
     )?;
     Ok((outcomes, phase6b_timings))
@@ -2549,6 +2979,7 @@ pub fn run_m3_storage_days_with_parallel_phase6b(
             pool,
             chunk_size,
         },
+        None,
         None,
     )
 }
@@ -2583,6 +3014,7 @@ pub fn run_m3_storage_days_with_parallel_phase6b_timing(
             timings: &mut phase6b_timings,
         },
         None,
+        None,
     )?;
     Ok((outcomes, phase6b_timings))
 }
@@ -2592,6 +3024,7 @@ struct M3pStorageExecutionConfig<'a> {
     propagation: Option<&'a mut BTreeMap<AgentId, PropagationAgentState>>,
     propagation_config: Option<&'a SimConfig>,
     propagation_policy: SystemExecutionPolicy<'a>,
+    forced_action: Option<&'a mut ForcedActionDirective>,
 }
 
 fn run_m3p_storage_days_registered<T, Finish>(
@@ -2615,6 +3048,7 @@ where
         propagation,
         propagation_config,
         propagation_policy,
+        forced_action,
     } = execution_config;
     let HybridWorldState {
         world,
@@ -2649,6 +3083,7 @@ where
         incremental_topology_scratch,
         propagation,
         propagation_config,
+        forced_action,
     );
     run_registered_storage_day_loop(
         storage,
@@ -2668,6 +3103,7 @@ struct M3pStorageRegisteredDay<'a> {
     options: DayExecutionOptions,
     incremental_topology_scratch: Option<&'a mut M3pIncrementalTopologyScratch>,
     propagation: Option<&'a mut BTreeMap<AgentId, PropagationAgentState>>,
+    forced_action: Option<&'a mut ForcedActionDirective>,
     propagation_config: Option<PropagationConfig>,
     propagation_snapshot_config: Option<SimConfig>,
     executed_day: u32,
@@ -2689,6 +3125,7 @@ struct M3pStorageRegisteredDay<'a> {
 }
 
 impl<'a> M3pStorageRegisteredDay<'a> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         world: &'a mut WorldState,
         config: &SimConfig,
@@ -2697,6 +3134,7 @@ impl<'a> M3pStorageRegisteredDay<'a> {
         incremental_topology_scratch: Option<&'a mut M3pIncrementalTopologyScratch>,
         propagation: Option<&'a mut BTreeMap<AgentId, PropagationAgentState>>,
         propagation_config: Option<&SimConfig>,
+        forced_action: Option<&'a mut ForcedActionDirective>,
     ) -> Self {
         let mut effective_config = config.clone();
         effective_config.world.master_seed = context.run_context.master_seed;
@@ -2708,6 +3146,7 @@ impl<'a> M3pStorageRegisteredDay<'a> {
             options: *options,
             incremental_topology_scratch,
             propagation,
+            forced_action,
             propagation_config: propagation_config.and_then(|config| config.propagation),
             propagation_snapshot_config: propagation_config.cloned(),
             executed_day: 0,
@@ -2767,6 +3206,10 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                     &self.context.features_scratch,
                     &mut self.context.choices_scratch,
                 )?;
+                if let Some(forced_action) = self.forced_action.as_deref_mut() {
+                    forced_action
+                        .apply_choices(self.executed_day, &mut self.context.choices_scratch);
+                }
             }
             RegisteredCorePhase::Phase5 => {
                 self.partitions = phase5_partition_intents_from_vec_with_scratch(
@@ -2827,6 +3270,9 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                     &mut self.context.candidate_scratch,
                     &mut self.context.intents_scratch,
                 )?;
+                if let Some(forced_action) = self.forced_action.as_deref_mut() {
+                    forced_action.observe_intents(self.executed_day, &self.context.intents_scratch);
+                }
                 self.cross_partition_interaction_count =
                     count_cross_partition_interactions_storage_per_day(
                         &self.context.intents_scratch,
@@ -3493,6 +3939,7 @@ enum M3StoragePhase6BMode<'a> {
     },
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_m3_storage_days_registered(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
@@ -3501,6 +3948,7 @@ fn run_m3_storage_days_registered(
     options: &DayExecutionOptions,
     phase6b_mode: M3StoragePhase6BMode<'_>,
     search_reduction_scratch: Option<&mut M3SearchReductionScratch>,
+    forced_action: Option<&mut ForcedActionDirective>,
 ) -> Result<Vec<M3DayOutcome>, M0RunError> {
     let HybridWorldState {
         world,
@@ -3522,6 +3970,7 @@ fn run_m3_storage_days_registered(
         options,
         phase6b_mode,
         search_reduction_scratch,
+        forced_action,
     );
     run_registered_storage_day_loop(
         storage,
@@ -3564,6 +4013,7 @@ struct M3StorageRegisteredDay<'a> {
     options: DayExecutionOptions,
     phase6b_mode: M3StoragePhase6BMode<'a>,
     search_reduction_scratch: Option<&'a mut M3SearchReductionScratch>,
+    forced_action: Option<&'a mut ForcedActionDirective>,
     propagation: Option<&'a mut BTreeMap<AgentId, PropagationAgentState>>,
     propagation_config: Option<PropagationConfig>,
     propagation_snapshot_config: Option<SimConfig>,
@@ -3591,6 +4041,7 @@ impl<'a> M3StorageRegisteredDay<'a> {
         options: &DayExecutionOptions,
         phase6b_mode: M3StoragePhase6BMode<'a>,
         search_reduction_scratch: Option<&'a mut M3SearchReductionScratch>,
+        forced_action: Option<&'a mut ForcedActionDirective>,
     ) -> Self {
         let mut effective_config = config.clone();
         effective_config.world.master_seed = context.run_context.master_seed;
@@ -3602,6 +4053,7 @@ impl<'a> M3StorageRegisteredDay<'a> {
             options: *options,
             phase6b_mode,
             search_reduction_scratch,
+            forced_action,
             propagation: None,
             propagation_config: None,
             propagation_snapshot_config: None,
@@ -3671,6 +4123,10 @@ impl<'a> M3StorageRegisteredDay<'a> {
                     &self.context.features_scratch,
                     &mut self.context.choices_scratch,
                 )?;
+                if let Some(forced_action) = self.forced_action.as_deref_mut() {
+                    forced_action
+                        .apply_choices(self.executed_day, &mut self.context.choices_scratch);
+                }
             }
             RegisteredCorePhase::Phase5 => {
                 self.partitions = phase5_partition_intents_from_vec_with_scratch(
@@ -3747,6 +4203,9 @@ impl<'a> M3StorageRegisteredDay<'a> {
                         &mut self.context.candidate_scratch,
                         &mut self.context.intents_scratch,
                     )?;
+                }
+                if let Some(forced_action) = self.forced_action.as_deref_mut() {
+                    forced_action.observe_intents(self.executed_day, &self.context.intents_scratch);
                 }
                 self.cross_partition_interaction_count =
                     count_cross_partition_interactions_storage_per_day(
