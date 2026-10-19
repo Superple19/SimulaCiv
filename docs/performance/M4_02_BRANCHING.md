@@ -181,3 +181,50 @@ No §11.7 A-1 cell is PASS: all seven orchestration cells and both recorder cell
 ### Historical proposed review amendment (later frozen)
 
 Four of seven orchestration cells and both recorder cells failed in that earlier run. M4-02 remained **not complete**; §3 and the README were not changed. At the time, those measurements supported review of the then-proposed **§11.7 A-1**. The user later approved and froze that measurement protocol; the controlled rerun above applies it. The earlier run measured the N=100,000 M3P recorder at 190.443 ms against a 583.251 ms two-day baseline (32.7%), and the N=10,000 recorder at 11.344 ms against 41.273 ms (27.5%). No budget was changed in that earlier run.
+
+### Confirmatory paired gate under frozen §11.7 A-2
+
+The A-1 results above are retained as history and are not re-judged. This section reports a fresh measurement under [§11.7 A-2](../contracts/M4_COUNTERFACTUAL_CONTRACT.md#117-a-2--decision-rule-amendment-frozen). Both passes used the AMD Ryzen 5 9600X host (6 physical cores / 12 logical processors), High process priority, and affinity mask `0x555`; the logical-to-physical mapping was not independently verified. The release harness used two warmups and 21 timed samples per cell, paired paths in the same process, and alternated their execution order. Orchestration used H=30, metrics/events enabled, snapshots off, and the existing M2-40-derived M3 and M3P fixtures. Recorder cells used the existing one-day forced-Idle `AgentId(0)` case. The first pass took **726.3 s**; its required one-time invalid-cell retry took **727.1 s** (**1,453.4 s** combined, excluding build and baseline sampling).
+
+The host-validity threshold is `1.20 × median(pre-run idle CPU load)`. Total CPU load was sampled every 30 seconds and at cell boundaries. Pass 1 baseline samples were 27.14%, 20.68%, 21.95%, 18.93%, and 19.66% (median 20.68%, threshold 24.82%); load was 27.14% before and 26.35% after. Free RAM changed from 58,268,484 KB to 58,318,888 KB. Retry baseline samples were 18.63%, 20.50%, 21.18%, 19.58%, and 23.74% (median 20.50%, threshold 24.60%); load was 18.63% before and 18.97% after. Free RAM changed from 58,336,392 KB to 58,445,708 KB. Both runs applied High priority and affinity `0x555`. Retry harness process `PeakWorkingSet64` was **731,623,424 bytes (697.7 MiB)**. The first-pass peak was not captured: the post-exit process query returned zero.
+
+#### Orchestration gate
+
+For each sample, `delta = analysis-disabled branch API − direct pair`. `T = 5% × median(direct pair)`. The table gives the measured medians ± MAD and the numerical result under A-2 before host validity is applied.
+
+| Profile / execution | N | Direct pair ms | Analysis-disabled API ms | Delta ms | T ms | Median(delta) + 2 MAD ms | Numerical result | Final validity |
+|---|---:|---:|---:|---:|---:|---:|---|---|
+| M3 serial | 10,000 | 115.454 ± 2.224 | 115.703 ± 1.330 | 0.292 ± 1.300 | 5.773 | 2.892 | PASS | **INVALID after retry** |
+| M3P serial | 10,000 | 499.322 ± 8.376 | 499.269 ± 3.140 | 1.628 ± 5.663 | 24.966 | 12.955 | PASS | **INVALID after retry** |
+| M3P incremental topology | 10,000 | 162.838 ± 1.180 | 164.154 ± 3.226 | -0.205 ± 3.195 | 8.142 | 6.185 | PASS | **INVALID after retry** |
+| M3 serial | 100,000 | 1,349.032 ± 9.687 | 1,363.160 ± 7.647 | 24.422 ± 13.460 | 67.452 | 51.342 | PASS | **INVALID after retry** |
+| M3P serial | 100,000 | 7,390.173 ± 30.987 | 7,386.248 ± 56.347 | -55.021 ± 70.081 | 369.509 | 85.141 | PASS | **INVALID after retry** |
+| M3 + propagation serial | 100,000 | 3,352.237 ± 16.377 | 3,368.788 ± 13.536 | 11.721 ± 21.730 | 167.612 | 55.180 | PASS | **INVALID after retry** |
+| M3P incremental topology | 100,000 | 2,071.618 ± 23.366 | 2,054.807 ± 22.512 | -27.507 ± 22.102 | 103.581 | 16.697 | PASS | **INVALID after retry** |
+
+#### Recorder gate
+
+For each sample, `delta = full one-day locator API − comparison-disabled one-day locator API`. `T = 5% × median(comparison-disabled API)`. Replay-prefix time is not the gate baseline; replay cost is shown separately.
+
+| Profile | N | Full locator API ms | Comparison-disabled API ms | Delta ms | T ms | Median(delta) + 2 MAD ms | Replay cost ms | Numerical result | Final validity |
+|---|---:|---:|---:|---:|---:|---:|---:|---|---|
+| M3P serial | 10,000 | 48.354 ± 0.741 | 47.517 ± 0.566 | 0.900 ± 0.999 | 2.376 | 2.898 | 2.009 ± 0.013 | INCONCLUSIVE | **INVALID after retry** |
+| M3P serial | 100,000 | 699.842 ± 5.280 | 698.001 ± 9.530 | 6.587 ± 7.458 | 34.900 | 21.504 | 26.061 ± 0.281 | PASS | **INVALID after retry** |
+
+#### Per-cell CPU-load trace and disposition
+
+Each range summarizes the total-CPU readings assigned to that cell, including 30-second samples and start/end boundary samples. `over/total` counts readings above that run's threshold. Every first-pass cell was invalid and therefore retried once. Every retry cell also had at least one reading over threshold, so all nine final cells are **INVALID**; the numerical gate outcomes above are not valid PASS/FAIL/INCONCLUSIVE decisions.
+
+| Cell | Pass 1 load range %, over/total | Retry load range %, over/total | Final host validity |
+|---|---:|---:|---|
+| M3 serial, 10k | 28.68–31.49, 2/2 | 28.50–28.87, 2/2 | **INVALID** |
+| M3P serial, 10k | 30.77–30.81, 2/2 | 27.02–35.99, 2/2 | **INVALID** |
+| M3P incremental, 10k | 30.03–35.61, 3/3 | 28.25–28.71, 3/3 | **INVALID** |
+| M3 serial, 100k | 28.20–32.09, 4/4 | 27.59–37.54, 4/4 | **INVALID** |
+| M3P serial, 100k | 26.43–30.51, 13/13 | 26.93–31.64, 13/13 | **INVALID** |
+| M3 + propagation serial, 100k | 27.61–30.26, 7/7 | 27.16–33.73, 7/7 | **INVALID** |
+| M3P incremental, 100k | 27.08–28.26, 5/5 | 27.78–32.20, 5/5 | **INVALID** |
+| Recorder M3P serial, 10k | 27.94–28.70, 3/3 | 26.23–28.13, 3/3 | **INVALID** |
+| Recorder M3P serial, 100k | 18.92–28.02, 2/3 | 19.88–39.54, 4/5 | **INVALID** |
+
+The retry did not yield any host-valid gate cell, so no M4-02 completion decision can be made from this run. M4-02 remains **not complete**; §3 and the README are unchanged. The A-1 history is superseded for the decision rule only and is not reinterpreted here.
