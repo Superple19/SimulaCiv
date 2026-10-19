@@ -84,6 +84,10 @@ The central research question is:
 
 > How much interaction complexity can a deterministic simulation runtime support before its execution model or data architecture must fundamentally change?
 
+## M4 direction — planned
+
+M4 will study counterfactual branching: **In a deterministic world, how precisely can cause and effect be separated?** M4-00 is a draft contract, not an implementation authorization: [M4 Counterfactual Contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md).
+
 ## Build and validate
 
 The Rust toolchain is pinned in [`rust-toolchain.toml`](rust-toolchain.toml). From the repository root:
