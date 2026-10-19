@@ -15,7 +15,8 @@
 //! - Phase 11: Canonical Snapshot & Event Stream Flush
 
 use crate::config::{
-    SimConfig, SimulationProfile, SimulationRunManifest, SimulationRunnerSelection,
+    PropagationConfig, SimConfig, SimulationProfile, SimulationRunManifest,
+    SimulationRunnerSelection,
 };
 use crate::decision::{
     DecisionError, PrimaryActionChoice, phase4_primary_action_selection_into,
@@ -2076,103 +2077,45 @@ fn run_m3prop_storage_days_inner(
     context
         .storage_context
         .validate_for(hybrid_world, &base_config)?;
-    let run_context = context.storage_context.run_context;
-    let mut outcomes = Vec::with_capacity(days as usize);
-    for _ in 0..days {
-        let mut day_counts: Option<PropagationDailyCounts> = None;
-        let mut post_phase9 = |storage: &SegmentedAgentStorage,
-                               graph: &RelationshipGraph,
-                               day: u32|
-         -> Result<(), M0RunError> {
-            let config = config.propagation.expect("validated propagation settings");
-            let result = match parallel {
-                Some((pool, chunk_size)) => apply_phase9c_storage_parallel(
-                    storage,
-                    graph,
-                    &mut context.propagation,
-                    config,
-                    run_context.master_seed,
-                    run_context.replicate_id,
-                    day,
-                    pool,
-                    chunk_size,
-                ),
-                None => apply_phase9c_storage(
-                    storage,
-                    graph,
-                    &mut context.propagation,
-                    config,
-                    run_context.master_seed,
-                    run_context.replicate_id,
-                    day,
-                ),
-            };
-            day_counts = Some(result.map_err(M0RunError::InvariantViolation)?);
-            Ok(())
-        };
-        let mut base_options = *options;
-        base_options.snapshot_boundary = false;
-        let mut base_outcome = run_m3_storage_day_with_phase6b_and_post_phase9(
-            hybrid_world,
-            &base_config,
-            &mut context.storage_context,
-            &base_options,
-            &mut post_phase9,
-        )?;
-        let propagation_counts = day_counts.expect("Phase 9c callback runs once per day");
-        let metrics = base_outcome
-            .metrics
-            .take()
-            .map(|m3_metrics| M3PropDailyMetrics {
-                m3_metrics,
-                population: None,
-                propagation: propagation_counts,
-            });
-        let snapshot = if options.snapshot_boundary {
-            let HybridWorldState {
-                world,
-                segmented_storage,
-                ..
-            } = hybrid_world;
-            let storage = segmented_storage.as_ref().ok_or_else(|| {
-                M0RunError::InvariantViolation("hybrid mode without storage".into())
-            })?;
-            storage.write_back_to_agents(&mut world.agents);
-            let mut snapshot_state =
-                M3PropagationReferenceState::new(world.clone(), config, &run_context)?;
-            snapshot_state.propagation = context.propagation.clone();
-            let metadata = SnapshotMetadata::new(
-                world.current_day.as_u32(),
-                run_context.master_seed,
-                run_context.replicate_id,
-                DEFAULT_MODEL_VERSION,
-                DEFAULT_CONFIG_VERSION,
-            );
-            let snapshot = encode_m3prop_snapshot(&snapshot_state, &metadata)?;
-            if options.events_enabled {
-                base_outcome.events.push(EventRecord::new(
-                    EventKey::new(base_outcome.executed_day, 11, GLOBAL_PARTITION_KEY, 0),
-                    Event::Observation(ObservationEvent::SnapshotEmitted {
-                        day: metadata.day,
-                        master_seed: metadata.master_seed,
-                        replicate_id: metadata.replicate_id,
-                        schema_version: crate::m3prop::M3PROP_SNAPSHOT_SCHEMA_VERSION,
-                    }),
-                ));
-                base_outcome.events.sort_by_key(|event| event.key);
-            }
-            Some(snapshot)
-        } else {
-            None
-        };
-        outcomes.push(M3PropDayOutcome {
-            executed_day: base_outcome.executed_day,
-            metrics,
-            events: base_outcome.events,
-            snapshot,
-        });
-    }
-    Ok(outcomes)
+    let HybridWorldState {
+        world,
+        segmented_storage,
+        authority_mode: _,
+    } = hybrid_world;
+    let storage = segmented_storage
+        .as_mut()
+        .ok_or_else(|| M0RunError::InvariantViolation("hybrid mode without storage".into()))?;
+    let phase6b_mode = M3StoragePhase6BMode::Serial;
+    let mut execution = m3_storage_execution_options(&phase6b_mode);
+    execution.propagation = match parallel {
+        Some((pool, chunk_size)) => SystemExecutionPolicy::Parallel { pool, chunk_size },
+        None => SystemExecutionPolicy::Serial,
+    };
+    let enabled_systems = [SystemId::RelationshipGraph, SystemId::Propagation];
+    let run_options = RegisteredSystemRunOptions {
+        enabled_systems: &enabled_systems,
+        execution,
+    };
+    let mut state = M3StorageRegisteredDay::new(
+        world,
+        &base_config,
+        &mut context.storage_context,
+        options,
+        phase6b_mode,
+        None,
+    )
+    .with_propagation(config, &mut context.propagation);
+    run_registered_storage_day_loop(
+        storage,
+        &mut state,
+        &run_options,
+        days,
+        |day, phase, hooks, storage, state, _| state.run_core_phase(day, phase, hooks, storage),
+        |day, hook, storage, state, run_options| {
+            state.run_system_hook(day, hook, storage, run_options)
+        },
+        |_, storage, state| state.finish_propagation_day(storage),
+    )
 }
 
 /// Executes consecutive M3P days serially with Hybrid / SegmentedAgentStorage authority.
@@ -2184,7 +2127,20 @@ pub fn run_m3p_storage_days(
     options: &DayExecutionOptions,
 ) -> Result<Vec<M3pDayOutcome>, M0RunError> {
     context.validate_for(hybrid_world, config)?;
-    run_m3p_storage_days_registered(hybrid_world, config, context, days, options, None)
+    run_m3p_storage_days_registered(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        M3pStorageExecutionConfig {
+            incremental_topology_scratch: None,
+            propagation: None,
+            propagation_config: None,
+            propagation_policy: SystemExecutionPolicy::Serial,
+        },
+        |_, storage, state| state.finish_day(storage),
+    )
 }
 
 /// Executes M3P storage days with the explicit incremental-topology path.
@@ -2202,7 +2158,13 @@ pub fn run_m3p_storage_days_incremental_topology(
         &mut context.storage_context,
         days,
         options,
-        Some(&mut context.phase9b_scratch),
+        M3pStorageExecutionConfig {
+            incremental_topology_scratch: Some(&mut context.phase9b_scratch),
+            propagation: None,
+            propagation_config: None,
+            propagation_policy: SystemExecutionPolicy::Serial,
+        },
+        |_, storage, state| state.finish_day(storage),
     )
 }
 
@@ -2218,19 +2180,20 @@ pub fn run_m3p_propagation_storage_days(
     context
         .storage_context
         .validate_for(hybrid_world, &m3p_base_config(config))?;
-    let mut outcomes = Vec::with_capacity(days as usize);
-    for _ in 0..days {
-        outcomes.push(run_m3p_propagation_storage_day(
-            hybrid_world,
-            config,
-            &mut context.storage_context,
-            &mut context.propagation,
-            options,
-            None,
-            None,
-        )?);
-    }
-    Ok(outcomes)
+    run_m3p_storage_days_registered(
+        hybrid_world,
+        &m3p_base_config(config),
+        &mut context.storage_context,
+        days,
+        options,
+        M3pStorageExecutionConfig {
+            incremental_topology_scratch: None,
+            propagation: Some(&mut context.propagation),
+            propagation_config: Some(config),
+            propagation_policy: SystemExecutionPolicy::Serial,
+        },
+        |_, storage, state| state.finish_propagation_day(storage),
+    )
 }
 
 /// Executes M3P storage days with caller-owned parallel Phase 9c spread.
@@ -2247,19 +2210,20 @@ pub fn run_m3p_propagation_storage_days_with_parallel_spread(
     context
         .storage_context
         .validate_for(hybrid_world, &m3p_base_config(config))?;
-    let mut outcomes = Vec::with_capacity(days as usize);
-    for _ in 0..days {
-        outcomes.push(run_m3p_propagation_storage_day(
-            hybrid_world,
-            config,
-            &mut context.storage_context,
-            &mut context.propagation,
-            options,
-            None,
-            Some((pool, chunk_size)),
-        )?);
-    }
-    Ok(outcomes)
+    run_m3p_storage_days_registered(
+        hybrid_world,
+        &m3p_base_config(config),
+        &mut context.storage_context,
+        days,
+        options,
+        M3pStorageExecutionConfig {
+            incremental_topology_scratch: None,
+            propagation: Some(&mut context.propagation),
+            propagation_config: Some(config),
+            propagation_policy: SystemExecutionPolicy::Parallel { pool, chunk_size },
+        },
+        |_, storage, state| state.finish_propagation_day(storage),
+    )
 }
 
 /// Executes M3P storage days with incremental topology and serial Phase 9c spread.
@@ -2275,22 +2239,24 @@ pub fn run_m3p_propagation_storage_days_incremental_topology(
         .storage_context
         .storage_context
         .validate_for(hybrid_world, &m3p_base_config(config))?;
-    let mut outcomes = Vec::with_capacity(days as usize);
-    for _ in 0..days {
-        outcomes.push(run_m3p_propagation_storage_day(
-            hybrid_world,
-            config,
-            &mut context.storage_context.storage_context,
-            &mut context.propagation,
-            options,
-            Some(&mut context.storage_context.phase9b_scratch),
-            None,
-        )?);
-    }
-    Ok(outcomes)
+    run_m3p_storage_days_registered(
+        hybrid_world,
+        &m3p_base_config(config),
+        &mut context.storage_context.storage_context,
+        days,
+        options,
+        M3pStorageExecutionConfig {
+            incremental_topology_scratch: Some(&mut context.storage_context.phase9b_scratch),
+            propagation: Some(&mut context.propagation),
+            propagation_config: Some(config),
+            propagation_policy: SystemExecutionPolicy::Serial,
+        },
+        |_, storage, state| state.finish_propagation_day(storage),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn run_m3p_propagation_storage_day(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
@@ -2583,14 +2549,35 @@ pub fn run_m3_storage_days_with_parallel_phase6b_timing(
     Ok((outcomes, phase6b_timings))
 }
 
-fn run_m3p_storage_days_registered(
+struct M3pStorageExecutionConfig<'a> {
+    incremental_topology_scratch: Option<&'a mut M3pIncrementalTopologyScratch>,
+    propagation: Option<&'a mut BTreeMap<AgentId, PropagationAgentState>>,
+    propagation_config: Option<&'a SimConfig>,
+    propagation_policy: SystemExecutionPolicy<'a>,
+}
+
+fn run_m3p_storage_days_registered<T, Finish>(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &mut M3pStorageRunContext,
     days: u32,
     options: &DayExecutionOptions,
-    incremental_topology_scratch: Option<&mut M3pIncrementalTopologyScratch>,
-) -> Result<Vec<M3pDayOutcome>, M0RunError> {
+    execution_config: M3pStorageExecutionConfig<'_>,
+    mut finish_day: Finish,
+) -> Result<Vec<T>, M0RunError>
+where
+    Finish: FnMut(
+        u32,
+        &SegmentedAgentStorage,
+        &mut M3pStorageRegisteredDay<'_>,
+    ) -> Result<T, M0RunError>,
+{
+    let M3pStorageExecutionConfig {
+        incremental_topology_scratch,
+        propagation,
+        propagation_config,
+        propagation_policy,
+    } = execution_config;
     let HybridWorldState {
         world,
         segmented_storage,
@@ -2599,7 +2586,10 @@ fn run_m3p_storage_days_registered(
     let storage = segmented_storage
         .as_mut()
         .ok_or_else(|| M0RunError::InvariantViolation("hybrid mode without storage".into()))?;
-    let enabled_systems = [SystemId::RelationshipGraph, SystemId::PopulationDynamics];
+    let mut enabled_systems = vec![SystemId::RelationshipGraph, SystemId::PopulationDynamics];
+    if propagation.is_some() {
+        enabled_systems.push(SystemId::Propagation);
+    }
     let population_dynamics = if incremental_topology_scratch.is_some() {
         SystemExecutionPolicy::IncrementalTopology
     } else {
@@ -2609,6 +2599,7 @@ fn run_m3p_storage_days_registered(
         enabled_systems: &enabled_systems,
         execution: SystemExecutionOptions {
             population_dynamics,
+            propagation: propagation_policy,
             ..SystemExecutionOptions::default()
         },
     };
@@ -2618,6 +2609,8 @@ fn run_m3p_storage_days_registered(
         context,
         options,
         incremental_topology_scratch,
+        propagation,
+        propagation_config,
     );
     run_registered_storage_day_loop(
         storage,
@@ -2626,7 +2619,7 @@ fn run_m3p_storage_days_registered(
         days,
         |day, phase, hooks, storage, state, _| state.run_core_phase(day, phase, hooks, storage),
         |day, hook, storage, state, execution| state.run_system_hook(day, hook, storage, execution),
-        |_, storage, state| state.finish_day(storage),
+        |day, storage, state| finish_day(day, storage, state),
     )
 }
 
@@ -2636,6 +2629,9 @@ struct M3pStorageRegisteredDay<'a> {
     effective_config: SimConfig,
     options: DayExecutionOptions,
     incremental_topology_scratch: Option<&'a mut M3pIncrementalTopologyScratch>,
+    propagation: Option<&'a mut BTreeMap<AgentId, PropagationAgentState>>,
+    propagation_config: Option<PropagationConfig>,
+    propagation_snapshot_config: Option<SimConfig>,
     executed_day: u32,
     next_day: u32,
     cross_partition_interaction_count: u64,
@@ -2646,6 +2642,8 @@ struct M3pStorageRegisteredDay<'a> {
     welfare: Vec<crate::resolution::SettlementWelfareResolution>,
     mortality: Option<crate::phases::Phase9MortalityResolution>,
     phase9b: Option<Phase9bResult>,
+    newborn_ids: Vec<AgentId>,
+    propagation_counts: Option<PropagationDailyCounts>,
     event_buffer: Option<EventBuffer>,
     metrics: Option<M3pDailyMetrics>,
     snapshot: Option<CanonicalSnapshot>,
@@ -2659,6 +2657,8 @@ impl<'a> M3pStorageRegisteredDay<'a> {
         context: &'a mut M3pStorageRunContext,
         options: &DayExecutionOptions,
         incremental_topology_scratch: Option<&'a mut M3pIncrementalTopologyScratch>,
+        propagation: Option<&'a mut BTreeMap<AgentId, PropagationAgentState>>,
+        propagation_config: Option<&SimConfig>,
     ) -> Self {
         let mut effective_config = config.clone();
         effective_config.world.master_seed = context.run_context.master_seed;
@@ -2669,6 +2669,9 @@ impl<'a> M3pStorageRegisteredDay<'a> {
             effective_config,
             options: *options,
             incremental_topology_scratch,
+            propagation,
+            propagation_config: propagation_config.and_then(|config| config.propagation),
+            propagation_snapshot_config: propagation_config.cloned(),
             executed_day: 0,
             next_day: 0,
             cross_partition_interaction_count: 0,
@@ -2679,6 +2682,8 @@ impl<'a> M3pStorageRegisteredDay<'a> {
             welfare: Vec::new(),
             mortality: None,
             phase9b: None,
+            newborn_ids: Vec::new(),
+            propagation_counts: None,
             event_buffer: None,
             metrics: None,
             snapshot: None,
@@ -2855,7 +2860,53 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                 } else {
                     self.context.refresh_after_phase9b(storage, &phase9b)?;
                 }
+                if let Some(propagation) = self.propagation.as_deref_mut() {
+                    self.newborn_ids = phase9b.births.iter().map(|birth| birth.child).collect();
+                    sync_propagation_storage_rows(storage, propagation);
+                }
                 self.phase9b = Some(phase9b);
+                Ok(())
+            }
+            (SystemId::Propagation, PhaseSlot::Phase9C) => {
+                let config = self.propagation_config.ok_or_else(|| {
+                    M0RunError::InvariantViolation("missing M3P propagation settings".into())
+                })?;
+                let propagation = self.propagation.as_deref_mut().ok_or_else(|| {
+                    M0RunError::InvariantViolation("missing M3P propagation rows".into())
+                })?;
+                let counts = match execution.for_system(SystemId::Propagation) {
+                    SystemExecutionPolicy::Serial => apply_phase9c_storage_m3p(
+                        storage,
+                        &self.context.relationship_graph,
+                        propagation,
+                        config,
+                        self.context.run_context.master_seed,
+                        self.context.run_context.replicate_id,
+                        self.executed_day,
+                        &self.newborn_ids,
+                    ),
+                    SystemExecutionPolicy::Parallel { pool, chunk_size } => {
+                        apply_phase9c_storage_m3p_parallel(
+                            storage,
+                            &self.context.relationship_graph,
+                            propagation,
+                            config,
+                            self.context.run_context.master_seed,
+                            self.context.run_context.replicate_id,
+                            self.executed_day,
+                            &self.newborn_ids,
+                            pool,
+                            chunk_size,
+                        )
+                    }
+                    SystemExecutionPolicy::IncrementalTopology => {
+                        return Err(M0RunError::InvariantViolation(
+                            "incremental-topology policy is not a propagation policy".into(),
+                        ));
+                    }
+                }
+                .map_err(M0RunError::InvariantViolation)?;
+                self.propagation_counts = Some(counts);
                 Ok(())
             }
             _ => Ok(()),
@@ -2955,14 +3006,6 @@ impl<'a> M3pStorageRegisteredDay<'a> {
             .expect("Phase 9 ran before Phase 11");
         let mut event_buffer = self.event_buffer.take().unwrap_or_default();
         if self.options.snapshot_boundary {
-            let snapshot_world = m3p_world_from_storage(self.world, storage);
-            let snapshot_state = M3pReferenceState::from_parts(
-                snapshot_world,
-                self.context.relationship_graph.clone(),
-                self.context.next_agent_id,
-                &self.effective_config,
-                &self.context.run_context,
-            )?;
             let metadata = SnapshotMetadata::new(
                 self.next_day,
                 self.context.run_context.master_seed,
@@ -2970,7 +3013,33 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                 DEFAULT_MODEL_VERSION,
                 DEFAULT_CONFIG_VERSION,
             );
-            self.snapshot = Some(encode_m3p_snapshot(&snapshot_state, &metadata)?);
+            let snapshot_world = m3p_world_from_storage(self.world, storage);
+            if let (Some(config), Some(propagation)) = (
+                self.propagation_snapshot_config.as_ref(),
+                self.propagation.as_deref(),
+            ) {
+                let mut snapshot_world = snapshot_world;
+                snapshot_world.current_day = SimulationDay(self.next_day);
+                let base = M3pReferenceState::from_parts(
+                    snapshot_world,
+                    self.context.relationship_graph.clone(),
+                    self.context.next_agent_id,
+                    &m3p_base_config(config),
+                    &self.context.run_context,
+                )?;
+                let state =
+                    M3pPropagationReferenceState::from_parts(base, propagation.clone(), config)?;
+                self.snapshot = Some(encode_m3pprop_snapshot(&state, &metadata)?);
+            } else {
+                let snapshot_state = M3pReferenceState::from_parts(
+                    snapshot_world,
+                    self.context.relationship_graph.clone(),
+                    self.context.next_agent_id,
+                    &self.effective_config,
+                    &self.context.run_context,
+                )?;
+                self.snapshot = Some(encode_m3p_snapshot(&snapshot_state, &metadata)?);
+            }
             if self.options.events_enabled {
                 event_buffer.push(EventRecord::new(
                     EventKey::new(self.executed_day, 11, GLOBAL_PARTITION_KEY, 0),
@@ -2978,7 +3047,11 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                         day: metadata.day,
                         master_seed: metadata.master_seed,
                         replicate_id: metadata.replicate_id,
-                        schema_version: crate::m3p::M3P_SNAPSHOT_SCHEMA_VERSION,
+                        schema_version: if self.propagation.is_some() {
+                            crate::m3prop::M3PROP_SNAPSHOT_SCHEMA_VERSION
+                        } else {
+                            crate::m3p::M3P_SNAPSHOT_SCHEMA_VERSION
+                        },
                     }),
                 ));
             }
@@ -3044,8 +3117,30 @@ impl<'a> M3pStorageRegisteredDay<'a> {
             snapshot: self.snapshot.take(),
         })
     }
+
+    fn finish_propagation_day(
+        &mut self,
+        _storage: &SegmentedAgentStorage,
+    ) -> Result<M3pPropagationDayOutcome, M0RunError> {
+        let propagation = self
+            .propagation_counts
+            .ok_or_else(|| M0RunError::InvariantViolation("missing M3P Phase 9c result".into()))?;
+        Ok(M3pPropagationDayOutcome {
+            executed_day: self.executed_day,
+            metrics: self
+                .metrics
+                .take()
+                .map(|m3p_metrics| M3pPropagationDailyMetrics {
+                    m3p_metrics,
+                    propagation,
+                }),
+            events: std::mem::take(&mut self.events),
+            snapshot: self.snapshot.take(),
+        })
+    }
 }
 
+#[cfg(test)]
 fn run_m3p_storage_day_inner(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
@@ -3431,6 +3526,9 @@ struct M3StorageRegisteredDay<'a> {
     options: DayExecutionOptions,
     phase6b_mode: M3StoragePhase6BMode<'a>,
     search_reduction_scratch: Option<&'a mut M3SearchReductionScratch>,
+    propagation: Option<&'a mut BTreeMap<AgentId, PropagationAgentState>>,
+    propagation_config: Option<PropagationConfig>,
+    propagation_snapshot_config: Option<SimConfig>,
     executed_day: u32,
     next_day: u32,
     cross_partition_interaction_count: u64,
@@ -3442,6 +3540,7 @@ struct M3StorageRegisteredDay<'a> {
     mortality: Option<crate::phases::Phase9MortalityResolution>,
     event_buffer: Option<EventBuffer>,
     metrics: Option<M3DailyMetrics>,
+    propagation_counts: Option<PropagationDailyCounts>,
     snapshot: Option<CanonicalSnapshot>,
     events: Vec<EventRecord>,
 }
@@ -3465,6 +3564,9 @@ impl<'a> M3StorageRegisteredDay<'a> {
             options: *options,
             phase6b_mode,
             search_reduction_scratch,
+            propagation: None,
+            propagation_config: None,
+            propagation_snapshot_config: None,
             executed_day: 0,
             next_day: 0,
             cross_partition_interaction_count: 0,
@@ -3476,9 +3578,21 @@ impl<'a> M3StorageRegisteredDay<'a> {
             mortality: None,
             event_buffer: None,
             metrics: None,
+            propagation_counts: None,
             snapshot: None,
             events: Vec::new(),
         }
+    }
+
+    fn with_propagation(
+        mut self,
+        config: &SimConfig,
+        propagation: &'a mut BTreeMap<AgentId, PropagationAgentState>,
+    ) -> Self {
+        self.propagation_config = config.propagation;
+        self.propagation_snapshot_config = Some(config.clone());
+        self.propagation = Some(propagation);
+        self
     }
 
     fn run_core_phase(
@@ -3680,6 +3794,46 @@ impl<'a> M3StorageRegisteredDay<'a> {
                 };
                 Ok(())
             }
+            (SystemId::Propagation, PhaseSlot::Phase9C) => {
+                let config = self.propagation_config.ok_or_else(|| {
+                    M0RunError::InvariantViolation("missing propagation settings".into())
+                })?;
+                let propagation = self.propagation.as_deref_mut().ok_or_else(|| {
+                    M0RunError::InvariantViolation("missing propagation rows".into())
+                })?;
+                let counts = match execution.for_system(SystemId::Propagation) {
+                    SystemExecutionPolicy::Serial => apply_phase9c_storage(
+                        storage,
+                        &self.context.relationship_graph,
+                        propagation,
+                        config,
+                        self.context.run_context.master_seed,
+                        self.context.run_context.replicate_id,
+                        self.executed_day,
+                    ),
+                    SystemExecutionPolicy::Parallel { pool, chunk_size } => {
+                        apply_phase9c_storage_parallel(
+                            storage,
+                            &self.context.relationship_graph,
+                            propagation,
+                            config,
+                            self.context.run_context.master_seed,
+                            self.context.run_context.replicate_id,
+                            self.executed_day,
+                            pool,
+                            chunk_size,
+                        )
+                    }
+                    SystemExecutionPolicy::IncrementalTopology => {
+                        return Err(M0RunError::InvariantViolation(
+                            "incremental-topology policy is not a propagation policy".into(),
+                        ));
+                    }
+                }
+                .map_err(M0RunError::InvariantViolation)?;
+                self.propagation_counts = Some(counts);
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -3766,7 +3920,22 @@ impl<'a> M3StorageRegisteredDay<'a> {
                 DEFAULT_MODEL_VERSION,
                 DEFAULT_CONFIG_VERSION,
             );
-            self.snapshot = Some(encode_snapshot(self.world, &metadata)?);
+            if let (Some(config), Some(propagation)) = (
+                self.propagation_snapshot_config.as_ref(),
+                self.propagation.as_deref(),
+            ) {
+                let mut snapshot_world = self.world.clone();
+                snapshot_world.current_day = SimulationDay(self.next_day);
+                let mut snapshot_state = M3PropagationReferenceState::new(
+                    snapshot_world,
+                    config,
+                    &self.context.run_context,
+                )?;
+                snapshot_state.propagation = propagation.clone();
+                self.snapshot = Some(encode_m3prop_snapshot(&snapshot_state, &metadata)?);
+            } else {
+                self.snapshot = Some(encode_snapshot(self.world, &metadata)?);
+            }
             if self.options.events_enabled {
                 event_buffer.push(EventRecord::new(
                     EventKey::new(self.executed_day, 11, GLOBAL_PARTITION_KEY, 0),
@@ -3774,7 +3943,11 @@ impl<'a> M3StorageRegisteredDay<'a> {
                         day: metadata.day,
                         master_seed: metadata.master_seed,
                         replicate_id: metadata.replicate_id,
-                        schema_version: SNAPSHOT_SCHEMA_VERSION,
+                        schema_version: if self.propagation.is_some() {
+                            M3PROP_SNAPSHOT_SCHEMA_VERSION
+                        } else {
+                            SNAPSHOT_SCHEMA_VERSION
+                        },
                     }),
                 ));
             }
@@ -3796,36 +3969,32 @@ impl<'a> M3StorageRegisteredDay<'a> {
             snapshot: self.snapshot.take(),
         })
     }
+
+    fn finish_propagation_day(
+        &mut self,
+        _storage: &SegmentedAgentStorage,
+    ) -> Result<M3PropDayOutcome, M0RunError> {
+        let propagation = self.propagation_counts.ok_or_else(|| {
+            M0RunError::InvariantViolation("missing Phase 9c propagation result".into())
+        })?;
+        Ok(M3PropDayOutcome {
+            executed_day: self.executed_day,
+            metrics: self.metrics.take().map(|m3_metrics| M3PropDailyMetrics {
+                m3_metrics,
+                population: None,
+                propagation,
+            }),
+            events: std::mem::take(&mut self.events),
+            snapshot: self.snapshot.take(),
+        })
+    }
 }
 
-type M3StoragePostPhase9<'a> =
-    dyn FnMut(&SegmentedAgentStorage, &RelationshipGraph, u32) -> Result<(), M0RunError> + 'a;
-
+#[cfg(test)]
 type M3pStoragePostPhase9b<'a> = dyn FnMut(&SegmentedAgentStorage, &RelationshipGraph, &[AgentId], u32) -> Result<(), M0RunError>
     + 'a;
 
-fn run_m3_storage_day_with_phase6b_and_post_phase9(
-    hybrid_world: &mut HybridWorldState,
-    config: &SimConfig,
-    context: &mut M3StorageRunContext,
-    options: &DayExecutionOptions,
-    post_phase9: &mut dyn FnMut(
-        &SegmentedAgentStorage,
-        &RelationshipGraph,
-        u32,
-    ) -> Result<(), M0RunError>,
-) -> Result<M3DayOutcome, M0RunError> {
-    run_m3_storage_day_with_phase6b_and_search_reduction(
-        hybrid_world,
-        config,
-        context,
-        options,
-        M3StoragePhase6BMode::Serial,
-        None,
-        Some(post_phase9),
-    )
-}
-
+#[cfg(test)]
 fn run_m3_storage_day_with_phase6b_and_search_reduction(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
@@ -3833,7 +4002,6 @@ fn run_m3_storage_day_with_phase6b_and_search_reduction(
     options: &DayExecutionOptions,
     phase6b_mode: M3StoragePhase6BMode<'_>,
     search_reduction_scratch: Option<&mut M3SearchReductionScratch>,
-    post_phase9: Option<&mut M3StoragePostPhase9<'_>>,
 ) -> Result<M3DayOutcome, M0RunError> {
     let HybridWorldState {
         world,
@@ -3975,9 +4143,6 @@ fn run_m3_storage_day_with_phase6b_and_search_reduction(
         &mut context.phase8_scratch,
     )?;
     let mortality_resolution = storage.phase9_mortality_commitment()?;
-    if let Some(post_phase9) = post_phase9 {
-        post_phase9(storage, &context.relationship_graph, executed_day)?;
-    }
 
     let mut event_buffer = if options.events_enabled {
         EventBuffer::with_capacity(storage.len().saturating_mul(2) + world.settlements.len() + 4)
@@ -5597,8 +5762,10 @@ pub fn run_hybrid_scope_isolated_days(
 mod registered_m3_legacy_parity_tests {
     use super::{
         DayExecutionOptions, M0RunContext, M3ReferenceContext, M3StoragePhase6BMode,
-        M3StorageRunContext, run_m3_reference_day, run_m3_reference_day_with_post_phase9,
+        M3StorageRunContext, M3pPropagationStorageRunContext, run_m3_reference_day,
+        run_m3_reference_day_with_post_phase9,
         run_m3_storage_day_with_phase6b_and_search_reduction, run_m3_storage_days,
+        run_m3p_propagation_storage_day, run_m3p_propagation_storage_days,
     };
     use crate::M3DailyMetrics;
     use crate::config::{SimConfig, SimulationConfig, SimulationProfile, SimulationSystems};
@@ -5813,7 +5980,6 @@ trait_weight_risk_tolerance = 1.0
                     &options,
                     M3StoragePhase6BMode::Serial,
                     None,
-                    None,
                 )
                 .unwrap();
                 assert_eq!(
@@ -5855,5 +6021,52 @@ trait_weight_risk_tolerance = 1.0
                 }
             }
         }
+    }
+
+    #[test]
+    fn registered_m3p_propagation_storage_matches_legacy_per_day() {
+        let config: SimConfig = toml::from_str(include_str!(
+            "../tests/fixtures/m3p_propagation_sustained.toml"
+        ))
+        .unwrap();
+        let initial = initialize_world(&config).unwrap();
+        let run_context = M0RunContext::new(config.world.master_seed, config.world.replicate_id);
+        let mut registered_world = HybridWorldState::hybrid(initial.clone());
+        let mut legacy_world = HybridWorldState::hybrid(initial);
+        let mut registered_context =
+            M3pPropagationStorageRunContext::new(&registered_world, &config, &run_context).unwrap();
+        let mut legacy_context =
+            M3pPropagationStorageRunContext::new(&legacy_world, &config, &run_context).unwrap();
+        let options = DayExecutionOptions::default();
+        let registered = run_m3p_propagation_storage_days(
+            &mut registered_world,
+            &config,
+            &mut registered_context,
+            10,
+            &options,
+        )
+        .unwrap();
+        let mut legacy = Vec::new();
+        for _ in 0..10 {
+            legacy.push(
+                run_m3p_propagation_storage_day(
+                    &mut legacy_world,
+                    &config,
+                    &mut legacy_context.storage_context,
+                    &mut legacy_context.propagation,
+                    &options,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            );
+        }
+        assert_eq!(registered, legacy);
+        assert_eq!(registered_world, legacy_world);
+        assert_eq!(registered_context.propagation, legacy_context.propagation);
+        assert_eq!(
+            registered_context.relationship_graph().csr_hash(),
+            legacy_context.relationship_graph().csr_hash()
+        );
     }
 }
