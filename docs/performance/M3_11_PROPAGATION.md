@@ -1,6 +1,6 @@
 # M3-11 (formerly M3-05) Propagation Performance
 
-**Status:** fixed-topology M3 propagation measurement complete
+**Status:** fixed-topology M3 and sustained M3P propagation measurements complete
 
 ## Summary
 
@@ -38,7 +38,7 @@ The table records every executed day (0–299) from the existing propagation gol
 
 **Inference:** available parallelism becomes useful once per-level edge evaluation is large enough to dominate the shared serial setup and deterministic merge. The measured crossover depends on `N`, degree, transmission probability, graph state, pool size, and host load; it must not become an automatic runtime threshold from this report alone.
 
-This report covers the fixed-topology M3 storage path only. M3P population dynamics with propagation is a separate follow-up measurement after its parity gates pass. It does not change simulation semantics or propagation golden values.
+The results above cover the fixed-topology M3 storage path. The M3P population-dynamics extension is reported below after its parity gates passed. These measurements do not change simulation semantics or propagation golden values.
 
 ### Phase 9c — paired interleaved
 
@@ -775,3 +775,52 @@ This report covers the fixed-topology M3 storage path only. M3P population dynam
 | 6 | 1.03616 | 24/40 | 1.05604 | 26/40 |
 
 The first day-0 Phase 9c median that beat serial by more than the sum of the serial and parallel MADs was at N=10,000, K=50, k=8, max_hops=8, transmit=0.2, frontier 728: pool 2 was 2,831.000 ± 76.600 µs versus serial 3,039.600 ± 15.500 µs; pool 4 was 2,872.500 ± 92.200 µs. Pool 6 first met that same criterion at frontier 852 (N=10,000, K=50, k=8, max_hops=16, transmit=0.2). This is an observed first point in the tested grid, not a guaranteed minimum.
+
+## M3P sustained-population extension
+
+This follow-up adds propagation to the M3-08 sustained M3P workload. It is distinct from the fixed-topology M3 matrix above.
+
+- **Configuration:** M3-08 sustained configuration from [M3-08 Population Dynamics](M3_08_POPULATION_DYNAMICS.md): seed `81985529216486895`, replicate `7`, `K=N/200`, `k=8`, `p_local=0.5`, birth probability `0.0001`, unlimited births, and compaction interval `50`. Propagation used seed probability `0.002`, forget probability `0.02`, transmit probability `0.2`, and `max_hops ∈ {4,16}`. Cells were `N ∈ {10,000,100,000}`.
+- **Host:** Windows x86_64, 12 logical processors; AMD Ryzen 5 9600X, Windows 11 Pro build 26200, and Rust/Cargo `1.98.1` as recorded for the preceding M3-11 run.
+- **Phase 9c:** timed independently after one production M3P day, with fresh propagation state prepared before each timed call. Two warmups and 11 samples; serial and pools `{1,2,4,6}`, chunk `256`, were measured interleaved and non-interleaved. A benchmark-only frontier tracer was checked against production Phase 9c metrics and state.
+- **Whole tick:** serial M3P storage, serial incremental-topology M3P, and parallel M3P storage were compared. Each sample began from a freshly initialized identical world and reused its context/scratch for three days; graph, projection, context, and pool construction were outside the timer. Metrics/events were enabled and snapshots disabled. Two warmups and 11 timed samples were run for each pool size `{1,2,4,6}`. Samples were interleaved by runner and then repeated in non-interleaved runner groups. Per-day metrics, event digests, and final State digests were asserted equal across the three runners.
+- **Command:** `cargo bench -p sim-model --bench m3_11_m3p_sustained_bench`.
+- **Benchmark wall time:** `666.197 s` (`11 min 6.197 s`).
+
+### M3P Phase 9c
+
+Times are median ± MAD in µs per Phase 9c call. `frontiers` starts with the seed frontier and then lists the next frontier after each processed level. `I` and `NI` are interleaved and non-interleaved runs. `levels/max` are the production metrics for the measured day.
+
+| N | K | k | max_hops | transmit | frontier sizes | levels/max | newborns | serial I | pool 1 I | pool 2 I | pool 4 I | pool 6 I | serial NI | pool 1 NI | pool 2 NI | pool 4 NI | pool 6 NI |
+|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10,000 | 50 | 8 | 4 | 0.2 | [28, 53, 79, 125, 196] | 4/196 | 3 | 1,799.3 ± 27.2 | 1,884.5 ± 27.2 | 1,919.6 ± 40.3 | 1,897.1 ± 21.7 | 1,913.3 ± 42.1 | 2,009.2 ± 243.7 | 1,937.5 ± 43.2 | 1,873.6 ± 18.2 | 1,877.1 ± 33.1 | 1,889.3 ± 25.4 |
+| 10,000 | 50 | 8 | 16 | 0.2 | [28, 53, 79, 125, 196, 314, 435, 558, 728, 852, 827, 748, 528, 376, 223, 142, 76] | 16/852 | 3 | 6,734.7 ± 465.5 | 7,224.0 ± 614.1 | 6,203.5 ± 541.1 | 5,424.8 ± 475.8 | 5,505.2 ± 217.6 | 6,379.2 ± 96.4 | 10,733.7 ± 3,181.9 | 5,692.2 ± 188.4 | 5,250.6 ± 94.6 | 5,619.9 ± 727.2 |
+| 100,000 | 500 | 8 | 4 | 0.2 | [193, 322, 524, 835, 1,289] | 4/1,289 | 10 | 22,610.0 ± 1,726.3 | 22,559.9 ± 1,053.2 | 21,103.1 ± 682.1 | 21,206.6 ± 1,004.7 | 21,335.2 ± 2,115.9 | 21,974.8 ± 1,346.9 | 22,024.0 ± 625.3 | 20,166.0 ± 337.6 | 21,392.6 ± 823.5 | 21,054.2 ± 790.3 |
+| 100,000 | 500 | 8 | 16 | 0.2 | [193, 322, 524, 835, 1,289, 1,989, 2,974, 4,270, 5,725, 7,160, 8,124, 8,032, 7,105, 5,537, 3,789, 2,500, 1,558] | 16/8,124 | 10 | 86,331.4 ± 5,511.2 | 86,772.3 ± 2,867.9 | 56,941.3 ± 2,631.0 | 42,362.5 ± 2,278.7 | 38,602.2 ± 1,466.7 | 88,002.3 ± 5,830.5 | 87,739.5 ± 4,270.8 | 54,972.1 ± 837.8 | 65,687.2 ± 11,570.4 | 52,902.7 ± 9,643.6 |
+
+### M3P whole-tick timings
+
+Times are median ± MAD in µs/tick. The parallel speedup is `serial M3P / parallel M3P`; values above 1 favor parallel spread. The incremental-topology column is included as a separate serial path, not as the speedup baseline.
+
+| N | max_hops | pool | interleaved serial | interleaved incremental | interleaved parallel | speedup | non-interleaved serial | non-interleaved incremental | non-interleaved parallel | speedup |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10,000 | 4 | 1 | 16,377.7 ± 2,923.8 | 11,134.6 ± 1,739.4 | 15,751.7 ± 1,995.6 | 1.040× | 13,448.9 ± 650.5 | 10,376.9 ± 391.9 | 14,488.5 ± 331.1 | 0.928× |
+| 10,000 | 4 | 2 | 19,523.8 ± 2,479.1 | 11,511.0 ± 1,222.7 | 17,311.6 ± 1,718.4 | 1.128× | 13,948.3 ± 796.4 | 10,216.7 ± 830.2 | 13,717.0 ± 609.4 | 1.017× |
+| 10,000 | 4 | 4 | 16,893.7 ± 2,065.6 | 12,395.5 ± 1,193.0 | 14,794.6 ± 1,768.4 | 1.142× | 14,033.6 ± 594.3 | 9,567.9 ± 695.1 | 12,826.5 ± 462.5 | 1.094× |
+| 10,000 | 4 | 6 | 17,031.2 ± 1,905.8 | 11,082.5 ± 1,711.4 | 15,631.5 ± 2,506.6 | 1.090× | 14,664.0 ± 788.5 | 9,976.5 ± 523.5 | 12,504.4 ± 1,053.3 | 1.173× |
+| 10,000 | 16 | 1 | 15,947.7 ± 777.0 | 11,682.1 ± 736.1 | 16,025.4 ± 447.6 | 0.995× | 21,953.4 ± 4,597.9 | 15,803.5 ± 4,195.9 | 17,285.7 ± 1,194.9 | 1.270× |
+| 10,000 | 16 | 2 | 17,026.9 ± 402.1 | 11,337.2 ± 692.0 | 15,104.3 ± 695.6 | 1.127× | 23,226.6 ± 2,428.8 | 12,408.2 ± 1,181.6 | 14,350.7 ± 96.0 | 1.619× |
+| 10,000 | 16 | 4 | 17,524.3 ± 2,037.4 | 12,635.2 ± 2,110.5 | 13,696.8 ± 1,059.0 | 1.279× | 16,433.9 ± 332.7 | 12,212.1 ± 680.9 | 13,694.8 ± 268.0 | 1.200× |
+| 10,000 | 16 | 6 | 22,253.3 ± 5,644.7 | 13,196.7 ± 2,008.8 | 15,273.0 ± 1,971.4 | 1.457× | 15,992.5 ± 392.8 | 11,168.0 ± 580.2 | 14,358.4 ± 881.8 | 1.114× |
+| 100,000 | 4 | 1 | 217,388.1 ± 13,075.5 | 132,897.4 ± 7,094.1 | 218,089.9 ± 14,278.4 | 0.997× | 220,299.5 ± 16,429.7 | 135,055.6 ± 5,013.4 | 236,751.4 ± 28,769.6 | 0.931× |
+| 100,000 | 4 | 2 | 223,697.3 ± 15,738.2 | 173,219.7 ± 24,937.2 | 258,698.4 ± 30,048.6 | 0.865× | 232,308.6 ± 10,018.0 | 158,998.8 ± 17,200.1 | 217,355.6 ± 38,722.8 | 1.069× |
+| 100,000 | 4 | 4 | 240,762.9 ± 52,943.7 | 143,247.1 ± 5,296.7 | 215,905.7 ± 13,031.6 | 1.115× | 231,714.7 ± 32,055.7 | 129,001.5 ± 6,066.6 | 170,552.9 ± 12,339.9 | 1.359× |
+| 100,000 | 4 | 6 | 244,558.5 ± 52,806.8 | 132,683.9 ± 12,947.8 | 198,272.1 ± 33,794.6 | 1.233× | 200,994.0 ± 11,147.3 | 125,070.2 ± 10,847.0 | 184,236.8 ± 19,334.8 | 1.091× |
+| 100,000 | 16 | 1 | 265,227.6 ± 12,398.4 | 208,287.2 ± 23,038.9 | 295,450.5 ± 45,892.4 | 0.898× | 288,124.4 ± 23,969.7 | 178,826.7 ± 8,127.0 | 254,770.8 ± 3,281.7 | 1.131× |
+| 100,000 | 16 | 2 | 262,173.8 ± 9,419.8 | 172,401.7 ± 4,544.0 | 259,237.0 ± 32,925.9 | 1.011× | 275,551.1 ± 20,231.3 | 165,511.2 ± 12,418.9 | 221,484.2 ± 18,814.0 | 1.244× |
+| 100,000 | 16 | 4 | 273,793.8 ± 38,581.9 | 165,921.6 ± 11,230.8 | 221,175.9 ± 26,899.8 | 1.238× | 249,481.9 ± 13,754.7 | 162,285.3 ± 7,033.5 | 198,118.6 ± 9,235.8 | 1.259× |
+| 100,000 | 16 | 6 | 287,826.0 ± 48,713.7 | 209,636.7 ± 30,206.0 | 251,544.7 ± 62,606.5 | 1.144× | 245,740.1 ± 10,231.0 | 171,336.2 ± 11,059.1 | 216,678.6 ± 10,123.4 | 1.134× |
+
+**Measured facts:** for the M3P sustained cells, Phase 9c parallel medians were close to serial for the 10k/4-hop cell whose largest frontier was 196. At 10k/16 hops (largest frontier 852), pool 4 measured 5,424.8 ± 475.8 µs versus 6,734.7 ± 465.5 µs serial; at 100k/4 hops (largest frontier 1,289), pool 2 measured 21,103.1 ± 682.1 µs versus 22,610.0 ± 1,726.3 µs; at 100k/16 hops (largest frontier 8,124), pool 6 measured 38,602.2 ± 1,466.7 µs versus 86,331.4 ± 5,511.2 µs. Whole-tick medians were variable: at 100k/4 hops, pool 4 was 1.115× interleaved and 1.359× non-interleaved, while pool 2 was 0.865× and 1.069× respectively. The 100k whole-tick MADs, and several 10k MADs, are large relative to the medians.
+
+**Inference:** parallel spread beat serial most clearly when one or more propagation levels had enough edge work to amortize dispatch and merge overhead. The largest frontier is a useful observed workload descriptor, but the rows do not establish a portable crossover threshold: time spans multiple levels and also includes serial Phase 9c setup. Whole-tick gains are less stable because Phase 9c is only part of M3P execution and the measured M3P tick has substantial serial population-dynamics work. This extension measures only `k=8`, `p_local=0.5`, and `transmit_probability=0.2`; it does not generalize to the full fixed-topology M3 matrix.

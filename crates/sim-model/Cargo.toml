@@ -42,3 +42,7 @@ harness = false
 [[bench]]
 name = "m3_11_propagation_bench"
 harness = false
+
+[[bench]]
+name = "m3_11_m3p_sustained_bench"
+harness = false
