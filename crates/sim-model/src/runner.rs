@@ -2184,11 +2184,7 @@ pub fn run_m3p_storage_days(
     options: &DayExecutionOptions,
 ) -> Result<Vec<M3pDayOutcome>, M0RunError> {
     context.validate_for(hybrid_world, config)?;
-    let mut outcomes = Vec::with_capacity(days as usize);
-    for _ in 0..days {
-        outcomes.push(run_m3p_storage_day(hybrid_world, config, context, options)?);
-    }
-    Ok(outcomes)
+    run_m3p_storage_days_registered(hybrid_world, config, context, days, options, None)
 }
 
 /// Executes M3P storage days with the explicit incremental-topology path.
@@ -2200,18 +2196,14 @@ pub fn run_m3p_storage_days_incremental_topology(
     options: &DayExecutionOptions,
 ) -> Result<Vec<M3pDayOutcome>, M0RunError> {
     context.storage_context.validate_for(hybrid_world, config)?;
-    let mut outcomes = Vec::with_capacity(days as usize);
-    for _ in 0..days {
-        outcomes.push(run_m3p_storage_day_inner(
-            hybrid_world,
-            config,
-            &mut context.storage_context,
-            options,
-            Some(&mut context.phase9b_scratch),
-            None,
-        )?);
-    }
-    Ok(outcomes)
+    run_m3p_storage_days_registered(
+        hybrid_world,
+        config,
+        &mut context.storage_context,
+        days,
+        options,
+        Some(&mut context.phase9b_scratch),
+    )
 }
 
 /// Executes serial M3P storage days with the M3PROP Phase 9c overlay.
@@ -2591,13 +2583,467 @@ pub fn run_m3_storage_days_with_parallel_phase6b_timing(
     Ok((outcomes, phase6b_timings))
 }
 
-fn run_m3p_storage_day(
+fn run_m3p_storage_days_registered(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &mut M3pStorageRunContext,
+    days: u32,
     options: &DayExecutionOptions,
-) -> Result<M3pDayOutcome, M0RunError> {
-    run_m3p_storage_day_inner(hybrid_world, config, context, options, None, None)
+    incremental_topology_scratch: Option<&mut M3pIncrementalTopologyScratch>,
+) -> Result<Vec<M3pDayOutcome>, M0RunError> {
+    let HybridWorldState {
+        world,
+        segmented_storage,
+        authority_mode: _,
+    } = hybrid_world;
+    let storage = segmented_storage
+        .as_mut()
+        .ok_or_else(|| M0RunError::InvariantViolation("hybrid mode without storage".into()))?;
+    let enabled_systems = [SystemId::RelationshipGraph, SystemId::PopulationDynamics];
+    let population_dynamics = if incremental_topology_scratch.is_some() {
+        SystemExecutionPolicy::IncrementalTopology
+    } else {
+        SystemExecutionPolicy::Serial
+    };
+    let run_options = RegisteredSystemRunOptions {
+        enabled_systems: &enabled_systems,
+        execution: SystemExecutionOptions {
+            population_dynamics,
+            ..SystemExecutionOptions::default()
+        },
+    };
+    let mut state = M3pStorageRegisteredDay::new(
+        world,
+        config,
+        context,
+        options,
+        incremental_topology_scratch,
+    );
+    run_registered_storage_day_loop(
+        storage,
+        &mut state,
+        &run_options,
+        days,
+        |day, phase, hooks, storage, state, _| state.run_core_phase(day, phase, hooks, storage),
+        |day, hook, storage, state, execution| state.run_system_hook(day, hook, storage, execution),
+        |_, storage, state| state.finish_day(storage),
+    )
+}
+
+struct M3pStorageRegisteredDay<'a> {
+    world: &'a mut WorldState,
+    context: &'a mut M3pStorageRunContext,
+    effective_config: SimConfig,
+    options: DayExecutionOptions,
+    incremental_topology_scratch: Option<&'a mut M3pIncrementalTopologyScratch>,
+    executed_day: u32,
+    next_day: u32,
+    cross_partition_interaction_count: u64,
+    partitions: Vec<SettlementIntentPartition>,
+    work: Vec<crate::resolution::SettlementWorkResolution>,
+    targeted: Vec<crate::resolution::SettlementTargetedResolution>,
+    markets: Vec<crate::resolution::SettlementMarketResolution>,
+    welfare: Vec<crate::resolution::SettlementWelfareResolution>,
+    mortality: Option<crate::phases::Phase9MortalityResolution>,
+    phase9b: Option<Phase9bResult>,
+    event_buffer: Option<EventBuffer>,
+    metrics: Option<M3pDailyMetrics>,
+    snapshot: Option<CanonicalSnapshot>,
+    events: Vec<M3pEventRecord>,
+}
+
+impl<'a> M3pStorageRegisteredDay<'a> {
+    fn new(
+        world: &'a mut WorldState,
+        config: &SimConfig,
+        context: &'a mut M3pStorageRunContext,
+        options: &DayExecutionOptions,
+        incremental_topology_scratch: Option<&'a mut M3pIncrementalTopologyScratch>,
+    ) -> Self {
+        let mut effective_config = config.clone();
+        effective_config.world.master_seed = context.run_context.master_seed;
+        effective_config.world.replicate_id = context.run_context.replicate_id;
+        Self {
+            world,
+            context,
+            effective_config,
+            options: *options,
+            incremental_topology_scratch,
+            executed_day: 0,
+            next_day: 0,
+            cross_partition_interaction_count: 0,
+            partitions: Vec::new(),
+            work: Vec::new(),
+            targeted: Vec::new(),
+            markets: Vec::new(),
+            welfare: Vec::new(),
+            mortality: None,
+            phase9b: None,
+            event_buffer: None,
+            metrics: None,
+            snapshot: None,
+            events: Vec::new(),
+        }
+    }
+
+    fn run_core_phase(
+        &mut self,
+        _day: u32,
+        phase: RegisteredCorePhase,
+        _hooks: &[RegisteredHook],
+        storage: &mut SegmentedAgentStorage,
+    ) -> Result<(), M0RunError> {
+        match phase {
+            RegisteredCorePhase::Phase1 => {
+                self.executed_day = self.world.current_day.as_u32();
+                self.next_day = self
+                    .executed_day
+                    .checked_add(1)
+                    .ok_or(M0RunError::DayOverflow)?;
+                phase1_resource_regrowth(self.world, &self.effective_config);
+            }
+            RegisteredCorePhase::Phase2 => {
+                storage.phase2_degradation_with_config(&self.effective_config);
+            }
+            RegisteredCorePhase::Phase3 => {
+                self.context.features_scratch.clear();
+                phase3_observation_and_features_storage_with_scratch(
+                    storage,
+                    &self.world.settlements,
+                    &self.effective_config,
+                    &mut self.context.features_scratch,
+                    &mut self.context.phase3_scratch,
+                )?;
+            }
+            RegisteredCorePhase::Phase4 => {
+                self.context.choices_scratch.clear();
+                phase4_primary_action_selection_storage_into(
+                    storage,
+                    self.world.current_day,
+                    &self.effective_config,
+                    &self.context.features_scratch,
+                    &mut self.context.choices_scratch,
+                )?;
+            }
+            RegisteredCorePhase::Phase5 => {
+                self.partitions = phase5_partition_intents_from_vec_with_scratch(
+                    &mut self.context.intents_scratch,
+                    &mut self.context.phase5_scratch,
+                )?;
+            }
+            RegisteredCorePhase::Phase6A => {
+                self.work = phase6a_work_resolution_storage(
+                    storage,
+                    &mut self.world.settlements,
+                    &self.partitions,
+                )?;
+            }
+            RegisteredCorePhase::Phase6B => {}
+            RegisteredCorePhase::Phase7 => {
+                self.markets = phase7_market_clearance_storage_with_config(
+                    storage,
+                    &mut self.world.settlements,
+                    &self.partitions,
+                    &self.effective_config.economy,
+                )?;
+            }
+            RegisteredCorePhase::Phase8 => {
+                self.welfare = phase8_welfare_distribution_storage_with_config_and_scratch(
+                    storage,
+                    &mut self.world.settlements,
+                    &self.effective_config,
+                    &mut self.context.phase8_scratch,
+                )?;
+            }
+            RegisteredCorePhase::Phase9 => {
+                self.mortality = Some(storage.phase9_mortality_commitment()?);
+            }
+            RegisteredCorePhase::Phase10 => self.observe(storage)?,
+            RegisteredCorePhase::Phase11 => self.finish_events_and_snapshot(storage)?,
+        }
+        Ok(())
+    }
+
+    fn run_system_hook(
+        &mut self,
+        _day: u32,
+        hook: RegisteredHook,
+        storage: &mut SegmentedAgentStorage,
+        execution: &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError> {
+        match (hook.system_id, hook.slot) {
+            (SystemId::RelationshipGraph, PhaseSlot::Initialization) => Ok(()),
+            (SystemId::RelationshipGraph, PhaseSlot::Phase4) => {
+                self.context.intents_scratch.clear();
+                generate_intents_m3_storage_into(
+                    storage,
+                    self.world.current_day,
+                    &self.effective_config,
+                    &self.context.choices_scratch,
+                    &self.context.phase4_projection,
+                    &mut self.context.candidate_scratch,
+                    &mut self.context.intents_scratch,
+                )?;
+                self.cross_partition_interaction_count =
+                    count_cross_partition_interactions_storage_per_day(
+                        &self.context.intents_scratch,
+                        storage,
+                    )?;
+                Ok(())
+            }
+            (SystemId::RelationshipGraph, PhaseSlot::Phase6B) => {
+                self.targeted = phase6b_targeted_resolution_storage_m3_with_scratch(
+                    storage,
+                    &self.world.settlements,
+                    self.world.current_day,
+                    &self.effective_config,
+                    &self.partitions,
+                    &mut self.context.phase6b_scratch,
+                )?;
+                Ok(())
+            }
+            (SystemId::PopulationDynamics, PhaseSlot::Phase9B) => {
+                let phase9b = match execution.for_system(SystemId::PopulationDynamics) {
+                    SystemExecutionPolicy::Serial => apply_phase9b_storage(
+                        storage,
+                        self.world,
+                        &mut self.context.relationship_graph,
+                        &mut self.context.next_agent_id,
+                        &self.effective_config,
+                        &self.context.run_context,
+                        self.executed_day,
+                    )?,
+                    SystemExecutionPolicy::IncrementalTopology => {
+                        let scratch = self
+                            .incremental_topology_scratch
+                            .as_deref_mut()
+                            .ok_or_else(|| {
+                                M0RunError::InvariantViolation(
+                                    "incremental M3P policy requires incremental topology scratch"
+                                        .into(),
+                                )
+                            })?;
+                        apply_phase9b_storage_incremental(
+                            storage,
+                            self.world,
+                            &mut self.context.relationship_graph,
+                            &mut self.context.phase4_projection,
+                            &mut self.context.next_agent_id,
+                            Phase9bRunParameters {
+                                config: &self.effective_config,
+                                run_context: &self.context.run_context,
+                                day: self.executed_day,
+                                relationship_degree_k: self.context.relationship_degree_k,
+                                p_local_bits: self.context.p_local_bits,
+                            },
+                            scratch,
+                        )?
+                    }
+                    SystemExecutionPolicy::Parallel { .. } => {
+                        return Err(M0RunError::InvariantViolation(
+                            "parallel population dynamics is not supported in M3P".into(),
+                        ));
+                    }
+                };
+                if self.incremental_topology_scratch.is_some() {
+                    self.context
+                        .refresh_incremental_after_phase9b(storage, &phase9b)?;
+                    #[cfg(debug_assertions)]
+                    if phase9b.compacted || self.executed_day.is_multiple_of(16) {
+                        assert_m3p_incremental_topology_matches_full_rebuild(storage, self.context);
+                    }
+                } else {
+                    self.context.refresh_after_phase9b(storage, &phase9b)?;
+                }
+                self.phase9b = Some(phase9b);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn observe(&mut self, storage: &SegmentedAgentStorage) -> Result<(), M0RunError> {
+        let phase9b = self.phase9b.as_ref().expect("Phase 9b ran before Phase 10");
+        let mut event_buffer = if self.options.events_enabled {
+            EventBuffer::with_capacity(
+                storage.len().saturating_mul(2) + self.world.settlements.len() + 4,
+            )
+        } else {
+            EventBuffer::new()
+        };
+        if self.options.events_enabled {
+            let mut phase6_counts = Vec::with_capacity(self.work.len());
+            let mut phase6_count_slots =
+                HashMap::with_capacity(self.work.len().saturating_add(self.targeted.len()));
+            for work in &self.work {
+                let events = events_from_work_resolution(self.executed_day, work);
+                record_phase6_event_count(
+                    &mut phase6_counts,
+                    &mut phase6_count_slots,
+                    work.group_id,
+                    events.len() as u64,
+                );
+                event_buffer.push_all(events);
+            }
+            for targeted in &self.targeted {
+                let mut events = events_from_targeted_resolution(self.executed_day, targeted);
+                let offset = record_phase6_event_count(
+                    &mut phase6_counts,
+                    &mut phase6_count_slots,
+                    targeted.group_id,
+                    events.len() as u64,
+                );
+                if offset > 0 {
+                    for event in &mut events {
+                        event.key.local_sequence += offset;
+                    }
+                }
+                event_buffer.push_all(events);
+            }
+            for market in &self.markets {
+                event_buffer.push_all(events_from_market_resolution(self.executed_day, market));
+            }
+            for welfare in &self.welfare {
+                event_buffer.push_all(events_from_welfare_resolution(self.executed_day, welfare));
+            }
+            event_buffer.push_all(events_from_mortality_resolution(
+                self.executed_day,
+                self.mortality
+                    .as_ref()
+                    .expect("Phase 9 ran before Phase 10"),
+            ));
+        }
+        if self.options.metrics_enabled {
+            let base = phase10_observe_storage_with_scratch(
+                storage,
+                &self.world.settlements,
+                self.executed_day,
+                &mut self.context.phase10_indices,
+                &mut self.context.phase10_settlement_indices,
+            )?;
+            if self.options.events_enabled {
+                event_buffer.push(event_from_daily_metrics(&base));
+            }
+            let (cross_partition_edge_count, total_directed_edge_count) =
+                self.context.relationship_graph.edge_ratio_counts();
+            self.metrics = Some(M3pDailyMetrics {
+                m3_metrics: M3DailyMetrics {
+                    metrics: base,
+                    cross_partition_edge_count,
+                    total_directed_edge_count,
+                    cross_partition_interaction_count: self.cross_partition_interaction_count,
+                },
+                births: phase9b.births.len() as u64,
+                removed: phase9b.removed,
+                replaced_edges: phase9b.replaced_edges,
+                live_population: storage.alive().iter().filter(|&&alive| alive).count() as u64,
+                next_agent_id: self.context.next_agent_id,
+            });
+        }
+        self.event_buffer = Some(event_buffer);
+        Ok(())
+    }
+
+    fn finish_events_and_snapshot(
+        &mut self,
+        storage: &mut SegmentedAgentStorage,
+    ) -> Result<(), M0RunError> {
+        let phase9b = self.phase9b.as_ref().expect("Phase 9b ran before Phase 11");
+        let mortality = self
+            .mortality
+            .as_ref()
+            .expect("Phase 9 ran before Phase 11");
+        let mut event_buffer = self.event_buffer.take().unwrap_or_default();
+        if self.options.snapshot_boundary {
+            let snapshot_world = m3p_world_from_storage(self.world, storage);
+            let snapshot_state = M3pReferenceState::from_parts(
+                snapshot_world,
+                self.context.relationship_graph.clone(),
+                self.context.next_agent_id,
+                &self.effective_config,
+                &self.context.run_context,
+            )?;
+            let metadata = SnapshotMetadata::new(
+                self.next_day,
+                self.context.run_context.master_seed,
+                self.context.run_context.replicate_id,
+                DEFAULT_MODEL_VERSION,
+                DEFAULT_CONFIG_VERSION,
+            );
+            self.snapshot = Some(encode_m3p_snapshot(&snapshot_state, &metadata)?);
+            if self.options.events_enabled {
+                event_buffer.push(EventRecord::new(
+                    EventKey::new(self.executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                    Event::Observation(ObservationEvent::SnapshotEmitted {
+                        day: metadata.day,
+                        master_seed: metadata.master_seed,
+                        replicate_id: metadata.replicate_id,
+                        schema_version: crate::m3p::M3P_SNAPSHOT_SCHEMA_VERSION,
+                    }),
+                ));
+            }
+        }
+        let mut events: Vec<M3pEventRecord> = if self.options.events_enabled {
+            phase11_flush_events(&mut event_buffer)?
+                .into_iter()
+                .map(|record| M3pEventRecord {
+                    key: record.key,
+                    event: M3pEvent::Existing(record.event),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        if self.options.events_enabled {
+            let mortality_event_count = mortality.newly_deceased.len() as u64;
+            for (sequence, birth) in phase9b.births.iter().enumerate() {
+                events.push(M3pEventRecord {
+                    key: EventKey::new(
+                        self.executed_day,
+                        9,
+                        GLOBAL_PARTITION_KEY,
+                        mortality_event_count + sequence as u64,
+                    ),
+                    event: M3pEvent::Birth {
+                        parent: birth.parent,
+                        child: birth.child,
+                        group: birth.group,
+                    },
+                });
+            }
+            if phase9b.compacted {
+                events.push(M3pEventRecord {
+                    key: EventKey::new(
+                        self.executed_day,
+                        9,
+                        GLOBAL_PARTITION_KEY,
+                        mortality_event_count + phase9b.births.len() as u64,
+                    ),
+                    event: M3pEvent::Cleanup {
+                        removed: phase9b.removed,
+                        replaced_edges: phase9b.replaced_edges,
+                        dropped_edges: phase9b.dropped_edges,
+                    },
+                });
+            }
+            events.sort_by_key(|record| record.key);
+        }
+        self.events = events;
+        self.world.current_day = SimulationDay(self.next_day);
+        Ok(())
+    }
+
+    fn finish_day(
+        &mut self,
+        _storage: &SegmentedAgentStorage,
+    ) -> Result<M3pDayOutcome, M0RunError> {
+        Ok(M3pDayOutcome {
+            executed_day: self.executed_day,
+            metrics: self.metrics.take(),
+            events: std::mem::take(&mut self.events),
+            snapshot: self.snapshot.take(),
+        })
+    }
 }
 
 fn run_m3p_storage_day_inner(

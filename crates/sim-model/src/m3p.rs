@@ -10,7 +10,8 @@ use crate::events::{
 };
 use crate::features::phase3_observation_and_features_into;
 use crate::intents::{
-    M3Phase4SlotProjection, count_cross_partition_interactions_per_day, generate_intents_m3_into,
+    Intent, M3Phase4SlotProjection, count_cross_partition_interactions_per_day,
+    generate_intents_m3_into,
 };
 use crate::metrics::{M3DailyMetrics, phase10_observe_with_scratch};
 use crate::partitioning::phase5_partition_intents_baseline;
@@ -27,6 +28,7 @@ use crate::resolution::{
 };
 use crate::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext, M0RunError,
+    RegisteredCorePhase, run_registered_world_day_loop,
 };
 use crate::snapshot::{
     CanonicalSnapshot, SNAPSHOT_MAGIC, SnapshotError, SnapshotMetadata, decode_snapshot,
@@ -34,6 +36,9 @@ use crate::snapshot::{
 };
 use crate::state::{AgentDynamicSoAScratch, AgentState, WorldState};
 use crate::storage::SegmentedAgentStorage;
+use crate::system_registry::{
+    PhaseSlot, RegisteredHook, RegisteredSystemRunOptions, SystemExecutionOptions, SystemId,
+};
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, DenseSlot, GroupId, RngCoordinate, SimulationDay, coordinate_prng_f32};
 use std::collections::{BTreeMap, BTreeSet};
@@ -424,11 +429,405 @@ pub fn run_m3p_reference_day(
     run_context: &M0RunContext,
     options: &DayExecutionOptions,
 ) -> Result<M3pDayOutcome, M0RunError> {
-    run_m3p_reference_day_with_post_phase9b(state, config, run_context, options, None)
+    state.validate_for(config, run_context)?;
+    let M3pReferenceState {
+        world,
+        relationship_graph,
+        next_agent_id,
+        run_context: _,
+        relationship_degree_k: _,
+        p_local_bits: _,
+    } = state;
+    let mut day_state = M3pRegisteredReferenceDay::new(
+        config,
+        run_context,
+        relationship_graph,
+        next_agent_id,
+        options,
+    );
+    let enabled_systems = [SystemId::RelationshipGraph, SystemId::PopulationDynamics];
+    let run_options = RegisteredSystemRunOptions {
+        enabled_systems: &enabled_systems,
+        execution: SystemExecutionOptions::default(),
+    };
+    let mut outcomes = run_registered_world_day_loop(
+        world,
+        &mut day_state,
+        &run_options,
+        1,
+        |day, phase, hooks, world, state, _| state.run_core_phase(day, phase, hooks, world),
+        |day, hook, world, state, execution| state.run_system_hook(day, hook, world, execution),
+        |_, world, state| state.finish_day(world),
+    )?;
+    Ok(outcomes.remove(0))
 }
 
 type M3pReferencePostPhase9b<'a> =
     dyn FnMut(&WorldState, &RelationshipGraph, &[AgentId], u32) -> Result<(), M0RunError> + 'a;
+
+struct M3pRegisteredReferenceDay<'a> {
+    effective_config: SimConfig,
+    run_context: M0RunContext,
+    relationship_graph: &'a mut RelationshipGraph,
+    next_agent_id: &'a mut u64,
+    options: DayExecutionOptions,
+    executed_day: u32,
+    next_day: u32,
+    features: Vec<crate::features::AgentFeatures>,
+    choices: Vec<crate::decision::PrimaryActionChoice>,
+    intents: Vec<Intent>,
+    cross_partition_interaction_count: u64,
+    partitions: Vec<crate::partitioning::SettlementIntentPartition>,
+    work: Vec<crate::resolution::SettlementWorkResolution>,
+    targeted: Vec<crate::resolution::SettlementTargetedResolution>,
+    markets: Vec<crate::resolution::SettlementMarketResolution>,
+    welfare: Vec<crate::resolution::SettlementWelfareResolution>,
+    mortality: Option<crate::phases::Phase9MortalityResolution>,
+    phase9b: Option<Phase9bResult>,
+    event_buffer: Option<EventBuffer>,
+    metrics: Option<M3pDailyMetrics>,
+    snapshot: Option<CanonicalSnapshot>,
+    events: Vec<M3pEventRecord>,
+}
+
+impl<'a> M3pRegisteredReferenceDay<'a> {
+    fn new(
+        config: &SimConfig,
+        run_context: &M0RunContext,
+        relationship_graph: &'a mut RelationshipGraph,
+        next_agent_id: &'a mut u64,
+        options: &DayExecutionOptions,
+    ) -> Self {
+        let mut effective_config = config.clone();
+        effective_config.world.master_seed = run_context.master_seed;
+        effective_config.world.replicate_id = run_context.replicate_id;
+        Self {
+            effective_config,
+            run_context: *run_context,
+            relationship_graph,
+            next_agent_id,
+            options: *options,
+            executed_day: 0,
+            next_day: 0,
+            features: Vec::new(),
+            choices: Vec::new(),
+            intents: Vec::new(),
+            cross_partition_interaction_count: 0,
+            partitions: Vec::new(),
+            work: Vec::new(),
+            targeted: Vec::new(),
+            markets: Vec::new(),
+            welfare: Vec::new(),
+            mortality: None,
+            phase9b: None,
+            event_buffer: None,
+            metrics: None,
+            snapshot: None,
+            events: Vec::new(),
+        }
+    }
+
+    fn run_core_phase(
+        &mut self,
+        _day: u32,
+        phase: RegisteredCorePhase,
+        _hooks: &[RegisteredHook],
+        world: &mut WorldState,
+    ) -> Result<(), M0RunError> {
+        match phase {
+            RegisteredCorePhase::Phase1 => {
+                self.executed_day = world.current_day.as_u32();
+                self.next_day = self
+                    .executed_day
+                    .checked_add(1)
+                    .ok_or(M0RunError::DayOverflow)?;
+                phase1_resource_regrowth(world, &self.effective_config);
+            }
+            RegisteredCorePhase::Phase2 => {
+                phase2_biological_degradation(world, &self.effective_config);
+            }
+            RegisteredCorePhase::Phase3 => {
+                phase3_observation_and_features_into(
+                    world,
+                    &self.effective_config,
+                    &mut self.features,
+                )?;
+            }
+            RegisteredCorePhase::Phase4 => {
+                phase4_primary_action_selection_into(
+                    world,
+                    &self.effective_config,
+                    &self.features,
+                    &mut self.choices,
+                )?;
+            }
+            RegisteredCorePhase::Phase5 => {
+                self.partitions = phase5_partition_intents_baseline(&self.intents)?;
+            }
+            RegisteredCorePhase::Phase6A => {
+                self.work = phase6a_work_resolution(world, &self.partitions)?;
+            }
+            RegisteredCorePhase::Phase6B => {}
+            RegisteredCorePhase::Phase7 => {
+                self.markets = phase7_market_clearance_with_config(
+                    world,
+                    &self.partitions,
+                    &self.effective_config.economy,
+                )?;
+            }
+            RegisteredCorePhase::Phase8 => {
+                self.welfare =
+                    phase8_welfare_distribution_with_config(world, &self.effective_config)?;
+            }
+            RegisteredCorePhase::Phase9 => {
+                self.mortality = Some(phase9_mortality_commitment(world)?);
+            }
+            RegisteredCorePhase::Phase10 => self.observe(world)?,
+            RegisteredCorePhase::Phase11 => self.finish_events_and_snapshot(world)?,
+        }
+        Ok(())
+    }
+
+    fn run_system_hook(
+        &mut self,
+        _day: u32,
+        hook: RegisteredHook,
+        world: &mut WorldState,
+        execution: &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError> {
+        match (hook.system_id, hook.slot) {
+            (SystemId::RelationshipGraph, PhaseSlot::Initialization) => Ok(()),
+            (SystemId::RelationshipGraph, PhaseSlot::Phase4) => {
+                generate_intents_m3_into(
+                    world,
+                    &self.effective_config,
+                    &self.choices,
+                    self.relationship_graph,
+                    &mut self.intents,
+                )?;
+                self.cross_partition_interaction_count =
+                    count_cross_partition_interactions_per_day(&self.intents, world)?;
+                Ok(())
+            }
+            (SystemId::RelationshipGraph, PhaseSlot::Phase6B) => {
+                self.targeted = phase6b_targeted_resolution_m3(
+                    world,
+                    &self.effective_config,
+                    &self.partitions,
+                )?;
+                Ok(())
+            }
+            (SystemId::PopulationDynamics, PhaseSlot::Phase9B) => {
+                if !matches!(
+                    execution.for_system(SystemId::PopulationDynamics),
+                    crate::system_registry::SystemExecutionPolicy::Serial
+                ) {
+                    return Err(invariant(
+                        "M3P reference supports serial population-dynamics execution only",
+                    ));
+                }
+                let mut phase_state = M3pReferenceState::from_parts(
+                    world.clone(),
+                    self.relationship_graph.clone(),
+                    *self.next_agent_id,
+                    &self.effective_config,
+                    &self.run_context,
+                )?;
+                let result = apply_phase9b(
+                    &mut phase_state,
+                    &self.effective_config,
+                    &self.run_context,
+                    self.executed_day,
+                )?;
+                *world = phase_state.world;
+                *self.relationship_graph = phase_state.relationship_graph;
+                *self.next_agent_id = phase_state.next_agent_id;
+                self.phase9b = Some(result);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn observe(&mut self, world: &WorldState) -> Result<(), M0RunError> {
+        let phase9b = self.phase9b.as_ref().expect("Phase 9b ran before Phase 10");
+        let mut event_buffer = if self.options.events_enabled {
+            let estimated_cap = world
+                .agents
+                .len()
+                .saturating_mul(2)
+                .saturating_add(world.settlements.len())
+                .saturating_add(4);
+            EventBuffer::with_capacity(estimated_cap)
+        } else {
+            EventBuffer::new()
+        };
+        if self.options.events_enabled {
+            let mut phase6_counts: Vec<(u16, u64)> = Vec::with_capacity(self.work.len());
+            for work in &self.work {
+                let events = events_from_work_resolution(self.executed_day, work);
+                let count = events.len() as u64;
+                if let Some(entry) = phase6_counts
+                    .iter_mut()
+                    .find(|(group_id, _)| *group_id == work.group_id.0)
+                {
+                    entry.1 += count;
+                } else {
+                    phase6_counts.push((work.group_id.0, count));
+                }
+                event_buffer.push_all(events);
+            }
+            for targeted in &self.targeted {
+                let mut events = events_from_targeted_resolution(self.executed_day, targeted);
+                let offset = if let Some(entry) = phase6_counts
+                    .iter_mut()
+                    .find(|(group_id, _)| *group_id == targeted.group_id.0)
+                {
+                    let previous = entry.1;
+                    entry.1 += events.len() as u64;
+                    previous
+                } else {
+                    phase6_counts.push((targeted.group_id.0, events.len() as u64));
+                    0
+                };
+                for event in &mut events {
+                    event.key.local_sequence += offset;
+                }
+                event_buffer.push_all(events);
+            }
+            for market in &self.markets {
+                event_buffer.push_all(events_from_market_resolution(self.executed_day, market));
+            }
+            for welfare in &self.welfare {
+                event_buffer.push_all(events_from_welfare_resolution(self.executed_day, welfare));
+            }
+            event_buffer.push_all(events_from_mortality_resolution(
+                self.executed_day,
+                self.mortality
+                    .as_ref()
+                    .expect("Phase 9 ran before Phase 10"),
+            ));
+        }
+        if self.options.metrics_enabled {
+            let mut scratch = AgentDynamicSoAScratch::with_capacity(world.agents.len());
+            let base = phase10_observe_with_scratch(world, self.executed_day, &mut scratch)?;
+            if self.options.events_enabled {
+                event_buffer.push(event_from_daily_metrics(&base));
+            }
+            let (cross_partition_edge_count, total_directed_edge_count) =
+                self.relationship_graph.edge_ratio_counts();
+            self.metrics = Some(M3pDailyMetrics {
+                m3_metrics: M3DailyMetrics {
+                    metrics: base,
+                    cross_partition_edge_count,
+                    total_directed_edge_count,
+                    cross_partition_interaction_count: self.cross_partition_interaction_count,
+                },
+                births: phase9b.births.len() as u64,
+                removed: phase9b.removed,
+                replaced_edges: phase9b.replaced_edges,
+                live_population: world.agents.iter().filter(|agent| agent.alive).count() as u64,
+                next_agent_id: *self.next_agent_id,
+            });
+        }
+        self.event_buffer = Some(event_buffer);
+        Ok(())
+    }
+
+    fn finish_events_and_snapshot(&mut self, world: &mut WorldState) -> Result<(), M0RunError> {
+        let phase9b = self.phase9b.as_ref().expect("Phase 9b ran before Phase 11");
+        let mortality = self
+            .mortality
+            .as_ref()
+            .expect("Phase 9 ran before Phase 11");
+        let mut event_buffer = self.event_buffer.take().unwrap_or_default();
+        if self.options.snapshot_boundary {
+            let snapshot_state = M3pReferenceState::from_parts(
+                world.clone(),
+                self.relationship_graph.clone(),
+                *self.next_agent_id,
+                &self.effective_config,
+                &self.run_context,
+            )?;
+            let metadata = SnapshotMetadata::new(
+                self.next_day,
+                self.run_context.master_seed,
+                self.run_context.replicate_id,
+                DEFAULT_MODEL_VERSION,
+                DEFAULT_CONFIG_VERSION,
+            );
+            self.snapshot = Some(encode_m3p_snapshot(&snapshot_state, &metadata)?);
+            if self.options.events_enabled {
+                event_buffer.push(EventRecord::new(
+                    EventKey::new(self.executed_day, 11, GLOBAL_PARTITION_KEY, 0),
+                    Event::Observation(ObservationEvent::SnapshotEmitted {
+                        day: metadata.day,
+                        master_seed: metadata.master_seed,
+                        replicate_id: metadata.replicate_id,
+                        schema_version: M3P_SNAPSHOT_SCHEMA_VERSION,
+                    }),
+                ));
+            }
+        }
+        let mut events = if self.options.events_enabled {
+            phase11_flush_events(&mut event_buffer)?
+                .into_iter()
+                .map(|record| M3pEventRecord {
+                    key: record.key,
+                    event: M3pEvent::Existing(record.event),
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        if self.options.events_enabled {
+            let mortality_count = mortality.newly_deceased.len() as u64;
+            for (sequence, birth) in phase9b.births.iter().enumerate() {
+                events.push(M3pEventRecord {
+                    key: EventKey::new(
+                        self.executed_day,
+                        9,
+                        GLOBAL_PARTITION_KEY,
+                        mortality_count + sequence as u64,
+                    ),
+                    event: M3pEvent::Birth {
+                        parent: birth.parent,
+                        child: birth.child,
+                        group: birth.group,
+                    },
+                });
+            }
+            if phase9b.compacted {
+                events.push(M3pEventRecord {
+                    key: EventKey::new(
+                        self.executed_day,
+                        9,
+                        GLOBAL_PARTITION_KEY,
+                        mortality_count + phase9b.births.len() as u64,
+                    ),
+                    event: M3pEvent::Cleanup {
+                        removed: phase9b.removed,
+                        replaced_edges: phase9b.replaced_edges,
+                        dropped_edges: phase9b.dropped_edges,
+                    },
+                });
+            }
+            events.sort_by_key(|event| event.key);
+        }
+        self.events = events;
+        world.current_day = SimulationDay(self.next_day);
+        Ok(())
+    }
+
+    fn finish_day(&mut self, _world: &WorldState) -> Result<M3pDayOutcome, M0RunError> {
+        Ok(M3pDayOutcome {
+            executed_day: self.executed_day,
+            metrics: self.metrics.take(),
+            events: std::mem::take(&mut self.events),
+            snapshot: self.snapshot.take(),
+        })
+    }
+}
 
 pub(crate) fn run_m3p_reference_day_with_post_phase9b(
     state: &mut M3pReferenceState,
