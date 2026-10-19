@@ -5,9 +5,11 @@ use crate::config::{
 };
 use crate::events::{Event, EventKey, GLOBAL_PARTITION_KEY, ObservationEvent};
 use crate::hashing::{CanonicalHash, CanonicalHashError, canonical_m3pprop_state_hash};
+#[cfg(test)]
+use crate::m3p::run_m3p_reference_day_with_post_phase9b;
 use crate::m3p::{
     M3pEvent, M3pEventRecord, M3pReferenceState, decode_m3p_snapshot, encode_m3p_snapshot,
-    run_m3p_reference_day_with_post_phase9b,
+    run_m3p_reference_day_with_post_phase9c_registered,
 };
 use crate::m3prop::M3PROP_SNAPSHOT_SCHEMA_VERSION;
 use crate::propagation::{PropagationAgentState, PropagationDailyCounts, apply_phase9c_m3p};
@@ -157,6 +159,64 @@ pub fn run_m3pprop_reference_day(
     let mut base_options = *options;
     base_options.snapshot_boundary = false;
     let mut propagation_counts = None;
+    let outcome = {
+        let M3pPropagationReferenceState {
+            base,
+            propagation,
+            propagation_config,
+        } = state;
+        let mut apply_propagation = |world: &WorldState,
+                                     graph: &RelationshipGraph,
+                                     newborn_ids: &[AgentId],
+                                     day: u32|
+         -> Result<(), M0RunError> {
+            sync_propagation_rows(world, propagation);
+            propagation_counts = Some(
+                apply_phase9c_m3p(
+                    world,
+                    graph,
+                    propagation,
+                    *propagation_config,
+                    run_context.master_seed,
+                    run_context.replicate_id,
+                    day,
+                    newborn_ids,
+                )
+                .map_err(invariant)?,
+            );
+            Ok(())
+        };
+        run_m3p_reference_day_with_post_phase9c_registered(
+            base,
+            &base_config,
+            run_context,
+            &base_options,
+            &mut apply_propagation,
+        )?
+    };
+    finish_m3pprop_reference_day(
+        state,
+        run_context,
+        options,
+        executed_day,
+        propagation_counts.expect("Phase 9c callback runs once per day"),
+        outcome,
+    )
+}
+
+#[cfg(test)]
+fn run_m3pprop_reference_day_legacy(
+    state: &mut M3pPropagationReferenceState,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    options: &DayExecutionOptions,
+) -> Result<M3pPropagationDayOutcome, M0RunError> {
+    state.validate_for(config, run_context)?;
+    let executed_day = state.world().current_day.as_u32();
+    let base_config = m3p_base_config(config);
+    let mut base_options = *options;
+    base_options.snapshot_boundary = false;
+    let mut propagation_counts = None;
     let mut apply_propagation = |world: &WorldState,
                                  graph: &RelationshipGraph,
                                  newborn_ids: &[AgentId],
@@ -178,14 +238,31 @@ pub fn run_m3pprop_reference_day(
         );
         Ok(())
     };
-    let mut outcome = run_m3p_reference_day_with_post_phase9b(
+    let outcome = run_m3p_reference_day_with_post_phase9b(
         &mut state.base,
         &base_config,
         run_context,
         &base_options,
         Some(&mut apply_propagation),
     )?;
-    let propagation = propagation_counts.expect("Phase 9c callback runs once per day");
+    finish_m3pprop_reference_day(
+        state,
+        run_context,
+        options,
+        executed_day,
+        propagation_counts.expect("Phase 9c callback runs once per day"),
+        outcome,
+    )
+}
+
+fn finish_m3pprop_reference_day(
+    state: &M3pPropagationReferenceState,
+    run_context: &M0RunContext,
+    options: &DayExecutionOptions,
+    executed_day: u32,
+    propagation: PropagationDailyCounts,
+    mut outcome: crate::m3p::M3pDayOutcome,
+) -> Result<M3pPropagationDayOutcome, M0RunError> {
     let metrics = outcome
         .metrics
         .take()
@@ -472,4 +549,61 @@ fn read_u64(bytes: &[u8], cursor: &mut usize) -> Result<u64, SnapshotError> {
 
 fn invariant(message: impl Into<String>) -> M0RunError {
     M0RunError::InvariantViolation(message.into())
+}
+
+#[cfg(test)]
+mod registered_reference_parity_tests {
+    use super::{
+        M3pPropagationReferenceState, run_m3pprop_reference_day, run_m3pprop_reference_day_legacy,
+    };
+    use crate::runner::{DayExecutionOptions, M0RunContext};
+    use crate::{SimConfig, initialize_world};
+
+    #[test]
+    fn registered_m3pprop_reference_matches_legacy_day_by_day_and_at_snapshots() {
+        let config: SimConfig = toml::from_str(include_str!(
+            "../tests/fixtures/m3p_propagation_sustained.toml"
+        ))
+        .unwrap();
+        let run_context = M0RunContext::new(config.world.master_seed, config.world.replicate_id);
+        let initial = initialize_world(&config).unwrap();
+        let mut registered =
+            M3pPropagationReferenceState::new(initial.clone(), &config, &run_context).unwrap();
+        let mut legacy = M3pPropagationReferenceState::new(initial, &config, &run_context).unwrap();
+
+        for day in 1..=300 {
+            let options = DayExecutionOptions {
+                metrics_enabled: true,
+                events_enabled: true,
+                snapshot_boundary: [100, 250, 300].contains(&day),
+            };
+            let actual =
+                run_m3pprop_reference_day(&mut registered, &config, &run_context, &options)
+                    .unwrap();
+            let expected =
+                run_m3pprop_reference_day_legacy(&mut legacy, &config, &run_context, &options)
+                    .unwrap();
+            assert_eq!(actual, expected, "M3PPROP outcome differs on day {day}");
+            assert_eq!(
+                registered.world(),
+                legacy.world(),
+                "world differs on day {day}"
+            );
+            assert_eq!(
+                registered.relationship_graph().csr_hash(),
+                legacy.relationship_graph().csr_hash(),
+                "graph differs on day {day}"
+            );
+            assert_eq!(
+                registered.base_state().next_agent_id(),
+                legacy.base_state().next_agent_id(),
+                "allocator differs on day {day}"
+            );
+            assert_eq!(
+                registered.propagation(),
+                legacy.propagation(),
+                "propagation state differs on day {day}"
+            );
+        }
+    }
 }

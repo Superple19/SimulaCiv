@@ -429,6 +429,33 @@ pub fn run_m3p_reference_day(
     run_context: &M0RunContext,
     options: &DayExecutionOptions,
 ) -> Result<M3pDayOutcome, M0RunError> {
+    run_m3p_reference_day_registered(state, config, run_context, options, None)
+}
+
+pub(crate) fn run_m3p_reference_day_with_post_phase9c_registered(
+    state: &mut M3pReferenceState,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    options: &DayExecutionOptions,
+    post_phase9c: &mut dyn FnMut(
+        &WorldState,
+        &RelationshipGraph,
+        &[AgentId],
+        u32,
+    ) -> Result<(), M0RunError>,
+) -> Result<M3pDayOutcome, M0RunError> {
+    run_m3p_reference_day_registered(state, config, run_context, options, Some(post_phase9c))
+}
+
+fn run_m3p_reference_day_registered(
+    state: &mut M3pReferenceState,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    options: &DayExecutionOptions,
+    mut post_phase9c: Option<
+        &mut dyn FnMut(&WorldState, &RelationshipGraph, &[AgentId], u32) -> Result<(), M0RunError>,
+    >,
+) -> Result<M3pDayOutcome, M0RunError> {
     state.validate_for(config, run_context)?;
     let M3pReferenceState {
         world,
@@ -445,7 +472,15 @@ pub fn run_m3p_reference_day(
         next_agent_id,
         options,
     );
-    let enabled_systems = [SystemId::RelationshipGraph, SystemId::PopulationDynamics];
+    let enabled_systems: &[SystemId] = if post_phase9c.is_some() {
+        &[
+            SystemId::RelationshipGraph,
+            SystemId::PopulationDynamics,
+            SystemId::Propagation,
+        ]
+    } else {
+        &[SystemId::RelationshipGraph, SystemId::PopulationDynamics]
+    };
     let run_options = RegisteredSystemRunOptions {
         enabled_systems: &enabled_systems,
         execution: SystemExecutionOptions::default(),
@@ -456,12 +491,31 @@ pub fn run_m3p_reference_day(
         &run_options,
         1,
         |day, phase, hooks, world, state, _| state.run_core_phase(day, phase, hooks, world),
-        |day, hook, world, state, execution| state.run_system_hook(day, hook, world, execution),
+        |day, hook, world, state, execution| {
+            if hook.system_id == SystemId::Propagation && hook.slot == PhaseSlot::Phase9C {
+                let phase9b = state
+                    .phase9b
+                    .as_ref()
+                    .expect("Phase 9b hook runs before Phase 9c");
+                let newborn_ids: Vec<_> = phase9b.births.iter().map(|birth| birth.child).collect();
+                post_phase9c
+                    .as_deref_mut()
+                    .ok_or_else(|| invariant("registered Phase 9c hook has no callback"))?(
+                    world,
+                    state.relationship_graph,
+                    &newborn_ids,
+                    state.executed_day,
+                )
+            } else {
+                state.run_system_hook(day, hook, world, execution)
+            }
+        },
         |_, world, state| state.finish_day(world),
     )?;
     Ok(outcomes.remove(0))
 }
 
+#[cfg(test)]
 type M3pReferencePostPhase9b<'a> =
     dyn FnMut(&WorldState, &RelationshipGraph, &[AgentId], u32) -> Result<(), M0RunError> + 'a;
 
@@ -829,6 +883,7 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn run_m3p_reference_day_with_post_phase9b(
     state: &mut M3pReferenceState,
     config: &SimConfig,

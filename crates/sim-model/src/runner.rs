@@ -1574,10 +1574,35 @@ pub fn run_m3_reference_day(
     context: &M3ReferenceContext,
     options: &DayExecutionOptions,
 ) -> Result<M3DayOutcome, M0RunError> {
+    run_m3_reference_day_registered(world, config, context, options, None)
+}
+
+pub(crate) fn run_m3_reference_day_with_post_phase9c_registered(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M3ReferenceContext,
+    options: &DayExecutionOptions,
+    post_phase9c: &mut dyn FnMut(&mut WorldState, u32) -> Result<(), M0RunError>,
+) -> Result<M3DayOutcome, M0RunError> {
+    run_m3_reference_day_registered(world, config, context, options, Some(post_phase9c))
+}
+
+fn run_m3_reference_day_registered(
+    world: &mut WorldState,
+    config: &SimConfig,
+    context: &M3ReferenceContext,
+    options: &DayExecutionOptions,
+    mut post_phase9c: Option<&mut dyn FnMut(&mut WorldState, u32) -> Result<(), M0RunError>>,
+) -> Result<M3DayOutcome, M0RunError> {
     ensure_m3_profile(config)?;
     let mut state = M3ReferenceRegisteredDay::new(config, context, options);
+    let enabled_systems: &[SystemId] = if post_phase9c.is_some() {
+        &[SystemId::RelationshipGraph, SystemId::Propagation]
+    } else {
+        &[SystemId::RelationshipGraph]
+    };
     let run_options = RegisteredSystemRunOptions {
-        enabled_systems: &[SystemId::RelationshipGraph],
+        enabled_systems,
         execution: SystemExecutionOptions::default(),
     };
     let mut outcomes = run_registered_world_day_loop(
@@ -1586,7 +1611,17 @@ pub fn run_m3_reference_day(
         &run_options,
         1,
         |day, phase, hooks, world, state, _| state.run_core_phase(day, phase, hooks, world),
-        |day, hook, world, state, _| state.run_system_hook(day, hook, world),
+        |day, hook, world, state, _| {
+            if hook.system_id == SystemId::Propagation && hook.slot == PhaseSlot::Phase9C {
+                post_phase9c.as_deref_mut().ok_or_else(|| {
+                    M0RunError::InvariantViolation(
+                        "registered Phase 9c hook has no callback".into(),
+                    )
+                })?(world, state.executed_day)
+            } else {
+                state.run_system_hook(day, hook, world)
+            }
+        },
         |_, world, state| state.finish_day(world),
     )?;
     Ok(outcomes.remove(0))
@@ -1859,6 +1894,7 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn run_m3_reference_day_with_post_phase9<F>(
     world: &mut WorldState,
     config: &SimConfig,
