@@ -410,23 +410,28 @@ Measure phase-locate replay separately. Recorder overhead must be at most max(10
 
 This freeze authorizes the M4-02 implementation task; it does not itself alter any runtime profile. Existing digest domains, snapshot schemas, events, and RNG coordinates remain unchanged.
 
-## §11.7 A-1 — Proposed performance-gate amendment (DRAFT — NOT FROZEN)
+## §11.7 A-1 — Measurement protocol amendment (FROZEN)
 
-This proposal leaves the frozen §11.7 budgets above unchanged pending review. The follow-up measurements show that the remaining failures include costs required to produce the frozen analysis outputs:
+This approved amendment changes how the §11.7 costs are isolated and compared. It does not change the branch semantics, the 5% orchestration limit, or the 10% recorder limit in §11.7.
 
-| Measurement | Observed result |
-|---|---|
-| M3 serial orchestration, `N=10,000` | 9.493 ms adjusted overhead against a 7.701 ms limit. |
-| M3 serial orchestration, `N=100,000` | 99.418 ms adjusted overhead against an 83.953 ms limit. |
-| M3P incremental orchestration, `N=10,000` | 18.720 ms adjusted overhead against an 11.450 ms limit. |
-| M3P recorder, `N=10,000` | 11.344 ms over a 41.273 ms two-day baseline; 4.127 ms limit. |
-| M3P recorder, `N=100,000` | 190.443 ms over a 583.251 ms two-day baseline; 58.325 ms limit. |
+### Orchestration gate
 
-The complete paired tables, exclusion probes, and Step A attribution are recorded in the [M4-02 follow-up report](../performance/M4_02_BRANCHING.md#follow-up-after-attribution-and-fixes). The recorder follows the required two states in lockstep and stops at the first differing boundary; its 10k and 100k costs are 27.5% and 32.7% of the two ordinary-day baselines, respectively.
+In one process, pair the branch API with analysis disabled against two direct storage passes from the same snapshot. Use paired samples and both execution orders. The analysis-disabled path performs the same branch simulation and returns the same simulation outputs, but skips day digests, `D_d`, lineage matching, component flags, and day-start clones. Do not subtract estimates from separate probes.
 
-**Proposed treatment for review:**
+Require the measured analysis-disabled branch API overhead to be at most `max(5% of the direct-pair median, larger paired MAD)`.
 
-1. Keep the 5% orchestration budget for runner dispatch and result assembly. Continue to report per-day canonical digest work separately. When state digests differ, report the required `D_d` and lineage scans per changed day and population, with a separate bound approved in this amendment rather than counting them as dispatch overhead. Equal-digest days already skip those scans.
-2. Split phase-location cost into (a) the required paired replay from day start through the first differing boundary and (b) component comparison/fingerprint work. Compare (a) to two ordinary executions of the same phase prefix and report the prefix length and time; apply the existing 10% recorder budget to (b) after removing the matched prefix replay baseline. Freeze a separate cap for (a) during amendment review.
+### Analysis-cost record
 
-This amendment is **not frozen** and does not authorize changing runtime semantics, recorder outputs, or the existing M4-02 gates. Review decisions still needed: the bound for changed-day `D_d`/lineage analysis, the cap for phase-prefix replay, and whether the §11.7 gate should use this split for all profiles or only profiles whose phase-locate path uses storage.
+In the same paired samples, measure the full branch API and the analysis-disabled branch API. Report their difference split into digest, `D_d`, lineage, and day-start clone costs in ns per agent-day. This is a regression baseline; M4-02 assigns no absolute limit to it.
+
+### Recorder gate
+
+Compare the lockstep locator with a comparison-disabled lockstep replay that runs the same two states to the same stopping boundary. Report the replay cost itself separately. Require comparison overhead to be at most `max(10% of that replay median, larger paired MAD)`.
+
+### High-variance cells
+
+If a cell has `MAD / median > 5%`, rerun it with 41 samples. If it remains above 5%, report the cell as **inconclusive**, never PASS.
+
+### Freeze record
+
+This user-approved amendment freezes the measurement method for the M4-02 follow-up. Measurement switches are internal and doc-hidden; normal API defaults remain unchanged. The amendment does not mark M4-02 complete or alter any simulation profile, digest, snapshot, event, RNG, or gate result. The supporting historical and follow-up measurements are recorded in the [M4-02 report](../performance/M4_02_BRANCHING.md).
