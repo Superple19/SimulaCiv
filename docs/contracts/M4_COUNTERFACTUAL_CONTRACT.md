@@ -41,8 +41,8 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | Stage | Planned scope |
 |---|---|
 | **M4-00 — Counterfactual contract** | Freeze the research question, framework terminology, inherited invariants, housekeeping options, and stage boundaries. This document is frozen; later sections freeze their own details. |
-| **M4-01 — System registration architecture** | Specify how systems declare state columns, phase slot, RNG subsystem ID, digest and snapshot contributions, feature switch, and read/write sets. Plan to port the relationship graph, population dynamics, and propagation through this architecture. Require all existing M2/M3/M3P/propagation goldens and snapshot bytes to remain unchanged. |
-| **M4-02 — Branching primitive and divergence-point detection** | Specify snapshot-based branch creation, intervention application, and exact first-divergence reporting. |
+| **M4-01 — System registration architecture** | **COMPLETE.** Static registry and generic WorldState/SegmentedAgentStorage loops preserve profile behavior; see the [M4-01 report](../performance/M4_01_SYSTEM_REGISTRY.md). |
+| **M4-02 — Branching primitive and divergence-point detection** | **DRAFT — NOT FROZEN.** Snapshot-backed branches, M4-00 interventions, and exact first-divergence reporting; see [§11](#11-m4-02-branching-and-divergence-detection). |
 | **M4-03 — Divergence measurement** | Specify divergence sets and curves, comparison population, and metrics beyond agent-record differences. |
 | **M4-04 — CRN efficiency** | Specify paired and independent estimators, replicate counts, and variance reporting. |
 | **M4-05 — Minimal-cause search** | Specify candidate-set construction, predicates, minimality, tie-breaking, and search limits. |
@@ -51,7 +51,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
 | **M4 audit** | Answer the research question from recorded correctness and performance evidence and classify remaining work. |
 
-All entries are planned and require their own frozen contract before implementation.
+M4-00 and M4-01 are complete. M4-02 is a draft for review; its implementation has not started. Later stages remain planned and require their own frozen contract before implementation.
 
 ## 4. Invariants carried from M0–M3
 

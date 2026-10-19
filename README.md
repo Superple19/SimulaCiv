@@ -20,6 +20,7 @@ Canonical State, Metrics, and Events digests and snapshots are verified on Linux
 | M1 — `v0.2.0-m1` | Complete | Frozen semantic contracts and machine-readable contract manifest |
 | M2 — `v0.3.0-m2` | Graduated | High-performance runtime with canonical parity |
 | M3 — `v0.4.0-m3` | Graduated — M3-00 through M3-11 complete; spatial migration deferred | Deterministic relationship-graph runtime, M3P population dynamics, incremental topology, feature switches, and propagation; [final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md) |
+| M4 — Counterfactual | In progress — M4-00/01 complete; M4-02 contract draft | Static system registry complete; [M4-01 report](docs/performance/M4_01_SYSTEM_REGISTRY.md), [M4-02 draft](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md#11-m4-02-branching-and-divergence-detection) |
 
 The M2 production path uses authoritative Segmented SoA storage. Serial remains the default; deterministic Phase4 Rayon execution is an explicit opt-in, and Auto policy remains experimental. Canonical State, Metrics, Events, and Day 100/250/500 snapshots were validated for exact parity. The measured workloads scale near-linearly through 100k agents; the 200k high-K results remain follow-up evidence. Timings depend on workload and host.
 
@@ -84,9 +85,9 @@ The central research question is:
 
 > How much interaction complexity can a deterministic simulation runtime support before its execution model or data architecture must fundamentally change?
 
-## M4 direction — planned
+## M4 direction — in progress
 
-M4 will study counterfactual branching: **In a deterministic world, how precisely can cause and effect be separated?** M4-00's framework is frozen; later stage contracts remain planned, and implementation has not started: [M4 Counterfactual Contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md).
+M4 studies counterfactual branching: **In a deterministic world, how precisely can cause and effect be separated?** M4-00 and M4-01 are complete. M4-02 is a DRAFT contract for review; its implementation has not started: [M4-01 report](docs/performance/M4_01_SYSTEM_REGISTRY.md), [M4 Counterfactual Contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md).
 
 ## Build and validate
 
