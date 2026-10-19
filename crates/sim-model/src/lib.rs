@@ -23,6 +23,7 @@ pub mod snapshot;
 pub mod state;
 pub mod storage;
 pub mod subsystems;
+pub mod system_registry;
 
 pub use commands::{
     BuyerMarketUpdate, Command, CommandExecutionError, SellerMarketUpdate, WelfareRecipientUpdate,
@@ -199,3 +200,9 @@ pub use storage::{
     WorldStorage, canonical_state_bytes_from_storage, canonical_state_hash_from_storage,
 };
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};
+pub use system_registry::{
+    ByteOrder, DescriptorProfile, DigestContribution, DigestKind, FeatureSwitchKey, PhaseAccess,
+    PhaseSlot, RegisteredHook, SYSTEM_REGISTRY, SnapshotSection, SystemDescriptor, SystemId,
+    SystemRegistryError, system_ids_for_features, system_ids_for_runner_selection,
+    validate_configured_system_set, validate_system_registry,
+};

@@ -1978,6 +1978,9 @@ pub fn run_configured_storage_days(
     config.validate().map_err(|error| {
         M0RunError::InvariantViolation(format!("invalid configuration: {error}"))
     })?;
+    crate::system_registry::validate_configured_system_set(config).map_err(|error| {
+        M0RunError::InvariantViolation(format!("system registry validation failed: {error}"))
+    })?;
     let manifest = config.run_manifest();
     let outcomes = match (config.runner_selection(), context) {
         (SimulationRunnerSelection::M2, ConfiguredStorageRunContext::M2(run_context)) => {
