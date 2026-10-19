@@ -1,8 +1,8 @@
 # M4 Counterfactual Contract
 
-**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 DRAFT — NOT FROZEN**
+**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN**
 
-**Scope:** M4-00 freezes the counterfactual framework; §10 freezes M4-01; §11 drafts M4-02 branching and divergence detection. Each later stage still requires its own DRAFT → review → FROZEN contract. M4-02 implementation has not started.
+**Scope:** M4-00 freezes the counterfactual framework; §10 freezes M4-01; §11 freezes M4-02 branching and divergence detection. Each later stage still requires its own DRAFT → review → FROZEN contract.
 
 **Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
@@ -42,7 +42,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 |---|---|
 | **M4-00 — Counterfactual contract** | Freeze the research question, framework terminology, inherited invariants, housekeeping options, and stage boundaries. This document is frozen; later sections freeze their own details. |
 | **M4-01 — System registration architecture** | **COMPLETE.** Static registry and generic WorldState/SegmentedAgentStorage loops preserve profile behavior; see the [M4-01 report](../performance/M4_01_SYSTEM_REGISTRY.md). |
-| **M4-02 — Branching primitive and divergence-point detection** | **DRAFT — NOT FROZEN.** Snapshot-backed branches, M4-00 interventions, and exact first-divergence reporting; see [§11](#11-m4-02-branching-and-divergence-detection). |
+| **M4-02 — Branching primitive and divergence-point detection** | **FROZEN.** Snapshot-backed branches, M4-00 interventions, and exact first-divergence reporting; see [§11](#11-m4-02-branching-and-divergence-detection). |
 | **M4-03 — Divergence measurement** | Specify divergence sets and curves, comparison population, and metrics beyond agent-record differences. |
 | **M4-04 — CRN efficiency** | Specify paired and independent estimators, replicate counts, and variance reporting. |
 | **M4-05 — Minimal-cause search** | Specify candidate-set construction, predicates, minimality, tie-breaking, and search limits. |
@@ -51,7 +51,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
 | **M4 audit** | Answer the research question from recorded correctness and performance evidence and classify remaining work. |
 
-M4-00 and M4-01 are complete. M4-02 is a draft for review; its implementation has not started. Later stages remain planned and require their own frozen contract before implementation.
+M4-00, M4-01, and the M4-02 contract are frozen. Later stages remain planned and require their own frozen contract before implementation.
 
 ## 4. Invariants carried from M0–M3
 
@@ -274,78 +274,138 @@ This freeze sets §10 to FROZEN and fixes the static descriptor fields, validati
 
 ## 11. M4-02 Branching and Divergence Detection
 
-**Status: DRAFT — NOT FROZEN**
+**Status: FROZEN**
 
-**Scope:** specify a snapshot-backed paired-run primitive using M4-00 interventions and the frozen two-level divergence search. This draft does not authorize implementation. The existing profile runners and canonical encoders remain the behavior oracles ([`run_m3_reference_day`, `run_m3_storage_days`](../../crates/sim-model/src/runner.rs); [`run_m3p_reference_day`](../../crates/sim-model/src/m3p.rs); [`run_m3prop_reference_day`](../../crates/sim-model/src/m3prop.rs); [`run_m3pprop_reference_day`](../../crates/sim-model/src/m3pprop.rs)).
+**Scope:** freeze a snapshot-backed paired-run primitive using M4-00 interventions and the two-level divergence search. Existing profile runners and canonical encoders remain the behavior oracles ([run_m3_reference_day, run_m3_storage_days](../../crates/sim-model/src/runner.rs); [run_m3p_reference_day](../../crates/sim-model/src/m3p.rs); [run_m3prop_reference_day](../../crates/sim-model/src/m3prop.rs); [run_m3pprop_reference_day](../../crates/sim-model/src/m3pprop.rs)).
 
-### 11.1 Branch request
+### 11.1 Branch request and result
 
-Proposed entry point: `run_counterfactual_branch`. It takes a canonical snapshot at day boundary `d`, the unchanged profile configuration and run coordinates, one typed M4-00 intervention, and horizon `H`. It independently restores a base state and a branch state from that snapshot; applies no intervention to the base and applies the single intervention to the branch at its declared boundary; then runs both for `H` days. Both runs use the same profile, `master_seed`, `replicate_id`, execution policy, and initial snapshot. Each branch owns its restored mutable state, consistent with M4-00's snapshot-backed model; copy-on-write stays deferred to M4-07.
+The public entry point is run_counterfactual_branch(&BranchRequest) -> Result<BranchResult, BranchError>.
 
-The request accepts exactly one of the M4-00 types: a config parameter override, a `food`/`health`/`wealth` field override for one `AgentId`, or a one-day forced action for one `AgentId`. The existing contract's duplicate-target validation remains required if the public API accepts a batch internally ([M4-00 §8, OQ-1](#8-decision-register)). Applying interventions must not redefine `RngCoordinate` or the frozen coordinate PRNG ([`RngCoordinate`, `coordinate_prng_f32`](../../crates/sim-core/src/prng.rs)). The exact resume-cursor interpretation of `d`, intervention boundary ordering, and forced-action insertion point within Phase 4 remain open for this stage.
+BranchRequest contains:
+- canonical snapshot bytes at resume cursor d;
+- matching SimConfig and M0RunContext;
+- exactly one typed M4-00 intervention;
+- horizon H;
+- an execution option: Serial or IncrementalTopology.
+- optional day boundaries whose existing canonical snapshots should be returned.
 
-Current public runner APIs execute one day or a requested sequence of days; there is no branch API today. The generic WorldState scheduler walks the registered core phases and hooks, while profile-specific reference and storage entry points hold the corresponding state and contexts ([`run_registered_world_day_loop`, `run_m3_reference_day`, `run_m3_storage_days`](../../crates/sim-model/src/runner.rs); [`run_m3p_reference_day`](../../crates/sim-model/src/m3p.rs)). Existing canonical snapshot encoders and profile-specific decoders can supply the initial branch restore without changing snapshot schemas ([`encode_snapshot`, `decode_snapshot`](../../crates/sim-model/src/snapshot.rs); [`encode_m3p_snapshot`, `decode_m3p_snapshot`](../../crates/sim-model/src/m3p.rs); [`encode_m3prop_snapshot`, `decode_m3prop_snapshot`](../../crates/sim-model/src/m3prop.rs); [`encode_m3pprop_snapshot`, `decode_m3pprop_snapshot`](../../crates/sim-model/src/m3pprop.rs)).
+ConfigParameter is limited to daily model inputs in environment, economy, interaction, decision, and population settings. It excludes run identity (profile, master seed, replicate), initialization-only dimensions, graph topology settings, and propagation settings embedded in propagation snapshot metadata. ConfigValue is a typed finite f32, Money, or u32 matching the selected field; the resulting config must pass existing validation before either branch is mutated.
 
-### 11.2 Two-level divergence detection
+The public type shape is:
 
-1. **Day scan:** after each completed day, compare the canonical profile-specific State digest for base and branch. Record the first day `d*` whose digests differ. Current outcomes contain day, metrics, events, and optional snapshot, but do not carry a State digest; the caller computes it using the matching canonical hash function ([`M3DayOutcome`, `run_m3_reference_day`](../../crates/sim-model/src/runner.rs); [`M3pDayOutcome`, `run_m3p_reference_day`](../../crates/sim-model/src/m3p.rs); [`canonical_m3_state_hash`, `canonical_m3p_state_hash`, `canonical_m3prop_state_hash`, `canonical_m3pprop_state_hash`](../../crates/sim-model/src/hashing.rs)).
-2. **Phase locate:** only if `d*` exists, rerun that day from both exact day-start states with an opt-in read-only recorder. The recorder captures a profile-aware State fingerprint at each valid completed core phase or registered hook in execution order. Compare the two ordered traces and report their first mismatch. The generic loop already defines core-phase and hook order; it currently has no digest recorder ([`RegisteredCorePhase`, `run_registered_world_day_loop`](../../crates/sim-model/src/runner.rs); [`PhaseSlot`, `RegisteredHook`, `SystemId`](../../crates/sim-model/src/system_registry.rs)). Existing digest schemas remain unchanged; the recorder is transient analysis output, not a new state/snapshot field.
+```rust
+pub struct BranchRequest {
+    pub snapshot: CanonicalSnapshot,
+    pub config: SimConfig,
+    pub run_context: M0RunContext,
+    pub intervention: BranchIntervention,
+    pub horizon_days: u32,
+    pub execution: BranchExecutionOption,
+    pub snapshot_days: Vec<u32>,
+}
 
-The proposed result identifies the first differing core phase or hook slot. `SystemId` identifies a registered system hook such as RelationshipGraph, PopulationDynamics, or Propagation. If the first mismatch follows a core phase with no registered hook, report the core phase and leave `system_id` absent; if it appears immediately after applying an intervention, report the intervention boundary. A checkpoint must be a valid profile state: for example, M3PPROP Phase 9b creates newborn rows before the Phase 9c hook synchronizes propagation rows, so the public whole-profile state validator may reject a digest taken between those hooks ([`M3pPropagationReferenceState::validate_for`, `sync_propagation_rows`](../../crates/sim-model/src/m3pprop.rs); [`run_m3p_reference_day_registered`](../../crates/sim-model/src/m3p.rs)). Whether to record that internal boundary using registered per-system contributions or treat Phase 9b/9c as one attribution unit is unresolved.
+pub enum BranchIntervention {
+    ConfigOverride { parameter: ConfigParameter, value: ConfigValue },
+    AgentFieldOverride { agent_id: AgentId, field: AgentField, value: AgentFieldValue },
+    ForcedAction { agent_id: AgentId, action: Action },
+}
 
-The one-day rerun must start from the exact base and branch day-start state for `d*`. M4-00 freezes snapshot-backed independent branch restores, but it does not decide whether the detector retains ephemeral day-start snapshots or in-memory clones while scanning the horizon. That retention choice must not alter canonical snapshot bytes or branch results.
+pub enum AgentField { Food, Health, Wealth }
+pub enum AgentFieldValue { Food(f32), Health(f32), Wealth(Money) }
 
-### 11.3 Divergence sets and birth matching
+pub enum BranchExecutionOption { Serial, IncrementalTopology, ExplicitParallel }
 
-For every day `d` in the horizon, produce `D_d` and `|D_d|` using M4-00's entity matching: agents present at the branch boundary match by `AgentId`; later births match by lineage key `(parent AgentId, parent's birth ordinal)`. Also report matched base/branch birth pairs and births without a match. `|D_d|` counts changed agent records after matching; it does not silently include settlement or global-state differences. Those can be reported as separate state differences in a later stage ([`canonical_state_bytes`](../../crates/sim-model/src/hashing.rs); [`BirthRecord`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs)).
+pub enum ConfigParameter {
+    CarryingCapacity, RegrowthRate, BaseMetabolicCost, HealthDecayRate,
+    BaseWorkYield, FoodPrice, TargetFood, TargetReserve, TaxRate, WelfarePayment,
+    GiftAmount, TheftAmount, TheftSuccessProbability, StarvationThreshold,
+    DecisionTemperature, ActionBias { action_index: u8 },
+    BaseWeight { action_index: u8, feature_index: u8 },
+    TraitWeightCooperation, TraitWeightAggression, TraitWeightRiskTolerance,
+    BirthMinHealth, BirthFoodThreshold, BirthProbability, BirthFoodCost,
+    BirthsMaxPerDay, CompactionIntervalDays,
+}
+pub enum ConfigValue { F32(f32), Money(Money), U32(u32) }
 
-The current M3P `BirthRecord` stores `parent`, `child`, and `group`, not a birth ordinal. `plan_phase9b_from_view` allocates child AgentIds from the global `next_agent_id` cursor, and the frozen PRNG coordinate uses AgentId as its entity coordinate. Therefore, if branches diverge in successful birth counts, later newborn AgentIds and their coordinate-based draws can shift; CRN alignment for those newborns is lost even when shared coordinates remain identical ([`BirthRecord`, `plan_phase9b_from_view`, `M3pReferenceState::next_agent_id`](../../crates/sim-model/src/m3p.rs); [`RngCoordinate`](../../crates/sim-core/src/prng.rs)).
+pub struct BranchResult {
+    pub base_days: Vec<BranchDayRecord>,
+    pub branch_days: Vec<BranchDayRecord>,
+    pub divergence: Option<FirstDivergence>,
+    pub daily_differences: Vec<DailyDifference>,
+    pub forced_action: Option<ForcedActionOutcome>,
+}
+```
 
-### 11.4 Newborn RNG identity — OQ-4 options
+BranchDayRecord contains the State/Metrics/Events digests and records, plus the optional canonical snapshot for that day. FirstDivergence contains day, phase slot, differing slot (or InterventionBoundary), differing components, optional SystemId, and descriptor RNG subsystem IDs. DailyDifference contains the matched-agent divergence count, separate graph/allocator/propagation difference flags, matched/unmatched births, and newborn CRN loss. BranchError includes typed unsupported-profile, unsupported-execution-option, invalid-snapshot, and intervention-validation errors, and preserves wrapped runner errors. ExplicitParallel is a rejection-only request value; this stage does not accept a pool or execute parallel work.
 
-| Option | Compatibility and CRN effect | Cost |
-|---|---|---|
-| **A. Keep AgentId for RNG identity** | Preserves current M3P coordinates and behavior. Divergent birth counts may shift later child IDs, so CRN is not guaranteed for newborn draws after the shift; report those unmatched coordinates. | No new profile, RNG encoding, or M3P snapshot/digest changes. Lowest implementation and migration cost. |
-| **B. Add lineage-keyed RNG identity in a new profile** | A lineage identity can keep matched newborns paired when allocator IDs differ. Existing M3P remains unchanged. | Requires a new profile-specific coordinate/identity definition, deterministic parent birth ordinals, persistence or reconstructible lineage data, new snapshot/digest rules, and independent goldens and replay gates. Highest implementation and compatibility cost. |
+Supported profiles are M3, M3P, M3 with propagation, and M3P with propagation. Incremental-topology execution uses the existing M3P incremental implementation; for static-topology M3 profiles it is equivalent to serial execution. Explicit parallel execution is rejected with typed UnsupportedExecutionOption. The horizon scan runs on SegmentedAgentStorage through run_registered_storage_day_loop; the phase-location rerun runs on WorldState through run_registered_world_day_loop, using the already-gated reference/storage parity ([run_registered_storage_day_loop, run_registered_world_day_loop](../../crates/sim-model/src/runner.rs); profile paths in [m3p.rs](../../crates/sim-model/src/m3p.rs), [m3prop.rs](../../crates/sim-model/src/m3prop.rs), and [m3pprop.rs](../../crates/sim-model/src/m3pprop.rs)).
 
-**Recommendation — proposal, not frozen:** use option A for the first M4-02 implementation and report the newborn CRN loss explicitly. Select option B only if the M4-04 experiment requires newborn draws to remain paired after divergent births; that choice needs a separate profile contract and must not alter M3P.
+BranchResult contains each branch's per-day State digests, Metrics and Events digests and records, snapshots at requested existing boundaries, first-divergence details, the per-day |D_d| curve and component-difference flags, lineage-matched birth pairs, unmatched births, newborn CRN-loss count, and forced-action outcome (forced_applied or forced_fallback). The API does not add fields to existing canonical digests or snapshot formats.
 
-### 11.5 Base-branch identity gate
+### 11.2 Resume and intervention boundary
 
-For each supported profile, start base and branch from the same snapshot and run horizon `H` with a no-op M4-00 intervention, such as overriding a configuration field with its existing value at the same boundary. Require equality of every day-boundary State digest, metrics and event records/digests, snapshots at requested boundaries, divergence traces, and `|D_d| = 0` for every day. This test verifies intervention plumbing without re-blessing any existing golden.
+The snapshot cursor d names the next day to execute. Restore both base and branch at d, then apply the branch intervention at the start of day d, before Phase 1. A config override persists through the remaining horizon; an agent-field override is a one-shot assignment at that boundary; a forced action applies on day d only. Validate the entire request and intervention before mutating either branch state. A missing or dead target AgentId for a field override or forced action is a validation error before mutation.
+
+The M4-00 intervention type order is config override, agent-field override, forced action; agent-targeted entries are ordered by ascending AgentId. M4-02 accepts exactly one intervention, so duplicate-target conflicts are not representable at this API boundary. Interventions do not alter any RNG coordinate or coordinate-to-value mapping ([M4-00 §8, OQ-1](#8-decision-register); [RngCoordinate](../../crates/sim-core/src/prng.rs)).
+
+### 11.3 Forced-action semantics
+
+Natural Phase 4 selection still runs. For the targeted agent, replace only the selected action kind with the forced kind; then perform ordinary target selection and intent construction using the existing predicates, coordinates, ordering, and index formula. If no valid candidate exists, preserve the existing no-candidate outcome and report forced_fallback; otherwise report forced_applied. Targeting a missing or dead AgentId fails before either branch is changed. Phase 4 action selection and target generation remain the source of the unmodified behavior ([phase4_primary_action_selection_into](../../crates/sim-model/src/decision.rs); [generate_intents_m3_into](../../crates/sim-model/src/intents.rs)).
+
+### 11.4 Two-level divergence detection and recorder
+
+1. **Day scan:** after each completed day, compare profile-specific canonical State digests and identify the first differing day. Store per-day base/branch metric and event records and digests, plus |D_d|. D_d counts changed agent records only. Separate daily booleans indicate whether graph CSR, allocator cursor, and propagation rows differ. Day-digest and clone costs are reported separately and excluded from the orchestration budget ([canonical_m3_state_hash, canonical_m3p_state_hash, canonical_m3prop_state_hash, canonical_m3pprop_state_hash](../../crates/sim-model/src/hashing.rs)).
+2. **Phase locate:** only if the day scan found a differing day, rerun that day from both exact day-start states using the WorldState generic loop and an opt-in recorder. After every core phase and registered hook, record component hashes for canonical core agent rows in AgentId order, graph CSR, allocator cursor, propagation rows, and metrics-so-far. The recorder hashes components independently and does not invoke whole-profile validation, so the Phase 9b→9c interval remains recordable even while propagation rows await newborn synchronization ([run_registered_world_day_loop](../../crates/sim-model/src/runner.rs); [sync_propagation_rows](../../crates/sim-model/src/m3pprop.rs)).
+
+Report the first differing (day, phase slot), the first differing slot where applicable, every differing component, the hook SystemId when the slot is a registered hook, and that descriptor's RNG subsystem IDs ([SystemDescriptor::rng_subsystem_ids](../../crates/sim-model/src/system_registry.rs)). A difference already present immediately after intervention application is reported with slot InterventionBoundary. Recorder output is transient and does not enter simulation state, snapshots, or canonical digest schemas.
+
+### 11.5 Divergence sets, lineage, and CRN
+
+For every day, match agents present at the branch point by AgentId. Match later births by lineage key (ancestor AgentId present at the branch point, ordinal path). A parent's birth ordinal is the zero-based count of its successful births since the branch point in Phase 9b processing order. A child of a branch-point agent has path [ordinal]; a child of a later-born parent appends its own ordinal to its parent's lineage path. Derive ordinals and lineage keys in the analysis layer from ordered birth records; do not store them in state, snapshots, or digests ([BirthRecord, plan_phase9b_from_view](../../crates/sim-model/src/m3p.rs)).
+
+Report matched and unmatched births. Keep the existing AgentId-based RNG identity and report newborn CRN loss as the number of lineage-matched births whose AgentIds differ. Divergent birth counts may shift next_agent_id and subsequent newborn RNG coordinates; this is expected and does not change M3P ([M3pReferenceState::next_agent_id, plan_phase9b_from_view](../../crates/sim-model/src/m3p.rs); [RngCoordinate](../../crates/sim-core/src/prng.rs)).
 
 ### 11.6 Correctness gates and test list
 
-- Existing M2/M3/M3P/propagation goldens, canonical digests, snapshot bytes, and M4-01 registry gates pass unchanged on all three CI operating systems.
-- Repeated requests from the same snapshot, intervention, run coordinates, and `H` produce identical base/branch outputs and detector results.
-- A known field override yields a first differing day; a forced-action case checks Phase 4 attribution after its exact insertion point is frozen. A phase-recorder test asserts it reruns only that day and locates the first differing phase/hook.
-- The no-op identity gate in §11.5 reports no divergence for all `H` days.
-- Snapshot pause/resume preserves branch results and the day-digest sequence. Mutating one restored branch never changes the other branch or the source snapshot.
-- M4-00 duplicate-target rejection and existing error precedence remain exact. Failure to apply or validate an intervention leaves both branch states at their pre-intervention boundary state.
-- M3P tests cover equal birth streams, differing birth counts, lineage matching, and AgentId shifts; expected CRN loss under option A is reported, not hidden.
-- Divergence-set tests cover unchanged rows, changed fields, deaths, matched births, unmatched births, and DenseSlot permutation invariance.
+- Existing M2/M3/M3P/propagation goldens, canonical digests, snapshot bytes, and M4-01 registry gates pass unchanged.
+- Base-branch identity with a no-op intervention passes for M3, M3P, M3+propagation, and M3P+propagation for all H days: equal State digests, metric/event records and digests, snapshots, recorder traces, and |D_d| = 0.
+- A field override identifies the first divergent day; a forced-action case verifies action replacement, ordinary target selection, fallback reporting, and unchanged RNG coordinates.
+- A recorder differential locates only the first divergent day, including the first phase/hook, differing slot and components, and registered descriptor subsystem IDs. Include M3P+propagation Phase 9b→9c.
+- Repeated identical requests produce identical branch outputs and detector results.
+- Snapshot pause/resume preserves both branch outputs and divergence curves; mutating one branch does not affect the other branch or source snapshot.
+- Invalid, missing, dead, or unsupported intervention targets/options fail before mutation with stable typed errors.
+- M3P cases cover equal and divergent birth streams, nested lineage paths, matched/unmatched births, AgentId shifts, and the reported CRN-loss count.
+- Divergence-set tests cover unchanged and changed agent records, deaths, births, and DenseSlot permutation invariance.
 
-### 11.7 Proposed performance budget
+### 11.7 Performance gate
 
-Measure paired base-plus-branch runs from the same snapshot at `N = 10,000` and `N = 100,000`, with `H = 30`, using the existing M4-01 warmup/sample/MAD method. Compare the branch API with two direct independent runner passes from that snapshot. Proposed gate: added orchestration cost for intervention dispatch, per-day digest comparison, and result assembly is at most `max(5% of the paired direct-run median, the larger paired MAD)`. Report snapshot restore and day-digest costs separately. Measure phase-locate replay separately; it runs only for the first differing day, and proposed recorder overhead is at most `max(10% of the two ordinary one-day passes, their larger MAD)`. These are draft budgets; M4-02 freeze must confirm or replace them based on measurements.
+Use the M4-01 warmup/sample/MAD method for paired base-plus-branch runs from the same snapshot at N = 10,000 and N = 100,000, H = 30. Compare the branch API with two direct runner passes from that snapshot. Added orchestration cost for intervention dispatch, day-to-day result comparison, and result assembly must be at most max(5% of the paired direct-run median, the larger paired MAD). Measure snapshot restore, day-digest, and day-start clone costs separately and exclude them from this budget.
+
+Measure phase-locate replay separately. Recorder overhead must be at most max(10% of the two ordinary one-day passes, their larger MAD). Record all cells and host details.
 
 ### 11.8 Non-goals
 
 - No change to M1/M2/M3/M3P semantics, RNG coordinates, canonical digest domains, event schemas, or snapshot schemas.
-- No copy-on-write, cross-branch parallel scheduler, GPU work, divergence-curve analytics beyond `|D_d|`, or minimal-cause search; those remain later-stage topics.
-- No per-phase digest added to canonical State/Metrics/Events. The phase recorder is opt-in and transient.
-- No implementation is started by this draft.
+- No explicit parallel execution, copy-on-write, cross-branch scheduler, GPU work, minimal-cause search, or new RNG identity profile.
+- No per-phase digest in canonical State/Metrics/Events. Recorder hashes are transient.
+- No change to M3P AgentId allocation or RNG identity.
 
-### 11.9 Open questions
+### 11.9 Decision register
 
-| ID | Question | Status |
+| ID | Decision | Status |
 |---|---|---|
-| Q1 | Which profile and execution-policy combinations are supported by the first branch API, and what is its exact public request/result type? | **Blocking** for the M4-02 freeze. |
-| Q2 | Does `d` name the snapshot resume cursor or the day just completed, and at which exact boundary are config, field, and forced-action interventions applied? | **Blocking** for the M4-02 freeze. |
-| Q3 | Where is a forced action inserted relative to natural Phase 4 selection, candidate filtering, and target draws? | **Blocking** for the M4-02 freeze. |
-| Q4 | Does the output attribute registered changes by `SystemId`, RNG subsystem ID, or both; how are core phases and intervention-boundary differences represented? How should the recorder handle transiently invalid composite states between M3P Phase 9b and M3PPROP Phase 9c? | **Blocking** for the M4-02 freeze. |
-| Q5 | How is a parent's birth ordinal assigned, including when a parent was itself born after the branch point, and what exact lineage key is compared? | **Blocking** for the M4-02 freeze. |
-| Q6 | Keep AgentId RNG identity for the first version, accepting newborn CRN loss, or add a lineage-keyed identity profile? The proposal in §11.4 recommends AgentId first; user decision is required at freeze. | **Blocking** for M4-02 freeze. |
-| Q7 | Are day-start states for the phase rerun retained as encoded ephemeral snapshots or in-memory clones, and what memory bound is allowed? | **Blocking** for the M4-02 freeze. |
-| Q8 | Is the proposed 5% paired-run orchestration budget and 10% one-day recorder budget accepted? | **Blocking** for the M4-02 freeze. |
-| Q9 | Should divergence sets include only agent records, or also return separate settlement/global-state differences in this stage? | **Non-blocking** for the branch primitive; required before M4-03 freezes its measurement schema. |
+| Q1 | Support M3, M3P, M3+propagation, and M3P+propagation. Use BranchRequest / BranchResult; scan on SegmentedAgentStorage and phase-locate on WorldState. Allow serial and incremental-topology execution (incremental mode is equivalent to serial on static M3 topology); reject explicit parallel with a typed error. | **FROZEN** |
+| Q2 | d is the next day to execute. Apply interventions at day d start before Phase 1. Config overrides persist, agent-field overrides apply once, forced actions apply on day d only. | **FROZEN** |
+| Q3 | Run natural Phase 4 selection, replace only the chosen action kind, then use ordinary targeting and unchanged coordinates. Record forced_applied or forced_fallback; missing/dead targets fail validation before mutation. | **FROZEN** |
+| Q4 | Record component hashes after each core phase and hook for canonical agent rows, graph CSR, allocator cursor, propagation rows, and metrics-so-far; do not use whole-profile validation at transient boundaries. Report first differing slot, components, hook SystemId, and descriptor RNG subsystem IDs; use InterventionBoundary for a boundary difference. | **FROZEN** |
+| Q5 | Birth ordinals are zero-based successful births per parent since the branch point in Phase 9b order. Lineage key is branch-point ancestor AgentId plus ordinal path; analysis-only, derived from birth records. | **FROZEN** |
+| Q6 | Keep AgentId RNG identity and report newborn CRN loss as matched births with differing AgentIds. M3P remains unchanged. | **FROZEN** |
+| Q7 | Retain one in-memory day-start clone per branch, replacing it daily; at most two additional states total. | **FROZEN** |
+| Q8 | Accept 5% orchestration and 10% recorder budgets. Report clone and digest costs separately and exclude them from those budgets. | **FROZEN** |
+| Q9 | D_d counts agent records only; graph, allocator, and propagation differences are separate per-day boolean flags. | **FROZEN** |
+| Q10 | Config overrides are limited to the enumerated daily model parameters. Run identity, initialization dimensions, relationship-graph topology settings, and propagation settings carried in snapshot metadata cannot be overridden. | **FROZEN** |
+
+### 11.10 Freeze record
+
+This freeze authorizes the M4-02 implementation task; it does not itself alter any runtime profile. Existing digest domains, snapshot schemas, events, and RNG coordinates remain unchanged.
