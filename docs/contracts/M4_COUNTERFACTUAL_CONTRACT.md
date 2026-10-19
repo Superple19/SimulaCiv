@@ -435,3 +435,29 @@ If a cell has `MAD / median > 5%`, rerun it with 41 samples. If it remains above
 ### Freeze record
 
 This user-approved amendment freezes the measurement method for the M4-02 follow-up. Measurement switches are internal and doc-hidden; normal API defaults remain unchanged. The amendment does not mark M4-02 complete or alter any simulation profile, digest, snapshot, event, RNG, or gate result. The supporting historical and follow-up measurements are recorded in the [M4-02 report](../performance/M4_02_BRANCHING.md).
+
+## §11.7 A-2 — Decision rule amendment (FROZEN)
+
+This user-approved amendment supersedes only the A-1 gate decision rule. The paired, same-process measurement protocol remains unchanged. The A-1 measurements remain historical and are not re-judged under A-2. A-1's `MAD / median(delta)` rule cannot pass a near-zero overhead because its denominator approaches zero; A-2 instead compares the measured delta and its spread to the fixed path-relative limit.
+
+### Orchestration cells
+
+For each paired sample, `delta = analysis-disabled API − direct pair`. Let `T = 0.05 × median(direct pair)`. Classify the cell as:
+
+- **PASS** iff `median(delta) + 2 × MAD(delta) <= T`.
+- **FAIL** iff `median(delta) > T`.
+- **INCONCLUSIVE** otherwise.
+
+Path MADs do not widen `T`.
+
+### Recorder cells
+
+Compare the full one-day locator API against the comparison-disabled one-day locator API; do not use the replay-prefix timing as the decision baseline. For each paired sample, `delta = full locator API − comparison-disabled API`. Let `T = 0.05 × median(comparison-disabled API)`. Apply the same three-way classification: **PASS** iff `median(delta) + 2 × MAD(delta) <= T`; **FAIL** iff `median(delta) > T`; otherwise **INCONCLUSIVE**. Path MADs do not widen `T`. Report the comparison-disabled API time and replay cost separately.
+
+### Host validity and retry
+
+Record total CPU load every 30 seconds during the run and establish the pre-run idle baseline. If any load sample during a cell exceeds that baseline by more than 20%, the cell is invalid and must be rerun once using the same protocol. If the retry is also invalid, report it as **INVALID**. Record the harness process peak working set. An invalid result is not a PASS, FAIL, or INCONCLUSIVE result.
+
+### Freeze record
+
+This approved A-2 amendment replaces A-1's decision rule only. Pairing, same-process execution, analysis-disabled and comparison-disabled paths, warmups, sample counts, execution-order alternation, and other measurement protocol details remain as frozen in A-1. Preserve A-1 results as superseded history; do not reinterpret them using A-2.
