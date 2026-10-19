@@ -461,3 +461,21 @@ Record total CPU load every 30 seconds during the run and establish the pre-run 
 ### Freeze record
 
 This approved A-2 amendment replaces A-1's decision rule only. Pairing, same-process execution, analysis-disabled and comparison-disabled paths, warmups, sample counts, execution-order alternation, and other measurement protocol details remain as frozen in A-1. Preserve A-1 results as superseded history; do not reinterpret them using A-2.
+
+## §11.7 A-3 — Validity and uncertainty amendment (FROZEN)
+
+This user-approved amendment supersedes only A-2's validity and decision rules. The paired, same-process measurement protocol remains unchanged. A-1 and A-2 results remain historical and are not re-judged. The A-2 host rule counted the benchmark harness's own CPU use as external load; on this 12-logical-processor host, one fully occupied core contributes about 8.3 percentage points. Also, `median + 2 × MAD` describes sample spread, not uncertainty in the median, so adding samples does not turn that spread into a confidence bound.
+
+### Host and path validity
+
+Sample total CPU load every 30 seconds and at cell boundaries. For each sample, compute the harness process's CPU share over the same sampling interval, normalized by the host's logical processor count. Define `other-process CPU = total CPU − harness process CPU share`. Establish the idle baseline as the median of pre-run total-CPU samples. A cell is valid only if every assigned sample has `other-process CPU <= idle baseline median + 5 percentage points` and each of its two timed paths has `MAD / median <= 5%`. For orchestration, the two paths are the direct pair and analysis-disabled API; for recorder, they are the full locator API and comparison-disabled API. If a cell is invalid, rerun it once with the same protocol; if it is still invalid, report **INVALID**.
+
+### Decision rule
+
+For each cell, bootstrap the paired signed deltas with replacement. Initialize a xorshift64 generator to `0xA3_11_70` independently for each cell; advance it with `x ^= x << 13; x ^= x >> 7; x ^= x << 17`. Use 10,000 bootstrap resamples, each of the original sample count, and sample indices `next_u64 % sample_count`. For each resample, calculate the median delta. Sort the 10,000 resampled medians and define `U` as the nearest-rank one-sided 95th percentile (the 9,500th value, one-based). Report the sample median delta, its MAD, `U`, and `T`.
+
+For orchestration, `delta = analysis-disabled API − direct pair` and `T = 0.05 × median(direct pair)`. For recorder, `delta = full locator API − comparison-disabled API` and `T = 0.05 × median(comparison-disabled API)`; replay-prefix timing remains a separate reported cost. Classify a valid cell as **PASS** iff `U <= T`; **FAIL** iff `median(delta) > T`; otherwise **INCONCLUSIVE**. Path MADs do not widen `T`.
+
+### Freeze record
+
+This approved A-3 amendment replaces A-2's validity and decision rules only. Pairing, same-process execution, compared paths, warmups, timed sample count, execution-order alternation, and other measurement protocol details remain unchanged. A-1 and A-2 measurements are retained as historical results and are not re-judged under A-3.
