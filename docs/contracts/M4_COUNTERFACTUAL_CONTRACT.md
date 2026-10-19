@@ -1,8 +1,8 @@
 # M4 Counterfactual Contract
 
-**Status: M4-00 FROZEN**
+**Status: M4-00 FROZEN; §10 DRAFT — NOT FROZEN**
 
-**Scope:** M4-00 freezes the counterfactual framework, terminology, invariants, and planned stage boundaries. Stage-specific contracts and implementation details remain subject to their own DRAFT → review → FROZEN process.
+**Scope:** M4-00 freezes the counterfactual framework, terminology, invariants, and planned stage boundaries. §10 drafts M4-01 system registration architecture; it is not frozen. Each later stage still requires its own DRAFT → review → FROZEN contract.
 
 **Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
@@ -99,7 +99,7 @@ These questions remain for the named later-stage freeze; none reopens the M4-00 
 | OQ-5 detail | What minimum replicate count and confidence method are required for CRN estimates? | **Deferred / blocking** for the M4-04 freeze. |
 | OQ-6 | How are system phase slots, subsystem IDs, state-column registration, and read/write conflicts allocated and validated? | **Deferred / blocking** for the M4-01 freeze. |
 | OQ-7 | What outcome-predicate language, search limits, and intervention-ID schema does minimal-cause search use? | **Deferred / blocking** for the M4-05 freeze; the default tie-break is already frozen in §8. |
-| OQ-8 | Which expensive CI matrices can move to release mode without changing which changes are gated? | **Non-blocking** for M4-00; measure before M4-01 CI gates are frozen. |
+| OQ-8 | Which expensive CI matrices can move to release mode without changing which changes are gated? | **Non-blocking** for M4-00; per-target timings are recorded in §10.1, and the CI layout decision is due before M4-01 gates freeze. |
 | OQ-9 | Does M4 need a population-regulated profile for experiments beyond the M3P sustained horizon? | **Non-blocking** for M4-00; decide before M4-03. |
 
 ## 8. Decision register
@@ -115,9 +115,135 @@ M4-00 freezes the framework decisions below. Details explicitly assigned to a la
 | OQ-5 | **FROZEN** | If paired variance is zero, report “exact (paired variance 0)” separately; do not present a finite CRN ratio for a zero denominator. M4-04 freezes minimum replicate count and confidence method. |
 | OQ-6 | **DEFERRED** | System-registration details are decided in the M4-01 freeze. |
 | OQ-7 | **PARTLY FROZEN / DEFERRED** | Default equal-cardinality cause tie-break is the lexicographically smallest sorted list of intervention IDs. Predicate language, intervention-ID schema, and search limits are decided in the M4-05 freeze. |
-| OQ-8 | **OPEN — NON-BLOCKING** | Measure CI workload before M4-01 freezes CI gates; no correctness gate is weakened by this M4-00 decision. |
+| OQ-8 | **OPEN — NON-BLOCKING** | Per-target workspace test timings are recorded in §10.1. Decide before M4-01 freezes CI gates whether to keep the current single required workspace test step or split equivalent gates; do not drop scenarios. |
 | OQ-9 | **OPEN — NON-BLOCKING** | Decide before M4-03 whether a new population-regulated profile is needed; M3P semantics remain unchanged. |
 
 ## 9. Freeze record
 
 This freeze resolves the M4-00 framework decisions for first-version intervention classes and ordering, two-level divergence detection, snapshot-backed branches, cross-branch birth matching, and zero-variance CRN reporting. It records system registration and minimal-cause details for their own later freezes. M4-00 authorizes the M4-01 contract to be requested; it does not start M4-01 implementation or freeze any later-stage contract.
+
+## 10. M4-01 System registration architecture
+
+**Status: DRAFT — NOT FROZEN**
+
+**Scope:** draft a static, compile-time registry for the existing M3 extensions only. This section is a design proposal, not implementation authorization. M1/M2 core phases remain fixed.
+
+### 10.1 Current state and OQ-8 test-time measurement
+
+The feature switches are currently the fixed `SimulationSystems` triple (`relationship_graph`, `population_dynamics`, `propagation`); `SimConfig::runner_selection` maps the effective set to one of five runner selections, and `run_configured_storage_days` dispatches to the corresponding legacy runner ([`SimulationSystems`, `SimConfig::runner_selection`](../../crates/sim-model/src/config.rs); [`ConfiguredStorageRunContext`, `run_configured_storage_days`](../../crates/sim-model/src/runner.rs); [M3 §15](M3_INTERACTION_CONTRACT.md)).
+
+| Extension | Current state and execution path |
+|---|---|
+| Relationship graph | `RelationshipGraph` owns canonical CSR and its hash. M3 reference/storage contexts keep the graph beside `WorldState` or `SegmentedAgentStorage`; the slot projection and scratch are transient context data. M3P places the graph in `M3pReferenceState` and `M3pStorageRunContext`. Phase 4 targeting and Phase 9c propagation read the graph; Phase 6B consumes already-generated intents and does not read CSR ([`RelationshipGraph`, `RelationshipGraph::generate`](../../crates/sim-model/src/relationship_graph.rs); [`M3ReferenceContext`, `M3StorageRunContext`, `M3pStorageRunContext`](../../crates/sim-model/src/runner.rs); [`M3pReferenceState`](../../crates/sim-model/src/m3p.rs); [`generate_intents_m3_into`, `generate_intents_m3_storage_into`](../../crates/sim-model/src/intents.rs); [`phase6b_targeted_resolution_m3`, `phase6b_targeted_resolution_storage_m3_with_scratch`](../../crates/sim-model/src/resolution.rs); [`apply_phase9c_for_layout`](../../crates/sim-model/src/propagation.rs)). |
+| Population dynamics | M3P Phase 9b runs after mortality and plans/commits births, graph changes, compaction, and the `next_agent_id` cursor. The cursor and mutable graph are in M3P reference/runtime context; new or surviving agent values remain in the core world/storage columns ([`M3pReferenceState`, `apply_phase9b`, `apply_phase9b_storage`, `apply_phase9b_storage_incremental`](../../crates/sim-model/src/m3p.rs); [`M3pStorageRunContext`, `run_m3p_storage_day_inner`](../../crates/sim-model/src/runner.rs); [`WorldState`, `AgentState`](../../crates/sim-model/src/state.rs); [`SegmentedAgentStorage::push`](../../crates/sim-model/src/storage.rs)). |
+| Propagation | Phase 9c owns `informed` and `informed_day` rows in a `BTreeMap<AgentId, PropagationAgentState>` in reference state or runner context; it is not embedded in the core agent record. `apply_phase9c_for_layout` is shared by reference, storage, and explicit parallel wrappers ([`M3PropagationReferenceState`, `run_m3prop_reference_day`](../../crates/sim-model/src/m3prop.rs); [`M3PropagationStorageRunContext`, `M3pPropagationStorageRunContext`](../../crates/sim-model/src/runner.rs); [`PropagationAgentState`, `apply_phase9c_for_layout`](../../crates/sim-model/src/propagation.rs); [M3 §16.1 and §16.3](M3_INTERACTION_CONTRACT.md)). |
+
+The persisted representations are profile-specific today. M2/M3 use the base snapshot encoder; M3 regenerates its static graph on restore. M3P schema v2 wraps the base snapshot with `next_agent_id`, initial money supply, canonical CSR, and its hash; propagation schema v3 wraps the matching base profile with its feature manifest and propagation rows ([`encode_snapshot`, `decode_snapshot`](../../crates/sim-model/src/snapshot.rs); [`encode_m3p_snapshot`, `decode_m3p_snapshot`](../../crates/sim-model/src/m3p.rs); [`encode_m3prop_snapshot`, `decode_m3prop_snapshot`](../../crates/sim-model/src/m3prop.rs); [M3 §2.1, §13.7, §15.1, §16.5](M3_INTERACTION_CONTRACT.md)). Canonical M3 State appends the CSR hash; M3P adds the allocator cursor; propagation adds canonical propagation rows. M3 `M3DailyMetrics` appends cross-partition edge count, total directed edge count, and daily cross-partition interaction count to the M1 metrics. M3P appends births, removals, replaced edges, live population, and allocator cursor; propagation appends its six daily counters. M3 uses the existing event vocabulary; M3P adds Birth/Cleanup variants; propagation adds no event kinds but uses the propagation digest domain ([`M3DailyMetrics`](../../crates/sim-model/src/metrics.rs); [`M3pDailyMetrics`, `M3pEvent`, `apply_phase9b`](../../crates/sim-model/src/m3p.rs); [`M3PropDailyMetrics`](../../crates/sim-model/src/m3prop.rs); [`PropagationDailyCounts`](../../crates/sim-model/src/propagation.rs); [`canonical_m3_state_bytes`, `canonical_m3p_state_bytes`, `canonical_m3prop_state_bytes`, `canonical_m3pprop_state_bytes`, `canonical_m3p_event_bytes`, `canonical_m3prop_event_bytes`](../../crates/sim-model/src/hashing.rs); [M3 §13.7, §15.2, §16.4–16.5](M3_INTERACTION_CONTRACT.md)).
+
+The current code has separate reference, storage, incremental-topology, and parallel integration surfaces: three reference day entrypoints, six serial/non-parallel storage entrypoints (including separate M3P incremental variants), and three explicit parallel storage entrypoints. A source inventory finds 14 involved Rust modules: nine extension-facing modules (`config.rs`, `runner.rs`, `relationship_graph.rs`, `intents.rs`, `resolution.rs`, `m3p.rs`, `m3prop.rs`, `propagation.rs`, and `hashing.rs`) plus `snapshot.rs`, `state.rs`, `storage.rs`, `metrics.rs`, and `events.rs`. In `runner.rs`, a manual count finds 24 M3-family runner/dispatch/helper definitions between lines 1409–2550; M3 contexts and orchestration occupy about 2,070 lines across lines 232–903 and 1409–2806. This is a profile-wiring surface estimate, not an exact duplicated-line count: phase primitives and some kernels are shared, and identical lines were not mechanically diffed ([`run_m3_reference_day`, `run_m3prop_storage_days_inner`, `run_m3p_storage_days_incremental_topology`, `run_m3p_propagation_storage_day`, `run_configured_storage_days`](../../crates/sim-model/src/runner.rs); [`run_m3p_reference_day`, `apply_phase9b_storage`](../../crates/sim-model/src/m3p.rs); [`run_m3prop_reference_day`](../../crates/sim-model/src/m3prop.rs); [`apply_phase9c_for_layout`](../../crates/sim-model/src/propagation.rs)). M4-01 must record the same inventory method and before/after counts when the registry port is measured.
+
+OQ-8 was measured on the local Windows host at HEAD `47d00659fba40ce65c3bcc07a290bd24621815a2`. `cargo metadata --no-deps --format-version 1` enumerated the test targets and doctests; each was run sequentially with its package-specific `cargo test -p … --lib`, `--test <name>`, or `--doc` command. Cargo startup and any incremental build work are included in each command's wall time. All 52 targets passed. These are serialized per-target command times, not the wall time of one monolithic `cargo test --workspace` invocation.
+
+| Test target | Wall time |
+|---|---:|
+| `sim-model/m3p_propagation_tests` | 169.42 s |
+| `sim-model/m3_search_reduction_tests` | 80.09 s |
+| `sim-model/m3_parallel_runner_tests` | 76.18 s |
+| `sim-model/m3p_incremental_topology_tests` | 71.50 s |
+| `sim-model/m3_storage_runner_tests` | 44.72 s |
+| `sim-model/m3p_storage_runner_tests` | 35.30 s |
+| `sim-model/m3p_golden_tests` | 6.44 s |
+| `sim-model/m3p_sustained_gate_tests` | 6.02 s |
+| **All 52 targets, sequential command wall sum** | **512.08 s (8m 32.08s)** |
+
+The current GitHub Actions workflow runs `cargo test --workspace` as one required step in each of its Linux, Windows, and macOS jobs ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)). The per-target sum is useful for locating expensive suites but should not be treated as the hosted job duration or a direct comparison with a single Cargo invocation.
+
+### 10.2 Proposed static descriptor
+
+**Proposal:** define a typed `SystemDescriptor` registry as a compile-time static slice. It contains no dynamic loading or runtime plugin discovery. A descriptor records:
+
+| Field | Proposed content |
+|---|---|
+| `system_id`, `name` | Stable registry identity and readable name, distinct from RNG subsystem IDs. |
+| `feature_switch_key` | The key in `[simulation.systems]` that enables this system. |
+| `dependencies` | Required registered system IDs. |
+| `phase_slot` | Initialization or an insertion point relative to core phases 1–11; systems with multiple hooks declare an ordered slot list. |
+| `rng_subsystem_ids` | All existing subsystem IDs owned/consumed by the system; no existing coordinate or ID mapping changes. |
+| `owned_state_columns` | Canonical system-owned columns/state, distinguished from transient execution scratch. |
+| `snapshot_section` | Existing schema version, section order, and codec contribution, if the system is enabled. |
+| `digest_contribution` | Applicable legacy profile domain tag, field/section order, endianness, and exact byte encoding contribution. |
+| `metrics_fields`, `event_kinds` | Existing per-day fields and event variants emitted by the system. |
+| `read_set`, `write_set` | Core and registered system columns accessed at each phase slot. These declarations validate composition only in M4-01. |
+
+The initial descriptors cover only:
+
+| System | Existing mapping and proposed access summary |
+|---|---|
+| Relationship graph | RNG subsystem ID 6; built at initialization. Owns canonical CSR/hash. Read by Phase 4 neighbor targeting and Phase 9c propagation; Phase 6B consumes already-generated intents and does not read CSR. For M3P, graph mutation at Phase 9b is declared as a population-dynamics write ordered after the relationship-graph dependency. |
+| Population dynamics | RNG subsystem ID 7; Phase 9b after mortality. Owns the monotonic `next_agent_id` cursor and birth/cleanup metrics/events; reads eligible parent and graph-pool data, writes core agent rows, allocator state, and graph rows through its declared dependency. |
+| Propagation | RNG subsystem ID 8; Phase 9c after Phase 9b when enabled, otherwise after Phase 9. Owns `informed` and `informed_day`; reads live-agent and graph columns and writes its own columns and daily counters. |
+
+The IDs and phase behavior above are the existing frozen M3 mapping, not newly assigned IDs ([M3 §2.1, §13.3, §16.1–16.3](M3_INTERACTION_CONTRACT.md); [`M3_RELATIONSHIP_GRAPH_SUBSYSTEM_ID`](../../crates/sim-model/src/relationship_graph.rs); [`M3P_BIRTH_SUBSYSTEM_ID`](../../crates/sim-model/src/m3p.rs); [`M3_PROPAGATION_SUBSYSTEM_ID`](../../crates/sim-model/src/propagation.rs)). The table is a proposed descriptor projection; exact per-phase read/write sets remain to be audited against the phase implementations before the M4-01 freeze.
+
+### 10.3 M4-01 scope and compatibility map
+
+Keep the M1/M2 core phases 1–11 fixed. Register only the relationship graph, population dynamics, and propagation extensions. The legacy profile-to-system-set mapping is:
+
+| Effective profile | Registered system set |
+|---|---|
+| `m2` | none |
+| `m3` | relationship graph |
+| `m3p` | relationship graph + population dynamics |
+| `m3` + propagation | relationship graph + propagation |
+| `m3p` + propagation | relationship graph + population dynamics + propagation |
+
+This mapping mirrors `SimulationSystems::for_profile`, `effective_systems`, and `runner_selection`; the propagation combinations are an orthogonal opt-in ([`SimulationSystems::for_profile`, `SimConfig::effective_systems`, `SimConfig::runner_selection`](../../crates/sim-model/src/config.rs); [M3 §15.1–15.3](M3_INTERACTION_CONTRACT.md)). For every combination, the registry must select encoders/codecs that produce byte-identical State/Metrics/Events digests and snapshot bytes to the current path. Feature manifests remain outside legacy digest preimages, and v1/v2/v3 snapshot contents and order remain unchanged ([`canonical_*_bytes`](../../crates/sim-model/src/hashing.rs); [`encode_snapshot`](../../crates/sim-model/src/snapshot.rs); [`encode_m3p_snapshot`](../../crates/sim-model/src/m3p.rs); [`encode_m3prop_snapshot`](../../crates/sim-model/src/m3prop.rs); M3 §15.2 and §16.5).
+
+### 10.4 Startup validation and execution limits
+
+Before state construction or mutation, validate the static registry and selected feature set:
+
+1. `system_id` and descriptor names are unique across the registry; RNG subsystem IDs are unique across all registered descriptors, and existing subsystem ownership/mapping is unchanged (M1 IDs 0–5, relationship graph 6, population dynamics 7, propagation 8; [M1 C04](M1_CONTRACT_FREEZE.md); [M3 §§2.1, 13.3, 16.1](M3_INTERACTION_CONTRACT.md)).
+2. Every declared dependency is registered and enabled when its dependent system is enabled.
+3. No two systems write the same logical column in the same phase slot unless an explicit deterministic order is declared.
+4. Phase slots have a total deterministic order relative to core phases; ties use an explicit stable order rather than container iteration order.
+5. Read/write declarations cover only logical columns and are used for validation and audit in M4-01. They do not schedule tasks, infer independence, or enable parallel execution.
+
+The current feature validation already rejects missing dependencies and profile/switch disagreements before runner dispatch ([`SimConfig::validate`, `SimConfig::runner_selection`](../../crates/sim-model/src/config.rs); M3 §15.3). The registry must preserve that failure boundary and error precedence. There is no automatic parallelism in this stage.
+
+### 10.5 Migration plan
+
+Port one extension at a time behind the registry, keeping each current reference/storage path as the oracle:
+
+1. Register relationship graph and route the existing M3 Phase 4/6B paths through its descriptor.
+2. Register Phase 9b population dynamics while retaining the M3P reference and storage runners, including the incremental-topology path.
+3. Register Phase 9c propagation for M3 and M3P combinations, then retain the existing explicit parallel spread path as opt-in.
+
+After each port, require unchanged M2/M3/M3P/propagation goldens, snapshot bytes, parity matrices, resume checks, and error behavior. The old path remains available as an oracle until that step passes; no golden is re-blessed to accommodate the registry. The current references and counterparts are `run_m3_reference_day` / `run_m3_storage_days`, `run_m3p_reference_day` / `run_m3p_storage_days`, and `run_m3prop_reference_day` / `run_m3prop_storage_days` ([`runner.rs`](../../crates/sim-model/src/runner.rs); [`m3p.rs`](../../crates/sim-model/src/m3p.rs); [`m3prop.rs`](../../crates/sim-model/src/m3prop.rs)).
+
+### 10.6 Success criteria
+
+- All existing tests, profile goldens, snapshot byte checks, deterministic replay gates, and hosted 3-OS CI pass unchanged.
+- Report before/after counts using the §10.1 inventory method: source modules, runner/context entrypoints, and approximate runner wiring lines. The registry must reduce duplicated per-profile dispatch/wiring; it need not merge distinct canonical encoders if that risks bytes.
+- A placeholder no-op test descriptor can be enabled and disabled without changing any existing profile digest, snapshot bytes, events, or metrics. It owns no columns, consumes no RNG, and contributes no encoded fields.
+- Whole-tick performance remains within the measured noise of the current runners. Proposed method: identical initialized checkpoints and config; construct contexts/scratch outside the timer; metrics/events on and snapshots off; two warmups; at least 11 paired, interleaved samples; each sample runs three consecutive days with scratch reuse; report uninstrumented median ± MAD. Compare the median delta with the larger per-path MAD and record all cells. The exact acceptance threshold and cell set remain for the M4-01 freeze.
+
+### 10.7 Non-goals
+
+- No new simulation semantics, state fields, RNG coordinates, digest domains, snapshot versions, metrics, or events.
+- No refactor or reorder of M1/M2 core phases.
+- No automatic parallel scheduling or change to serial defaults.
+- No counterfactual branch/intervention implementation; those belong to M4-02 onward.
+- No dynamic loading or GPU execution.
+
+### 10.8 Open questions
+
+| ID | Question | Status | Recommended answer |
+|---|---|---|---|
+| Q1 | How are registry and system IDs represented and ordered? | Blocking for M4-01 | Use stable typed IDs in a compile-time static slice; keep them separate from RNG subsystem IDs and avoid hash-map iteration. |
+| Q2 | How are multiple hooks and write conflicts represented when a system participates at more than one phase slot? | Blocking for M4-01 | Declare per-slot access sets and an explicit total order for the few permitted write overlaps; reject undeclared overlap before state construction. |
+| Q3 | How are state ownership and cross-system mutation represented for graph updates during Phase 9b? | Blocking for M4-01 | RelationshipGraph owns CSR/hash; PopulationDynamics declares ordered write access through its graph dependency. Keep transient slot projections and scratch outside owned canonical columns. |
+| Q4 | Should descriptor-driven digest/snapshot encoding replace legacy codecs or select them? | Blocking for M4-01 | Have descriptors select existing profile encoders and exact section order first; do not generically concatenate contributions until byte-equivalence is proven. |
+| Q5 | How are no-op registration tests kept out of legacy production feature sets? | Blocking for M4-01 | Use a test-only descriptor with empty state/digest/snapshot/metrics/event contributions and assert every existing profile's bytes remain exact. |
+| Q6 | What is the final performance-noise threshold and representative cell set? | Blocking for M4-01 success gate | Use the paired median ± MAD protocol in §10.6 at representative 10k/100k M3/M3P workloads; freeze the non-regression threshold with the implementation gate. |
+| Q7 | How should CI use the measured per-target timings? | Non-blocking for this draft; decide before M4-01 CI gates freeze | Keep the full workspace test gate required on all three OSes. If splitting heavy targets later, every split job remains required and covers the same tests; do not use scheduled-only tests as a substitute. The §10.1 serialized sum is not the one-shot hosted job duration. |
