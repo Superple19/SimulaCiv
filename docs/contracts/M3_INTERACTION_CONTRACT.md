@@ -251,8 +251,8 @@ The identifiers below put the stages in execution order. Existing filenames and 
 | Residual-scaling diagnosis | M3-07 | Complete, measurement-only stage |
 | M3-P — Population dynamics | M3-08 | Complete; dynamic topology is absorbed here |
 | Incremental topology maintenance | M3-09 | Complete; §14 |
-| Feature switches | M3-10 | Planned |
-| M3-05 — Propagation | M3-11 | Planned |
+| Feature switches | M3-10 | Complete; §15 |
+| M3-05 — Propagation | M3-11 | Complete; §16 |
 | M3-03 — Spatial migration | Deferred, unnumbered | Deferred follow-up |
 | M3-04 — Dynamic topology | M3-08 | Absorbed into population dynamics |
 
@@ -276,7 +276,7 @@ An optional hub-biased or otherwise contention-controlled graph mode may test sc
 
 The explicit serial search-reduction path is opt-in; `run_m3_storage_days` remains the oracle. The frozen parity gates passed. The global Phase 4 eligibility skip was retained after stage measurement; bitsets, slot-sidecar reuse, and radix sorting were rejected by the measurement-first gate, and output-vector de-duplication remained out of scope. Results and limitations are recorded in [M3-02b Search and Bookkeeping Reduction](../performance/M3_02B_SEARCH_REDUCTION.md).
 
-The post-M3-02 evidence is summarized in the [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md). It is an interim answer, not the M3 graduation gate.
+The post-M3-02 evidence is preserved in the historical [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md). The final M3 decision and evidence are recorded in the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
 ### M3-04 (formerly M3-E) — Equilibrium workload — COMPLETE (benchmark-only)
 
@@ -304,17 +304,17 @@ Spatial migration, previously listed as M3-03, remains a deferred follow-up and 
 
 The frozen [§14](#14-m3-09-incremental-topology-maintenance) incremental storage path appends newborn CSR and Phase 4 projection rows on non-compaction days while preserving exact M3P parity. The full-tick and Phase 9b before/after results are in [M3-09 Incremental Topology](../performance/M3_09_INCREMENTAL_TOPOLOGY.md).
 
-### M3-10 — Feature switches — contract frozen; implementation planned
+### M3-10 — Feature switches — COMPLETE
 
-Feature-switch behavior is frozen in [§15](#15-m3-10-feature-switches). The implementation task is planned; existing M2, M3, and M3P paths remain the compatibility oracles.
+Feature-switch behavior is frozen in [§15](#15-m3-10-feature-switches) and implemented by the explicit configured storage dispatch. Existing M2, M3, and M3P paths remain the compatibility oracles.
 
-### M3-11 (formerly M3-05) — Propagation — contract frozen; implementation planned
+### M3-11 (formerly M3-05) — Propagation — COMPLETE
 
-The synchronous multi-hop overlay semantics are frozen in [§16](#16-m3-11-propagation). Implementation and measurement remain planned.
+The synchronous multi-hop overlay semantics are frozen in [§16](#16-m3-11-propagation). Reference, storage, M3P, snapshot-v3, and explicit parallel paths passed their recorded parity gates. Fixed-topology and sustained M3P measurements are in [M3-11 Propagation](../performance/M3_11_PROPAGATION.md).
 
-### M3 audit and graduation
+### M3 audit and graduation — COMPLETE
 
-Report in the M2-40 format, answer the central research question, and decide whether a new architecture (M4) is needed.
+**Decision: M3-GRADUATE.** The [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md) records the completed stages, correctness evidence, runtime findings, limitations, and the conclusion that the measured results do not require a new architecture (M4). Spatial migration remains deferred.
 
 M3-04 and M3-05 extend the measured answer for sustained workloads and scale limits. M3-08 through M3-11 deepen the research question with population dynamics, incremental topology maintenance, feature switches, and propagation; M3-07 diagnoses residual scaling after indexed settlement lookups.
 
