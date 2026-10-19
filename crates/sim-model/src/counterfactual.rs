@@ -30,14 +30,10 @@ use crate::runner::{
     DayExecutionOptions, M0RunContext, M0RunError, M3DayOutcome, M3PropagationStorageRunContext,
     M3ReferenceContext, M3StorageRunContext, M3pIncrementalTopologyStorageRunContext,
     M3pPropagationIncrementalTopologyStorageRunContext, M3pPropagationStorageRunContext,
-    M3pStorageRunContext, run_m3_reference_day_with_phase_recorder,
-    run_m3_storage_day_with_forced_action, run_m3_storage_days, run_m3p_propagation_storage_days,
-    run_m3p_propagation_storage_days_incremental_topology,
-    run_m3p_storage_day_incremental_with_forced_action, run_m3p_storage_day_with_forced_action,
-    run_m3p_storage_days, run_m3p_storage_days_incremental_topology,
-    run_m3pprop_storage_day_incremental_with_forced_action,
-    run_m3pprop_storage_day_with_forced_action, run_m3prop_storage_day_with_forced_action,
-    run_m3prop_storage_days,
+    M3pStorageRunContext, run_m3_reference_day_with_phase_recorder, run_m3_storage_day_for_branch,
+    run_m3p_storage_day_for_branch, run_m3p_storage_day_incremental_for_branch,
+    run_m3pprop_storage_day_for_branch, run_m3pprop_storage_day_incremental_for_branch,
+    run_m3prop_storage_day_for_branch,
 };
 use crate::snapshot::{CanonicalSnapshot, SnapshotError, SnapshotMetadata, decode_snapshot};
 use crate::state::{AgentState, AuthorityMode, HybridWorldState, WorldState};
@@ -662,97 +658,56 @@ impl BranchRuntime {
             events_enabled: true,
             snapshot_boundary: snapshot,
         };
-        let outcome = match (&mut self.context, forced_action) {
-            (StorageContext::M3(context), Some(forced)) => {
-                BranchOutcome::M3(run_m3_storage_day_with_forced_action(
+        let outcome = match &mut self.context {
+            StorageContext::M3(context) => BranchOutcome::M3(run_m3_storage_day_for_branch(
+                &mut self.world,
+                config,
+                context,
+                &options,
+                forced_action,
+            )?),
+            StorageContext::M3Propagation(context) => {
+                BranchOutcome::M3Propagation(run_m3prop_storage_day_for_branch(
                     &mut self.world,
                     config,
                     context,
                     &options,
-                    forced,
+                    forced_action,
                 )?)
             }
-            (StorageContext::M3(context), None) => BranchOutcome::M3(
-                run_m3_storage_days(&mut self.world, config, context, 1, &options)?.remove(0),
-            ),
-            (StorageContext::M3Propagation(context), Some(forced)) => {
-                BranchOutcome::M3Propagation(run_m3prop_storage_day_with_forced_action(
+            StorageContext::M3p(context) => BranchOutcome::M3p(run_m3p_storage_day_for_branch(
+                &mut self.world,
+                config,
+                context,
+                &options,
+                forced_action,
+            )?),
+            StorageContext::M3pIncremental(context) => {
+                BranchOutcome::M3p(run_m3p_storage_day_incremental_for_branch(
                     &mut self.world,
                     config,
                     context,
                     &options,
-                    forced,
+                    forced_action,
                 )?)
             }
-            (StorageContext::M3Propagation(context), None) => BranchOutcome::M3Propagation(
-                run_m3prop_storage_days(&mut self.world, config, context, 1, &options)?.remove(0),
-            ),
-            (StorageContext::M3p(context), Some(forced)) => {
-                BranchOutcome::M3p(run_m3p_storage_day_with_forced_action(
+            StorageContext::M3pPropagation(context) => {
+                BranchOutcome::M3pPropagation(run_m3pprop_storage_day_for_branch(
                     &mut self.world,
                     config,
                     context,
                     &options,
-                    forced,
+                    forced_action,
                 )?)
             }
-            (StorageContext::M3p(context), None) => BranchOutcome::M3p(
-                run_m3p_storage_days(&mut self.world, config, context, 1, &options)?.remove(0),
-            ),
-            (StorageContext::M3pIncremental(context), Some(forced)) => {
-                BranchOutcome::M3p(run_m3p_storage_day_incremental_with_forced_action(
+            StorageContext::M3pPropagationIncremental(context) => {
+                BranchOutcome::M3pPropagation(run_m3pprop_storage_day_incremental_for_branch(
                     &mut self.world,
                     config,
                     context,
                     &options,
-                    forced,
+                    forced_action,
                 )?)
-            }
-            (StorageContext::M3pIncremental(context), None) => BranchOutcome::M3p(
-                run_m3p_storage_days_incremental_topology(
-                    &mut self.world,
-                    config,
-                    context,
-                    1,
-                    &options,
-                )?
-                .remove(0),
-            ),
-            (StorageContext::M3pPropagation(context), Some(forced)) => {
-                BranchOutcome::M3pPropagation(run_m3pprop_storage_day_with_forced_action(
-                    &mut self.world,
-                    config,
-                    context,
-                    &options,
-                    forced,
-                )?)
-            }
-            (StorageContext::M3pPropagation(context), None) => BranchOutcome::M3pPropagation(
-                run_m3p_propagation_storage_days(&mut self.world, config, context, 1, &options)?
-                    .remove(0),
-            ),
-            (StorageContext::M3pPropagationIncremental(context), Some(forced)) => {
-                BranchOutcome::M3pPropagation(
-                    run_m3pprop_storage_day_incremental_with_forced_action(
-                        &mut self.world,
-                        config,
-                        context,
-                        &options,
-                        forced,
-                    )?,
-                )
-            }
-            (StorageContext::M3pPropagationIncremental(context), None) => {
-                BranchOutcome::M3pPropagation(
-                    run_m3p_propagation_storage_days_incremental_topology(
-                        &mut self.world,
-                        config,
-                        context,
-                        1,
-                        &options,
-                    )?
-                    .remove(0),
-                )
             }
         };
         let storage = self

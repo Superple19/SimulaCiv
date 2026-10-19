@@ -2341,14 +2341,14 @@ pub fn run_m3_storage_days(
     )
 }
 
-pub(crate) fn run_m3_storage_day_with_forced_action(
+pub(crate) fn run_m3_storage_day_for_branch(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &mut M3StorageRunContext,
     options: &DayExecutionOptions,
-    forced_action: &mut ForcedActionDirective,
+    forced_action: Option<&mut ForcedActionDirective>,
 ) -> Result<M3DayOutcome, M0RunError> {
-    context.validate_for(hybrid_world, config)?;
+    // Branch contexts are validated at restore; rechecking full membership each day is redundant.
     Ok(run_m3_storage_days_registered(
         hybrid_world,
         config,
@@ -2357,7 +2357,7 @@ pub(crate) fn run_m3_storage_day_with_forced_action(
         options,
         M3StoragePhase6BMode::Serial,
         None,
-        Some(forced_action),
+        forced_action,
     )?
     .remove(0))
 }
@@ -2370,16 +2370,26 @@ pub fn run_m3prop_storage_days(
     days: u32,
     options: &DayExecutionOptions,
 ) -> Result<Vec<M3PropDayOutcome>, M0RunError> {
-    run_m3prop_storage_days_inner(hybrid_world, config, context, days, options, None, None)
+    run_m3prop_storage_days_inner(
+        hybrid_world,
+        config,
+        context,
+        days,
+        options,
+        None,
+        None,
+        true,
+    )
 }
 
-pub(crate) fn run_m3prop_storage_day_with_forced_action(
+pub(crate) fn run_m3prop_storage_day_for_branch(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &mut M3PropagationStorageRunContext,
     options: &DayExecutionOptions,
-    forced_action: &mut ForcedActionDirective,
+    forced_action: Option<&mut ForcedActionDirective>,
 ) -> Result<M3PropDayOutcome, M0RunError> {
+    // Branch contexts are validated at restore; rechecking full membership each day is redundant.
     Ok(run_m3prop_storage_days_inner(
         hybrid_world,
         config,
@@ -2387,7 +2397,8 @@ pub(crate) fn run_m3prop_storage_day_with_forced_action(
         1,
         options,
         None,
-        Some(forced_action),
+        forced_action,
+        false,
     )?
     .remove(0))
 }
@@ -2409,9 +2420,11 @@ pub fn run_m3prop_storage_days_with_parallel_spread(
         options,
         Some((pool, chunk_size)),
         None,
+        true,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_m3prop_storage_days_inner(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
@@ -2420,12 +2433,15 @@ fn run_m3prop_storage_days_inner(
     options: &DayExecutionOptions,
     parallel: Option<(&ThreadPool, NonZeroUsize)>,
     forced_action: Option<&mut ForcedActionDirective>,
+    validate_context: bool,
 ) -> Result<Vec<M3PropDayOutcome>, M0RunError> {
     validate_m3prop_runner_config(config)?;
     let base_config = m3_base_config(config);
-    context
-        .storage_context
-        .validate_for(hybrid_world, &base_config)?;
+    if validate_context {
+        context
+            .storage_context
+            .validate_for(hybrid_world, &base_config)?;
+    }
     let HybridWorldState {
         world,
         segmented_storage,
@@ -2494,14 +2510,14 @@ pub fn run_m3p_storage_days(
     )
 }
 
-pub(crate) fn run_m3p_storage_day_with_forced_action(
+pub(crate) fn run_m3p_storage_day_for_branch(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &mut M3pStorageRunContext,
     options: &DayExecutionOptions,
-    forced_action: &mut ForcedActionDirective,
+    forced_action: Option<&mut ForcedActionDirective>,
 ) -> Result<M3pDayOutcome, M0RunError> {
-    context.validate_for(hybrid_world, config)?;
+    // The branch context is validated at restore and remains owned by this run.
     Ok(run_m3p_storage_days_registered(
         hybrid_world,
         config,
@@ -2513,7 +2529,7 @@ pub(crate) fn run_m3p_storage_day_with_forced_action(
             propagation: None,
             propagation_config: None,
             propagation_policy: SystemExecutionPolicy::Serial,
-            forced_action: Some(forced_action),
+            forced_action,
         },
         |_, storage, state| state.finish_day(storage),
     )?
@@ -2546,14 +2562,14 @@ pub fn run_m3p_storage_days_incremental_topology(
     )
 }
 
-pub(crate) fn run_m3p_storage_day_incremental_with_forced_action(
+pub(crate) fn run_m3p_storage_day_incremental_for_branch(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &mut M3pIncrementalTopologyStorageRunContext,
     options: &DayExecutionOptions,
-    forced_action: &mut ForcedActionDirective,
+    forced_action: Option<&mut ForcedActionDirective>,
 ) -> Result<M3pDayOutcome, M0RunError> {
-    context.storage_context.validate_for(hybrid_world, config)?;
+    // The branch context is validated at restore and remains owned by this run.
     Ok(run_m3p_storage_days_registered(
         hybrid_world,
         config,
@@ -2565,7 +2581,7 @@ pub(crate) fn run_m3p_storage_day_incremental_with_forced_action(
             propagation: None,
             propagation_config: None,
             propagation_policy: SystemExecutionPolicy::Serial,
-            forced_action: Some(forced_action),
+            forced_action,
         },
         |_, storage, state| state.finish_day(storage),
     )?
@@ -2601,17 +2617,14 @@ pub fn run_m3p_propagation_storage_days(
     )
 }
 
-pub(crate) fn run_m3pprop_storage_day_with_forced_action(
+pub(crate) fn run_m3pprop_storage_day_for_branch(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &mut M3pPropagationStorageRunContext,
     options: &DayExecutionOptions,
-    forced_action: &mut ForcedActionDirective,
+    forced_action: Option<&mut ForcedActionDirective>,
 ) -> Result<M3pPropagationDayOutcome, M0RunError> {
-    validate_m3pprop_config(config)?;
-    context
-        .storage_context
-        .validate_for(hybrid_world, &m3p_base_config(config))?;
+    // The branch context is validated at restore and remains owned by this run.
     Ok(run_m3p_storage_days_registered(
         hybrid_world,
         &m3p_base_config(config),
@@ -2623,7 +2636,7 @@ pub(crate) fn run_m3pprop_storage_day_with_forced_action(
             propagation: Some(&mut context.propagation),
             propagation_config: Some(config),
             propagation_policy: SystemExecutionPolicy::Serial,
-            forced_action: Some(forced_action),
+            forced_action,
         },
         |_, storage, state| state.finish_propagation_day(storage),
     )?
@@ -2691,18 +2704,14 @@ pub fn run_m3p_propagation_storage_days_incremental_topology(
     )
 }
 
-pub(crate) fn run_m3pprop_storage_day_incremental_with_forced_action(
+pub(crate) fn run_m3pprop_storage_day_incremental_for_branch(
     hybrid_world: &mut HybridWorldState,
     config: &SimConfig,
     context: &mut M3pPropagationIncrementalTopologyStorageRunContext,
     options: &DayExecutionOptions,
-    forced_action: &mut ForcedActionDirective,
+    forced_action: Option<&mut ForcedActionDirective>,
 ) -> Result<M3pPropagationDayOutcome, M0RunError> {
-    validate_m3pprop_config(config)?;
-    context
-        .storage_context
-        .storage_context
-        .validate_for(hybrid_world, &m3p_base_config(config))?;
+    // The branch context is validated at restore and remains owned by this run.
     Ok(run_m3p_storage_days_registered(
         hybrid_world,
         &m3p_base_config(config),
@@ -2714,7 +2723,7 @@ pub(crate) fn run_m3pprop_storage_day_incremental_with_forced_action(
             propagation: Some(&mut context.propagation),
             propagation_config: Some(config),
             propagation_policy: SystemExecutionPolicy::Serial,
-            forced_action: Some(forced_action),
+            forced_action,
         },
         |_, storage, state| state.finish_propagation_day(storage),
     )?
