@@ -1,8 +1,8 @@
 # M4 Counterfactual Contract
 
-**Status: DRAFT — NOT FROZEN**
+**Status: M4-00 FROZEN**
 
-**Scope:** M4-00 research question, terminology, invariants, and planned stage boundaries. This draft does not authorize implementation.
+**Scope:** M4-00 freezes the counterfactual framework, terminology, invariants, and planned stage boundaries. Stage-specific contracts and implementation details remain subject to their own DRAFT → review → FROZEN process.
 
 **Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
@@ -14,21 +14,25 @@ Counterfactual runs can begin from the same canonical snapshot, apply different 
 
 The runtime also has canonical SHA-256 encodings for state, metrics, and events (`canonical_state_hash`, `canonical_metrics_hash`, `canonical_event_hash` and profile-specific variants), plus canonical snapshot encode/restore functions. These provide exact comparison and resume boundaries; the M3 contract and graduation report record the separate M2/M3/M3P/propagation profiles and their parity gates ([`hashing.rs`](../../crates/sim-model/src/hashing.rs); [`snapshot.rs`](../../crates/sim-model/src/snapshot.rs); [M3 Interaction Contract](M3_INTERACTION_CONTRACT.md); [M3 graduation report](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)).
 
-This combination makes paired causal experiments plausible, but it does not by itself define intervention semantics, phase-level observation, branch storage, or how to match agents created on only one branch. Those are open design decisions in §7.
+This combination makes paired causal experiments plausible. M4-00 now freezes the framework-level intervention classes, divergence search, branch restore model, and entity matching in §8; §7 contains only details assigned to later stage freezes.
 
 ## 2. Terminology
 
-These definitions are proposed for M4 and remain subject to review.
+These framework-level definitions are frozen by M4-00. Stage-specific schemas and algorithms remain for later contract sections.
 
 - **Base run:** execution from a declared initial state or restored snapshot, with a fixed configuration, master seed, replicate ID, and horizon, and with no M4 interventions.
-- **Snapshot boundary:** a point at which the runner emits canonical snapshot bytes for a defined resume cursor. Existing snapshot encoders serialize canonical logical state and metadata; the Phase 11 hook emits a snapshot only when its boundary flag is true ([`encode_snapshot`, `decode_snapshot`, `phase11_snapshot_if_boundary`](../../crates/sim-model/src/snapshot.rs)). M4 must define whether intervention application occurs immediately before or after the boundary.
-- **Branch:** an isolated continuation from the same base-run snapshot and run identity, with a declared intervention set. “Isolated” is a semantic requirement; the storage/copy strategy is unresolved.
-- **Intervention:** an explicit, typed change applied at a defined `(day, phase boundary)`. Candidate examples are a configuration parameter override, an `AgentId` field override, or a forced action for one agent on one day. An intervention may change model inputs or state only according to its declared type; it must not redefine the frozen RNG coordinate tuple or remap existing draws ([M1 C04](M1_CONTRACT_FREEZE.md); [`RngCoordinate`](../../crates/sim-core/src/prng.rs)).
-- **Divergence point:** the earliest `(day, phase)` at which the branch's canonical logical state differs from the base run. Current day-run outcomes expose daily results (`M3DayOutcome` contains `executed_day`, optional metrics, events, and an optional snapshot), not digest fields or a per-phase digest trace. Canonical state hash functions can hash a supplied state at a checkpoint, and ordinary parity gates compare day checkpoints; exact first-phase detection would need a phase-boundary recorder or callback that captures comparable canonical state digests after each phase ([`M3DayOutcome`, `run_m3_reference_day`, `run_m3_storage_days`](../../crates/sim-model/src/runner.rs); [`canonical_state_hash`, `canonical_m3_state_hash`](../../crates/sim-model/src/hashing.rs); [M3 parity gates](M3_INTERACTION_CONTRACT.md)).
-- **Divergence set:** for day `d`, `D_d` is the set of `AgentId`s whose canonical agent record differs between branch and base state at the agreed day boundary. Records are compared by logical `AgentId`, not physical `DenseSlot`; canonical M1 state encoding sorts agents by `AgentId` ([`canonical_state_bytes`](../../crates/sim-model/src/hashing.rs); [M1 C01/C03](M1_CONTRACT_FREEZE.md)). Births make cross-branch identity matching an open question (§7).
+- **Snapshot boundary:** a point at which the runner emits canonical snapshot bytes for a defined resume cursor. Existing snapshot encoders serialize canonical logical state and metadata; the Phase 11 hook emits a snapshot only when its boundary flag is true ([`encode_snapshot`, `decode_snapshot`, `phase11_snapshot_if_boundary`](../../crates/sim-model/src/snapshot.rs)). The framework applies interventions at their declared boundary; M4-02 pins the exact boundary/API ordering relative to restore and phase execution.
+- **Branch:** an isolated continuation from the same base-run snapshot and run identity, with a declared intervention set. The first version restores a snapshot independently for each branch; copy-on-write is deferred to M4-07 (§8).
+- **Intervention:** an explicit, typed change applied at a defined `(day, phase boundary)`. M4's first-version types are: (a) a configuration parameter override effective from that boundary onward; (b) a field override (`food`, `health`, or `wealth`) for one `AgentId`; and (c) a forced action for one `AgentId` on one day. Reject duplicate targets at the same boundary: the same configuration parameter, the same `(AgentId, field)`, or the same `(AgentId, day)` forced-action target. Apply type classes in `(a), (b), (c)` order, then agent-targeted operations in ascending `AgentId` order. Interventions never redefine the frozen RNG coordinate tuple ([M1 C04](M1_CONTRACT_FREEZE.md); [`RngCoordinate`](../../crates/sim-core/src/prng.rs)). Exact config field schema, field-override duration, and boundary/API details belong to M4-02.
+- **Divergence point:** the earliest `(day, phase)` at which the branch's canonical logical state differs from the base run. Current day-run outcomes expose daily results (`M3DayOutcome` contains `executed_day`, optional metrics, events, and an optional snapshot), not digest fields or a per-phase digest trace. The frozen detection method first compares day-boundary canonical State digests to locate the first differing day, then reruns only that day from both day-start states with an opt-in phase-boundary recorder. The recorder compares canonical State digests after each phase; this adds no fields to existing digest schemas ([`M3DayOutcome`, `run_m3_reference_day`, `run_m3_storage_days`](../../crates/sim-model/src/runner.rs); [`canonical_state_hash`, `canonical_m3_state_hash`](../../crates/sim-model/src/hashing.rs); [M3 parity gates](M3_INTERACTION_CONTRACT.md)).
+- **Divergence set:** for day `d`, `D_d` is the set of matched logical entities whose canonical agent record differs between branch and base state at the agreed day boundary. Agents present at the branch point match by `AgentId`; agents born afterward match by lineage key `(parent AgentId, parent's birth ordinal)`. This is an M4 comparison key, not a field in current M3P `BirthRecord` (which records parent, child, and group); canonical M1 state records remain independent of physical `DenseSlot` and sort by `AgentId` ([`BirthRecord`, `apply_phase9b_storage`](../../crates/sim-model/src/m3p.rs); [`canonical_state_bytes`](../../crates/sim-model/src/hashing.rs); [M1 C01/C03](M1_CONTRACT_FREEZE.md)).
 - **Divergence curve:** the sequence `|D_d|` over the declared observation horizon, with the day-boundary comparison rule and population denominator reported alongside it.
-- **Common-random-numbers (CRN) efficiency:** for replicate `s`, let `Δ_s = Y(intervention, s) - Y(base, s)` for a declared scalar outcome `Y`. Compare the sample variance of paired differences using the same seed/replicate coordinates with the variance of the difference estimator from independently seeded base and intervention samples of the same size. Report `CRN efficiency ratio = Var(independent estimator) / Var(paired estimator)`; values above `1` indicate variance reduction from pairing, `1` no change, and below `1` increased variance. The zero paired-variance reporting convention remains open (§7).
-- **Minimal cause:** given a finite candidate intervention set `I` and a deterministic outcome predicate `P`, find a subset `S ⊆ I` of minimum cardinality for which `P(run(S))` is true. The predicate must be explicit and machine-checkable, for example `metric(day=50) >= threshold`, `agent(id).health(day=20) <= 0`, or `D_50` contains a specified `AgentId`. Tie-breaking among equally small subsets is not yet defined (§7).
+- **Common-random-numbers (CRN) efficiency:** for replicate `s`, let `Δ_s = Y(intervention, s) - Y(base, s)` for a declared scalar outcome `Y`. Compare the sample variance of paired differences using the same seed/replicate coordinates with the variance of the difference estimator from independently seeded base and intervention samples of the same size. Report `CRN efficiency ratio = Var(independent estimator) / Var(paired estimator)`; values above `1` indicate variance reduction from pairing, `1` no change, and below `1` increased variance. If paired variance is zero, report **“exact (paired variance 0)”** separately from the ratio; the ratio is not finite in that case. M4-04 freezes minimum replicate count and confidence method.
+- **Minimal cause:** given a finite candidate intervention set `I` and a deterministic outcome predicate `P`, find a subset `S ⊆ I` of minimum cardinality for which `P(run(S))` is true. The predicate must be explicit and machine-checkable, for example `metric(day=50) >= threshold`, `agent(id).health(day=20) <= 0`, or `D_50` contains a specified `AgentId`. Among equally small subsets, the default tie-break is the lexicographically smallest sorted list of intervention IDs. M4-05 freezes the predicate language and search limits.
+
+### Known precision limits
+
+CRN is shared only for coordinates both branches evaluate: identical coordinate inputs produce identical PRNG values, but different survival, action choices, or births can change which coordinates are evaluated ([`coordinate_prng_u64`, `coordinate_prng_f32`](../../crates/sim-core/src/prng.rs); [`apply_phase9b`, `apply_phase9b_storage`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs)). In M3P, children receive IDs from the global `next_agent_id` cursor and the cursor advances by the number of successful births; because the RNG coordinate contains an entity `AgentId`, divergent birth counts can shift later newborn IDs and their coordinates. A lineage-keyed RNG identity is a candidate for M4-02, not a change to M3P; existing M3P allocation and coordinate semantics stay unchanged ([`M3pReferenceState::next_agent_id`, `apply_phase9b_storage`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs); [`RngCoordinate`](../../crates/sim-core/src/prng.rs)).
 
 ## 3. M4 stage plan — planned
 
@@ -36,7 +40,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 
 | Stage | Planned scope |
 |---|---|
-| **M4-00 — Counterfactual contract** | Define the research question, terms, inherited invariants, housekeeping options, and open questions. This document is the draft. |
+| **M4-00 — Counterfactual contract** | Freeze the research question, framework terminology, inherited invariants, housekeeping options, and stage boundaries. This document is frozen; later sections freeze their own details. |
 | **M4-01 — System registration architecture** | Specify how systems declare state columns, phase slot, RNG subsystem ID, digest and snapshot contributions, feature switch, and read/write sets. Plan to port the relationship graph, population dynamics, and propagation through this architecture. Require all existing M2/M3/M3P/propagation goldens and snapshot bytes to remain unchanged. |
 | **M4-02 — Branching primitive and divergence-point detection** | Specify snapshot-based branch creation, intervention application, and exact first-divergence reporting. |
 | **M4-03 — Divergence measurement** | Specify divergence sets and curves, comparison population, and metrics beyond agent-record differences. |
@@ -60,7 +64,7 @@ All entries are planned and require their own frozen contract before implementat
 
 ### 5.1 CI duration
 
-The task baseline reports that the full workspace suite takes about five minutes locally; this duration has not been re-measured as part of this draft. Possible responses are:
+The task baseline reports that the full workspace suite takes about five minutes locally; this duration has not been independently measured for M4-00. Possible responses are:
 
 - Keep the complete required gate on each change and first report per-target timings to identify avoidable duplication.
 - Move only expensive, redundant matrix execution to a release-mode job that remains required for the same change; retain a fast, required correctness subset if its coverage is independently sufficient.
@@ -81,18 +85,39 @@ Options are to keep that profile as a bounded benchmark workload; design density
 - No implementation or runtime API change.
 - No semantic change to existing profiles or RNG coordinates.
 - No GPU implementation or GPU-specific execution semantics.
-- This draft does not freeze intervention types, branch representation, or divergence matching.
+- No stage-specific implementation details beyond the framework decisions in §8; later stage sections must freeze their own schemas, APIs, and algorithms.
 
 ## 7. Open questions
 
+These questions remain for the named later-stage freeze; none reopens the M4-00 decisions in §8.
+
 | ID | Question | Status |
 |---|---|---|
-| OQ-1 | Which intervention types are supported in the first version, and how are conflicting interventions ordered or rejected? | **Blocking** for M4-02 semantics. |
-| OQ-2 | What phase-boundary digest/record format identifies the first exact `(day, phase)` divergence while preserving existing digest schemas? | **Blocking** for M4-02 divergence detection. |
-| OQ-3 | How are branches stored initially: independent state copies, snapshot-backed restore, or shared immutable state with copy-on-write? | **Blocking** for M4-02 resource and isolation behavior; deeper many-branch optimization can wait until M4-07. |
-| OQ-4 | When births differ between branches, are agents compared only by exact `AgentId`, or is a lineage/matching relation required for divergence sets and outcome attribution? | **Blocking** for interpreting divergence and minimal-cause results involving births. |
-| OQ-5 | What happens when the paired estimator variance is zero, and how many seeds/replicates are required for a CRN claim? | **Blocking** for M4-04 reporting rules. |
-| OQ-6 | How are system phase slots, subsystem IDs, and read/write conflicts allocated and validated by M4-01 registration? | **Blocking** for M4-01 architecture and preservation of coordinate semantics. |
-| OQ-7 | What is the supported outcome-predicate language and deterministic tie-break for equally small causes? | **Blocking** for M4-05 correctness and reproducibility. |
-| OQ-8 | Which expensive CI matrices can move to release mode without changing which changes are gated? | **Non-blocking** for this draft; must be settled before M4 CI gates are frozen. |
-| OQ-9 | Should M4 include a population-regulated profile for experiments beyond the M3P sustained horizon? | **Non-blocking** for M4-00; blocking only if long-horizon regulated-population claims become an acceptance gate. |
+| OQ-1 detail | Which exact config fields/types/ranges and intervention serialization are supported, how long do field overrides persist, and what are the operational boundary hooks? | **Deferred / blocking** for the M4-02 freeze. |
+| OQ-2 detail | What recorder API and per-phase record format implement the frozen two-level search? | **Deferred / blocking** for the M4-02 freeze. |
+| OQ-4 detail | How is a parent's birth ordinal assigned, and should newborn stochastic identity remain AgentId-based or use a lineage key in a new profile? | **Deferred / blocking** for M4-02 decisions involving newborn CRN alignment. |
+| OQ-5 detail | What minimum replicate count and confidence method are required for CRN estimates? | **Deferred / blocking** for the M4-04 freeze. |
+| OQ-6 | How are system phase slots, subsystem IDs, state-column registration, and read/write conflicts allocated and validated? | **Deferred / blocking** for the M4-01 freeze. |
+| OQ-7 | What outcome-predicate language, search limits, and intervention-ID schema does minimal-cause search use? | **Deferred / blocking** for the M4-05 freeze; the default tie-break is already frozen in §8. |
+| OQ-8 | Which expensive CI matrices can move to release mode without changing which changes are gated? | **Non-blocking** for M4-00; measure before M4-01 CI gates are frozen. |
+| OQ-9 | Does M4 need a population-regulated profile for experiments beyond the M3P sustained horizon? | **Non-blocking** for M4-00; decide before M4-03. |
+
+## 8. Decision register
+
+M4-00 freezes the framework decisions below. Details explicitly assigned to a later stage remain open until that stage's own contract freeze.
+
+| ID | Status | Decision |
+|---|---|---|
+| OQ-1 | **FROZEN** | First-version interventions are config parameter overrides effective from the boundary onward, `food` / `health` / `wealth` field overrides for one `AgentId`, and one-day forced actions for one `AgentId`. Reject duplicate targets at the same boundary. Apply type classes in `(a), (b), (c)` order and agent-targeted entries by ascending `AgentId`; interventions do not change RNG coordinates. Field-override duration and exact config schema are M4-02 details. |
+| OQ-2 | **FROZEN** | Find the first differing day by comparing day-boundary canonical State digests. Rerun only that day from both day-start states with an opt-in phase-boundary recorder to identify the first differing phase. Existing digest schemas remain unchanged. |
+| OQ-3 | **FROZEN** | First-version branches use snapshot-backed restore. Copy-on-write is deferred to M4-07. |
+| OQ-4 | **FROZEN** | Match agents existing at the branch point by `AgentId`; match later births by lineage key `(parent AgentId, parent's birth ordinal)`. The global M3P `next_agent_id` allocator can shift subsequently allocated newborn IDs after divergent births, changing their AgentId-based RNG coordinates and silently removing CRN alignment for those newborn draws. Consider lineage-keyed RNG identity in M4-02 as a candidate new profile; M3P remains unchanged ([`apply_phase9b_storage`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs); [`RngCoordinate`](../../crates/sim-core/src/prng.rs)). |
+| OQ-5 | **FROZEN** | If paired variance is zero, report “exact (paired variance 0)” separately; do not present a finite CRN ratio for a zero denominator. M4-04 freezes minimum replicate count and confidence method. |
+| OQ-6 | **DEFERRED** | System-registration details are decided in the M4-01 freeze. |
+| OQ-7 | **PARTLY FROZEN / DEFERRED** | Default equal-cardinality cause tie-break is the lexicographically smallest sorted list of intervention IDs. Predicate language, intervention-ID schema, and search limits are decided in the M4-05 freeze. |
+| OQ-8 | **OPEN — NON-BLOCKING** | Measure CI workload before M4-01 freezes CI gates; no correctness gate is weakened by this M4-00 decision. |
+| OQ-9 | **OPEN — NON-BLOCKING** | Decide before M4-03 whether a new population-regulated profile is needed; M3P semantics remain unchanged. |
+
+## 9. Freeze record
+
+This freeze resolves the M4-00 framework decisions for first-version intervention classes and ordering, two-level divergence detection, snapshot-backed branches, cross-branch birth matching, and zero-variance CRN reporting. It records system registration and minimal-cause details for their own later freezes. M4-00 authorizes the M4-01 contract to be requested; it does not start M4-01 implementation or freeze any later-stage contract.

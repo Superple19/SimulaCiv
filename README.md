@@ -86,7 +86,7 @@ The central research question is:
 
 ## M4 direction — planned
 
-M4 will study counterfactual branching: **In a deterministic world, how precisely can cause and effect be separated?** M4-00 is a draft contract, not an implementation authorization: [M4 Counterfactual Contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md).
+M4 will study counterfactual branching: **In a deterministic world, how precisely can cause and effect be separated?** M4-00's framework is frozen; later stage contracts remain planned, and implementation has not started: [M4 Counterfactual Contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md).
 
 ## Build and validate
 
