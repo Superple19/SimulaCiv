@@ -432,17 +432,15 @@ pub fn run_m3p_reference_day(
     run_m3p_reference_day_registered(state, config, run_context, options, None)
 }
 
+type M3pReferencePhase9cHook<'a> =
+    dyn FnMut(&WorldState, &RelationshipGraph, &[AgentId], u32) -> Result<(), M0RunError> + 'a;
+
 pub(crate) fn run_m3p_reference_day_with_post_phase9c_registered(
     state: &mut M3pReferenceState,
     config: &SimConfig,
     run_context: &M0RunContext,
     options: &DayExecutionOptions,
-    post_phase9c: &mut dyn FnMut(
-        &WorldState,
-        &RelationshipGraph,
-        &[AgentId],
-        u32,
-    ) -> Result<(), M0RunError>,
+    post_phase9c: &mut M3pReferencePhase9cHook<'_>,
 ) -> Result<M3pDayOutcome, M0RunError> {
     run_m3p_reference_day_registered(state, config, run_context, options, Some(post_phase9c))
 }
@@ -452,9 +450,7 @@ fn run_m3p_reference_day_registered(
     config: &SimConfig,
     run_context: &M0RunContext,
     options: &DayExecutionOptions,
-    mut post_phase9c: Option<
-        &mut dyn FnMut(&WorldState, &RelationshipGraph, &[AgentId], u32) -> Result<(), M0RunError>,
-    >,
+    mut post_phase9c: Option<&mut M3pReferencePhase9cHook<'_>>,
 ) -> Result<M3pDayOutcome, M0RunError> {
     state.validate_for(config, run_context)?;
     let M3pReferenceState {
@@ -482,7 +478,7 @@ fn run_m3p_reference_day_registered(
         &[SystemId::RelationshipGraph, SystemId::PopulationDynamics]
     };
     let run_options = RegisteredSystemRunOptions {
-        enabled_systems: &enabled_systems,
+        enabled_systems,
         execution: SystemExecutionOptions::default(),
     };
     let mut outcomes = run_registered_world_day_loop(

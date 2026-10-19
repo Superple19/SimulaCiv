@@ -1577,12 +1577,14 @@ pub fn run_m3_reference_day(
     run_m3_reference_day_registered(world, config, context, options, None)
 }
 
+type M3ReferencePhase9cHook<'a> = dyn FnMut(&mut WorldState, u32) -> Result<(), M0RunError> + 'a;
+
 pub(crate) fn run_m3_reference_day_with_post_phase9c_registered(
     world: &mut WorldState,
     config: &SimConfig,
     context: &M3ReferenceContext,
     options: &DayExecutionOptions,
-    post_phase9c: &mut dyn FnMut(&mut WorldState, u32) -> Result<(), M0RunError>,
+    post_phase9c: &mut M3ReferencePhase9cHook<'_>,
 ) -> Result<M3DayOutcome, M0RunError> {
     run_m3_reference_day_registered(world, config, context, options, Some(post_phase9c))
 }
@@ -1592,7 +1594,7 @@ fn run_m3_reference_day_registered(
     config: &SimConfig,
     context: &M3ReferenceContext,
     options: &DayExecutionOptions,
-    mut post_phase9c: Option<&mut dyn FnMut(&mut WorldState, u32) -> Result<(), M0RunError>>,
+    mut post_phase9c: Option<&mut M3ReferencePhase9cHook<'_>>,
 ) -> Result<M3DayOutcome, M0RunError> {
     ensure_m3_profile(config)?;
     let mut state = M3ReferenceRegisteredDay::new(config, context, options);
