@@ -5,8 +5,10 @@ use crate::hashing::{
     DOMAIN_EVENTS, DOMAIN_M3_METRICS, DOMAIN_M3_STATE, DOMAIN_M3P_EVENTS, DOMAIN_M3P_METRICS,
     DOMAIN_M3P_STATE, DOMAIN_M3PROP_EVENTS, DOMAIN_M3PROP_METRICS, DOMAIN_M3PROP_STATE,
 };
+use rayon::ThreadPool;
 use std::collections::BTreeSet;
 use std::fmt;
+use std::num::NonZeroUsize;
 
 /// Stable identity of a registered extension system, independent of its RNG subsystem IDs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -36,6 +38,52 @@ pub enum PhaseSlot {
     Phase6B,
     Phase9B,
     Phase9C,
+}
+
+/// Explicit execution choice for one registered system; pools remain caller-owned.
+#[derive(Clone, Copy)]
+pub enum SystemExecutionPolicy<'a> {
+    Serial,
+    IncrementalTopology,
+    Parallel {
+        pool: &'a ThreadPool,
+        chunk_size: NonZeroUsize,
+    },
+}
+
+/// Per-system execution choices passed into a generic day loop.
+#[derive(Clone, Copy)]
+pub struct SystemExecutionOptions<'a> {
+    pub relationship_graph: SystemExecutionPolicy<'a>,
+    pub population_dynamics: SystemExecutionPolicy<'a>,
+    pub propagation: SystemExecutionPolicy<'a>,
+}
+
+pub struct RegisteredSystemRunOptions<'a> {
+    pub enabled_systems: &'a [SystemId],
+    pub execution: SystemExecutionOptions<'a>,
+}
+
+impl Default for SystemExecutionOptions<'_> {
+    fn default() -> Self {
+        Self {
+            relationship_graph: SystemExecutionPolicy::Serial,
+            population_dynamics: SystemExecutionPolicy::Serial,
+            propagation: SystemExecutionPolicy::Serial,
+        }
+    }
+}
+
+impl SystemExecutionOptions<'_> {
+    pub fn for_system(&self, system: SystemId) -> SystemExecutionPolicy<'_> {
+        match system {
+            SystemId::RelationshipGraph => self.relationship_graph,
+            SystemId::PopulationDynamics => self.population_dynamics,
+            SystemId::Propagation => self.propagation,
+            #[cfg(test)]
+            SystemId::TestNoop => SystemExecutionPolicy::Serial,
+        }
+    }
 }
 
 /// Legacy byte-compatible profile whose codec a descriptor contributes to.
@@ -906,6 +954,54 @@ mod tests {
         assert_eq!(
             validate_system_registry(&with_noop, &real_set),
             validate_system_registry(&with_noop, &noop_set)
+        );
+    }
+
+    #[test]
+    fn test_only_noop_toggle_preserves_legacy_m3_outputs() {
+        use crate::hashing::canonical_m3_state_hash;
+        use crate::initialization::initialize_world;
+        use crate::runner::{
+            DayExecutionOptions, M0RunContext, M3ReferenceContext, run_m3_reference_day,
+        };
+
+        let mut config: SimConfig =
+            toml::from_str(include_str!("../tests/fixtures/m3_propagation.toml")).unwrap();
+        config.profile = SimulationProfile::M3;
+        config.simulation = None;
+        config.propagation = None;
+        let initial_world = initialize_world(&config).unwrap();
+        let run_context = M0RunContext::new(config.world.master_seed, config.world.replicate_id);
+
+        let descriptors = [
+            SYSTEM_REGISTRY[0],
+            SYSTEM_REGISTRY[1],
+            SYSTEM_REGISTRY[2],
+            NOOP_DESCRIPTOR,
+        ];
+        let without_noop = [SystemId::RelationshipGraph];
+        let with_noop = [SystemId::RelationshipGraph, SystemId::TestNoop];
+        assert_eq!(
+            validate_system_registry(&descriptors, &without_noop),
+            validate_system_registry(&descriptors, &with_noop)
+        );
+
+        let mut world_without = initial_world.clone();
+        let mut world_with = initial_world;
+        let context_without =
+            M3ReferenceContext::new(&world_without, &config, &run_context).unwrap();
+        let context_with = M3ReferenceContext::new(&world_with, &config, &run_context).unwrap();
+        let options = DayExecutionOptions::default();
+        let outcome_without =
+            run_m3_reference_day(&mut world_without, &config, &context_without, &options).unwrap();
+        let outcome_with =
+            run_m3_reference_day(&mut world_with, &config, &context_with, &options).unwrap();
+
+        assert_eq!(outcome_without, outcome_with);
+        assert_eq!(world_without, world_with);
+        assert_eq!(
+            canonical_m3_state_hash(&world_without, context_without.relationship_graph()).unwrap(),
+            canonical_m3_state_hash(&world_with, context_with.relationship_graph()).unwrap()
         );
     }
 

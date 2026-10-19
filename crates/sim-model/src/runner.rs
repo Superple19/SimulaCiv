@@ -93,6 +93,10 @@ use crate::snapshot::{
 };
 use crate::state::{AgentDynamicSoAScratch, HybridWorldState, WorldState};
 use crate::storage::SegmentedAgentStorage;
+use crate::system_registry::{
+    PhaseSlot, RegisteredHook, RegisteredSystemRunOptions, SYSTEM_REGISTRY, SystemExecutionOptions,
+    SystemId, validate_system_registry,
+};
 use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, SimulationDay};
@@ -206,6 +210,163 @@ pub struct DayExecutionOptions {
     pub metrics_enabled: bool,
     pub events_enabled: bool,
     pub snapshot_boundary: bool,
+}
+
+/// Fixed core phase order traversed by the registered reference and storage loops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RegisteredCorePhase {
+    Phase1,
+    Phase2,
+    Phase3,
+    Phase4,
+    Phase5,
+    Phase6A,
+    Phase6B,
+    Phase7,
+    Phase8,
+    Phase9,
+    Phase10,
+    Phase11,
+}
+
+const REGISTERED_CORE_PHASES: &[RegisteredCorePhase] = &[
+    RegisteredCorePhase::Phase1,
+    RegisteredCorePhase::Phase2,
+    RegisteredCorePhase::Phase3,
+    RegisteredCorePhase::Phase4,
+    RegisteredCorePhase::Phase5,
+    RegisteredCorePhase::Phase6A,
+    RegisteredCorePhase::Phase6B,
+    RegisteredCorePhase::Phase7,
+    RegisteredCorePhase::Phase8,
+    RegisteredCorePhase::Phase9,
+    RegisteredCorePhase::Phase10,
+    RegisteredCorePhase::Phase11,
+];
+
+fn registered_hooks(enabled_systems: &[SystemId]) -> Result<Vec<RegisteredHook>, M0RunError> {
+    validate_system_registry(SYSTEM_REGISTRY, enabled_systems).map_err(|error| {
+        M0RunError::InvariantViolation(format!("system registry validation failed: {error}"))
+    })
+}
+
+fn extension_slot_for_core_phase(phase: RegisteredCorePhase) -> Option<PhaseSlot> {
+    match phase {
+        RegisteredCorePhase::Phase4 => Some(PhaseSlot::Phase4),
+        RegisteredCorePhase::Phase6B => Some(PhaseSlot::Phase6B),
+        RegisteredCorePhase::Phase9 => Some(PhaseSlot::Phase9B),
+        _ => None,
+    }
+}
+
+/// Runs core phases and registered reference hooks in fixed order for each day.
+pub fn run_registered_world_day_loop<C, T, Core, Hook, Finish>(
+    world: &mut WorldState,
+    context: &mut C,
+    run_options: &RegisteredSystemRunOptions<'_>,
+    days: u32,
+    mut run_core_phase: Core,
+    mut run_hook: Hook,
+    mut finish_day: Finish,
+) -> Result<Vec<T>, M0RunError>
+where
+    Core: FnMut(
+        u32,
+        RegisteredCorePhase,
+        &[RegisteredHook],
+        &mut WorldState,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Hook: FnMut(
+        u32,
+        RegisteredHook,
+        &mut WorldState,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Finish: FnMut(u32, &mut WorldState, &mut C) -> Result<T, M0RunError>,
+{
+    let hooks = registered_hooks(run_options.enabled_systems)?;
+    for &hook in hooks
+        .iter()
+        .filter(|hook| hook.slot == PhaseSlot::Initialization)
+    {
+        run_hook(0, hook, world, context, &run_options.execution)?;
+    }
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for day in 0..days {
+        for &phase in REGISTERED_CORE_PHASES {
+            run_core_phase(day, phase, &hooks, world, context, &run_options.execution)?;
+            if let Some(slot) = extension_slot_for_core_phase(phase) {
+                for &hook in hooks.iter().filter(|hook| hook.slot == slot) {
+                    run_hook(day, hook, world, context, &run_options.execution)?;
+                }
+                if phase == RegisteredCorePhase::Phase9 {
+                    for &hook in hooks.iter().filter(|hook| hook.slot == PhaseSlot::Phase9C) {
+                        run_hook(day, hook, world, context, &run_options.execution)?;
+                    }
+                }
+            }
+        }
+        outcomes.push(finish_day(day, world, context)?);
+    }
+    Ok(outcomes)
+}
+
+/// Runs core phases and registered storage hooks in fixed order for each day.
+pub fn run_registered_storage_day_loop<C, T, Core, Hook, Finish>(
+    storage: &mut SegmentedAgentStorage,
+    context: &mut C,
+    run_options: &RegisteredSystemRunOptions<'_>,
+    days: u32,
+    mut run_core_phase: Core,
+    mut run_hook: Hook,
+    mut finish_day: Finish,
+) -> Result<Vec<T>, M0RunError>
+where
+    Core: FnMut(
+        u32,
+        RegisteredCorePhase,
+        &[RegisteredHook],
+        &mut SegmentedAgentStorage,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Hook: FnMut(
+        u32,
+        RegisteredHook,
+        &mut SegmentedAgentStorage,
+        &mut C,
+        &SystemExecutionOptions<'_>,
+    ) -> Result<(), M0RunError>,
+    Finish: FnMut(u32, &mut SegmentedAgentStorage, &mut C) -> Result<T, M0RunError>,
+{
+    let hooks = registered_hooks(run_options.enabled_systems)?;
+    for &hook in hooks
+        .iter()
+        .filter(|hook| hook.slot == PhaseSlot::Initialization)
+    {
+        run_hook(0, hook, storage, context, &run_options.execution)?;
+    }
+    let mut outcomes = Vec::with_capacity(days as usize);
+    for day in 0..days {
+        for &phase in REGISTERED_CORE_PHASES {
+            run_core_phase(day, phase, &hooks, storage, context, &run_options.execution)?;
+            if let Some(slot) = extension_slot_for_core_phase(phase) {
+                for &hook in hooks.iter().filter(|hook| hook.slot == slot) {
+                    run_hook(day, hook, storage, context, &run_options.execution)?;
+                }
+                if phase == RegisteredCorePhase::Phase9 {
+                    for &hook in hooks.iter().filter(|hook| hook.slot == PhaseSlot::Phase9C) {
+                        run_hook(day, hook, storage, context, &run_options.execution)?;
+                    }
+                }
+            }
+        }
+        outcomes.push(finish_day(day, storage, context)?);
+    }
+    Ok(outcomes)
 }
 
 impl Default for DayExecutionOptions {

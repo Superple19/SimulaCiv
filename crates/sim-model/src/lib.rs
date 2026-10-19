@@ -168,7 +168,7 @@ pub use runner::{
     M3ReferenceContext, M3SearchReductionRunContext, M3StorageRunContext,
     M3pIncrementalTopologyStorageRunContext, M3pPropagationIncrementalTopologyStorageRunContext,
     M3pPropagationStorageRunContext, M3pStorageRunContext, Phase4Backend, Phase4ExecutionPolicy,
-    run_configured_storage_days, run_hybrid_authority_day,
+    RegisteredCorePhase, run_configured_storage_days, run_hybrid_authority_day,
     run_hybrid_authority_day_with_candidate_index_scratch,
     run_hybrid_authority_day_with_candidate_scratch, run_hybrid_authority_day_with_scratch,
     run_hybrid_authority_days, run_hybrid_authority_days_with_phase3_linear_scan,
@@ -184,7 +184,8 @@ pub use runner::{
     run_m3p_propagation_storage_days_with_parallel_spread, run_m3p_storage_days,
     run_m3p_storage_days_incremental_topology, run_m3prop_storage_days,
     run_m3prop_storage_days_with_parallel_spread, run_native_soa_day,
-    run_native_soa_day_with_storage, run_native_soa_days,
+    run_native_soa_day_with_storage, run_native_soa_days, run_registered_storage_day_loop,
+    run_registered_world_day_loop,
 };
 pub use snapshot::{
     CanonicalSnapshot, RestoredSnapshot, SNAPSHOT_MAGIC, SNAPSHOT_SCHEMA_VERSION, SnapshotError,
@@ -202,7 +203,8 @@ pub use storage::{
 pub use subsystems::{InvalidSubsystemIdError, Subsystem};
 pub use system_registry::{
     ByteOrder, DescriptorProfile, DigestContribution, DigestKind, FeatureSwitchKey, PhaseAccess,
-    PhaseSlot, RegisteredHook, SYSTEM_REGISTRY, SnapshotSection, SystemDescriptor, SystemId,
-    SystemRegistryError, system_ids_for_features, system_ids_for_runner_selection,
-    validate_configured_system_set, validate_system_registry,
+    PhaseSlot, RegisteredHook, RegisteredSystemRunOptions, SYSTEM_REGISTRY, SnapshotSection,
+    SystemDescriptor, SystemExecutionOptions, SystemExecutionPolicy, SystemId, SystemRegistryError,
+    system_ids_for_features, system_ids_for_runner_selection, validate_configured_system_set,
+    validate_system_registry,
 };
