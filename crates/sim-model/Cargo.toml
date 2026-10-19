@@ -38,3 +38,7 @@ harness = false
 [[bench]]
 name = "m3_scale_limit_bench"
 harness = false
+
+[[bench]]
+name = "m3_11_propagation_bench"
+harness = false
