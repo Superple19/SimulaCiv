@@ -1,6 +1,6 @@
 # M4 Counterfactual Contract
 
-**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN; §12 M4-03 FROZEN; §13 M4-04 DRAFT — NOT FROZEN**
+**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN; §12 M4-03 FROZEN; §13 M4-04 FROZEN**
 
 **Scope:** M4-00 freezes the counterfactual framework; §10 freezes M4-01; §11 freezes M4-02 branching and divergence detection; §12 freezes M4-03 divergence measurement. Each later stage still requires its own DRAFT → review → FROZEN contract.
 
@@ -578,48 +578,50 @@ This user-approved amendment supersedes only the `L_d` definition in §12.1 and 
 
 ## 13. M4-04 CRN Efficiency
 
-**Status: DRAFT — NOT FROZEN**
+**Status: FROZEN**
 
-**Scope:** quantify how much pairing a base run and an intervention branch with common random numbers (CRN) reduces uncertainty in declared scalar outcomes. M4-04 adds analysis only; it does not change intervention, simulation, RNG, digest, snapshot, or M2/M3/M3P semantics.
+**Scope:** quantify how much pairing a base run and an intervention branch with common random numbers (CRN) reduces uncertainty in declared scalar outcomes. The replicate-set runner supports M3P and M3P+propagation, whose snapshots preserve the graph. M4-04 adds analysis only; it does not change intervention, simulation, RNG, digest, snapshot, or M2/M3/M3P semantics.
 
 ### 13.1 Declared outcomes
 
 Each experiment declares one or more scalar outcomes `Y`, an extraction rule, and an observation boundary before runs begin. Examples include:
 
 - `alive_population(H)`, from `DailyMetrics.population` or `M3pDailyMetrics.live_population`;
-- `total_wealth(H)`, defined for this draft as the sum of living agents' wealth at the day boundary;
+- `total_wealth(H)`, the sum of all canonical agent-record wealth values present at the day boundary, including retained-dead records, plus all settlement treasuries;
 - `divergent_records(H) = |D_H|`, from the M4-03 `DivergenceDayRecord.changed_agent_records`;
 - `settlement_treasury(g,H)` or another single settlement-level scalar, with the chosen `GroupId` declared in advance.
 
-Phase 10 currently records population, wealth Gini, food reserves, and total treasury, but not total agent wealth; total wealth and settlement-level outcomes therefore require a declared extractor over canonical state or the requested day snapshot ([`DailyMetrics`, `M3DailyMetrics`](../../crates/sim-model/src/metrics.rs); [`M3pDailyMetrics`](../../crates/sim-model/src/m3p.rs); [`SettlementState`, `SegmentedAgentStorage`](../../crates/sim-model/src/state.rs); [`canonical_m3p_state_bytes_from_storage`](../../crates/sim-model/src/hashing.rs)). Treat each settlement outcome as its own scalar rather than combining a vector of settlements into an unspecified statistic.
+Phase 10 currently records population, wealth Gini, food reserves, and total treasury, but not total agent wealth; wealth outcomes therefore require extraction from the requested day snapshot. Sum agent `Money` values in ascending `AgentId` order and treasury values in ascending `GroupId` order using checked `i128`; for target-settlement wealth, sum all records assigned to that group, including retained-dead records, plus that settlement's treasury. A compaction that removes dead records changes the extracted population exactly as it changes canonical state ([`DailyMetrics`, `M3DailyMetrics`](../../crates/sim-model/src/metrics.rs); [`M3pDailyMetrics`](../../crates/sim-model/src/m3p.rs); [`SettlementState`, `SegmentedAgentStorage`](../../crates/sim-model/src/state.rs); [`canonical_m3p_state_bytes_from_storage`](../../crates/sim-model/src/hashing.rs)). Mean health sums living agents' `f32` health values as `f64` in ascending `AgentId` order and divides by the alive count; it is undefined if no agents are alive. Treat each settlement outcome as its own scalar rather than combining a vector of settlements into an unspecified statistic.
 
 ### 13.2 Paired and independent estimators
 
-For paired replicate `s`, execute the base and intervention branch from the same snapshot and identical `(master_seed, replicate_id)` run identity. Let `Δ_s = Y(intervention,s) - Y(base,s)`. With `n` pairs, estimate the intervention effect by `mean(Δ_s)` and its sampling variance by `s²_Δ / n`, where `s²_Δ` is the sample variance of paired differences.
+All runs start from the same canonical logical branch-point snapshot, including identical world, graph, allocator, and propagation state. Re-encode only the snapshot envelope's `replicate_id` for each post-branch run identity; preserve the M3P graph and other state sections byte-for-byte. For paired replicate `s`, the base and intervention use identical `(master_seed, replicate_id)` values. Let `Δ_s = Y(intervention,s) - Y(base,s)`. With `n` pairs, estimate the intervention effect by `mean(Δ_s)` and its sampling variance by `s²_Δ / n`, where `s²_Δ` is the sample variance of paired differences.
 
-For the independent comparison, run `n` base samples and `n` intervention samples from disjoint, independently assigned run identities. Estimate the same effect by `mean(Y_I) - mean(Y_B)` and its sampling variance by `(s²_I + s²_B) / n`. The CRN efficiency ratio is the independent estimator variance divided by the paired estimator variance. A ratio above one indicates variance reduction from pairing; below one indicates higher variance under pairing. This follows the framework definition in [M4-00 §2](#2-terminology).
+For the independent comparison, run `n` base samples and `n` intervention samples from disjoint, independently assigned post-branch replicate IDs. Estimate the same effect by `mean(Y_I) - mean(Y_B)` and its sampling variance by `(s²_I + s²_B) / n`. The CRN efficiency ratio is the independent estimator variance divided by the paired estimator variance. A ratio above one indicates variance reduction from pairing; below one indicates higher variance under pairing. This follows the framework definition in [M4-00 §2](#2-terminology).
 
 Coordinate RNG is keyed by seed, replicate, day, phase, subsystem, entity, and draw index, so paired branches share values only for coordinates both execute ([`RngCoordinate`, `coordinate_prng_u64`, `coordinate_prng_f32`](../../crates/sim-core/src/prng.rs)). Divergent state can change which draws occur; the estimator remains a paired experimental design and must report that limitation rather than assume every random draw was shared ([`run_counterfactual_branch`, `prepare_branch`](../../crates/sim-model/src/counterfactual.rs)).
 
 ### 13.3 Replicate count and confidence method
 
-M4-00 OQ-5 leaves the minimum replicate count and confidence method to this stage. **Recommended — DRAFT:** use at least `100` paired run identities and independent samples of `100` base plus `100` intervention run identities for each outcome and configuration. The independent base and intervention identity sets must be disjoint. Report the sample means, estimated variances, variance ratio, and a two-sided 95% percentile-bootstrap interval for that ratio, using 10,000 deterministic bootstrap resamples with a recorded fixed seed. Resample paired differences as pairs; resample each independent sample separately.
+Use `100` paired run identities and independent samples of `100` base plus `100` intervention run identities for each outcome and configuration. Paired and independent-base runs use post-branch replicate IDs `{1..=100}`; independent-intervention runs use `{100001..=100100}`. Thus, the independent base and intervention samples are disjoint, while the paired base trajectories are the same base sample used by the independent estimator. Reuse those base values; do not run a second independent-base set. All runs use the same `master_seed` and canonical logical branch-point snapshot, with only the post-branch `replicate_id` changing.
 
-If a bootstrap resample has zero paired variance while the independent variance is positive, its ratio is positive infinity and remains in the percentile calculation. If the observed paired variance itself is exactly zero, use the frozen M4-00 output **“exact (paired variance 0)”** separately from the ratio; do not report a finite ratio ([M4-00 OQ-5](#8-decision-register)). The replicate minimum and interval method remain proposals until the M4-04 freeze.
+Report the sample means, estimated variances, variance ratio, and a two-sided 95% percentile-bootstrap interval for that ratio, using 10,000 deterministic bootstrap resamples and xorshift64 seed `0xA3_11_70` from the M4 standard performance protocol. Each resample draws paired observations as `(base, intervention)` pairs; the resampled paired-base values are also used as the independent-base sample, and independent-intervention values are resampled separately. Compute the paired-mean 95% percentile interval from the same paired resamples. A bootstrap resample with zero paired variance is assigned an infinite ratio, including the indeterminate zero-over-zero case, yielding a conservative upper interval.
+
+If the observed paired variance itself is exactly zero, use the frozen M4-00 output **“exact (paired variance 0)”** separately from the ratio; do not report a finite ratio ([M4-00 OQ-5](#8-decision-register)).
 
 ### 13.4 Newborn identity and CRN loss
 
 Report M4-03 `newborn_crn_loss` alongside each paired outcome comparison. This is the number of lineage-matched births whose AgentIds differ, not a claim that all other random coordinates were shared ([`DivergenceDayRecord`, `DivergenceSummary`](../../crates/sim-model/src/counterfactual.rs); [`M3pReferenceState::next_agent_id`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs)). In the corrected M4-03 report-only experiments, loss remained zero for the 20 H=90 cases and the ten H=365 food/health runs ([A-1 experiment results](../performance/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun)).
 
-**Recommended — DRAFT:** keep OQ-4 option A, AgentId-based RNG identity, for M4-04; zero observed loss gives no measured basis for option B. Report any nonzero loss and interpret the CRN ratio in light of the unmatched newborn coordinates. A lineage-keyed RNG identity would be a new profile decision; it must not alter M3P ([`RngCoordinate`](../../crates/sim-core/src/prng.rs); [`apply_phase9b_storage`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs)).
+Keep OQ-4 option A, AgentId-based RNG identity; newborn CRN loss was zero in all 20 H=90 and ten H=365 report-only runs. Report any nonzero loss and interpret the CRN ratio in light of the unmatched newborn coordinates. A lineage-keyed RNG identity would be a new profile decision; it must not alter M3P ([`RngCoordinate`](../../crates/sim-core/src/prng.rs); [`apply_phase9b_storage`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs)).
 
 ### 13.5 Population-regulation question
 
-M4-00 OQ-9 asks whether a separate population-regulated profile is needed. **Recommended — DRAFT:** it is not needed for the initial M4-04 experiments. Across the ten H=365 corrected M3P runs, alive population stayed between 10,000 and 10,313; the existing M3P sustained configuration therefore remained within 3.13% of its initial population over this measured horizon ([M4-03 H=365 results](../performance/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun)). Keep M3P unchanged and report population with each outcome. Reconsider regulation for substantially longer horizons or a different workload; any density-dependent rule requires a new profile and its own contract.
+Keep M3P unchanged; a separate population-regulated profile is not required for this stage. Across the ten H=365 corrected runs, alive population stayed between 10,000 and 10,313, within 3.13% of the initial population ([M4-03 H=365 results](../performance/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun)). Report population with each outcome. Reconsider regulation for substantially longer horizons or a different workload; any density-dependent rule requires a new profile and its own contract.
 
 ### 13.6 Gates and test list
 
-The M4-04 freeze should require:
+The CI gate uses M3P at `N = 2,000`, `n = 10`, `H = 30`, one agent-field intervention, and a new committed estimator golden. The added test target must take at most 60 seconds. Tests cover:
 
 - deterministic repeated values for every declared outcome and run identity;
 - a no-op intervention identity case with paired variance zero, reported using the exact M4-00 phrase;
@@ -632,17 +634,24 @@ The base and intervention runs use the public snapshot-backed branch API; the an
 
 ### 13.7 Measurement plan
 
-Measure at least one M3P sustained case at `N = 10,000` and `H = 90` and `H = 365`, using the corrected M4-03 intervention/seed set as a reproducibility reference. Include a no-op, a local field intervention, and one configuration intervention. Add `N = 100,000` only after the outcome and replicate protocol is fixed. For every cell, report paired and independent sample counts, seed/replicate identity rules, alive population, newborn CRN loss, outcome distributions, estimated variance ratio and interval, and total elapsed time.
+Run M3P sustained at `N = 10,000`, master seed `81985529216486895`, target chosen as in M4-03, interventions food=0, health=0.01, and BaseMetabolicCost +1%, and horizons `{7, 30, 90, 365}`. For every intervention × horizon × outcome, report paired and independent mean effects, paired and independent estimator variances, the ratio with its 95% interval or the exact-zero phrase, mean `|D_H|` from paired runs, and newborn CRN loss. `|D_H|` is context only and is not defined for independent runs.
 
 Report simulation time, snapshot construction/extraction, outcome extraction, and bootstrap time separately. Use the M4 standard performance-gate protocol for any paired timing comparison; do not include analysis timers in the primary uninstrumented runtime measurement. These are research measurements, not a production crossover gate.
 
-### 13.8 Open questions
+### 13.8 Decision register
 
-| ID | Question | Status for M4-04 freeze |
+| ID | Frozen decision |
 |---|---|---|
-| OQ-13.1 | Is `n = 100` sufficient for the intended outcome distributions, or should the minimum increase? | **Blocking**; validate with pilot variance and interval width. |
-| OQ-13.2 | Freeze the confidence interval method, resample count, fixed seed, and treatment of infinite bootstrap ratios. | **Blocking**; the percentile bootstrap above is only a recommendation. |
-| OQ-13.3 | Which outcomes and observation boundaries are required for the first report, and which total-wealth / settlement extractors are canonical? | **Blocking**; every measured `Y` must have a reproducible scalar definition. |
-| OQ-13.4 | Should independent samples vary `master_seed`, `replicate_id`, or both, and how are the disjoint identity sets derived? | **Blocking**; this defines the independent estimator. |
-| OQ-13.5 | Does later evidence justify lineage-keyed newborn RNG identity, given zero observed newborn CRN loss so far? | **Non-blocking** for the first M4-04 profile; keep M3P unchanged and revisit only if loss is observed or material. |
-| OQ-13.6 | Is a population-regulated profile needed beyond the measured M3P sustained horizon? | **Non-blocking** for initial M4-04; current evidence supports keeping M3P unchanged, and revisit before longer regulated experiments. |
+| D-1 | Use 100 paired replicates; independent base IDs are `{1..=100}` and intervention IDs `{100001..=100100}`. Paired IDs are `{1..=100}`. |
+| D-2 | Keep the canonical world, graph, allocator, and propagation state identical across runs; re-encode only the M3P snapshot envelope/run context for each post-branch replicate ID. |
+| D-3 | Estimate paired and independent mean effects and variances as in §13.2. Estimate the variance ratio with a deterministic 10,000-resample, two-sided 95% percentile bootstrap using seed `0xA3_11_70`; use paired resamples for the paired mean interval. |
+| D-4 | If observed paired variance is zero, report **“exact (paired variance 0)”** and no ratio. Bootstrap resamples with zero paired variance map to an infinite ratio. |
+| D-5 | Outcomes at day H are alive population; total wealth over all agent records plus all settlement treasuries; mean health of living agents; target-settlement living population; and target-settlement wealth including its treasury. `|D_H|` is paired-only context. |
+| D-6 | Horizons are `{7, 30, 90, 365}`. The report-only workload is M3P sustained at N=10,000, master seed `81985529216486895`, with food=0, health=0.01, and BaseMetabolicCost +1% interventions. |
+| D-7 | The first replicate-set API supports M3P and M3P+propagation, whose snapshots preserve graph state. M3 and M3+propagation are deferred because their snapshots omit the graph and changing replicate identity would regenerate branch-point topology. |
+| D-8 | Keep AgentId-based newborn RNG identity; measured newborn CRN loss is zero. Keep M3P unchanged; measured H=365 population drift is within 3.13%. |
+| D-9 | CI uses M3P, N=2,000, 10 replicates, H=30, one agent-field intervention, and a new golden; added CI time is at most 60 seconds. |
+
+### 13.9 Freeze record
+
+This freeze defines M4-04 outcomes, replicate identities, estimators, bootstrap reporting, initial profile support, CI gate, and report-only experiment matrix. The replicate runner reuses M4-02 branch execution and leaves all simulation outputs unchanged. It authorizes M4-04 implementation and measurement; it does not mark M4-04 complete.
