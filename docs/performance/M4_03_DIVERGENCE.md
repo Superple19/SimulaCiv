@@ -1,14 +1,14 @@
 # M4-03 Divergence Measurement
 
-**Status:** M4-03 implementation, the §12.6 A-5 performance gate, and the first report-only intervention experiments are complete. All gate cells pass.
+**Status:** M4-03 implementation and the §12.6 performance gate are complete. The original run is retained as a protocol deviation; a confirmatory run with High priority and affinity `0x555` passed all three cells. The report-only intervention experiments are being extended below.
 
-## Performance gate
+## Original performance gate (protocol deviation; superseded)
 
 The gate compared `run_counterfactual_branch_with_divergence_series` against the M4-02 `run_counterfactual_branch` API. Each pair used the same day-0 snapshot and a no-op `BaseMetabolicCost` override, serial execution, `H = 30`, metrics and events enabled, and snapshots disabled. The fixtures were the M3P sustained profile for M3P cells and the M3 propagation profile for the M3+propagation cell; seed `81985529216486895`, replicate `7`, `k = 8`, `p_local = 0.5`, and `K = N/200`.
 
 All cells ran in one release process. Each used two warmups and 41 paired timed samples. Warmup selected `r = 1` for every cell; each timed sample measured one M4-02 call and one M4-03 call, alternating path order. Deltas are `M4-03 series − M4-02 full API`. The bootstrap used the fixed §11.7 A-3 seed and 10,000 resamples. No retry was needed. The report includes per-operation medians and MADs in microseconds.
 
-Host: AMD Ryzen 5 9600X, 6 cores / 12 logical processors, Windows 11 Pro. High priority and affinity were not applied. Total CPU load/free RAM were 2% / 74,932 MB before and 0% / 75,026 MB after. These values are informational under A-5. Timed cell wall time summed to 1,176.1 seconds; release compilation and the untimed initial parity check are excluded.
+Host: AMD Ryzen 5 9600X, 6 cores / 12 logical processors, Windows 11 Pro. High priority and affinity were not applied. Total CPU load/free RAM were 2% / 74,932 MB before and 0% / 75,026 MB after. These values are informational under A-5. Timed cell wall time summed to 1,176.1 seconds; release compilation and the untimed initial parity check are excluded. This run is retained as a protocol deviation because the requested High priority and affinity controls were omitted; it is superseded by the confirmatory run below.
 
 | Cell | `r` | M4-02 median ± MAD (µs) | M4-03 median ± MAD (µs) | Δ median ± MAD (µs) | U (µs) | T (µs) | M4-02 / M4-03 path MAD/median | Result |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
@@ -17,6 +17,20 @@ Host: AMD Ryzen 5 9600X, 6 cores / 12 logical processors, Windows 11 Pro. High p
 | M3 + propagation serial, N=100,000 | 1 | 4,537,758.9 ± 26,111.4 | 4,550,553.6 ± 26,240.7 | 4,463.6 ± 47,880.5 | 11,250.6 | 226,887.9 | 0.575% / 0.577% | **PASS** |
 
 For all three cells, both path spreads were at most 5%, and bootstrap `U <= T`. The API returned bit-identical M4-02 `BranchResult` values in the untimed parity checks.
+
+## Confirmatory performance gate (High priority and affinity)
+
+The §12.6 cells were rerun after the normalization amendment. The release harness compared the same M4-03 series API against the M4-02 full API, with two warmups, 41 paired samples, alternating path order, and A-5's fixed repetition count selected once per cell to make a sample at least one second. `r` remained fixed for all samples. Each cell passed an untimed exact `BranchResult` equality check. `U` uses the frozen deterministic 10,000-resample bootstrap; `T = 5%` of the M4-02 median.
+
+Host: AMD Ryzen 5 9600X, 6 cores / 12 logical processors, Windows 11 Pro. The measurement process was confirmed at **High** priority with processor affinity mask `0x555` (decimal 1365). Total CPU load was 6% before and 0% after; free physical memory was 76,847,328 KB before and 76,832,552 KB after. Timed-run wall time was 22 minutes 55 seconds, including the initial parity checks and warmups; release compilation was excluded.
+
+| Cell | `r` | M4-02 median ± MAD (µs) | M4-03 median ± MAD (µs) | Δ median ± MAD (µs) | U (µs) | T (µs) | Path MAD/median | Result |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| M3P serial, N=10,000 | 2 | 606,857.950 ± 15,908.450 | 613,662.300 ± 9,359.650 | 8,479.100 ± 16,267.500 | 17,450.100 | 30,342.897 | 2.621% / 1.525% | **PASS** |
+| M3P serial, N=100,000 | 1 | 8,970,325.600 ± 106,223.500 | 8,992,494.800 ± 84,147.600 | 48,004.400 ± 126,632.600 | 99,662.800 | 448,516.280 | 1.184% / 0.936% | **PASS** |
+| M3 + propagation serial, N=100,000 | 1 | 5,008,457.000 ± 35,650.100 | 5,026,765.000 ± 38,417.000 | 12,759.800 ± 56,103.200 | 24,353.500 | 250,422.850 | 0.712% / 0.764% | **PASS** |
+
+All three cells satisfy A-5 path-spread validity and `U <= T`. M4-02 `BranchResult` equality held for the untimed parity checks.
 
 ## First divergence experiments
 
