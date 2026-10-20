@@ -520,7 +520,7 @@ Unless a later M4 stage contract specifies otherwise, use paired measurements in
 
 For each executed day `d`, `D_d` is the frozen M4-02 set of matched logical agent records whose canonical agent fields differ at the day boundary. Entities present at the branch point match by `AgentId`; later births match by the frozen lineage key. `|D_d|` remains the existing agent-record-only `DailyDifference.changed_agent_records`; it is not redefined by this section ([`DailyDifference`, `difference_for_day_fast_impl`, `difference_for_day_canonical`, `record_births`, `record_shared_births`](../../crates/sim-model/src/counterfactual.rs)).
 
-Let `L_d` be the number of matched logical entities alive on at least one side at day `d`. The normalized divergence is `|D_d| / L_d`, with value zero when `L_d = 0`. Let `u_d` be the count of unmatched post-branch birth records present on either side at that boundary, summed across the base-only and branch-only records; a retained dead record is included while it remains in state. Report `u_d` separately and report the unmatched-birth fraction `u_d / (L_d + u_d)`, with value zero when the denominator is zero. Existing `unmatched_base_births`, `unmatched_branch_births`, and `newborn_crn_loss` remain available unchanged.
+Let `L_d` be the number of matched logical entities with an agent record on at least one side at day `d`, whether alive or retained dead. The normalized divergence is `|D_d| / L_d`, with value zero when `L_d = 0`; this keeps the fraction at or below one. The prior alive-only denominator could produce peak fractions greater than one because dead records remain in the matched divergence set. Let `u_d` be the count of unmatched post-branch birth records present on either side at that boundary, summed across the base-only and branch-only records; a retained dead record is included while it remains in state. Report `u_d` separately and report the unmatched-birth fraction `u_d / (L_d + u_d)`, with value zero when the denominator is zero. Existing `unmatched_base_births`, `unmatched_branch_births`, and `newborn_crn_loss` remain available unchanged.
 
 ### 12.2 Component differences
 
@@ -530,7 +530,7 @@ For every day, test the partition invariant: base and branch State digests diffe
 
 ### 12.3 Cascade and spread metrics
 
-Report the first divergent day separately from cascade onset. Starting after the first divergent day, let `m` be the largest `|D|` on earlier days since first divergence. Cascade onset is the first day `d` where `|D_d| >= max(2m, m + 5)`. Plateau length is `onset_day - first_divergent_day`. If no day meets the threshold, report **no cascade**.
+Report the first divergent day separately from cascade onset. If `|D_d| / L_d >= 0.5` on the first divergent day, classify the run as **immediate global divergence** and do not evaluate cascade onset. Otherwise, starting after the first divergent day, let `m` be the largest `|D|` on earlier days since first divergence. Cascade onset is the first day `d` where `|D_d| >= max(2m, m + 5)`. Plateau length is `onset_day - first_divergent_day`. If no day meets the threshold, report **no cascade**.
 
 From cascade onset through the earlier of ten daily observations or the peak day (inclusive), compute the least-squares slope of `ln(1 + |D_d|)` against day offset. Report doubling time `ln(2) / slope` only when slope is positive; otherwise it is absent. No linear-growth slope is reported. Do not report saturation. Report only peak `|D_d|`, peak normalized fraction, and elapsed days from first divergence to peak in addition to onset, plateau, slope, and doubling time. Ties for peak use the earliest day. The growth slope is absent if fewer than two daily observations are available.
 
@@ -548,7 +548,7 @@ Use the existing M3P profile unchanged and report alive population per day. Revi
 - CI golden gate: commit new M4-03 divergence-series golden files; do not alter any M2/M3/M3P/propagation golden, snapshot, CI file, or existing test.
 - CI budget: added M4-03 tests must take no more than 60 seconds total. Multi-seed and `N = 10,000` runs are report-only.
 - Every daily State digest differs iff `|D_d| > 0` or one or more component flags are true. Cover agent records, graph, allocator, propagation, and settlement/global fields independently.
-- Verify deterministic output, lineage matching, target-death day, and unchanged M4-02 outputs.
+- Verify deterministic output, lineage matching, target-death day, forced-action comparison with the natural Phase 4 choice, and unchanged M4-02 outputs. Report `forced_matches_natural = true` when the forced action equals that natural choice; this is an expected no-op.
 
 ### 12.6 Performance gate
 
@@ -558,15 +558,20 @@ Use the [M4 standard performance-gate protocol](#m4-standard-performance-gate-pr
 
 | ID | Frozen decision |
 |---|---|
-| OQ-12.1 | Normalize `|D_d|` by `L_d`, the matched logical entities alive on at least one side (`L_d = 0` gives zero). Report `u_d`, the base-only plus branch-only post-branch birth records present at the boundary, separately and as `u_d/(L_d+u_d)` (`0` when the denominator is zero). Frozen `D_d` is unchanged. |
-| OQ-12.2 | Cascade onset is the first day after first divergence with `|D_d| >= max(2m, m+5)`, where `m` is the maximum on earlier days since first divergence. Plateau is onset minus first divergent day; otherwise report no cascade. |
+| OQ-12.1 | Normalize `|D_d|` by `L_d`, the matched logical entities with a record on at least one side, alive or retained dead (`L_d = 0` gives zero); this prevents fractions above one. Report `u_d`, the base-only plus branch-only post-branch birth records present at the boundary, separately and as `u_d/(L_d+u_d)` (`0` when the denominator is zero). Frozen `D_d` is unchanged. |
+| OQ-12.2 | If the first divergent day's `|D_d|/L_d >= 0.5`, report immediate global divergence and do not evaluate cascade onset. Otherwise, cascade onset is the first day after first divergence with `|D_d| >= max(2m, m+5)`, where `m` is the maximum on earlier days since first divergence. Plateau is onset minus first divergent day; otherwise report no cascade. |
 | OQ-12.3 | Growth is the least-squares slope of `ln(1+|D_d|)` from onset over at most ten daily observations and ending no later than the peak. Doubling time is `ln(2)/slope` only for positive slope. No linear slope. |
 | OQ-12.4 | No saturation output. Report peak `|D|`, peak normalized fraction, and days to peak. |
 | OQ-12.5 | `settlement_global_changed` is the catch-all difference in canonical State bytes outside agent rows, graph, allocator, and propagation. Enforce the daily State-digest partition invariant in §12.2. |
 | OQ-12.6 | Required CI cases are the `N=2,000` identity gate for all four combinations (`H=30`), one `H=60` seed for each intervention type, a flat-then-cascade case, and new divergence-series goldens. Added CI time is at most 60 seconds. Multi-seed and `N=10,000` cases are report-only. |
 | OQ-12.7 | Performance compares the full M4-03 API against the M4-02 full API under A-5, `T=5%`, for M3P serial at 10k/100k and M3+propagation serial at 100k. |
 | M4-00 OQ-9 | Keep M3P unchanged and report alive population per day. Revisit whether regulation is needed before M4-04. |
+| A-1 forced-action observation | Report `forced_matches_natural = true` if the forced action equals the natural Phase 4 choice; this is an expected no-op. |
 
 ### 12.8 Freeze record
 
 This freeze defines M4-03 divergence normalization, unmatched-birth reporting, component partitioning and its invariant, cascade and spread metrics, required CI gates, and the A-5 performance comparison. It authorizes the M4-03 implementation task to be requested; it does not start that implementation.
+
+### 12.9 A-1 — Normalization and classification amendment (FROZEN)
+
+This user-approved amendment supersedes only the `L_d` definition in §12.1 and OQ-12.1, the first-day classification in §12.3 and OQ-12.2, and the forced-action reporting rule in §12.5. `L_d` counts matched logical entities with a record on either side, alive or retained dead; the old alive-only denominator could yield peak normalized fractions above one. A first-divergent-day fraction of at least `0.5` is classified as **immediate global divergence**, with cascade onset left unevaluated. For a forced action, report `forced_matches_natural = true` when it matches the natural Phase 4 choice. No branch execution, M4-02 result, digest, snapshot, RNG, event, or intervention semantics change.
