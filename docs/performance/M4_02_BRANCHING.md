@@ -1,6 +1,6 @@
 # M4-02 Branching and Divergence Detection
 
-**Current status: M4-02 remains not complete. A-3 timing data are recorded below, but the first pass returned a zero harness-CPU counter and the one retry lost its per-cell CPU trace during monitor shutdown, so no cell has a valid A-3 gate decision. A-1 and A-2 results remain historical.**
+**Current status: M4-02 remains not complete under A-4. The final run produced five valid PASS cells, one valid INCONCLUSIVE cell, and three INVALID cells after their single retries. A-1 through A-3 remain historical.**
 
 ## Host and method
 
@@ -268,3 +268,25 @@ The first pass recorded a pre-run total-CPU baseline median of 9.145% (range 8.3
 | Recorder M3P serial, 100k | 9.1–17.6 (3) | 0% (invalid counter result) | unavailable |
 
 M4-02 remains **not complete**. No §3 or README completion update was made, and M4-03 was not drafted because the A-3 gate did not produce nine valid PASS cells.
+
+### Final confirmatory measurement under frozen §11.7 A-4
+
+This fresh release run used all nine cells, two warmups and 41 timed samples per cell, paired paths in one process, and alternating path order. It retained High process priority and affinity `0x555` on the AMD Ryzen 5 9600X host (6 physical / 12 logical processors). No per-process CPU counters were used. Total CPU and free RAM were recorded before and after each process as information only.
+
+The initial nine-cell run took **1,457.4 seconds**. CPU load was 9.98% before and 9.75% after; free RAM was 76,959,704 KB before and 77,141,532 KB after. High priority and affinity were applied. Three cells failed the A-4 path-spread validity check and received their one permitted retry in a separate 31.8-second run. Retry CPU load was 7.82% before and 9.47% after; free RAM was 77,196,932 KB before and 77,198,092 KB after. High priority and affinity were applied again. The retry used the same 2 warmups and 41 timed samples.
+
+The table uses the final sample set for each cell: the initial set for path-valid cells and the retry set for the three invalid cells. `U` is the deterministic one-sided 95% bootstrap upper bound; `T` is the unchanged 5% path-relative threshold. For orchestration, path spread order is direct pair / analysis-disabled API; for recorder, full locator / comparison-disabled API.
+
+| Cell | Path MAD/median % | Median(delta) ± MAD ms | U ms | T ms | Numerical result | Final A-4 status |
+|---|---:|---:|---:|---:|---|---|
+| M3 serial, 10k | 6.93 / 8.61 | -0.147 ± 8.246 | 3.385 | 6.180 | PASS | **INVALID after retry: path spread >5%** |
+| M3P serial, 10k | 2.05 / 3.22 | 2.698 ± 24.530 | 14.688 | 27.318 | PASS | **PASS** |
+| M3P incremental, 10k | 4.62 / 5.35 | -3.627 ± 16.067 | 4.999 | 8.830 | PASS | **INVALID after retry: path spread >5%** |
+| M3 serial, 100k | 2.04 / 1.84 | 19.865 ± 31.996 | 37.015 | 70.606 | PASS | **PASS** |
+| M3P serial, 100k | 1.20 / 1.11 | 16.877 ± 95.335 | 74.317 | 410.247 | PASS | **PASS** |
+| M3 + propagation serial, 100k | 0.82 / 1.01 | 5.533 ± 42.883 | 24.747 | 170.632 | PASS | **PASS** |
+| M3P incremental, 100k | 2.08 / 1.62 | -34.324 ± 64.737 | 1.799 | 109.941 | PASS | **PASS** |
+| Recorder M3P serial, 10k | 8.03 / 6.03 | 1.365 ± 4.111 | 3.666 | 2.874 | INCONCLUSIVE | **INVALID after retry: path spread >5%** |
+| Recorder M3P serial, 100k | 3.53 / 2.39 | 24.854 ± 39.822 | 45.446 | 38.200 | INCONCLUSIVE | **INCONCLUSIVE** |
+
+The invalid cells received exactly one retry; their final path MAD/median ratios remained above 5%. Five cells are valid PASS, and Recorder M3P serial 100k is valid INCONCLUSIVE. Therefore M4-02 is still **not complete**; §3 and the README are unchanged. M4-03 §12 was not drafted because the all-nine-PASS condition was not met.
