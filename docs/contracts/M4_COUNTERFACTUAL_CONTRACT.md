@@ -46,12 +46,12 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **M4-03 — Divergence measurement** | **COMPLETE.** The frozen series, daily component partition, cascade metrics, and target-death analysis pass the §12.6 A-5 gate; see the [M4-03 report](../performance/M4_03_DIVERGENCE.md) and [§12](#12-m4-03-divergence-measurement). |
 | **M4-04 — CRN efficiency** | **COMPLETE.** Frozen paired/independent estimators and bootstrap reporting; 100-replicate M3P sustained experiment recorded in the [M4-04 report](../performance/M4_04_CRN_EFFICIENCY.md). |
 | **M4-05 — Minimal-cause search** | **COMPLETE.** Deterministic intervention batches, cached paired evaluation, exhaustive minimum/ddmin search, JSONL replay, the N=2,000 golden, and the M3P N=10,000 A-5 gate pass; see the [M4-05 report](../performance/M4_05_MINIMAL_CAUSE.md) and [§14](#14-m4-05-minimal-cause-search). |
-| **M4-06 — Settlement migration system** | **PLANNED — CONTRACT FROZEN.** Implement registered migration with the M4-01 forward gate; see [§15](#15-m4-06-settlement-migration-system). |
+| **M4-06 — Settlement migration system** | **COMPLETE.** Registered serial migration, v4 snapshots, all four profile combinations, migration-off A-5 gate, and five-seed H=365 experiment are recorded in the [M4-06 report](../performance/M4_06_MIGRATION.md); see [§15](#15-m4-06-settlement-migration-system). |
 | **M4-07 — Many-branch performance** | Measure shared-state and copy-on-write options, cross-branch parallelism, and GPU suitability. A GPU implementation is not implied. M4-02 follow-up candidate: day-scan digest cost measured at 70–160 ns/agent-day; compare direct column equality with SHA-256 only on request. |
 | **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
 | **M4 audit** | Answer the research question from recorded correctness and performance evidence and classify remaining work. |
 
-M4-00 through M4-05 are complete. M4-06 and later stages remain planned.
+M4-00 through M4-06 are complete. M4-07 and the M4 audit remain planned.
 
 ## 4. Invariants carried from M0–M3
 
@@ -743,9 +743,9 @@ No simulation transition, intervention, RNG coordinate, digest, snapshot, event,
 
 ## 15. M4-06 Settlement Migration System
 
-**Status: DRAFT — NOT FROZEN**
+**Status: FROZEN**
 
-**Scope:** propose settlement membership changes as the first new registered M4 system. M4-06 must leave all existing profiles and their canonical outputs unchanged. This section is a design draft; the model, profile, phase ordering, and persistence details below require review before implementation.
+**Scope:** freeze settlement membership changes as the first new registered M4 system. M4-06 leaves all existing profiles and their canonical outputs unchanged. The model, profile, phase ordering, persistence details, gates, and measurement protocol below are frozen for M4-06.
 
 ### 15.1 Motivation and current runtime boundary
 
@@ -801,6 +801,8 @@ Reject migration on the M2 base profile, reject migration without RelationshipGr
 Migration state stores one optional last_move_day per current AgentId. It is initialized as unset for existing agents and newborns. During M3P compaction it is pruned for the same removed AgentIds as canonical state. Its canonical order is ascending AgentId; an unset value is encoded as a presence byte 0, while a set value is presence byte 1 followed by u32 little-endian day.
 
 Migration profiles use separate canonical digest domains. The base State fields are encoded in the existing M1 order, including current GroupIds, then the migration-state count and ordered (AgentId:u32 LE, last_move_day) records are appended. Metrics retain the base profile's frozen field order, then append migrations:u64 LE, migration_cost:Money as i64 LE, and cross_partition_edge_count_delta:i64 LE. Events retain the base event order and payloads, then encode migration events in ascending AgentId order after Phase 9b mortality/birth/cleanup events and before Phase 9c system events. The event is SettlementMigrated { agent_id:u32 LE, from_group_id:u32 LE, to_group_id:u32 LE, cost:i64 LE }. Only these migration-enabled domains and records are new; migration-off M2/M3/M3P/propagation encodings stay unchanged.
+
+The schema-v4 envelope profile byte immediately follows the u32 LE version and is fixed as `0x31` for `m3m`, `0x32` for `m3pm`, `0x33` for `m3m+propagation`, and `0x34` for `m3pm+propagation`. These tags apply only to the M4-06 v4 envelope; unknown values and base-snapshot version mismatches are rejected.
 
 Domains are fixed by effective profile:
 
@@ -859,11 +861,16 @@ M4-06 does not change migration-off semantics or the existing M2/M3/M3P/propagat
 | RQ-10 forward gate | Zero new public runner functions and zero generic-loop-body edits. Any required generic-loop edit is a gate failure. |
 | RQ-11 validation and measurement | New-only tests/goldens; A-5 migration-off gate at M3P 10k/100k with T=5%; migration-on cost is report-only per alive agent-day. |
 | A-1 event encoding clarification | EventKey phase 9, global partition, local sequence ascending AgentId. Payload variant tag is 0x05 for M3-based migration and 0x07 for M3P-based migration (0x05/0x06 remain Birth/Cleanup in M3P). |
+| A-3 snapshot profile tags | The v4 profile byte is 0x31 (m3m), 0x32 (m3pm), 0x33 (m3m+propagation), or 0x34 (m3pm+propagation); unknown tags and base schema mismatches are rejected. |
 
 ### 15.11 Freeze record
 
-This freeze fixes movement eligibility, destination ordering and scoring, coordinate coverage, money transfer, phase order, system composition, profile-specific digests, snapshot v4, metrics/events, the M4-01 forward gate, and the A-5 measurement protocol. It authorizes the M4-06 implementation within this task; it does not authorize changing generic-loop bodies or existing tests, goldens, snapshots, or CI files.
+This freeze fixes movement eligibility, destination ordering and scoring, coordinate coverage, money transfer, phase order, system composition, profile-specific digests, snapshot v4 sections and profile tags, metrics/events, the M4-01 forward gate, and the A-5 measurement protocol. It authorizes the M4-06 implementation within this task; it does not authorize changing generic-loop bodies or existing tests, goldens, snapshots, or CI files.
 
 ### 15.12 A-2 — Preserve the fixed relationship graph across migration snapshots (FROZEN)
 
 M3 schema-v1 and M3PROP schema-v3 base snapshots do not persist the relationship CSR. Since migration changes GroupIds while M4-06 keeps edges attached to AgentIds, regenerating the graph from the resumed GroupIds would produce a different graph. Therefore, the M4-06 schema-v4 envelope has a graph-section tag. For M3-based profiles (m3m and m3m+propagation), the section is tag 1 followed by u32 LE source count, each row as source AgentId u32 LE, degree u32 LE, ascending neighbor AgentIds u32 LE, then the 32-byte CSR hash. M3P schema-v2 and M3PPROP schema-v3 base snapshots already carry the graph; their v4 envelope uses graph-section tag 0 and restores CSR from the byte-identical base payload. Both forms then carry the last_move_day section. Restore validates graph source/neighbor ordering, closure, CSR hash, and exact AgentId coverage against the decoded base state. This clarification does not alter any pre-existing snapshot schema or migration-off bytes.
+
+### 15.13 A-3 — Fix v4 migration profile tag values (FROZEN)
+
+The v4 profile-byte values listed in §15.6 and §15.10 are frozen as the tags used by the M4-06 implementation. The envelope decoder rejects unknown tags and verifies that the wrapped base snapshot schema matches the selected profile. This fixes previously unspecified envelope encoding values without changing any existing snapshot schema or migration-off snapshot bytes.

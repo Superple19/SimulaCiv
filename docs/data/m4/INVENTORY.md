@@ -30,7 +30,8 @@ Restored examples include the required first-line note restored from session his
 ## Recovered raw data and original metadata
 
 | Original path | Bytes | Last write (UTC) | Repository copy |
-|---|---:|---|---|| C:\AI\SimulaCiv\target\m4_02_a2_first_run_host.json | 816 | 2026-10-19T17:21:22.397Z | m4_02/m4_02_a2_first_run_host.json |
+|---|---:|---|---|
+| C:\AI\SimulaCiv\target\m4_02_a2_first_run_host.json | 816 | 2026-10-19T17:21:22.397Z | m4_02/m4_02_a2_first_run_host.json |
 | C:\AI\SimulaCiv\target\m4_02_a2_first_run_load.csv | 3801 | 2026-10-19T17:21:21.371Z | m4_02/m4_02_a2_first_run_load.csv |
 | C:\AI\SimulaCiv\target\m4_02_a2_host.json | 816 | 2026-10-19T17:21:22.397Z | m4_02/m4_02_a2_host.json |
 | C:\AI\SimulaCiv\target\m4_02_a2_load.csv | 3801 | 2026-10-19T17:21:21.371Z | m4_02/m4_02_a2_load.csv |
@@ -68,7 +69,8 @@ Restored examples include the required first-line note restored from session his
 These are build outputs, not source; paths and timestamps are from the local target/ tree.
 
 | Original path | Bytes | Last write (UTC) |
-|---|---:|---|| C:\AI\SimulaCiv\target\debug\examples\m4_02_measure.exe | 5851136 | 2026-10-19T10:02:56.429Z |
+|---|---:|---|
+| C:\AI\SimulaCiv\target\debug\examples\m4_02_measure.exe | 5851136 | 2026-10-19T10:02:56.429Z |
 | C:\AI\SimulaCiv\target\debug\examples\m4_02_measure.pdb | 42438656 | 2026-10-19T10:02:56.432Z |
 | C:\AI\SimulaCiv\target\release\examples\m4_02_a1_measure.exe | 2029056 | 2026-10-19T12:21:19.497Z |
 | C:\AI\SimulaCiv\target\release\examples\m4_02_a1_measure.pdb | 2191360 | 2026-10-19T12:21:19.498Z |

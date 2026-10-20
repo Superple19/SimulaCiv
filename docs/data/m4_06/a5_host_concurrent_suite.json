@@ -1,0 +1,10 @@
+{
+  "started": "2026-10-21T05:08:49.9386477+09:00",
+  "ended": "2026-10-21T05:12:21.8278092+09:00",
+  "total_cpu_percent_before": 16.65,
+  "total_cpu_percent_after": 20.6,
+  "free_physical_memory_kb_before": 76583744,
+  "free_physical_memory_kb_after": 76566564,
+  "process_controls": "applied by m4_06_a5_gate.exe: High priority, affinity 0x555",
+  "exit_code": 0
+}

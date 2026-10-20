@@ -236,7 +236,7 @@ fn run_attempt(
     for sample in 0..SAMPLES {
         let mut baseline = RunnerState::new(initial, baseline_config, run_context, false)?;
         let mut explicit_off = RunnerState::new(initial, explicit_off_config, run_context, true)?;
-        let mut migration_on = RunnerState::new(initial, migration_on_config, run_context, true)?;
+        let mut migration_on = RunnerState::new(initial, migration_on_config, run_context, false)?;
         let (mut baseline_ns, mut explicit_off_ns, mut migration_on_ns) = (0_u128, 0_u128, 0_u128);
         let mut alive_agent_days = 0_u64;
 
@@ -465,7 +465,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "gate": "M4-06 migration-off A-5",
         "baseline": "existing direct run_m3p_storage_days runner with migration omitted",
         "candidate": "run_configured_storage_days with explicit migration=false",
-        "migration_on_measurement": "configured M3P path with migration enabled and probability=0; no moves",
+        "migration_on_measurement": "direct M3P storage path with migration enabled and probability=0; no moves",
         "host": host,
         "cells": cells
     });
