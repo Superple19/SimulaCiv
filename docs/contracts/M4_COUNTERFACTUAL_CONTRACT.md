@@ -479,3 +479,23 @@ For orchestration, `delta = analysis-disabled API − direct pair` and `T = 0.05
 ### Freeze record
 
 This approved A-3 amendment replaces A-2's validity and decision rules only. Pairing, same-process execution, compared paths, warmups, timed sample count, execution-order alternation, and other measurement protocol details remain unchanged. A-1 and A-2 measurements are retained as historical results and are not re-judged under A-3.
+
+## §11.7 A-4 — Path-spread validity amendment (FROZEN)
+
+This user-approved amendment replaces the A-3 host-load validity test for M4-02 and sets the 41-sample protocol for this gate; the A-3 decision rule is unchanged. Its rationale is that Windows per-process CPU counters proved unreliable in the prior attempts (a zero rate-counter sample and a lost trace), while host total CPU includes the benchmark process itself. Do not use per-process CPU counters for validity.
+
+### Validity and sampling
+
+A cell is valid iff both timed paths have `MAD / median <= 5%`. Record total CPU load and free RAM before and after the run as host information only; neither value affects validity. Use two warmups and 41 timed samples per cell. If a cell is invalid, rerun it once with the same protocol; that result is final, and a cell still invalid after its retry is reported as **INVALID**.
+
+### Decision rule
+
+The A-3 deterministic percentile bootstrap and thresholds are unchanged. Bootstrap the paired signed deltas with replacement using 10,000 resamples, each the original sample count, and the fixed xorshift64 procedure and seed defined in A-3. Let `U` be the nearest-rank one-sided 95th percentile of bootstrap median deltas. Report median(delta), MAD(delta), `U`, and `T`. For orchestration, `T = 0.05 × median(direct pair)`; for recorder, `T = 0.05 × median(comparison-disabled API)`. **PASS** iff `U <= T`; **FAIL** iff `median(delta) > T`; otherwise **INCONCLUSIVE**. Path MADs do not widen `T`.
+
+### Freeze record
+
+This approved A-4 amendment replaces A-3's host-load validity rule and sets the 41-sample protocol for the M4-02 gate; the A-3 bootstrap decision rule and threshold definitions remain frozen. It does not re-judge A-1, A-2, or A-3 measurements. No further M4-02 measurement-rule amendment is part of this task.
+
+## M4 standard performance-gate protocol (FROZEN)
+
+Unless a later M4 stage contract specifies otherwise, use paired measurements in one process with the stage's declared baselines, two warmups, 41 timed samples per cell, and alternating path order. Validity requires both paths to have `MAD / median <= 5%`; report host CPU and free RAM before and after as information only; rerun an invalid cell once. Compute `U` with the deterministic 10,000-resample bootstrap fixed in §11.7 A-3/A-4. Apply the stage's frozen `T` using **PASS** iff `U <= T`, **FAIL** iff `median(delta) > T`, and **INCONCLUSIVE** otherwise. Report median(delta), MAD(delta), `U`, `T`, path medians and MADs, host details, and all retry outcomes.
