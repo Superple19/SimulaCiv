@@ -1907,8 +1907,8 @@ fn migration_event_stream_bytes(
         record.push(EVENT_CATEGORY_STATE_TRANSITION);
         record.push(migration_tag);
         record.extend_from_slice(&event.agent_id.0.to_le_bytes());
-        record.extend_from_slice(&event.from_group_id.0.to_le_bytes());
-        record.extend_from_slice(&event.to_group_id.0.to_le_bytes());
+        record.extend_from_slice(&u32::from(event.from_group_id.0).to_le_bytes());
+        record.extend_from_slice(&u32::from(event.to_group_id.0).to_le_bytes());
         record.extend_from_slice(&event.cost.to_le_bytes());
         base_records.push((key, record));
     }

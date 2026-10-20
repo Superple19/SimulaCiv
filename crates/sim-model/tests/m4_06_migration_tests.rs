@@ -1,3 +1,4 @@
+use sim_core::{AgentId, GroupId};
 use sim_model::hashing::{
     canonical_m3m_event_hash, canonical_m3m_metrics_hash, canonical_m3m_state_hash,
     canonical_m3m_state_hash_from_storage, canonical_m3mprop_event_hash,
@@ -88,7 +89,7 @@ const M3M_GOLDENS: [(u32, &str, &str, &str); 2] = [
         2,
         "47552438c792724d1534fe3b84c2970f3ce97d3894c4a1416bae0ad6635f24fa",
         "404fba0ba82e0cbf283fde525302f92c1efb19a4dfffbde91f83123361236db2",
-        "65007edf3d2f4b0b560aabe14e9240de84e05f18f42d76fa9ecb01741a6b7c89",
+        "0c6cf42491b22fbbf9f8461272f1fb0a3da344457f3f47b3b804bfe24523fe0d",
     ),
 ];
 
@@ -286,6 +287,31 @@ fn m4_06_m3m_golden_state_metrics_and_events() {
             expected.0
         );
     }
+}
+
+#[test]
+fn migration_event_group_ids_use_frozen_u32_little_endian_widths() {
+    let bytes = sim_model::hashing::canonical_m3m_event_bytes(
+        &[],
+        &[sim_model::MigrationEventRecord {
+            day: 7,
+            local_sequence: 1_u64 << 63,
+            agent_id: AgentId(0x1122_3344),
+            from_group_id: GroupId(0x1234),
+            to_group_id: GroupId(0x5678),
+            cost: 9,
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        &bytes[bytes.len() - 20..],
+        &[
+            0x44, 0x33, 0x22, 0x11, // AgentId u32 LE
+            0x34, 0x12, 0x00, 0x00, // from GroupId u32 LE
+            0x78, 0x56, 0x00, 0x00, // to GroupId u32 LE
+            0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Money i64 LE
+        ]
+    );
 }
 
 fn run_m3_reference_day_storage(
