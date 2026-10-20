@@ -1,6 +1,6 @@
 # M4-02 Branching and Divergence Detection
 
-**Current status: M4-02 remains not complete under A-4. The final run produced five valid PASS cells, one valid INCONCLUSIVE cell, and three INVALID cells after their single retries. A-1 through A-3 remain historical.**
+**Current status: M4-02 COMPLETE under A-5. The fresh run produced nine valid PASS cells with no retries. A-1 through A-4 remain historical and are not re-judged.**
 
 ## Host and method
 
@@ -290,3 +290,36 @@ The table uses the final sample set for each cell: the initial set for path-vali
 | Recorder M3P serial, 100k | 3.53 / 2.39 | 24.854 ± 39.822 | 45.446 | 38.200 | INCONCLUSIVE | **INCONCLUSIVE** |
 
 The invalid cells received exactly one retry; their final path MAD/median ratios remained above 5%. Five cells are valid PASS, and Recorder M3P serial 100k is valid INCONCLUSIVE. Therefore M4-02 is still **not complete**; §3 and the README are unchanged. M4-03 §12 was not drafted because the all-nine-PASS condition was not met.
+
+### Final confirmatory measurement under frozen §11.7 A-5
+
+This fresh release run used the A-5 repeated-pair sample construction, with 41 timed samples per cell and two warmups. It ran in one process on the AMD Ryzen 5 9600X host (6 physical / 12 logical processors), at High process priority with affinity mask `0x555`; the logical-to-physical mapping was not independently verified. CPU load was 9.94% before and 8.73% after. Free RAM was 77,034,440 KB before and 77,041,020 KB after. The corrected nine-cell timing pass took **1,708.9 seconds (28m 28.9s)**, excluding the release build and the later recorder-cost diagnostic. No gate cell needed its one allowed retry.
+
+A preliminary harness check was discarded before the fresh pass: its direct M3P incremental path used incremental topology while its BranchRequest still selected serial execution. The harness was corrected so both sides use the same explicit execution option. None of the preliminary timing samples are included below.
+
+For orchestration, each paired operation compared two direct 30-day storage runs restored from the same day-0 snapshot with one analysis-disabled branch API call (`H=30`, metrics/events on, snapshots off); the intervention was a no-op `BaseMetabolicCost` override. For the M3P incremental cell, both direct and branch paths used incremental topology. Recorder cells compared the full one-day locator API and the comparison-disabled one-day locator API with the existing forced-Idle `AgentId(0)` request. Each timed sample repeated its paired operation `r` times; `r` was chosen once during warmup so the sample exceeded one second and remained fixed. Alternation order continued within every sample. Reported path and delta times are per operation (`sample / r`).
+
+The A-5 validity check requires each path's `MAD / median <= 5%`. `U` is the deterministic one-sided 95% bootstrap upper bound; orchestration `T` is 5% of the direct-pair median, and recorder `T` is 5% of the comparison-disabled API median. All nine cells are valid and PASS.
+
+| Cell | `r` | Direct pair / comparison-disabled API ms | Analysis-disabled / full locator API ms | `median(delta) ± MAD` ms | `U` ms | `T` ms | Path MAD/median % | Status |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| M3 serial, 10k | 5 | 135.714 ± 1.956 | 133.350 ± 1.940 | -1.941 ± 1.921 | -0.747 | 6.786 | 1.441 / 1.455 | **PASS** |
+| M3P serial, 10k | 1 | 601.834 ± 11.022 | 594.782 ± 10.013 | -7.692 ± 15.897 | 1.701 | 30.092 | 1.831 / 1.684 | **PASS** |
+| M3P incremental, 10k | 3 | 190.830 ± 2.881 | 190.536 ± 2.793 | -0.160 ± 2.754 | 0.949 | 9.541 | 1.510 / 1.466 | **PASS** |
+| M3 serial, 100k | 1 | 1,525.936 ± 17.893 | 1,552.190 ± 11.759 | 25.232 ± 15.167 | 30.476 | 76.297 | 1.173 / 0.758 | **PASS** |
+| M3P serial, 100k | 1 | 8,950.633 ± 46.380 | 8,990.265 ± 55.411 | 38.429 ± 69.499 | 75.868 | 447.532 | 0.518 / 0.616 | **PASS** |
+| M3 + propagation serial, 100k | 1 | 3,486.149 ± 24.780 | 3,523.182 ± 30.513 | 29.700 ± 54.318 | 42.653 | 174.307 | 0.711 / 0.866 | **PASS** |
+| M3P incremental, 100k | 1 | 2,238.917 ± 32.590 | 2,212.616 ± 40.915 | -28.361 ± 47.199 | 4.001 | 111.946 | 1.456 / 1.849 | **PASS** |
+| Recorder M3P serial, 10k | 9 | 52.955 ± 2.618 | 53.067 ± 1.622 | 0.329 ± 1.577 | 0.769 | 2.648 | 4.943 / 3.057 | **PASS** |
+| Recorder M3P serial, 100k | 1 | 782.712 ± 26.892 | 787.447 ± 34.256 | 0.249 ± 49.008 | 24.837 | 39.136 | 3.436 / 4.350 | **PASS** |
+
+#### Recorder comparison timer
+
+The pre-optimization values are the recorded A-1 `Comparison timer median` for the same forced-Idle, one-day M3P locator probe. The after values are 41 separately instrumented full locator calls per cell using `BranchAnalysisCosts.recorder_compare_ns`; this diagnostic ran after the A-5 gate and is not part of its path timing or decision.
+
+| N | Before optimization ms | After optimization ms ± MAD | Reduction |
+|---:|---:|---:|---:|
+| 10,000 | 0.465 | 0.0833 ± 0.0037 | 5.58× (82.1%) |
+| 100,000 | 5.865 | 0.8922 ± 0.1014 | 6.57× (84.8%) |
+
+All nine A-5 cells are valid PASS, so M4-02 meets its performance gate. The completion record and M4-03 draft follow in the contract and README.
