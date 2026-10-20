@@ -12,7 +12,7 @@ For each replicate, all five declared outcomes were extracted from snapshots pro
 
 Host: AMD Ryzen 5 9600X (6 cores / 12 logical processors), Windows 11 Pro. The release command was `cargo run --release -p sim-model --example m4_04_crn_experiment`. The timer covered the three calls to `run_crn_efficiency` and totaled **4,880.477 seconds (81m20.477s)**; compilation and one-time initial configuration, world, graph, and branch-point snapshot creation were outside that timer. The API runs each paired set through the M4-03 series branch API. For independent intervention identities it uses the M4-02 paired branch API and retains only the intervention side; the API also executes its base side, which is not reused in the estimator. This extra work preserves the existing public execution path but increases compute time.
 
-The run timer was aggregate; simulation, branch-day snapshot encoding, outcome snapshot decoding/extraction, and bootstrap were not separately instrumented. This was a CRN research run rather than a performance gate, so no A-5 timing comparison or gate was performed. The temporary example and its CSV output remain uncommitted under `target/` only.
+The run timer was aggregate; simulation, branch-day snapshot encoding, outcome snapshot decoding/extraction, and bootstrap were not separately instrumented. This was a CRN research run rather than a performance gate, so no A-5 timing comparison or gate was performed. The temporary example source was removed after the run; generated CSV files remain under ignored `target/`.
 
 ## Results
 
