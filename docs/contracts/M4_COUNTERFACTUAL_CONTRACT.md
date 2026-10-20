@@ -1,8 +1,8 @@
 # M4 Counterfactual Contract
 
-**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN**
+**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN; §12 M4-03 FROZEN**
 
-**Scope:** M4-00 freezes the counterfactual framework; §10 freezes M4-01; §11 freezes M4-02 branching and divergence detection. Each later stage still requires its own DRAFT → review → FROZEN contract.
+**Scope:** M4-00 freezes the counterfactual framework; §10 freezes M4-01; §11 freezes M4-02 branching and divergence detection; §12 freezes M4-03 divergence measurement. Each later stage still requires its own DRAFT → review → FROZEN contract.
 
 **Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
@@ -43,7 +43,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **M4-00 — Counterfactual contract** | Freeze the research question, framework terminology, inherited invariants, housekeeping options, and stage boundaries. This document is frozen; later sections freeze their own details. |
 | **M4-01 — System registration architecture** | **COMPLETE.** Static registry and generic WorldState/SegmentedAgentStorage loops preserve profile behavior; see the [M4-01 report](../performance/M4_01_SYSTEM_REGISTRY.md). |
 | **M4-02 — Branching primitive and divergence-point detection** | **COMPLETE.** Snapshot-backed branches and exact first-divergence reporting pass the A-5 gate; see the [M4-02 report](../performance/M4_02_BRANCHING.md) and [§11](#11-m4-02-branching-and-divergence-detection). |
-| **M4-03 — Divergence measurement** | **DRAFT — NOT FROZEN.** Specify divergence curves, component differences, and spread metrics in [§12](#12-m4-03-divergence-measurement). |
+| **M4-03 — Divergence measurement** | **FROZEN.** Specify divergence curves, component differences, and spread metrics in [§12](#12-m4-03-divergence-measurement); implementation is authorized by the freeze. |
 | **M4-04 — CRN efficiency** | Specify paired and independent estimators, replicate counts, and variance reporting. |
 | **M4-05 — Minimal-cause search** | Specify candidate-set construction, predicates, minimality, tie-breaking, and search limits. |
 | **M4-06 — Settlement migration system** | Use settlement migration as the first newly registered system; report how much code outside the registered system changes. |
@@ -51,7 +51,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
 | **M4 audit** | Answer the research question from recorded correctness and performance evidence and classify remaining work. |
 
-M4-00, M4-01, and M4-02 are complete. M4-03 remains a draft; implementation requires its own contract freeze.
+M4-00, M4-01, and M4-02 are complete. M4-03's contract is frozen; implementation and its gates remain outstanding.
 
 ## 4. Invariants carried from M0–M3
 
@@ -512,55 +512,61 @@ Unless a later M4 stage contract specifies otherwise, use paired measurements in
 
 ## 12. M4-03 Divergence Measurement
 
-**Status: DRAFT — NOT FROZEN**
+**Status: FROZEN**
 
-**Scope:** measure how differences in a frozen M4-02 branch evolve over time. M4-02 branch execution, intervention behavior, snapshots, profile digests, and event bytes remain unchanged. This section proposes analysis outputs and gates only.
+**Scope:** measure how differences in an M4-02 branch evolve over time. Branch execution, interventions, profile digests, snapshots, and event bytes remain unchanged. The M4-03 series is analysis output only.
 
 ### 12.1 Divergence curve and denominator
 
-For each executed day `d`, define `D_d` as the set of logical agent records whose canonical fields differ between base and branch at the day boundary. Agents present at the branch point match by `AgentId`; later births match by the frozen M4-00 lineage key. Canonical fields include `alive`, `birth_day`, health, food, wealth, traits, and `group_id`, as recorded by [`agent_record_bytes`, `CanonicalAgentRecord`, and `difference_for_day_canonical`](../../crates/sim-model/src/counterfactual.rs). The absolute divergence curve is `|D_d|`; the normalized curve is proposed as `|D_d| / max(N_base,d, N_branch,d)`, where each `N` is the number of agent records stored at that day's boundary, including dead tombstones still present. If both counts are zero, the normalized value is zero.
+For each executed day `d`, `D_d` is the frozen M4-02 set of matched logical agent records whose canonical agent fields differ at the day boundary. Entities present at the branch point match by `AgentId`; later births match by the frozen lineage key. `|D_d|` remains the existing agent-record-only `DailyDifference.changed_agent_records`; it is not redefined by this section ([`DailyDifference`, `difference_for_day_fast_impl`, `difference_for_day_canonical`, `record_births`, `record_shared_births`](../../crates/sim-model/src/counterfactual.rs)).
 
-The frozen M4-02 `DailyDifference.changed_agent_records` remains the source of `|D_d|` and stays agent-record-only. Existing `AgentId` records that exist on only one side count as changed; unmatched post-branch births remain separately reported through `unmatched_base_births` and `unmatched_branch_births`, rather than being folded into `D_d`. Matched births, differing child IDs, and `newborn_crn_loss` continue to use the existing lineage analysis ([`DailyDifference`, `difference_for_day_fast_impl`, `difference_for_day_canonical`, `record_births`, `record_shared_births`](../../crates/sim-model/src/counterfactual.rs)). The exact normalized denominator and treatment of unmatched births are blocking questions for this freeze.
+Let `L_d` be the number of matched logical entities alive on at least one side at day `d`. The normalized divergence is `|D_d| / L_d`, with value zero when `L_d = 0`. Let `u_d` be the count of unmatched post-branch birth records present on either side at that boundary, summed across the base-only and branch-only records; a retained dead record is included while it remains in state. Report `u_d` separately and report the unmatched-birth fraction `u_d / (L_d + u_d)`, with value zero when the denominator is zero. Existing `unmatched_base_births`, `unmatched_branch_births`, and `newborn_crn_loss` remain available unchanged.
 
 ### 12.2 Component differences
 
-Keep the frozen M4-02 flags `graph_changed`, `allocator_changed`, and `propagation_changed` separate from `D_d`; they do not add agent records to its numerator ([`DailyDifference`, `difference_for_day_fast_impl`](../../crates/sim-model/src/counterfactual.rs)). Add a separate `settlement_global_changed` series comparing canonical settlement records and global fields, at minimum settlement resources/treasuries, `current_day`, and initial money supply. Agent group membership remains part of the agent record. Report metric and event digest differences as outcome observations, not as additional state components ([`BranchDayRecord`, `BranchMetricsRecord`, `BranchEventsRecord`](../../crates/sim-model/src/counterfactual.rs); [`WorldState`](../../crates/sim-model/src/state.rs)).
+Keep `graph_changed`, `allocator_changed`, and `propagation_changed` separate from `D_d`. Define `settlement_global_changed` as any difference in canonical State bytes outside agent rows, graph, allocator, and propagation components. This is the catch-all component; together these partitions cover canonical State. The implementation compares the fields present in the canonical State encoding—`current_day` and settlements (including resources and treasuries)—while keeping agent `group_id` inside the agent record. `initial_money_supply` is not part of the current canonical State encoding and is not included in this flag ([`WorldState`, `SettlementState`](../../crates/sim-model/src/state.rs); [`DailyDifference`, `difference_for_day_fast_impl`](../../crates/sim-model/src/counterfactual.rs)). Metrics and event differences remain outcome observations, not State components.
 
-At the first divergence, preserve M4-02's first slot, first differing agent, component names, hook `SystemId`, and that descriptor's RNG subsystem IDs. Later component flags are daily observations and do not claim causal attribution by themselves ([`FirstDivergence`, `first_phase_difference`, `first_divergence_at`](../../crates/sim-model/src/counterfactual.rs); [`SystemDescriptor`, `SYSTEM_REGISTRY`](../../crates/sim-model/src/system_registry.rs)).
+For every day, test the partition invariant: base and branch State digests differ **iff** `|D_d| > 0` or at least one of `graph_changed`, `allocator_changed`, `propagation_changed`, or `settlement_global_changed` is true. The first-divergence record continues to report the first slot, differing components, hook `SystemId`, and that system's RNG subsystem IDs using M4-02's recorder ([`FirstDivergence`, `first_phase_difference`, `run_counterfactual_branch_inner`](../../crates/sim-model/src/counterfactual.rs); [`SystemDescriptor`, `SYSTEM_REGISTRY`](../../crates/sim-model/src/system_registry.rs)).
 
-### 12.3 Cascade and spread measurements
+### 12.3 Cascade and spread metrics
 
-Report the first divergent day separately from **cascade onset**. Proposed onset is the first day after a nonzero flat interval on which `|D_d|` exceeds its previous running maximum. This makes the M4-02 worked example—`|D_d| = 3` for 11 days followed by growth—a measurable delayed cascade instead of treating day 0 as its onset. Report both elapsed days from first divergence and the absolute onset day.
+Report the first divergent day separately from cascade onset. Starting after the first divergent day, let `m` be the largest `|D|` on earlier days since first divergence. Cascade onset is the first day `d` where `|D_d| >= max(2m, m + 5)`. Plateau length is `onset_day - first_divergent_day`. If no day meets the threshold, report **no cascade**.
 
-For spread, report daily absolute growth `|D_d| - |D_{d-1}|`, the largest `|D_d|`, its normalized fraction, and the days-to-peak. A proposed early growth estimate is the least-squares slope of `ln(1 + |D_d|)` over the first 10 days after onset when the series has positive growth. A proposed saturation time is the first day the normalized curve reaches 95% of its horizon maximum and stays within that band for seven days. The growth window, plateau length, and saturation thresholds need review before freeze.
+From cascade onset through the earlier of ten daily observations or the peak day (inclusive), compute the least-squares slope of `ln(1 + |D_d|)` against day offset. Report doubling time `ln(2) / slope` only when slope is positive; otherwise it is absent. No linear-growth slope is reported. Do not report saturation. Report only peak `|D_d|`, peak normalized fraction, and elapsed days from first divergence to peak in addition to onset, plateau, slope, and doubling time. Ties for peak use the earliest day. The growth slope is absent if fewer than two daily observations are available.
 
-For each branch, compare cascade onset with the intervened agent's first mortality day. Derive the death day from the day's `MortalityCommitted` event, emitted from the Phase 9 mortality resolution, and report **before**, **same day**, **after**, or **no death during horizon** ([`StateTransitionEvent::MortalityCommitted`, `events_from_mortality_resolution`](../../crates/sim-model/src/events.rs); [`Phase9MortalityResolution`](../../crates/sim-model/src/phases.rs); [`run_counterfactual_branch_inner`](../../crates/sim-model/src/counterfactual.rs)). This is a temporal association, not proof that death caused the cascade.
+For each intervention targeting an agent, compare cascade onset with that agent's first death day in each run, as recorded by `StateTransitionEvent::MortalityCommitted`; report before, same day, after, or no death during the horizon. This is temporal association, not causal attribution ([`StateTransitionEvent::MortalityCommitted`, `events_from_mortality_resolution`](../../crates/sim-model/src/events.rs); [`run_counterfactual_branch_inner`](../../crates/sim-model/src/counterfactual.rs)).
 
-### 12.4 Population-regulation question (M4-00 OQ-9)
+### 12.4 Population-regulation handling
 
-Options for long branch horizons are: (a) keep the existing sustained M3P configuration and report population decline as part of the result; (b) define a new density-regulated profile with its own semantics and canonical outputs; or (c) tune only already-supported configuration fields, without adding a new mechanism. **Recommendation — proposal:** begin with the existing sustained M3P workload and report alive population alongside divergence. Add a new regulated profile only if measured population drift makes the planned horizon uninformative. Any regulation changes the model and must use a distinct profile; M3P behavior and goldens remain unchanged. M4-00 OQ-9 remains to be resolved before freezing §12.
+Use the existing M3P profile unchanged and report alive population per day. Revisit whether a population-regulated profile is needed before M4-04. M4-03 does not add or alter population regulation; any future regulation requires a distinct profile and its own contract.
 
-### 12.5 Proposed gates and test list
+### 12.5 Gates and tests
 
-- Base-branch identity: no-op intervention yields an empty `D_d`, unchanged component flags, and zero unmatched births for the full horizon in M3, M3P, M3+propagation, and M3P+propagation.
-- Per-day reproducibility: repeated branch analysis produces identical divergence counts, normalized values, component flags, lineage matches, death-day relation, and first-divergence record.
-- Intervention coverage: config override, field override, and forced-action cases include immediate and delayed divergence, a flat interval followed by a cascade, and a cascade before/with/after the target's death.
-- Population coverage: equal and divergent M3P birth streams cover matched and unmatched lineage keys, AgentId shifts, compaction, and the separately reported CRN-loss count.
-- Layout and resume: shuffled DenseSlot layouts and snapshot pause/resume at several days produce identical divergence measurements.
-- Component coverage: tests independently vary graph, allocator, propagation, settlement, and global state while keeping the other components equal.
-- Compatibility: all M2/M3/M3P/propagation goldens, snapshot bytes, events, digests, and hosted Linux/Windows/macOS gates remain unchanged.
-- Performance measurements use the [M4 standard performance-gate protocol](M4_COUNTERFACTUAL_CONTRACT.md#117-a-5--batched-sample-amendment-frozen). The §12 freeze must name its timed baselines and any added analysis budget; the A-5 protocol itself does not set a new M4-03 budget.
+- CI identity gate: `N = 2,000`, horizon `H = 30`, no-op intervention, all four supported combinations: M3, M3P, M3+propagation, and M3P+propagation.
+- CI intervention gate: `N = 2,000`, one fixed seed, `H = 60`, one case for each M4-00 intervention type: configuration override, agent-field override, and forced action.
+- CI cascade gate: a deterministic flat-then-cascade series verifies the frozen onset threshold, plateau, slope, doubling time, and no-cascade behavior. The example uses `|D_d| = 3` for 11 days followed by a series crossing the defined threshold.
+- CI golden gate: commit new M4-03 divergence-series golden files; do not alter any M2/M3/M3P/propagation golden, snapshot, CI file, or existing test.
+- CI budget: added M4-03 tests must take no more than 60 seconds total. Multi-seed and `N = 10,000` runs are report-only.
+- Every daily State digest differs iff `|D_d| > 0` or one or more component flags are true. Cover agent records, graph, allocator, propagation, and settlement/global fields independently.
+- Verify deterministic output, lineage matching, target-death day, and unchanged M4-02 outputs.
 
-Proposed tests include `m4_03_divergence_curve_tests.rs` for denominator and identity cases, `m4_03_component_series_tests.rs` for component flags and settlement/global comparisons, `m4_03_cascade_tests.rs` for plateau/onset/growth/saturation and target-death timing, and `m4_03_resume_tests.rs` for deterministic pause/resume and shuffled-slot parity.
+### 12.6 Performance gate
 
-### 12.6 Open questions
+Use the [M4 standard performance-gate protocol](#m4-standard-performance-gate-protocol-frozen), with `T = 5%`. For each cell, compare the full branch API returning the M4-03 divergence series against the M4-02 full branch API without the series, using identical snapshots, intervention, execution option, horizon, and run identity. Required cells are M3P serial at `N = 10,000` and `N = 100,000`, and M3+propagation serial at `N = 100,000`. A cell passes only under the standard protocol's A-5 validity and bootstrap decision rules. If any cell is not PASS, stop before report-only experiments and do not mark M4-03 complete.
 
-| ID | Question | Status |
-|---|---|---|
-| OQ-12.1 | Should the normalized denominator be the maximum of the two stored-record counts, the union of matched logical entities, or a living-population denominator? How should unmatched births affect the normalized series while preserving frozen agent-only `D_d`? | **Blocking** for §12 freeze. |
-| OQ-12.2 | What flat-interval length establishes cascade onset, and should any increase above the prior maximum count as onset? | **Blocking** for cascade metrics. |
-| OQ-12.3 | Should early growth use a fixed 10-day log slope, a linear slope, or both; what horizon defines saturation? | **Blocking** for metric interpretation. |
-| OQ-12.4 | Are the proposed 95% peak and seven-day saturation band useful across short and long horizons? | **Non-blocking** for implementing the initial divergence curve; must be decided before freezing saturation output. |
-| OQ-12.5 | Should `settlement_global_changed` include only settlement resource/treasury and `initial_money_supply`, or any additional world-level field? | **Blocking** for component schema. |
-| OQ-12.6 | Which seeds, horizons, and intervention cases form the required CI matrix without duplicating the M4-02 branch gates excessively? | **Blocking** for CI freeze. |
-| OQ-12.7 | What performance baseline and allowable overhead apply to collecting component and cascade series? | **Blocking** for the M4-03 performance gate; use A-5 sampling/validity rules unless amended. |
+### 12.7 Decision register
+
+| ID | Frozen decision |
+|---|---|
+| OQ-12.1 | Normalize `|D_d|` by `L_d`, the matched logical entities alive on at least one side (`L_d = 0` gives zero). Report `u_d`, the base-only plus branch-only post-branch birth records present at the boundary, separately and as `u_d/(L_d+u_d)` (`0` when the denominator is zero). Frozen `D_d` is unchanged. |
+| OQ-12.2 | Cascade onset is the first day after first divergence with `|D_d| >= max(2m, m+5)`, where `m` is the maximum on earlier days since first divergence. Plateau is onset minus first divergent day; otherwise report no cascade. |
+| OQ-12.3 | Growth is the least-squares slope of `ln(1+|D_d|)` from onset over at most ten daily observations and ending no later than the peak. Doubling time is `ln(2)/slope` only for positive slope. No linear slope. |
+| OQ-12.4 | No saturation output. Report peak `|D|`, peak normalized fraction, and days to peak. |
+| OQ-12.5 | `settlement_global_changed` is the catch-all difference in canonical State bytes outside agent rows, graph, allocator, and propagation. Enforce the daily State-digest partition invariant in §12.2. |
+| OQ-12.6 | Required CI cases are the `N=2,000` identity gate for all four combinations (`H=30`), one `H=60` seed for each intervention type, a flat-then-cascade case, and new divergence-series goldens. Added CI time is at most 60 seconds. Multi-seed and `N=10,000` cases are report-only. |
+| OQ-12.7 | Performance compares the full M4-03 API against the M4-02 full API under A-5, `T=5%`, for M3P serial at 10k/100k and M3+propagation serial at 100k. |
+| M4-00 OQ-9 | Keep M3P unchanged and report alive population per day. Revisit whether regulation is needed before M4-04. |
+
+### 12.8 Freeze record
+
+This freeze defines M4-03 divergence normalization, unmatched-birth reporting, component partitioning and its invariant, cascade and spread metrics, required CI gates, and the A-5 performance comparison. It authorizes the M4-03 implementation task to be requested; it does not start that implementation.
