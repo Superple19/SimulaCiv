@@ -12,7 +12,7 @@ use crate::hashing::{
     canonical_m3prop_state_hash_from_storage,
 };
 use crate::m3p::{
-    M3pDailyMetrics, M3pEventRecord, M3pReferenceState, decode_m3p_snapshot,
+    M3pDailyMetrics, M3pEventRecord, M3pReferenceState, decode_m3p_snapshot, encode_m3p_snapshot,
     run_m3p_reference_day_with_phase_recorder,
 };
 use crate::m3pprop::{
@@ -36,7 +36,9 @@ use crate::runner::{
     run_m3pprop_storage_day_incremental_for_branch, run_m3prop_storage_day_for_branch,
     run_registered_storage_day_pair_with_recorder,
 };
-use crate::snapshot::{CanonicalSnapshot, SnapshotError, SnapshotMetadata, decode_snapshot};
+use crate::snapshot::{
+    CanonicalSnapshot, SnapshotError, SnapshotMetadata, decode_snapshot, encode_snapshot,
+};
 use crate::state::{AgentState, AuthorityMode, HybridWorldState, WorldState};
 use crate::system_registry::{
     RegisteredSystemRunOptions, SYSTEM_REGISTRY, SystemExecutionOptions, SystemExecutionPolicy,
@@ -134,28 +136,245 @@ pub struct BranchRequest {
     pub snapshot_days: Vec<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct IdentifiedIntervention {
+    pub id: String,
+    pub intervention: BranchIntervention,
+    /// Set only for a forced action. M4-05 applies it on the branch cursor day.
+    pub day: Option<u32>,
+}
+
+impl IdentifiedIntervention {
+    pub fn config_override(parameter: ConfigParameter, value: ConfigValue) -> Self {
+        let id = format!(
+            "C:{}={}",
+            config_parameter_id_name(parameter),
+            config_value_id(value)
+        );
+        Self {
+            id,
+            intervention: BranchIntervention::ConfigOverride { parameter, value },
+            day: None,
+        }
+    }
+
+    pub fn agent_field_override(
+        agent_id: AgentId,
+        field: AgentField,
+        value: AgentFieldValue,
+    ) -> Self {
+        let id = format!(
+            "F:agent={}:{}={}",
+            agent_id.0,
+            agent_field_id_name(field),
+            agent_field_value_id(value),
+        );
+        Self {
+            id,
+            intervention: BranchIntervention::AgentFieldOverride {
+                agent_id,
+                field,
+                value,
+            },
+            day: None,
+        }
+    }
+
+    pub fn forced_action(agent_id: AgentId, day: u32, action: Action) -> Self {
+        let id = format!(
+            "A:agent={}:day={}:{}",
+            agent_id.0,
+            day,
+            action_id_name(action),
+        );
+        Self {
+            id,
+            intervention: BranchIntervention::ForcedAction { agent_id, action },
+            day: Some(day),
+        }
+    }
+
+    pub(crate) fn canonical_id(&self) -> String {
+        match self.intervention {
+            BranchIntervention::ConfigOverride { parameter, value } => {
+                Self::config_override(parameter, value).id
+            }
+            BranchIntervention::AgentFieldOverride {
+                agent_id,
+                field,
+                value,
+            } => Self::agent_field_override(agent_id, field, value).id,
+            BranchIntervention::ForcedAction { agent_id, action } => self
+                .day
+                .map(|day| Self::forced_action(agent_id, day, action).id)
+                .unwrap_or_default(),
+        }
+    }
+
+    pub(crate) fn duplicate_target_key(&self) -> String {
+        match self.intervention {
+            BranchIntervention::ConfigOverride { parameter, .. } => {
+                format!("C:{}", config_parameter_id_name(parameter))
+            }
+            BranchIntervention::AgentFieldOverride {
+                agent_id, field, ..
+            } => format!("F:{}:{}", agent_id.0, agent_field_id_name(field)),
+            BranchIntervention::ForcedAction { agent_id, .. } => {
+                format!("A:{}:{}", agent_id.0, self.day.unwrap_or_default())
+            }
+        }
+    }
+}
+
+fn config_parameter_id_name(parameter: ConfigParameter) -> String {
+    match parameter {
+        ConfigParameter::CarryingCapacity => "CarryingCapacity".into(),
+        ConfigParameter::RegrowthRate => "RegrowthRate".into(),
+        ConfigParameter::BaseMetabolicCost => "BaseMetabolicCost".into(),
+        ConfigParameter::HealthDecayRate => "HealthDecayRate".into(),
+        ConfigParameter::BaseWorkYield => "BaseWorkYield".into(),
+        ConfigParameter::FoodPrice => "FoodPrice".into(),
+        ConfigParameter::TargetFood => "TargetFood".into(),
+        ConfigParameter::TargetReserve => "TargetReserve".into(),
+        ConfigParameter::TaxRate => "TaxRate".into(),
+        ConfigParameter::WelfarePayment => "WelfarePayment".into(),
+        ConfigParameter::GiftAmount => "GiftAmount".into(),
+        ConfigParameter::TheftAmount => "TheftAmount".into(),
+        ConfigParameter::TheftSuccessProbability => "TheftSuccessProbability".into(),
+        ConfigParameter::StarvationThreshold => "StarvationThreshold".into(),
+        ConfigParameter::DecisionTemperature => "DecisionTemperature".into(),
+        ConfigParameter::ActionBias { action_index } => format!("ActionBias[{action_index}]"),
+        ConfigParameter::BaseWeight {
+            action_index,
+            feature_index,
+        } => format!("BaseWeight[{action_index},{feature_index}]"),
+        ConfigParameter::TraitWeightCooperation => "TraitWeightCooperation".into(),
+        ConfigParameter::TraitWeightAggression => "TraitWeightAggression".into(),
+        ConfigParameter::TraitWeightRiskTolerance => "TraitWeightRiskTolerance".into(),
+        ConfigParameter::BirthMinHealth => "BirthMinHealth".into(),
+        ConfigParameter::BirthFoodThreshold => "BirthFoodThreshold".into(),
+        ConfigParameter::BirthProbability => "BirthProbability".into(),
+        ConfigParameter::BirthFoodCost => "BirthFoodCost".into(),
+        ConfigParameter::BirthsMaxPerDay => "BirthsMaxPerDay".into(),
+        ConfigParameter::CompactionIntervalDays => "CompactionIntervalDays".into(),
+    }
+}
+
+fn config_value_id(value: ConfigValue) -> String {
+    match value {
+        ConfigValue::F32(value) => format!("0x{:08x}", value.to_bits()),
+        ConfigValue::Money(value) => format!("0x{:016x}", value as u64),
+        ConfigValue::U32(value) => format!("0x{value:08x}"),
+    }
+}
+
+fn agent_field_id_name(field: AgentField) -> &'static str {
+    match field {
+        AgentField::Food => "food",
+        AgentField::Health => "health",
+        AgentField::Wealth => "wealth",
+    }
+}
+
+fn agent_field_value_id(value: AgentFieldValue) -> String {
+    match value {
+        AgentFieldValue::Food(value) | AgentFieldValue::Health(value) => {
+            format!("0x{:08x}", value.to_bits())
+        }
+        AgentFieldValue::Wealth(value) => format!("0x{:016x}", value as u64),
+    }
+}
+
+fn action_id_name(action: Action) -> &'static str {
+    match action {
+        Action::Work => "work",
+        Action::BuyFood => "buy_food",
+        Action::SellFood => "sell_food",
+        Action::GiveFood => "give_food",
+        Action::StealFood => "steal_food",
+        Action::Idle => "idle",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchInterventionBatchRequest {
+    pub snapshot: CanonicalSnapshot,
+    pub config: SimConfig,
+    pub run_context: M0RunContext,
+    pub interventions: Vec<IdentifiedIntervention>,
+    pub horizon_days: u32,
+    pub snapshot_days: Vec<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForcedActionBatchOutcome {
+    pub intervention_id: String,
+    pub matches_natural: Option<bool>,
+    pub outcome: Option<ForcedActionOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchInterventionBatchResult {
+    pub base_days: Vec<BranchDayRecord>,
+    pub branch_days: Vec<BranchDayRecord>,
+    pub forced_action_outcomes: Vec<ForcedActionBatchOutcome>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForcedActionOutcome {
     Applied,
     Fallback,
 }
 
-pub(crate) struct ForcedActionDirective {
-    pub agent_id: AgentId,
-    pub action: Action,
-    pub day: u32,
+struct ForcedActionEntry {
+    intervention_id: Option<String>,
+    agent_id: AgentId,
+    action: Action,
+    day: u32,
     found_choice: bool,
-    pub matches_natural: Option<bool>,
-    pub outcome: Option<ForcedActionOutcome>,
+    matches_natural: Option<bool>,
+    outcome: Option<ForcedActionOutcome>,
+}
+
+pub(crate) struct ForcedActionDirective {
+    entries: Vec<ForcedActionEntry>,
+    pub(crate) matches_natural: Option<bool>,
+    outcome: Option<ForcedActionOutcome>,
 }
 
 impl ForcedActionDirective {
     pub(crate) fn new(agent_id: AgentId, action: Action, day: u32) -> Self {
         Self {
-            agent_id,
-            action,
-            day,
-            found_choice: false,
+            entries: vec![ForcedActionEntry {
+                intervention_id: None,
+                agent_id,
+                action,
+                day,
+                found_choice: false,
+                matches_natural: None,
+                outcome: None,
+            }],
+            matches_natural: None,
+            outcome: None,
+        }
+    }
+
+    fn new_batch(entries: Vec<(String, AgentId, Action, u32)>) -> Self {
+        Self {
+            entries: entries
+                .into_iter()
+                .map(
+                    |(intervention_id, agent_id, action, day)| ForcedActionEntry {
+                        intervention_id: Some(intervention_id),
+                        agent_id,
+                        action,
+                        day,
+                        found_choice: false,
+                        matches_natural: None,
+                        outcome: None,
+                    },
+                )
+                .collect(),
             matches_natural: None,
             outcome: None,
         }
@@ -166,42 +385,81 @@ impl ForcedActionDirective {
         day: u32,
         choices: &mut [crate::decision::PrimaryActionChoice],
     ) {
-        if day == self.day
-            && let Some(choice) = choices
-                .iter_mut()
-                .find(|choice| choice.agent_id == self.agent_id)
-        {
-            self.matches_natural = Some(choice.action == self.action);
-            choice.action = self.action;
-            self.found_choice = true;
+        let (entries, matches_natural) = (&mut self.entries, &mut self.matches_natural);
+        for (index, entry) in entries.iter_mut().enumerate() {
+            if day == entry.day
+                && let Some(choice) = choices
+                    .iter_mut()
+                    .find(|choice| choice.agent_id == entry.agent_id)
+            {
+                entry.matches_natural = Some(choice.action == entry.action);
+                choice.action = entry.action;
+                entry.found_choice = true;
+                if index == 0 {
+                    *matches_natural = entry.matches_natural;
+                }
+            }
         }
     }
 
     pub(crate) fn observe_intents(&mut self, day: u32, intents: &[crate::intents::Intent]) {
-        if day != self.day || self.outcome.is_some() {
-            return;
-        }
-        if !self.found_choice {
-            self.outcome = Some(ForcedActionOutcome::Fallback);
-            return;
-        }
-        let has_target = intents
-            .iter()
-            .find(|intent| intent.agent_id() == self.agent_id)
-            .is_some_and(|intent| match intent {
-                crate::intents::Intent::GiveFood {
-                    target_agent_id, ..
+        let (entries, outcome) = (&mut self.entries, &mut self.outcome);
+        for (index, entry) in entries.iter_mut().enumerate() {
+            if day != entry.day || entry.outcome.is_some() {
+                continue;
+            }
+            if !entry.found_choice {
+                entry.outcome = Some(ForcedActionOutcome::Fallback);
+                if index == 0 {
+                    *outcome = entry.outcome;
                 }
-                | crate::intents::Intent::StealFood {
-                    target_agent_id, ..
-                } => target_agent_id.is_some(),
-                _ => true,
+                continue;
+            }
+            let has_target = intents
+                .iter()
+                .find(|intent| intent.agent_id() == entry.agent_id)
+                .is_some_and(|intent| match intent {
+                    crate::intents::Intent::GiveFood {
+                        target_agent_id, ..
+                    }
+                    | crate::intents::Intent::StealFood {
+                        target_agent_id, ..
+                    } => target_agent_id.is_some(),
+                    _ => true,
+                });
+            entry.outcome = Some(if has_target {
+                ForcedActionOutcome::Applied
+            } else {
+                ForcedActionOutcome::Fallback
             });
-        self.outcome = Some(if has_target {
-            ForcedActionOutcome::Applied
-        } else {
-            ForcedActionOutcome::Fallback
-        });
+            if index == 0 {
+                *outcome = entry.outcome;
+            }
+        }
+    }
+
+    fn primary_matches_natural(&self) -> Option<bool> {
+        self.matches_natural
+    }
+
+    fn primary_outcome(&self) -> Option<ForcedActionOutcome> {
+        self.outcome
+    }
+
+    fn batch_outcomes(&self) -> Vec<ForcedActionBatchOutcome> {
+        self.entries
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .intervention_id
+                    .as_ref()
+                    .map(|id| ForcedActionBatchOutcome {
+                        intervention_id: id.clone(),
+                        matches_natural: entry.matches_natural,
+                        outcome: entry.outcome,
+                    })
+            })
+            .collect()
     }
 }
 
@@ -1983,6 +2241,15 @@ fn apply_config_override(
     parameter: ConfigParameter,
     value: ConfigValue,
 ) -> Result<(), BranchError> {
+    set_config_override(config, parameter, value)?;
+    config.validate().map_err(BranchError::from)
+}
+
+fn set_config_override(
+    config: &mut SimConfig,
+    parameter: ConfigParameter,
+    value: ConfigValue,
+) -> Result<(), BranchError> {
     let f32_value = match value {
         ConfigValue::F32(value) if value.is_finite() => Some(value),
         _ => None,
@@ -2114,7 +2381,7 @@ fn apply_config_override(
                 .compaction_interval_days = u32_value.ok_or_else(invalid)?
         }
     }
-    config.validate().map_err(BranchError::from)
+    Ok(())
 }
 
 fn set_intervention_field(
@@ -2783,6 +3050,383 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
     run_counterfactual_branch_inner(request, RecorderComparisonMode::Enabled, None, None, None)
 }
 
+/// Runs an identified M4-05 intervention batch on the serial M3 or M3P path.
+pub fn run_counterfactual_intervention_batch(
+    request: &BranchInterventionBatchRequest,
+) -> Result<BranchInterventionBatchResult, BranchError> {
+    if !matches!(
+        request.config.runner_selection(),
+        SimulationRunnerSelection::M3 | SimulationRunnerSelection::M3p
+    ) {
+        return Err(BranchError::UnsupportedProfile);
+    }
+    validate_identified_batch(&request.interventions)?;
+    let start_day = request.snapshot.metadata.day;
+    let ordered = ordered_interventions(&request.interventions);
+    if ordered.len() == 1 {
+        let intervention = &ordered[0];
+        if let BranchIntervention::ForcedAction { agent_id, action } = intervention.intervention {
+            if intervention.day != Some(start_day) {
+                return Err(BranchError::InvalidIntervention(
+                    "forced-action candidate day must equal the branch cursor".into(),
+                ));
+            }
+            let branch_request = BranchRequest {
+                snapshot: request.snapshot.clone(),
+                config: request.config.clone(),
+                run_context: request.run_context,
+                intervention: BranchIntervention::ForcedAction { agent_id, action },
+                horizon_days: request.horizon_days,
+                execution: BranchExecutionOption::Serial,
+                snapshot_days: request.snapshot_days.clone(),
+            };
+            let mut matches_natural = None;
+            let result = run_counterfactual_branch_inner(
+                &branch_request,
+                RecorderComparisonMode::Enabled,
+                None,
+                None,
+                Some(&mut matches_natural),
+            )?;
+            return Ok(BranchInterventionBatchResult {
+                base_days: result.base_days,
+                branch_days: result.branch_days,
+                forced_action_outcomes: vec![ForcedActionBatchOutcome {
+                    intervention_id: intervention.id.clone(),
+                    matches_natural,
+                    outcome: result.forced_action,
+                }],
+            });
+        }
+        if intervention.day.is_some() {
+            return Err(BranchError::InvalidIntervention(
+                "only forced-action candidates may declare a day".into(),
+            ));
+        }
+        let branch_request = BranchRequest {
+            snapshot: request.snapshot.clone(),
+            config: request.config.clone(),
+            run_context: request.run_context,
+            intervention: intervention.intervention.clone(),
+            horizon_days: request.horizon_days,
+            execution: BranchExecutionOption::Serial,
+            snapshot_days: request.snapshot_days.clone(),
+        };
+        let result = run_counterfactual_branch(&branch_request)?;
+        return Ok(BranchInterventionBatchResult {
+            base_days: result.base_days,
+            branch_days: result.branch_days,
+            forced_action_outcomes: Vec::new(),
+        });
+    }
+
+    let PreparedBatch {
+        branch_config,
+        mut base,
+        mut branch,
+        mut forced_directive,
+    } = prepare_intervention_batch(request, &ordered)?;
+    let mut base_days = Vec::with_capacity(request.horizon_days as usize);
+    let mut branch_days = Vec::with_capacity(request.horizon_days as usize);
+    for _ in 0..request.horizon_days {
+        let day = base.world.world.current_day.as_u32();
+        if day != branch.world.world.current_day.as_u32() {
+            return Err(BranchError::InvalidIntervention(
+                "base and branch resume cursors diverged".into(),
+            ));
+        }
+        let include_snapshot = request.snapshot_days.binary_search(&day).is_ok();
+        base_days.push(base.day(
+            &request.config,
+            &request.run_context,
+            include_snapshot,
+            None,
+        )?);
+        branch_days.push(branch.day(
+            &branch_config,
+            &request.run_context,
+            include_snapshot,
+            forced_directive.as_mut(),
+        )?);
+    }
+    Ok(BranchInterventionBatchResult {
+        base_days,
+        branch_days,
+        forced_action_outcomes: forced_directive
+            .map_or_else(Vec::new, |directive| directive.batch_outcomes()),
+    })
+}
+
+pub(crate) fn run_counterfactual_batch_branch_days(
+    request: &BranchInterventionBatchRequest,
+) -> Result<(Vec<BranchDayRecord>, Vec<ForcedActionBatchOutcome>), BranchError> {
+    if !matches!(
+        request.config.runner_selection(),
+        SimulationRunnerSelection::M3 | SimulationRunnerSelection::M3p
+    ) {
+        return Err(BranchError::UnsupportedProfile);
+    }
+    validate_identified_batch(&request.interventions)?;
+    let ordered = ordered_interventions(&request.interventions);
+    let PreparedBatch {
+        branch_config,
+        mut branch,
+        mut forced_directive,
+        ..
+    } = prepare_intervention_batch(request, &ordered)?;
+    let mut branch_days = Vec::with_capacity(request.horizon_days as usize);
+    for _ in 0..request.horizon_days {
+        let day = branch.world.world.current_day.as_u32();
+        let include_snapshot = request.snapshot_days.binary_search(&day).is_ok();
+        branch_days.push(branch.day(
+            &branch_config,
+            &request.run_context,
+            include_snapshot,
+            forced_directive.as_mut(),
+        )?);
+    }
+    Ok((
+        branch_days,
+        forced_directive.map_or_else(Vec::new, |directive| directive.batch_outcomes()),
+    ))
+}
+
+pub(crate) fn rebound_counterfactual_run(
+    snapshot: &CanonicalSnapshot,
+    config: &SimConfig,
+    replicate_id: u32,
+) -> Result<(SimConfig, M0RunContext, CanonicalSnapshot), BranchError> {
+    let mut replicate_config = config.clone();
+    replicate_config.world.replicate_id = replicate_id;
+    let context = M0RunContext::new(replicate_config.world.master_seed, replicate_id);
+    let mut metadata = snapshot.metadata.clone();
+    metadata.replicate_id = replicate_id;
+    let rebound = match replicate_config.runner_selection() {
+        SimulationRunnerSelection::M3 => {
+            let restored = decode_snapshot(snapshot.as_ref())?;
+            encode_snapshot(&restored.world, &metadata)?
+        }
+        SimulationRunnerSelection::M3p => {
+            let restored = decode_m3p_snapshot(snapshot.as_ref(), config)?;
+            let state = M3pReferenceState::from_parts(
+                restored.state.world().clone(),
+                restored.state.relationship_graph().clone(),
+                restored.state.next_agent_id(),
+                &replicate_config,
+                &context,
+            )?;
+            encode_m3p_snapshot(&state, &metadata)?
+        }
+        _ => return Err(BranchError::UnsupportedProfile),
+    };
+    Ok((replicate_config, context, rebound))
+}
+
+pub(crate) fn run_counterfactual_base_days(
+    snapshot: &CanonicalSnapshot,
+    config: &SimConfig,
+    run_context: &M0RunContext,
+    horizon_days: u32,
+    snapshot_days: &[u32],
+) -> Result<Vec<BranchDayRecord>, BranchError> {
+    let mut runtime =
+        BranchRuntime::restore(snapshot, config, run_context, BranchExecutionOption::Serial)?;
+    let start_day = runtime.world.world.current_day.as_u32();
+    let end_day = start_day
+        .checked_add(horizon_days)
+        .ok_or(BranchError::DayOverflow)?;
+    if snapshot_days.windows(2).any(|pair| pair[0] >= pair[1])
+        || snapshot_days
+            .iter()
+            .any(|day| *day < start_day || *day >= end_day)
+    {
+        return Err(BranchError::InvalidIntervention(
+            "snapshot_days must be unique, ascending, and inside the requested horizon".into(),
+        ));
+    }
+    let mut days = Vec::with_capacity(horizon_days as usize);
+    for _ in 0..horizon_days {
+        let day = runtime.world.world.current_day.as_u32();
+        let include_snapshot = snapshot_days.binary_search(&day).is_ok();
+        days.push(runtime.day(config, run_context, include_snapshot, None)?);
+    }
+    Ok(days)
+}
+
+struct PreparedBatch {
+    branch_config: SimConfig,
+    base: BranchRuntime,
+    branch: BranchRuntime,
+    forced_directive: Option<ForcedActionDirective>,
+}
+
+pub(crate) fn validate_identified_batch(
+    interventions: &[IdentifiedIntervention],
+) -> Result<(), BranchError> {
+    if interventions.is_empty() {
+        return Err(BranchError::InvalidIntervention(
+            "intervention batch must not be empty".into(),
+        ));
+    }
+    let mut ids = BTreeSet::new();
+    let mut targets = BTreeSet::new();
+    for intervention in interventions {
+        if intervention.id != intervention.canonical_id() {
+            return Err(BranchError::InvalidIntervention(
+                "intervention ID does not match its typed value".into(),
+            ));
+        }
+        if !ids.insert(intervention.id.as_str()) {
+            return Err(BranchError::InvalidIntervention(format!(
+                "duplicate intervention ID {}",
+                intervention.id
+            )));
+        }
+        if !targets.insert(intervention.duplicate_target_key()) {
+            return Err(BranchError::InvalidIntervention(format!(
+                "duplicate intervention target {}",
+                intervention.duplicate_target_key()
+            )));
+        }
+        if let BranchIntervention::ForcedAction { .. } = intervention.intervention {
+            if intervention.day.is_none() {
+                return Err(BranchError::InvalidIntervention(
+                    "forced-action candidate requires a day".into(),
+                ));
+            }
+        } else if intervention.day.is_some() {
+            return Err(BranchError::InvalidIntervention(
+                "only forced-action candidates may declare a day".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn ordered_interventions(interventions: &[IdentifiedIntervention]) -> Vec<IdentifiedIntervention> {
+    let mut ordered = interventions.to_vec();
+    ordered.sort_by_key(|item| match item.intervention {
+        BranchIntervention::ConfigOverride { parameter, .. } => (
+            0_u8,
+            config_parameter_id_name(parameter),
+            0_u32,
+            String::new(),
+        ),
+        BranchIntervention::AgentFieldOverride {
+            agent_id, field, ..
+        } => (
+            1,
+            String::new(),
+            agent_id.0,
+            agent_field_id_name(field).to_owned(),
+        ),
+        BranchIntervention::ForcedAction { agent_id, .. } => (
+            2,
+            String::new(),
+            agent_id.0,
+            item.day.unwrap_or_default().to_string(),
+        ),
+    });
+    ordered
+}
+
+fn validate_field_value(field: AgentField, value: AgentFieldValue) -> Result<(), BranchError> {
+    let valid = match (field, value) {
+        (AgentField::Food, AgentFieldValue::Food(value)) => value.is_finite() && value >= 0.0,
+        (AgentField::Health, AgentFieldValue::Health(value)) => value.is_finite(),
+        (AgentField::Wealth, AgentFieldValue::Wealth(value)) => value >= 0,
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(BranchError::InvalidIntervention(
+            "field value type or range is invalid".into(),
+        ))
+    }
+}
+
+fn prepare_intervention_batch(
+    request: &BranchInterventionBatchRequest,
+    ordered: &[IdentifiedIntervention],
+) -> Result<PreparedBatch, BranchError> {
+    if request.config.runner_selection() == SimulationRunnerSelection::M2 {
+        return Err(BranchError::UnsupportedProfile);
+    }
+    request.config.validate().map_err(BranchError::from)?;
+    let mut branch_config = request.config.clone();
+    for item in ordered {
+        if let BranchIntervention::ConfigOverride { parameter, value } = item.intervention {
+            set_config_override(&mut branch_config, parameter, value)?;
+        }
+    }
+    branch_config.validate().map_err(BranchError::from)?;
+    let base = BranchRuntime::restore(
+        &request.snapshot,
+        &request.config,
+        &request.run_context,
+        BranchExecutionOption::Serial,
+    )?;
+    let mut branch = BranchRuntime::restore(
+        &request.snapshot,
+        &branch_config,
+        &request.run_context,
+        BranchExecutionOption::Serial,
+    )?;
+    let start_day = base.world.world.current_day.as_u32();
+    let end_day = start_day
+        .checked_add(request.horizon_days)
+        .ok_or(BranchError::DayOverflow)?;
+    if request
+        .snapshot_days
+        .windows(2)
+        .any(|pair| pair[0] >= pair[1])
+        || request
+            .snapshot_days
+            .iter()
+            .any(|day| *day < start_day || *day >= end_day)
+    {
+        return Err(BranchError::InvalidIntervention(
+            "snapshot_days must be unique, ascending, and inside the requested horizon".into(),
+        ));
+    }
+    let mut forced_entries = Vec::new();
+    for item in ordered {
+        match item.intervention {
+            BranchIntervention::ConfigOverride { .. } => {}
+            BranchIntervention::AgentFieldOverride {
+                agent_id,
+                field,
+                value,
+            } => {
+                branch.validate_live_target(agent_id)?;
+                validate_field_value(field, value)?;
+            }
+            BranchIntervention::ForcedAction { agent_id, action } => {
+                if item.day != Some(start_day) {
+                    return Err(BranchError::InvalidIntervention(
+                        "forced-action candidate day must equal the branch cursor".into(),
+                    ));
+                }
+                branch.validate_live_target(agent_id)?;
+                forced_entries.push((item.id.clone(), agent_id, action, start_day));
+            }
+        }
+    }
+    for item in ordered {
+        if let BranchIntervention::AgentFieldOverride { .. } = item.intervention {
+            set_intervention_field(&mut branch, &item.intervention)?;
+        }
+    }
+    Ok(PreparedBatch {
+        branch_config,
+        base,
+        branch,
+        forced_directive: (!forced_entries.is_empty())
+            .then(|| ForcedActionDirective::new_batch(forced_entries)),
+    })
+}
+
 /// Runs the M4-02 branch and records the analysis-only M4-03 divergence series.
 pub fn run_counterfactual_branch_with_divergence_series(
     request: &BranchRequest,
@@ -2957,7 +3601,7 @@ fn run_counterfactual_branch_simulation_only(
             forced_directive.as_mut(),
         )?);
     }
-    let forced_action = forced_directive.and_then(|directive| directive.outcome);
+    let forced_action = forced_directive.and_then(|directive| directive.primary_outcome());
     Ok(BranchSimulationResult {
         base_days,
         branch_days,
@@ -3194,9 +3838,9 @@ fn run_counterfactual_branch_inner(
     if let Some(result) = forced_matches_natural {
         *result = forced_directive
             .as_ref()
-            .and_then(|directive| directive.matches_natural);
+            .and_then(ForcedActionDirective::primary_matches_natural);
     }
-    let forced_action = forced_directive.and_then(|directive| directive.outcome);
+    let forced_action = forced_directive.and_then(|directive| directive.primary_outcome());
     Ok(BranchResult {
         base_days,
         branch_days,

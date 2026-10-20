@@ -1,0 +1,6 @@
+status=Complete
+guarantee=Minimum
+cause=F:agent=0:health=0x00000000
+evaluations=30
+mean_effect=bff0000000000000
+predicate=true

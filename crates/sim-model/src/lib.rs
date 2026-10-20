@@ -15,6 +15,7 @@ pub mod m3p;
 pub mod m3pprop;
 pub mod m3prop;
 pub mod metrics;
+pub mod minimal_cause;
 pub mod partitioning;
 pub mod phases;
 pub mod propagation;
@@ -36,13 +37,16 @@ pub use config::{
     SimulationProfile, SimulationRunManifest, SimulationRunnerSelection, SimulationSystems,
     TraitConfig, WorldConfig,
 };
+pub use counterfactual::run_counterfactual_intervention_batch;
 pub use counterfactual::{
     AgentField, AgentFieldValue, AgentMatchKey, BranchDayRecord, BranchDivergenceResult,
     BranchError, BranchEventsRecord, BranchExecutionOption, BranchIntervention,
-    BranchMetricsRecord, BranchRequest, BranchResult, ConfigParameter, ConfigValue,
-    DailyDifference, DivergenceClassification, DivergenceDayRecord, DivergenceSummary,
-    FirstDivergence, ForcedActionOutcome, RecordedSlot, TargetDeathRelation,
-    run_counterfactual_branch, run_counterfactual_branch_with_divergence_series,
+    BranchInterventionBatchRequest, BranchInterventionBatchResult, BranchMetricsRecord,
+    BranchRequest, BranchResult, ConfigParameter, ConfigValue, DailyDifference,
+    DivergenceClassification, DivergenceDayRecord, DivergenceSummary, FirstDivergence,
+    ForcedActionBatchOutcome, ForcedActionOutcome, IdentifiedIntervention, RecordedSlot,
+    TargetDeathRelation, run_counterfactual_branch,
+    run_counterfactual_branch_with_divergence_series,
 };
 pub use crn_efficiency::{
     CrnEfficiencyError, CrnEfficiencyRequest, CrnEfficiencyResult, CrnOutcome, CrnOutcomeEstimate,
@@ -130,6 +134,11 @@ pub use metrics::{
     phase10_observe_segmented, phase10_observe_soa_fresh, phase10_observe_storage,
     phase10_observe_storage_with_scratch, phase10_observe_with_config,
     phase10_observe_with_scratch,
+};
+pub use minimal_cause::{
+    EffectComparison, MinimalCauseError, MinimalCauseGuarantee, MinimalCausePredicate,
+    MinimalCauseRequest, MinimalCauseResult, MinimalCauseStatus, build_agent_field_candidates,
+    build_config_candidates, build_forced_action_candidates, search_minimal_cause,
 };
 pub use partitioning::{
     Phase5Error, Phase5PartitionScratch, SettlementIntentPartition, phase5_partition_intents,
