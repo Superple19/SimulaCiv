@@ -863,3 +863,7 @@ M4-06 does not change migration-off semantics or the existing M2/M3/M3P/propagat
 ### 15.11 Freeze record
 
 This freeze fixes movement eligibility, destination ordering and scoring, coordinate coverage, money transfer, phase order, system composition, profile-specific digests, snapshot v4, metrics/events, the M4-01 forward gate, and the A-5 measurement protocol. It authorizes the M4-06 implementation within this task; it does not authorize changing generic-loop bodies or existing tests, goldens, snapshots, or CI files.
+
+### 15.12 A-2 — Preserve the fixed relationship graph across migration snapshots (FROZEN)
+
+M3 schema-v1 and M3PROP schema-v3 base snapshots do not persist the relationship CSR. Since migration changes GroupIds while M4-06 keeps edges attached to AgentIds, regenerating the graph from the resumed GroupIds would produce a different graph. Therefore, the M4-06 schema-v4 envelope for M3-based profiles (m3m and m3m+propagation) includes canonical CSR rows and the CSR hash in addition to the last_move_day records. M3P schema-v2 and M3PPROP schema-v3 base snapshots already carry the graph; their v4 envelope records that the graph is supplied by the base payload and does not duplicate it. Restore validates the graph source/neighbor ordering, closure, CSR hash, and exact AgentId coverage against the decoded base state. This clarification does not alter any pre-existing snapshot schema or migration-off bytes.
