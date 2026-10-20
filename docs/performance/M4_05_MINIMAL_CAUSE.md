@@ -1,6 +1,6 @@
 # M4-05 Minimal-Cause Search
 
-This report records the M4-05 batch-of-one A-5 performance gate and report-only minimal-cause experiments. M4-05 is not complete until the experiments and completion gates are recorded.
+**Status: M4-05 COMPLETE.** The implementation tests, N=2,000 golden, M3P batch-of-one A-5 gate, and first report-only minimal-cause experiments are recorded below.
 
 ## A-5 batch-of-one performance gate
 

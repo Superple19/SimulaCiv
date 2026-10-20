@@ -45,13 +45,13 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **M4-02 — Branching primitive and divergence-point detection** | **COMPLETE.** Snapshot-backed branches and exact first-divergence reporting pass the A-5 gate; see the [M4-02 report](../performance/M4_02_BRANCHING.md) and [§11](#11-m4-02-branching-and-divergence-detection). |
 | **M4-03 — Divergence measurement** | **COMPLETE.** The frozen series, daily component partition, cascade metrics, and target-death analysis pass the §12.6 A-5 gate; see the [M4-03 report](../performance/M4_03_DIVERGENCE.md) and [§12](#12-m4-03-divergence-measurement). |
 | **M4-04 — CRN efficiency** | **COMPLETE.** Frozen paired/independent estimators and bootstrap reporting; 100-replicate M3P sustained experiment recorded in the [M4-04 report](../performance/M4_04_CRN_EFFICIENCY.md). |
-| **M4-05 — Minimal-cause search** | **CONTRACT FROZEN; implementation and gates pending.** See [§14](#14-m4-05-minimal-cause-search). |
+| **M4-05 — Minimal-cause search** | **COMPLETE.** Deterministic intervention batches, cached paired evaluation, exhaustive minimum/ddmin search, JSONL replay, the N=2,000 golden, and the M3P N=10,000 A-5 gate pass; see the [M4-05 report](../performance/M4_05_MINIMAL_CAUSE.md) and [§14](#14-m4-05-minimal-cause-search). |
 | **M4-06 — Settlement migration system** | Use settlement migration as the first newly registered system; report how much code outside the registered system changes. |
 | **M4-07 — Many-branch performance** | Measure shared-state and copy-on-write options, cross-branch parallelism, and GPU suitability. A GPU implementation is not implied. M4-02 follow-up candidate: day-scan digest cost measured at 70–160 ns/agent-day; compare direct column equality with SHA-256 only on request. |
 | **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
 | **M4 audit** | Answer the research question from recorded correctness and performance evidence and classify remaining work. |
 
-M4-00 through M4-04 are complete. M4-05 and later stages remain planned.
+M4-00 through M4-05 are complete. M4-06 and later stages remain planned.
 
 ## 4. Invariants carried from M0–M3
 
