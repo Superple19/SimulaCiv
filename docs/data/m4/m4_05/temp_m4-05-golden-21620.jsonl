@@ -1,0 +1,14 @@
+{"kind":"header","schema":1,"fingerprint":"851196a472df2d500967c89e72ed23427f7aac66fc3dd21c29ae3743c5d25889"}
+{"kind":"base","replicate_id":1,"outcome":668.0}
+{"kind":"base","replicate_id":2,"outcome":668.0}
+{"kind":"base","replicate_id":3,"outcome":670.0}
+{"kind":"base","replicate_id":4,"outcome":669.0}
+{"kind":"base","replicate_id":5,"outcome":669.0}
+{"kind":"base","replicate_id":6,"outcome":670.0}
+{"kind":"base","replicate_id":7,"outcome":668.0}
+{"kind":"base","replicate_id":8,"outcome":671.0}
+{"kind":"base","replicate_id":9,"outcome":669.0}
+{"kind":"base","replicate_id":10,"outcome":667.0}
+{"kind":"evaluation","subset_ids":[],"per_replicate_effects":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"mean_effect":0.0,"predicate_value":false}
+{"kind":"evaluation","subset_ids":["F:agent=0:health=0x00000000"],"per_replicate_effects":[-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0,-1.0],"mean_effect":-1.0,"predicate_value":true}
+{"kind":"result","max_branch_evaluations":1000,"max_wall_time_ms":600000,"result":{"status":"Complete","cause_ids":["F:agent=0:health=0x00000000"],"guarantee":"Minimum","evaluation_count":30,"mean_effect":-1.0,"predicate_value":true,"stop_reason":null,"evaluation_log_path":"C:\\Users\\chacj\\AppData\\Local\\Temp\\m4-05-golden-21620.jsonl"}}

@@ -1,0 +1,29 @@
+{
+  "selection": "all",
+  "baseline_cpu_percent": 9.144710844081061,
+  "baseline_samples": [
+    8.52197580114752,
+    9.144710844081061,
+    8.338062053603256,
+    9.8742999894338,
+    9.698950100365222
+  ],
+  "baseline_min": 8.338062053603256,
+  "baseline_max": 9.8742999894338,
+  "other_process_cpu_limit_percent": 14.145,
+  "logical_processors": 12.0,
+  "cpu_before_run_percent": 8.52197580114752,
+  "cpu_after_run_percent": 9.57503615707951,
+  "free_ram_before_kb": 77100420.0,
+  "free_ram_after_kb": 77073204.0,
+  "process_priority_applied": true,
+  "process_priority": "High",
+  "affinity_applied": true,
+  "affinity": "0x555",
+  "peak_working_set_bytes": 746364928.0,
+  "elapsed_seconds": 782.3,
+  "exit_code": 0,
+  "stdout_path": "C:\\AI\\SimulaCiv\\target\\m4_02_a3_official_stdout.txt",
+  "stderr_path": "C:\\AI\\SimulaCiv\\target\\m4_02_a3_official_stderr.txt",
+  "load_samples_path": "C:\\AI\\SimulaCiv\\target\\m4_02_a3_official_load.csv"
+}

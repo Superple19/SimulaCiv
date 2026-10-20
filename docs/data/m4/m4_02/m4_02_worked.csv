@@ -1,0 +1,1 @@
+worked,N=10000,profile=m3p,H=30,intervention=AgentId(0).food=0,first_day=0,first_slot=InterventionBoundary,first_agent=Some(AgentId(0)),components=["agent_rows"],D_d=[3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 18, 60, 119, 166, 198, 227, 255, 272, 308, 323, 339, 348, 359, 367, 372, 369, 383, 391],newborn_crn_loss=0

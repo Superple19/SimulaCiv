@@ -1,0 +1,15 @@
+{
+  "selection": "m3_serial_n10k_k50,m3p_incremental_n10k_k50,recorder_m3p_serial_n10000",
+  "cpu_before_percent": 7.822875365141768,
+  "cpu_after_percent": 9.465308354915969,
+  "free_ram_before_kb": 77196932.0,
+  "free_ram_after_kb": 77198092.0,
+  "priority_applied": true,
+  "priority": "High",
+  "affinity_applied": true,
+  "affinity": "0x555",
+  "elapsed_seconds": 31.8,
+  "exit_code": 0,
+  "stdout_path": "C:\\AI\\SimulaCiv\\target\\m4_02_a4_retry_stdout.txt",
+  "stderr_path": "C:\\AI\\SimulaCiv\\target\\m4_02_a4_retry_stderr.txt"
+}

@@ -1,0 +1,3 @@
+recorder,N,ordinary_branch_ms,ordinary_MAD_ms,recorder_overhead_ms,overhead_MAD_ms,two_direct_days_ms,direct_MAD_ms,threshold_ms,result
+recorder,10000,43.314,1.642,132.476,6.611,43.296,1.541,4.330,FAIL
+recorder,100000,655.682,36.644,11414.445,119.921,660.827,25.035,66.083,FAIL

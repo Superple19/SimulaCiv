@@ -1,0 +1,3 @@
+{"kind":"header","schema":1,"fingerprint":"867b2a8eda7b828622a4c567364d28b422948aa783adff95e7f812e56b46cb22"}
+{"kind":"base","replicate_id":1,"outcome":300.0,"error":null}
+{"kind":"result","max_branch_evaluations":1,"max_wall_time_ns":60000000000,"result":{"status":"Incomplete","cause_ids":[],"guarantee":"None","exploratory_single_replicate":true,"evaluation_count":1,"mean_effect":0.0,"predicate_value":false,"stop_reason":"max_branch_evaluations","evaluation_log_path":"C:\\Users\\chacj\\AppData\\Local\\Temp\\m4-05-incomplete-21984.jsonl"}}

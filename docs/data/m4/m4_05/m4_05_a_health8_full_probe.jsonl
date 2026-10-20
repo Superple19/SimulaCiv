@@ -1,0 +1,13 @@
+{"kind":"header","schema":1,"fingerprint":"2abf24fd62df395269b911f547e2c64d23fa421bf650148a3987b2d2d1030844"}
+{"kind":"base","replicate_id":1,"outcome":672.0,"error":null}
+{"kind":"base","replicate_id":2,"outcome":671.0,"error":null}
+{"kind":"base","replicate_id":3,"outcome":677.0,"error":null}
+{"kind":"base","replicate_id":4,"outcome":673.0,"error":null}
+{"kind":"base","replicate_id":5,"outcome":675.0,"error":null}
+{"kind":"base","replicate_id":6,"outcome":677.0,"error":null}
+{"kind":"base","replicate_id":7,"outcome":669.0,"error":null}
+{"kind":"base","replicate_id":8,"outcome":675.0,"error":null}
+{"kind":"base","replicate_id":9,"outcome":670.0,"error":null}
+{"kind":"base","replicate_id":10,"outcome":667.0,"error":null}
+{"kind":"evaluation","subset_ids":["C:DecisionTemperature=0x3f800000","C:FoodPrice=0x0000000000000064","C:TaxRate=0x3dcccccd","F:agent=0:health=0x3c23d70a","F:agent=12:health=0x3c23d70a","F:agent=15:health=0x3c23d70a","F:agent=18:health=0x3c23d70a","F:agent=21:health=0x3c23d70a","F:agent=3:health=0x3c23d70a","F:agent=6:health=0x3c23d70a","F:agent=9:health=0x3c23d70a"],"per_replicate_effects":[0.0,-3.0,-3.0,-2.0,0.0,-3.0,-2.0,0.0,-1.0,0.0],"mean_effect":-1.4,"predicate_value":true,"branch_runs":10,"error":null,"fatal_error":false}
+{"kind":"result","max_branch_evaluations":20,"max_wall_time_ns":"21600000000000","result":{"status":"Incomplete","cause_ids":["C:DecisionTemperature=0x3f800000","C:FoodPrice=0x0000000000000064","C:TaxRate=0x3dcccccd","F:agent=0:health=0x3c23d70a","F:agent=12:health=0x3c23d70a","F:agent=15:health=0x3c23d70a","F:agent=18:health=0x3c23d70a","F:agent=21:health=0x3c23d70a","F:agent=3:health=0x3c23d70a","F:agent=6:health=0x3c23d70a","F:agent=9:health=0x3c23d70a"],"guarantee":"None","exploratory_single_replicate":false,"evaluation_count":20,"mean_effect":-1.4,"predicate_value":true,"stop_reason":"max_branch_evaluations","evaluation_log_path":"target/m4_05_a_health8_full_probe.jsonl"}}
