@@ -113,3 +113,10 @@ The run timer was aggregate; simulation, branch-day snapshot encoding, outcome s
 ## Validation and scope
 
 The M4-04 implementation passed `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` before this experiment. The new CI golden test ran at N=2,000, 10 replicates, H=30 in 22.15 seconds in debug. Existing M2/M3/M3P goldens, snapshots, and M4-02/M4-03 outputs were not changed. The report is the only persistent Step 3 artifact; temporary measurement files were not staged.
+
+## Follow-ups
+
+- **Outcome variance:** `total_wealth` has zero base variance through H=30 in this workload; money is conserved until deaths begin to affect the total. It is therefore uninformative at those short horizons. Future outcome sets should check base variance before spending compute on CRN comparisons.
+- **Signal versus noise:** at H=365, `|D_H|` exceeds 99% of records, yet the health=0.01 paired effect is concentrated in the target settlement: total wealth is about `−3,320` versus target-settlement wealth `−3,278`, and alive population is `−0.93` versus target-settlement alive population `−1.10`. This is an observation for this workload, not a general law.
+- **Newborn identity:** newborn CRN loss reaches `33` at H=365 for the global BaseMetabolicCost intervention. Revisit M4-00 OQ-4 option B if long-horizon global interventions matter; M3P AgentId-based RNG identity remains unchanged.
+- **Independent-run overhead:** the independent-intervention loop in `run_crn_efficiency` calls `run_counterfactual_branch`, which runs both base and intervention sides, then retains only the intervention side. Since paired base results already supply the independent-base sample, this repeats and discards a base side—about one third of the requested replicate trajectory work. A branch-only execution path is an M4-07 candidate.
