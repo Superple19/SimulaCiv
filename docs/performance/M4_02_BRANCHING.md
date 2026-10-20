@@ -1,6 +1,6 @@
 # M4-02 Branching and Divergence Detection
 
-**Status: implementation and correctness gates pass; §11.7 performance gates fail, so M4-02 is not complete.**
+**Current status: M4-02 remains not complete. A-3 timing data are recorded below, but the first pass returned a zero harness-CPU counter and the one retry lost its per-cell CPU trace during monitor shutdown, so no cell has a valid A-3 gate decision. A-1 and A-2 results remain historical.**
 
 ## Host and method
 
@@ -228,3 +228,43 @@ Each range summarizes the total-CPU readings assigned to that cell, including 30
 | Recorder M3P serial, 100k | 18.92–28.02, 2/3 | 19.88–39.54, 4/5 | **INVALID** |
 
 The retry did not yield any host-valid gate cell, so no M4-02 completion decision can be made from this run. M4-02 remains **not complete**; §3 and the README are unchanged. The A-1 history is superseded for the decision rule only and is not reinterpreted here.
+
+### Confirmatory measurement under frozen §11.7 A-3
+
+The A-1 and A-2 measurements above remain historical and are not re-judged. This fresh release pass used all nine cells, two warmups, 21 timed samples, paired paths in one process, and alternating execution order. It retained High process priority and affinity `0x555` on the AMD Ryzen 5 9600X (6 physical / 12 logical processors). The first complete timing pass took 782.3 seconds. Its process counter used a single sample for a rate counter and returned zero harness CPU share; that pass is invalid under A-3 and was rerun once for all nine cells.
+
+The one permitted rerun produced timing records for all nine cells in 782 seconds. Its CPU monitor mapped the harness PID to a Windows process-counter instance and sampled total and process CPU together. On the final post-run boundary, the process-counter path became unavailable after the harness exited; the monitor failed before it wrote the per-cell CPU trace or host summary. Therefore the rerun cannot establish the A-3 other-process CPU validity condition. Both complete passes are invalid for the gate; no further retry was made. The first pass's recorded total CPU and host summary are not used as an A-3 validity result because its harness share was zero.
+
+#### A-3 numerical decision calculations
+
+The table reports the retry's paired medians and MADs in milliseconds, deterministic bootstrap upper bound `U`, threshold `T`, and both path MAD/median ratios. These are numerical calculations only; the final validity column reflects the missing retry CPU trace. Orchestration path order is direct pair / analysis-disabled API; recorder path order is full locator / comparison-disabled API.
+
+| Cell | Path MAD/median % | Median(delta) ± MAD ms | U ms | T ms | Numerical result | Final A-3 status |
+|---|---:|---:|---:|---:|---|---|
+| M3 serial, 10k | 1.81 / 3.56 | -1.022 ± 3.559 | 0.791 | 5.658 | PASS | **INVALID — CPU trace unavailable** |
+| M3P serial, 10k | 4.25 / 3.89 | 6.397 ± 27.289 | 26.197 | 27.192 | PASS | **INVALID — CPU trace unavailable** |
+| M3P incremental, 10k | 6.27 / 6.62 | -0.870 ± 16.805 | 9.207 | 9.205 | INCONCLUSIVE | **INVALID — CPU trace unavailable; path spread >5%** |
+| M3 serial, 100k | 2.55 / 2.54 | 37.435 ± 42.948 | 59.625 | 71.022 | PASS | **INVALID — CPU trace unavailable** |
+| M3P serial, 100k | 1.18 / 1.10 | 44.958 ± 106.156 | 96.881 | 406.807 | PASS | **INVALID — CPU trace unavailable** |
+| M3 + propagation serial, 100k | 0.56 / 0.67 | 2.653 ± 35.718 | 26.400 | 173.334 | PASS | **INVALID — CPU trace unavailable** |
+| M3P incremental, 100k | 1.05 / 1.98 | -20.006 ± 33.453 | 9.474 | 111.690 | PASS | **INVALID — CPU trace unavailable** |
+| Recorder M3P serial, 10k | 3.39 / 5.92 | 1.991 ± 5.963 | 7.717 | 2.873 | INCONCLUSIVE | **INVALID — CPU trace unavailable; path spread >5%** |
+| Recorder M3P serial, 100k | 3.64 / 3.16 | 11.480 ± 37.747 | 41.417 | 39.957 | INCONCLUSIVE | **INVALID — CPU trace unavailable** |
+
+#### Host validity summary
+
+The first pass recorded a pre-run total-CPU baseline median of 9.145% (range 8.338–9.874%), so its A-3 other-process threshold was 14.145 percentage points. The harness process was High priority with affinity `0x555`; the recorded peak working set was 746,364,928 bytes. However, its process rate-counter value was zero on every sample, so subtracting it would reproduce the known A-2 error. The retry's harness completed all timing cells, but its CPU trace and host summary were not saved after the process counter disappeared on the final boundary sample. Consequently, the retry's per-cell other-process CPU cannot be verified. The two 10k cells shown with path spread above 5% also remain invalid after the single retry.
+
+| Cell | First pass total-CPU samples, range % (count) | Logged harness share | Retry other-process load |
+|---|---:|---:|---|
+| M3 serial, 10k | 17.597–25.246 (2) | 0% (invalid counter result) | unavailable |
+| M3P serial, 10k | 17.332–18.687 (3) | 0% (invalid counter result) | unavailable |
+| M3P incremental, 10k | 18.231–18.895 (2) | 0% (invalid counter result) | unavailable |
+| M3 serial, 100k | 18.1–19.0 (4) | 0% (invalid counter result) | unavailable |
+| M3P serial, 100k | 16.1–18.0 (14) | 0% (invalid counter result) | unavailable |
+| M3 + propagation serial, 100k | 17.9–19.6 (8) | 0% (invalid counter result) | unavailable |
+| M3P incremental, 100k | 17.3–22.4 (7) | 0% (invalid counter result) | unavailable |
+| Recorder M3P serial, 10k | 17.8–18.3 (2) | 0% (invalid counter result) | unavailable |
+| Recorder M3P serial, 100k | 9.1–17.6 (3) | 0% (invalid counter result) | unavailable |
+
+M4-02 remains **not complete**. No §3 or README completion update was made, and M4-03 was not drafted because the A-3 gate did not produce nine valid PASS cells.
