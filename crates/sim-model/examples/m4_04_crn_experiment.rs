@@ -1,5 +1,5 @@
 // restored from session history; not re-run
-use sim_core::{GroupId, AgentId};
+use sim_core::{AgentId, GroupId};
 use sim_model::crn_efficiency::{CrnEfficiencyRequest, CrnVarianceRatio, run_crn_efficiency};
 use sim_model::m3p::{M3pReferenceState, encode_m3p_snapshot};
 use sim_model::runner::{DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, M0RunContext};
@@ -103,8 +103,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?;
         for estimate in &result.estimates {
             let (ratio, low, high) = match estimate.variance_ratio {
-                CrnVarianceRatio::ExactPairedVarianceZero => ("exact".to_owned(), String::new(), String::new()),
-                CrnVarianceRatio::Estimated { ratio, ci95_lower, ci95_upper } => (
+                CrnVarianceRatio::ExactPairedVarianceZero => {
+                    ("exact".to_owned(), String::new(), String::new())
+                }
+                CrnVarianceRatio::Estimated {
+                    ratio,
+                    ci95_lower,
+                    ci95_upper,
+                } => (
                     format!("{ratio:.12e}"),
                     format!("{ci95_lower:.12e}"),
                     format!("{ci95_upper:.12e}"),
@@ -128,10 +134,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ));
         }
         fs::write(format!("target/m4_04_crn_{name}.csv"), &output)?;
-        println!("completed {name} in {:.1} minutes", start.elapsed().as_secs_f64() / 60.0);
+        println!(
+            "completed {name} in {:.1} minutes",
+            start.elapsed().as_secs_f64() / 60.0
+        );
     }
     fs::write("target/m4_04_crn_efficiency.csv", output)?;
     println!("TOTAL_SECONDS={:.3}", total_start.elapsed().as_secs_f64());
     Ok(())
 }
-

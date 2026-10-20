@@ -3,21 +3,20 @@ use sim_core::AgentId;
 use sim_model::config::{SimulationConfig, SimulationProfile, SimulationSystems};
 use sim_model::counterfactual::{
     BranchAnalysisMode, BranchAnalysisOutput, BranchExecutionOption, BranchIntervention,
-    BranchRequest, ConfigParameter, ConfigValue, FirstDivergence,
-    run_counterfactual_branch, run_counterfactual_branch_with_analysis_mode,
+    BranchRequest, ConfigParameter, ConfigValue, FirstDivergence, run_counterfactual_branch,
+    run_counterfactual_branch_with_analysis_mode,
 };
 use sim_model::m3p::{M3pReferenceState, decode_m3p_snapshot, encode_m3p_snapshot};
-use sim_model::m3prop::{M3PropagationReferenceState, decode_m3prop_snapshot, encode_m3prop_snapshot};
+use sim_model::m3prop::{
+    M3PropagationReferenceState, decode_m3prop_snapshot, encode_m3prop_snapshot,
+};
 use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext,
-    M3PropagationStorageRunContext, M3StorageRunContext,
-    M3pIncrementalTopologyStorageRunContext, M3pStorageRunContext,
-    run_m3_storage_days, run_m3p_storage_days,
+    M3PropagationStorageRunContext, M3StorageRunContext, M3pIncrementalTopologyStorageRunContext,
+    M3pStorageRunContext, run_m3_storage_days, run_m3p_storage_days,
     run_m3p_storage_days_incremental_topology, run_m3prop_storage_days,
 };
-use sim_model::snapshot::{
-    CanonicalSnapshot, SnapshotMetadata, decode_snapshot, encode_snapshot,
-};
+use sim_model::snapshot::{CanonicalSnapshot, SnapshotMetadata, decode_snapshot, encode_snapshot};
 use sim_model::state::{AuthorityMode, HybridWorldState};
 use sim_model::{
     M3pPropagationReferenceState, SimConfig, encode_m3pprop_snapshot, initialize_world,
@@ -60,7 +59,10 @@ enum Path {
 }
 
 fn config(population: u32, settlements: u32, runner: Runner) -> SimConfig {
-    let m3p = matches!(runner, Runner::M3p | Runner::M3pIncremental | Runner::Recorder);
+    let m3p = matches!(
+        runner,
+        Runner::M3p | Runner::M3pIncremental | Runner::Recorder
+    );
     let mut config = SimConfig::parse_and_validate(if m3p {
         include_str!("../tests/fixtures/m3p_propagation_sustained.toml")
     } else {
@@ -146,7 +148,11 @@ fn make_cell(id: &str, runner: Runner, population: u32, recorder: bool) -> Cell 
     };
     let expected = if recorder {
         let result = run_counterfactual_branch(&request).unwrap();
-        Some(result.first_divergence.expect("forced action locates a phase"))
+        Some(
+            result
+                .first_divergence
+                .expect("forced action locates a phase"),
+        )
     } else {
         None
     };
@@ -180,10 +186,8 @@ fn direct_pass(cell: &Cell) {
         }
         Runner::M3p => {
             let restored = decode_m3p_snapshot(cell.snapshot.as_ref(), &cell.config).unwrap();
-            let mut world = HybridWorldState::new(
-                restored.state.world().clone(),
-                AuthorityMode::Hybrid,
-            );
+            let mut world =
+                HybridWorldState::new(restored.state.world().clone(), AuthorityMode::Hybrid);
             let mut context = M3pStorageRunContext::from_reference_state(
                 &world,
                 &cell.config,
@@ -198,10 +202,8 @@ fn direct_pass(cell: &Cell) {
         }
         Runner::M3pIncremental => {
             let restored = decode_m3p_snapshot(cell.snapshot.as_ref(), &cell.config).unwrap();
-            let mut world = HybridWorldState::new(
-                restored.state.world().clone(),
-                AuthorityMode::Hybrid,
-            );
+            let mut world =
+                HybridWorldState::new(restored.state.world().clone(), AuthorityMode::Hybrid);
             let mut context = M3pIncrementalTopologyStorageRunContext::from_reference_state(
                 &world,
                 &cell.config,
@@ -222,10 +224,8 @@ fn direct_pass(cell: &Cell) {
         }
         Runner::M3Propagation => {
             let restored = decode_m3prop_snapshot(cell.snapshot.as_ref(), &cell.config).unwrap();
-            let mut world = HybridWorldState::new(
-                restored.state.world().clone(),
-                AuthorityMode::Hybrid,
-            );
+            let mut world =
+                HybridWorldState::new(restored.state.world().clone(), AuthorityMode::Hybrid);
             let mut context = M3PropagationStorageRunContext::from_reference_state(
                 &world,
                 &cell.config,
@@ -306,7 +306,7 @@ fn run_batch(cell: &Cell, r: usize, start_direct: bool) -> (f64, f64) {
 fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
     } else {
         sorted[sorted.len() / 2]
@@ -315,7 +315,10 @@ fn median(values: &[f64]) -> f64 {
 
 fn mad(values: &[f64]) -> f64 {
     let center = median(values);
-    let deviations = values.iter().map(|value| (value - center).abs()).collect::<Vec<_>>();
+    let deviations = values
+        .iter()
+        .map(|value| (value - center).abs())
+        .collect::<Vec<_>>();
     median(&deviations)
 }
 
@@ -340,15 +343,21 @@ fn run_cell(cell: &Cell, fixed_r: Option<usize>, sample_file: &mut File) -> usiz
     let r = if let Some(r) = fixed_r {
         r
     } else {
-        let elapsed = timed(cell, if matches!(cell.runner, Runner::Recorder) {
-            Path::RecorderFull
-        } else {
-            Path::DirectPair
-        }) + timed(cell, if matches!(cell.runner, Runner::Recorder) {
-            Path::RecorderDisabled
-        } else {
-            Path::BranchDisabled
-        });
+        let elapsed = timed(
+            cell,
+            if matches!(cell.runner, Runner::Recorder) {
+                Path::RecorderFull
+            } else {
+                Path::DirectPair
+            },
+        ) + timed(
+            cell,
+            if matches!(cell.runner, Runner::Recorder) {
+                Path::RecorderDisabled
+            } else {
+                Path::BranchDisabled
+            },
+        );
         usize::try_from(TARGET_SAMPLE_NS.div_ceil(elapsed.max(1)))
             .unwrap()
             .max(1)
@@ -360,7 +369,12 @@ fn run_cell(cell: &Cell, fixed_r: Option<usize>, sample_file: &mut File) -> usiz
     for sample in 0..SAMPLES {
         let (direct_ms, other_ms) = run_batch(cell, r, sample % 2 == 0);
         let delta = other_ms - direct_ms;
-        writeln!(sample_file, "{}\t{sample}\t{direct_ms:.9}\t{other_ms:.9}\t{delta:.9}", cell.id).unwrap();
+        writeln!(
+            sample_file,
+            "{}\t{sample}\t{direct_ms:.9}\t{other_ms:.9}\t{delta:.9}",
+            cell.id
+        )
+        .unwrap();
         direct.push(direct_ms);
         other.push(other_ms);
         deltas.push(delta);
@@ -370,11 +384,12 @@ fn run_cell(cell: &Cell, fixed_r: Option<usize>, sample_file: &mut File) -> usiz
     let delta_median = median(&deltas);
     let delta_mad = mad(&deltas);
     let u = bootstrap_u(&deltas);
-    let threshold = 0.05 * if matches!(cell.runner, Runner::Recorder) {
-        other_median
-    } else {
-        direct_median
-    };
+    let threshold = 0.05
+        * if matches!(cell.runner, Runner::Recorder) {
+            other_median
+        } else {
+            direct_median
+        };
     let direct_spread = 100.0 * mad(&direct) / direct_median.abs();
     let other_spread = 100.0 * mad(&other) / other_median.abs();
     let valid = direct_spread <= 5.0 && other_spread <= 5.0;
@@ -404,7 +419,12 @@ fn cells() -> Vec<Cell> {
         make_cell("m3-100k", Runner::M3, 100_000, false),
         make_cell("m3p-100k", Runner::M3p, 100_000, false),
         make_cell("m3prop-100k", Runner::M3Propagation, 100_000, false),
-        make_cell("m3p-incremental-100k", Runner::M3pIncremental, 100_000, false),
+        make_cell(
+            "m3p-incremental-100k",
+            Runner::M3pIncremental,
+            100_000,
+            false,
+        ),
         make_cell("recorder-10k", Runner::Recorder, 10_000, true),
         make_cell("recorder-100k", Runner::Recorder, 100_000, true),
     ]
@@ -445,14 +465,22 @@ fn main() {
         }
         let mut costs = Vec::with_capacity(SAMPLES);
         for _ in 0..SAMPLES {
-            let BranchAnalysisOutput::Full { costs: measured, .. } =
-                run_counterfactual_branch_with_analysis_mode(&cell.request, BranchAnalysisMode::Full)
-                    .unwrap()
+            let BranchAnalysisOutput::Full {
+                costs: measured, ..
+            } = run_counterfactual_branch_with_analysis_mode(
+                &cell.request,
+                BranchAnalysisMode::Full,
+            )
+            .unwrap()
             else {
                 unreachable!()
             };
             costs.push(measured.recorder_compare_ns as f64 / 1_000_000.0);
         }
-        println!("COMPARE_COST\t{name}\t{:.6}\t{:.6}", median(&costs), mad(&costs));
+        println!(
+            "COMPARE_COST\t{name}\t{:.6}\t{:.6}",
+            median(&costs),
+            mad(&costs)
+        );
     }
 }

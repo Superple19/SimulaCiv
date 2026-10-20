@@ -8,6 +8,7 @@ use crate::hashing::{
     canonical_m3prop_state_hash,
 };
 use crate::metrics::M3DailyMetrics;
+use crate::migration::{MigrationDayData, MigrationProfileTag, encode_migration_snapshot};
 use crate::propagation::{PropagationAgentState, PropagationDailyCounts, apply_phase9c};
 use crate::relationship_graph::RelationshipGraph;
 #[cfg(test)]
@@ -51,6 +52,7 @@ pub struct M3PropDayOutcome {
     pub metrics: Option<M3PropDailyMetrics>,
     pub events: Vec<EventRecord>,
     pub snapshot: Option<CanonicalSnapshot>,
+    pub migration: Option<MigrationDayData>,
 }
 
 pub struct M3PropagationReferenceState {
@@ -100,6 +102,44 @@ impl M3PropagationReferenceState {
         config: &SimConfig,
         run_context: &M0RunContext,
     ) -> Result<Self, M0RunError> {
+        if config.migration_enabled() {
+            validate_m3prop_config(config)?;
+            let mut agent_ids = world
+                .agents
+                .iter()
+                .map(|agent| agent.agent_id)
+                .collect::<Vec<_>>();
+            agent_ids.sort_unstable();
+            if agent_ids.windows(2).any(|pair| pair[0] == pair[1])
+                || graph.source_ids() != agent_ids
+            {
+                return Err(invariant(
+                    "M3 propagation graph does not match canonical AgentIds",
+                ));
+            }
+            if propagation.keys().copied().ne(agent_ids.iter().copied()) {
+                return Err(invariant(
+                    "M3 propagation state does not match canonical AgentIds",
+                ));
+            }
+            let reference = M3ReferenceContext::from_relationship_graph(graph, run_context);
+            let migration_state = crate::migration::MigrationState::new(agent_ids)
+                .map_err(|error| invariant(error.to_string()))?;
+            reference.restore_migration_state(
+                migration_state,
+                world.agents.len(),
+                world.settlements.len(),
+            );
+            return Ok(Self {
+                world,
+                reference,
+                propagation,
+                run_context: *run_context,
+                relationship_degree_k: config.interaction.relationship_degree_k.unwrap_or_default(),
+                p_local_bits: config.interaction.p_local.unwrap_or_default().to_bits(),
+                propagation_config: config.propagation.expect("validated propagation settings"),
+            });
+        }
         let mut state = Self::new(world, config, run_context)?;
         state.reference =
             crate::runner::M3ReferenceContext::from_relationship_graph(graph, run_context);
@@ -118,6 +158,32 @@ impl M3PropagationReferenceState {
 
     pub fn relationship_graph(&self) -> &RelationshipGraph {
         self.reference.relationship_graph()
+    }
+
+    pub fn migration_state(&self) -> Option<crate::migration::MigrationState> {
+        self.reference.clone_migration_state()
+    }
+
+    pub fn set_migration_state(&mut self, state: crate::migration::MigrationState) {
+        self.reference.restore_migration_state(
+            state,
+            self.world.agents.len(),
+            self.world.settlements.len(),
+        );
+    }
+
+    pub fn restore_migration_snapshot(
+        &mut self,
+        relationship_graph: RelationshipGraph,
+        state: crate::migration::MigrationState,
+    ) {
+        self.reference =
+            M3ReferenceContext::from_relationship_graph(relationship_graph, &self.run_context);
+        self.reference.restore_migration_state(
+            state,
+            self.world.agents.len(),
+            self.world.settlements.len(),
+        );
     }
 
     pub fn propagation(&self) -> &BTreeMap<AgentId, PropagationAgentState> {
@@ -395,7 +461,23 @@ fn finish_m3prop_reference_day(
             DEFAULT_MODEL_VERSION,
             DEFAULT_CONFIG_VERSION,
         );
-        let snapshot = encode_m3prop_snapshot(state, &metadata)?;
+        let base_snapshot = encode_m3prop_snapshot(state, &metadata)?;
+        let snapshot = if config_migration_enabled(state) {
+            let migration_state = state
+                .reference
+                .clone_migration_state()
+                .ok_or_else(|| invariant("missing migration state at M3PROP snapshot"))?;
+            encode_migration_snapshot(
+                MigrationProfileTag::M3mPropagation,
+                &base_snapshot,
+                &migration_state,
+                state.world.agents.iter().map(|agent| agent.agent_id),
+                state.relationship_graph(),
+            )
+            .map_err(M0RunError::Phase11Snapshot)?
+        } else {
+            base_snapshot
+        };
         if options.events_enabled {
             outcome.events.push(EventRecord::new(
                 EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
@@ -403,7 +485,11 @@ fn finish_m3prop_reference_day(
                     day: metadata.day,
                     master_seed: metadata.master_seed,
                     replicate_id: metadata.replicate_id,
-                    schema_version: M3PROP_SNAPSHOT_SCHEMA_VERSION,
+                    schema_version: if config_migration_enabled(state) {
+                        crate::migration::MIGRATION_SNAPSHOT_SCHEMA_VERSION
+                    } else {
+                        M3PROP_SNAPSHOT_SCHEMA_VERSION
+                    },
                 }),
             ));
             outcome.events.sort_by_key(|event| event.key);
@@ -418,7 +504,12 @@ fn finish_m3prop_reference_day(
         metrics,
         events: outcome.events,
         snapshot,
+        migration: outcome.migration.take(),
     })
+}
+
+fn config_migration_enabled(state: &M3PropagationReferenceState) -> bool {
+    state.reference.migration_enabled()
 }
 
 pub fn encode_m3prop_snapshot(

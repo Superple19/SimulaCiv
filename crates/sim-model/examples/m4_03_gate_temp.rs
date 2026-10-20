@@ -1,14 +1,14 @@
 // restored from session history; not re-run
+use sim_model::config::{SimulationConfig, SimulationSystems};
 use sim_model::counterfactual::{
     BranchExecutionOption, BranchIntervention, BranchRequest, ConfigParameter, ConfigValue,
     run_counterfactual_branch, run_counterfactual_branch_with_divergence_series,
 };
-use sim_model::config::{SimulationConfig, SimulationSystems};
 use sim_model::m3p::{M3pReferenceState, encode_m3p_snapshot};
 use sim_model::m3prop::{M3PropagationReferenceState, encode_m3prop_snapshot};
 use sim_model::runner::{DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, M0RunContext};
 use sim_model::snapshot::{SnapshotMetadata, encode_snapshot};
-use sim_model::{SimulationProfile, SimulationRunnerSelection, SimConfig, initialize_world};
+use sim_model::{SimConfig, SimulationProfile, SimulationRunnerSelection, initialize_world};
 use std::time::Instant;
 
 fn request(n: u64, population: bool, seed: u64) -> BranchRequest {
@@ -80,7 +80,7 @@ fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let n = sorted.len();
-    if n % 2 == 0 {
+    if n.is_multiple_of(2) {
         (sorted[n / 2 - 1] + sorted[n / 2]) * 0.5
     } else {
         sorted[n / 2]
@@ -153,11 +153,19 @@ fn main() {
             let (mut direct_total, mut series_total) = (0.0, 0.0);
             for repeat in 0..r {
                 if (sample + repeat) % 2 == 0 {
-                    direct_total += timed(|| { let _ = run_counterfactual_branch(&request).unwrap(); });
-                    series_total += timed(|| { let _ = run_counterfactual_branch_with_divergence_series(&request).unwrap(); });
+                    direct_total += timed(|| {
+                        let _ = run_counterfactual_branch(&request).unwrap();
+                    });
+                    series_total += timed(|| {
+                        let _ = run_counterfactual_branch_with_divergence_series(&request).unwrap();
+                    });
                 } else {
-                    series_total += timed(|| { let _ = run_counterfactual_branch_with_divergence_series(&request).unwrap(); });
-                    direct_total += timed(|| { let _ = run_counterfactual_branch(&request).unwrap(); });
+                    series_total += timed(|| {
+                        let _ = run_counterfactual_branch_with_divergence_series(&request).unwrap();
+                    });
+                    direct_total += timed(|| {
+                        let _ = run_counterfactual_branch(&request).unwrap();
+                    });
                 }
             }
             let direct_us = direct_total / r as f64;
@@ -165,7 +173,10 @@ fn main() {
             direct_times.push(direct_us);
             series_times.push(series_us);
             deltas.push(series_us - direct_us);
-            println!("SAMPLE,{label},{sample},{direct_us:.3},{series_us:.3},{:.3}", series_us-direct_us);
+            println!(
+                "SAMPLE,{label},{sample},{direct_us:.3},{series_us:.3},{:.3}",
+                series_us - direct_us
+            );
         }
         let direct_median = median(&direct_times);
         let series_median = median(&series_times);
@@ -175,6 +186,10 @@ fn main() {
         let series_spread = mad(&series_times, series_median) / series_median;
         let upper = bootstrap_u(&deltas);
         let threshold = 0.05 * direct_median;
-        println!("CELL,{label},{r},{direct_median:.3},{:.3},{series_median:.3},{:.3},{delta_median:.3},{delta_mad:.3},{upper:.3},{threshold:.3},{direct_spread:.6},{series_spread:.6}", mad(&direct_times,direct_median), mad(&series_times,series_median));
+        println!(
+            "CELL,{label},{r},{direct_median:.3},{:.3},{series_median:.3},{:.3},{delta_median:.3},{delta_mad:.3},{upper:.3},{threshold:.3},{direct_spread:.6},{series_spread:.6}",
+            mad(&direct_times, direct_median),
+            mad(&series_times, series_median)
+        );
     }
 }

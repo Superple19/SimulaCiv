@@ -63,6 +63,10 @@ use crate::metrics::{
     DailyMetrics, M3DailyMetrics, Phase10Error, phase10_observe_storage_with_scratch,
     phase10_observe_with_scratch,
 };
+use crate::migration::{
+    MigrationDayData, MigrationScratch, MigrationState, apply_migration_storage,
+    apply_migration_world, encode_migration_snapshot,
+};
 use crate::partitioning::{
     Phase5Error, Phase5PartitionScratch, SettlementIntentPartition,
     phase5_partition_intents_baseline, phase5_partition_intents_from_vec_with_scratch,
@@ -103,6 +107,7 @@ use crate::system_registry::{
 use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
 use sim_core::{AgentId, GroupId, SimulationDay};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroUsize;
 
@@ -675,6 +680,8 @@ pub struct DayOutcome {
 pub struct M3ReferenceContext {
     run_context: M0RunContext,
     relationship_graph: RelationshipGraph,
+    migration_state: RefCell<Option<MigrationState>>,
+    migration_scratch: RefCell<Option<MigrationScratch>>,
 }
 
 /// Runtime graph, slot projection, and reusable scratch for M3 storage authority.
@@ -694,6 +701,9 @@ pub struct M3StorageRunContext {
     phase5_scratch: Phase5PartitionScratch,
     phase6b_scratch: M3Phase6BStorageScratch,
     phase8_scratch: Phase8WelfareScratch,
+    migration_config: Option<crate::config::MigrationConfig>,
+    migration_state: Option<MigrationState>,
+    migration_scratch: Option<MigrationScratch>,
 }
 
 impl M3StorageRunContext {
@@ -746,6 +756,13 @@ impl M3StorageRunContext {
         let phase4_projection = M3Phase4SlotProjection::new(&relationship_graph, storage)?;
         let agent_count = storage.len();
         let settlement_count = hybrid_world.world.settlements.len();
+        let migration_config = config.migration_config();
+        let migration_state = migration_config
+            .map(|_| MigrationState::new(storage.agent_ids().iter().copied()))
+            .transpose()
+            .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+        let migration_scratch = migration_config
+            .map(|_| MigrationScratch::with_capacity(agent_count, settlement_count));
 
         Ok(Self {
             run_context: *run_context,
@@ -762,11 +779,76 @@ impl M3StorageRunContext {
             phase5_scratch: Phase5PartitionScratch::with_capacity(settlement_count),
             phase6b_scratch: M3Phase6BStorageScratch::with_capacity(agent_count),
             phase8_scratch: Phase8WelfareScratch::with_capacity(settlement_count),
+            migration_config,
+            migration_state,
+            migration_scratch,
         })
     }
 
     pub fn relationship_graph(&self) -> &RelationshipGraph {
         &self.relationship_graph
+    }
+
+    pub fn restore_migration_state(&mut self, state: MigrationState) -> Result<(), M0RunError> {
+        if self.migration_config.is_none() {
+            return Err(M0RunError::InvariantViolation(
+                "cannot restore migration state for a migration-off context".into(),
+            ));
+        }
+        state
+            .validate_agent_ids(
+                self.storage_memberships
+                    .iter()
+                    .map(|(agent_id, _)| *agent_id),
+            )
+            .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+        self.migration_state = Some(state);
+        Ok(())
+    }
+
+    pub fn restore_migration_snapshot(
+        &mut self,
+        hybrid_world: &HybridWorldState,
+        relationship_graph: RelationshipGraph,
+        migration_state: MigrationState,
+    ) -> Result<(), M0RunError> {
+        if self.migration_config.is_none() {
+            return Err(M0RunError::InvariantViolation(
+                "cannot restore migration snapshot for a migration-off context".into(),
+            ));
+        }
+        let storage = hybrid_world.segmented_storage.as_ref().ok_or_else(|| {
+            M0RunError::InvariantViolation("hybrid mode without segmented storage".into())
+        })?;
+        let mut ids = storage.agent_ids().to_vec();
+        ids.sort_unstable();
+        if relationship_graph.source_ids() != ids {
+            return Err(M0RunError::InvariantViolation(
+                "restored migration graph does not match storage AgentIds".into(),
+            ));
+        }
+        migration_state
+            .validate_agent_ids(ids)
+            .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+        migration_state
+            .validate_current_day(hybrid_world.world.current_day.as_u32())
+            .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+        self.phase4_projection = M3Phase4SlotProjection::new(&relationship_graph, storage)?;
+        self.storage_memberships.clear();
+        self.storage_memberships.extend(
+            storage
+                .agent_ids()
+                .iter()
+                .copied()
+                .zip(storage.group_ids().iter().copied()),
+        );
+        self.relationship_graph = relationship_graph;
+        self.migration_state = Some(migration_state);
+        Ok(())
+    }
+
+    pub fn migration_state(&self) -> Option<&MigrationState> {
+        self.migration_state.as_ref()
     }
 
     fn validate_for(
@@ -811,6 +893,18 @@ impl M3StorageRunContext {
                     .into(),
             ));
         }
+        if self.migration_config != config.migration_config()
+            || self.migration_state.is_some() != config.migration_enabled()
+        {
+            return Err(M0RunError::InvariantViolation(
+                "M3 storage context does not match migration configuration".into(),
+            ));
+        }
+        if let Some(state) = &self.migration_state {
+            state
+                .validate_current_day(hybrid_world.world.current_day.as_u32())
+                .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+        }
         Ok(())
     }
 }
@@ -854,6 +948,13 @@ impl M3PropagationStorageRunContext {
     ) -> Result<Self, M0RunError> {
         let mut context = Self::new(hybrid_world, config, run_context)?;
         context.propagation.clone_from(reference.propagation());
+        if let Some(migration_state) = reference.reference.clone_migration_state() {
+            context.storage_context.restore_migration_snapshot(
+                hybrid_world,
+                reference.relationship_graph().clone(),
+                migration_state,
+            )?;
+        }
         Ok(context)
     }
 
@@ -863,6 +964,10 @@ impl M3PropagationStorageRunContext {
 
     pub fn relationship_graph(&self) -> &RelationshipGraph {
         self.storage_context.relationship_graph()
+    }
+
+    pub fn migration_state(&self) -> Option<&MigrationState> {
+        self.storage_context.migration_state()
     }
 }
 
@@ -886,6 +991,9 @@ pub struct M3pStorageRunContext {
     phase8_scratch: Phase8WelfareScratch,
     phase10_indices: Vec<usize>,
     phase10_settlement_indices: Vec<usize>,
+    migration_config: Option<crate::config::MigrationConfig>,
+    migration_state: Option<MigrationState>,
+    migration_scratch: Option<MigrationScratch>,
 }
 
 impl M3pStorageRunContext {
@@ -928,13 +1036,17 @@ impl M3pStorageRunContext {
             config,
             run_context,
         )?;
-        Self::from_graph_and_cursor(
+        let mut context = Self::from_graph_and_cursor(
             hybrid_world,
             config,
             run_context,
             reference.relationship_graph().clone(),
             reference.next_agent_id(),
-        )
+        )?;
+        if let Some(state) = reference.migration_state() {
+            context.migration_state = Some(state.clone());
+        }
+        Ok(context)
     }
 
     fn from_graph_and_cursor(
@@ -974,6 +1086,13 @@ impl M3pStorageRunContext {
         let phase4_projection = M3Phase4SlotProjection::new(&relationship_graph, storage)?;
         let agent_count = storage.len();
         let settlement_count = hybrid_world.world.settlements.len();
+        let migration_config = config.migration_config();
+        let migration_state = migration_config
+            .map(|_| MigrationState::new(storage.agent_ids().iter().copied()))
+            .transpose()
+            .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+        let migration_scratch = migration_config
+            .map(|_| MigrationScratch::with_capacity(agent_count, settlement_count));
         Ok(Self {
             run_context: *run_context,
             relationship_graph,
@@ -992,11 +1111,35 @@ impl M3pStorageRunContext {
             phase8_scratch: Phase8WelfareScratch::with_capacity(settlement_count),
             phase10_indices: Vec::with_capacity(agent_count),
             phase10_settlement_indices: Vec::with_capacity(settlement_count),
+            migration_config,
+            migration_state,
+            migration_scratch,
         })
     }
 
     pub fn relationship_graph(&self) -> &RelationshipGraph {
         &self.relationship_graph
+    }
+
+    pub fn restore_migration_state(&mut self, state: MigrationState) -> Result<(), M0RunError> {
+        if self.migration_config.is_none() {
+            return Err(M0RunError::InvariantViolation(
+                "cannot restore migration state for a migration-off context".into(),
+            ));
+        }
+        let storage_ids = self
+            .storage_memberships
+            .iter()
+            .map(|(agent_id, _)| *agent_id);
+        state
+            .validate_agent_ids(storage_ids)
+            .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+        self.migration_state = Some(state);
+        Ok(())
+    }
+
+    pub fn migration_state(&self) -> Option<&MigrationState> {
+        self.migration_state.as_ref()
     }
 
     pub const fn next_agent_id(&self) -> u64 {
@@ -1061,6 +1204,21 @@ impl M3pStorageRunContext {
             return Err(M0RunError::InvariantViolation(
                 "M3P storage context is stale after storage construction or replacement".into(),
             ));
+        }
+        if self.migration_config != config.migration_config()
+            || self.migration_state.is_some() != config.migration_enabled()
+        {
+            return Err(M0RunError::InvariantViolation(
+                "M3P storage context does not match migration configuration".into(),
+            ));
+        }
+        if let Some(state) = &self.migration_state {
+            state
+                .validate_agent_ids(storage.agent_ids().iter().copied())
+                .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+            state
+                .validate_current_day(hybrid_world.world.current_day.as_u32())
+                .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
         }
         let world = m3p_world_from_storage(&hybrid_world.world, storage);
         M3pReferenceState::from_parts(
@@ -1173,6 +1331,10 @@ impl M3pPropagationStorageRunContext {
 
     pub fn relationship_graph(&self) -> &RelationshipGraph {
         self.storage_context.relationship_graph()
+    }
+
+    pub fn migration_state(&self) -> Option<&MigrationState> {
+        self.storage_context.migration_state()
     }
 
     pub fn propagation(&self) -> &BTreeMap<AgentId, PropagationAgentState> {
@@ -1486,20 +1648,57 @@ impl M3ReferenceContext {
             degree_k,
             p_local,
         )?;
+        let migration_state = config
+            .migration_enabled()
+            .then(|| MigrationState::new(world.agents.iter().map(|agent| agent.agent_id)))
+            .transpose()
+            .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+        let migration_scratch = config
+            .migration_enabled()
+            .then(|| MigrationScratch::with_capacity(world.agents.len(), world.settlements.len()));
         Ok(Self {
             run_context: *run_context,
             relationship_graph,
+            migration_state: RefCell::new(migration_state),
+            migration_scratch: RefCell::new(migration_scratch),
         })
     }
 
-    pub(crate) fn from_relationship_graph(
+    pub fn from_relationship_graph(
         relationship_graph: RelationshipGraph,
         run_context: &M0RunContext,
     ) -> Self {
         Self {
             run_context: *run_context,
             relationship_graph,
+            migration_state: RefCell::new(None),
+            migration_scratch: RefCell::new(None),
         }
+    }
+
+    pub fn restore_migration_state(
+        &self,
+        state: MigrationState,
+        agent_count: usize,
+        settlement_count: usize,
+    ) {
+        *self.migration_state.borrow_mut() = Some(state);
+        *self.migration_scratch.borrow_mut() = Some(MigrationScratch::with_capacity(
+            agent_count,
+            settlement_count,
+        ));
+    }
+
+    pub fn migration_state(&self) -> Option<MigrationState> {
+        self.migration_state.borrow().clone()
+    }
+
+    pub(crate) fn migration_enabled(&self) -> bool {
+        self.migration_state.borrow().is_some()
+    }
+
+    pub(crate) fn clone_migration_state(&self) -> Option<MigrationState> {
+        self.migration_state.borrow().clone()
     }
 
     pub fn relationship_graph(&self) -> &RelationshipGraph {
@@ -1514,6 +1713,7 @@ pub struct M3DayOutcome {
     pub metrics: Option<M3DailyMetrics>,
     pub events: Vec<EventRecord>,
     pub snapshot: Option<CanonicalSnapshot>,
+    pub migration: Option<MigrationDayData>,
 }
 
 /// Unified error enum for M0 daily orchestration failures.
@@ -1992,13 +2192,15 @@ fn run_m3_reference_day_registered(
 ) -> Result<M3DayOutcome, M0RunError> {
     ensure_m3_profile(config)?;
     let mut state = M3ReferenceRegisteredDay::new(config, context, options, forced_action);
-    let enabled_systems: &[SystemId] = if post_phase9c.is_some() {
-        &[SystemId::RelationshipGraph, SystemId::Propagation]
-    } else {
-        &[SystemId::RelationshipGraph]
-    };
+    let mut enabled_systems = vec![SystemId::RelationshipGraph];
+    if config.migration_enabled() {
+        enabled_systems.push(SystemId::SettlementMigration);
+    }
+    if post_phase9c.is_some() {
+        enabled_systems.push(SystemId::Propagation);
+    }
     let run_options = RegisteredSystemRunOptions {
-        enabled_systems,
+        enabled_systems: &enabled_systems,
         execution: SystemExecutionOptions::default(),
     };
     let mut outcomes = if let Some(records) = recorder.take() {
@@ -2068,6 +2270,7 @@ fn run_m3_reference_day_registered(
 struct M3ReferenceRegisteredDay<'a> {
     effective_config: SimConfig,
     run_context: M0RunContext,
+    context: &'a M3ReferenceContext,
     graph: &'a RelationshipGraph,
     forced_action: Option<&'a mut ForcedActionDirective>,
     options: DayExecutionOptions,
@@ -2087,6 +2290,7 @@ struct M3ReferenceRegisteredDay<'a> {
     metrics: Option<M3DailyMetrics>,
     snapshot: Option<CanonicalSnapshot>,
     events: Vec<EventRecord>,
+    migration: Option<MigrationDayData>,
 }
 
 impl<'a> M3ReferenceRegisteredDay<'a> {
@@ -2102,6 +2306,7 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
         Self {
             effective_config,
             run_context: context.run_context,
+            context,
             graph: &context.relationship_graph,
             forced_action,
             options: *options,
@@ -2121,6 +2326,7 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
             metrics: None,
             snapshot: None,
             events: Vec::new(),
+            migration: None,
         }
     }
 
@@ -2219,6 +2425,45 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
                 )?;
                 Ok(())
             }
+            (SystemId::SettlementMigration, PhaseSlot::Phase9C) => {
+                let migration_config =
+                    self.effective_config.migration_config().ok_or_else(|| {
+                        M0RunError::InvariantViolation(
+                            "migration hook is enabled without migration settings".into(),
+                        )
+                    })?;
+                let mut migration_state = self.context.migration_state.borrow_mut();
+                let migration_state = migration_state.as_mut().ok_or_else(|| {
+                    M0RunError::InvariantViolation(
+                        "migration hook is enabled without migration state".into(),
+                    )
+                })?;
+                let mut migration_scratch = self.context.migration_scratch.borrow_mut();
+                let migration_scratch = migration_scratch.as_mut().ok_or_else(|| {
+                    M0RunError::InvariantViolation(
+                        "migration hook is enabled without migration scratch".into(),
+                    )
+                })?;
+                let mut migration = apply_migration_world(
+                    world,
+                    self.graph,
+                    migration_config,
+                    self.run_context.master_seed,
+                    self.run_context.replicate_id,
+                    self.executed_day,
+                    migration_state,
+                    migration_scratch,
+                )
+                .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+                if !self.options.metrics_enabled {
+                    migration.metrics = None;
+                }
+                if !self.options.events_enabled {
+                    migration.events.clear();
+                }
+                self.migration = Some(migration);
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -2286,8 +2531,14 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
             if self.options.events_enabled {
                 event_buffer.push(event_from_daily_metrics(&base));
             }
-            let (cross_partition_edge_count, total_directed_edge_count) =
+            let (cached_cross_partition_edge_count, total_directed_edge_count) =
                 self.graph.edge_ratio_counts();
+            let cross_partition_edge_count = self
+                .migration
+                .as_ref()
+                .map_or(cached_cross_partition_edge_count, |migration| {
+                    migration.current_cross_partition_edge_count
+                });
             self.metrics = Some(M3DailyMetrics {
                 metrics: base,
                 cross_partition_edge_count,
@@ -2309,7 +2560,23 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
                 DEFAULT_MODEL_VERSION,
                 DEFAULT_CONFIG_VERSION,
             );
-            self.snapshot = Some(encode_snapshot(world, &metadata)?);
+            let base_snapshot = encode_snapshot(world, &metadata)?;
+            self.snapshot = Some(if self.effective_config.migration_enabled() {
+                let migration_state = self.context.migration_state.borrow();
+                let migration_state = migration_state.as_ref().ok_or_else(|| {
+                    M0RunError::InvariantViolation("missing migration state at snapshot".into())
+                })?;
+                encode_migration_snapshot(
+                    crate::migration::MigrationProfileTag::M3m,
+                    &base_snapshot,
+                    migration_state,
+                    world.agents.iter().map(|agent| agent.agent_id),
+                    self.graph,
+                )
+                .map_err(M0RunError::Phase11Snapshot)?
+            } else {
+                base_snapshot
+            });
             if self.options.events_enabled {
                 event_buffer.push(EventRecord::new(
                     EventKey::new(self.executed_day, 11, GLOBAL_PARTITION_KEY, 0),
@@ -2317,7 +2584,11 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
                         day: metadata.day,
                         master_seed: metadata.master_seed,
                         replicate_id: metadata.replicate_id,
-                        schema_version: SNAPSHOT_SCHEMA_VERSION,
+                        schema_version: if self.effective_config.migration_enabled() {
+                            crate::migration::MIGRATION_SNAPSHOT_SCHEMA_VERSION
+                        } else {
+                            SNAPSHOT_SCHEMA_VERSION
+                        },
                     }),
                 ));
             }
@@ -2337,6 +2608,7 @@ impl<'a> M3ReferenceRegisteredDay<'a> {
             metrics: self.metrics.take(),
             events: std::mem::take(&mut self.events),
             snapshot: self.snapshot.take(),
+            migration: self.migration.take(),
         })
     }
 }
@@ -2494,6 +2766,7 @@ where
         metrics,
         events,
         snapshot,
+        migration: None,
     })
 }
 
@@ -2633,7 +2906,11 @@ fn run_m3prop_storage_days_inner(
         Some((pool, chunk_size)) => SystemExecutionPolicy::Parallel { pool, chunk_size },
         None => SystemExecutionPolicy::Serial,
     };
-    let enabled_systems = [SystemId::RelationshipGraph, SystemId::Propagation];
+    let mut enabled_systems = vec![SystemId::RelationshipGraph];
+    if base_config.migration_enabled() {
+        enabled_systems.push(SystemId::SettlementMigration);
+    }
+    enabled_systems.push(SystemId::Propagation);
     let run_options = RegisteredSystemRunOptions {
         enabled_systems: &enabled_systems,
         execution,
@@ -3020,6 +3297,7 @@ fn run_m3p_propagation_storage_day(
         metrics,
         events: base_outcome.events,
         snapshot,
+        migration: base_outcome.migration,
     })
 }
 
@@ -3245,6 +3523,9 @@ where
         .as_mut()
         .ok_or_else(|| M0RunError::InvariantViolation("hybrid mode without storage".into()))?;
     let mut enabled_systems = vec![SystemId::RelationshipGraph, SystemId::PopulationDynamics];
+    if config.migration_enabled() {
+        enabled_systems.push(SystemId::SettlementMigration);
+    }
     if propagation.is_some() {
         enabled_systems.push(SystemId::Propagation);
     }
@@ -3308,6 +3589,7 @@ pub(crate) struct M3pStorageRegisteredDay<'a> {
     metrics: Option<M3pDailyMetrics>,
     snapshot: Option<CanonicalSnapshot>,
     events: Vec<M3pEventRecord>,
+    migration: Option<MigrationDayData>,
 }
 
 impl<'a> M3pStorageRegisteredDay<'a> {
@@ -3351,6 +3633,7 @@ impl<'a> M3pStorageRegisteredDay<'a> {
             metrics: None,
             snapshot: None,
             events: Vec::new(),
+            migration: None,
         }
     }
 
@@ -3530,11 +3813,59 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                 } else {
                     self.context.refresh_after_phase9b(storage, &phase9b)?;
                 }
+                if let Some(migration_state) = self.context.migration_state.as_mut()
+                    && (!phase9b.births.is_empty() || phase9b.compacted)
+                {
+                    migration_state
+                        .sync_agent_ids(storage.agent_ids().iter().copied())
+                        .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+                }
                 if let Some(propagation) = self.propagation.as_deref_mut() {
                     self.newborn_ids = phase9b.births.iter().map(|birth| birth.child).collect();
                     sync_propagation_storage_rows(storage, propagation);
                 }
                 self.phase9b = Some(phase9b);
+                Ok(())
+            }
+            (SystemId::SettlementMigration, PhaseSlot::Phase9C) => {
+                let migration_config =
+                    self.effective_config.migration_config().ok_or_else(|| {
+                        M0RunError::InvariantViolation("missing migration settings".into())
+                    })?;
+                let migration_state = self.context.migration_state.as_mut().ok_or_else(|| {
+                    M0RunError::InvariantViolation("missing M3P migration state".into())
+                })?;
+                let migration_scratch =
+                    self.context.migration_scratch.as_mut().ok_or_else(|| {
+                        M0RunError::InvariantViolation("missing M3P migration scratch".into())
+                    })?;
+                let mut migration = apply_migration_storage(
+                    storage,
+                    &mut self.world.settlements,
+                    &self.context.relationship_graph,
+                    migration_config,
+                    self.context.run_context.master_seed,
+                    self.context.run_context.replicate_id,
+                    self.executed_day,
+                    migration_state,
+                    migration_scratch,
+                )
+                .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+                self.context.storage_memberships.clear();
+                self.context.storage_memberships.extend(
+                    storage
+                        .agent_ids()
+                        .iter()
+                        .copied()
+                        .zip(storage.group_ids().iter().copied()),
+                );
+                if !self.options.metrics_enabled {
+                    migration.metrics = None;
+                }
+                if !self.options.events_enabled {
+                    migration.events.clear();
+                }
+                self.migration = Some(migration);
                 Ok(())
             }
             (SystemId::Propagation, PhaseSlot::Phase9C) => {
@@ -3671,8 +4002,14 @@ impl<'a> M3pStorageRegisteredDay<'a> {
             if self.options.events_enabled {
                 event_buffer.push(event_from_daily_metrics(&base));
             }
-            let (cross_partition_edge_count, total_directed_edge_count) =
+            let (cached_cross_partition_edge_count, total_directed_edge_count) =
                 self.context.relationship_graph.edge_ratio_counts();
+            let cross_partition_edge_count = self
+                .migration
+                .as_ref()
+                .map_or(cached_cross_partition_edge_count, |migration| {
+                    migration.current_cross_partition_edge_count
+                });
             self.metrics = Some(M3pDailyMetrics {
                 m3_metrics: M3DailyMetrics {
                     metrics: base,
@@ -3710,6 +4047,11 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                 DEFAULT_CONFIG_VERSION,
             );
             let snapshot_world = m3p_world_from_storage(self.world, storage);
+            let snapshot_agent_ids = snapshot_world
+                .agents
+                .iter()
+                .map(|agent| agent.agent_id)
+                .collect::<Vec<_>>();
             if let (Some(config), Some(propagation)) = (
                 self.propagation_snapshot_config.as_ref(),
                 self.propagation.as_deref(),
@@ -3723,18 +4065,53 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                     &m3p_base_config(config),
                     &self.context.run_context,
                 )?;
+                let mut base = base;
+                if let Some(migration_state) = self.context.migration_state.as_ref() {
+                    base.set_migration_state(migration_state.clone());
+                }
                 let state =
                     M3pPropagationReferenceState::from_parts(base, propagation.clone(), config)?;
-                self.snapshot = Some(encode_m3pprop_snapshot(&state, &metadata)?);
+                let base_snapshot = encode_m3pprop_snapshot(&state, &metadata)?;
+                self.snapshot = Some(
+                    if let Some(migration_state) = self.context.migration_state.as_ref() {
+                        encode_migration_snapshot(
+                            crate::migration::MigrationProfileTag::M3pmPropagation,
+                            &base_snapshot,
+                            migration_state,
+                            snapshot_agent_ids.iter().copied(),
+                            &self.context.relationship_graph,
+                        )
+                        .map_err(M0RunError::Phase11Snapshot)?
+                    } else {
+                        base_snapshot
+                    },
+                );
             } else {
-                let snapshot_state = M3pReferenceState::from_parts(
+                let mut snapshot_state = M3pReferenceState::from_parts(
                     snapshot_world,
                     self.context.relationship_graph.clone(),
                     self.context.next_agent_id,
                     &self.effective_config,
                     &self.context.run_context,
                 )?;
-                self.snapshot = Some(encode_m3p_snapshot(&snapshot_state, &metadata)?);
+                if let Some(migration_state) = self.context.migration_state.as_ref() {
+                    snapshot_state.set_migration_state(migration_state.clone());
+                }
+                let base_snapshot = encode_m3p_snapshot(&snapshot_state, &metadata)?;
+                self.snapshot = Some(
+                    if let Some(migration_state) = self.context.migration_state.as_ref() {
+                        encode_migration_snapshot(
+                            crate::migration::MigrationProfileTag::M3pm,
+                            &base_snapshot,
+                            migration_state,
+                            snapshot_agent_ids.iter().copied(),
+                            &self.context.relationship_graph,
+                        )
+                        .map_err(M0RunError::Phase11Snapshot)?
+                    } else {
+                        base_snapshot
+                    },
+                );
             }
             if self.options.events_enabled {
                 event_buffer.push(EventRecord::new(
@@ -3743,7 +4120,9 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                         day: metadata.day,
                         master_seed: metadata.master_seed,
                         replicate_id: metadata.replicate_id,
-                        schema_version: if self.propagation.is_some() {
+                        schema_version: if self.context.migration_state.is_some() {
+                            crate::migration::MIGRATION_SNAPSHOT_SCHEMA_VERSION
+                        } else if self.propagation.is_some() {
                             crate::m3prop::M3PROP_SNAPSHOT_SCHEMA_VERSION
                         } else {
                             crate::m3p::M3P_SNAPSHOT_SCHEMA_VERSION
@@ -3811,6 +4190,7 @@ impl<'a> M3pStorageRegisteredDay<'a> {
             metrics: self.metrics.take(),
             events: std::mem::take(&mut self.events),
             snapshot: self.snapshot.take(),
+            migration: self.migration.take(),
         })
     }
 
@@ -3832,6 +4212,7 @@ impl<'a> M3pStorageRegisteredDay<'a> {
                 }),
             events: std::mem::take(&mut self.events),
             snapshot: self.snapshot.take(),
+            migration: self.migration.take(),
         })
     }
 }
@@ -4130,6 +4511,7 @@ fn run_m3p_storage_day_inner(
         metrics,
         events,
         snapshot,
+        migration: None,
     })
 }
 
@@ -4170,7 +4552,10 @@ fn run_m3_storage_days_registered(
     let storage = segmented_storage
         .as_mut()
         .ok_or_else(|| M0RunError::InvariantViolation("hybrid mode without storage".into()))?;
-    let enabled_systems = [SystemId::RelationshipGraph];
+    let mut enabled_systems = vec![SystemId::RelationshipGraph];
+    if config.migration_enabled() {
+        enabled_systems.push(SystemId::SettlementMigration);
+    }
     let run_options = RegisteredSystemRunOptions {
         enabled_systems: &enabled_systems,
         execution: m3_storage_execution_options(&phase6b_mode),
@@ -4243,6 +4628,7 @@ struct M3StorageRegisteredDay<'a> {
     propagation_counts: Option<PropagationDailyCounts>,
     snapshot: Option<CanonicalSnapshot>,
     events: Vec<EventRecord>,
+    migration: Option<MigrationDayData>,
 }
 
 impl<'a> M3StorageRegisteredDay<'a> {
@@ -4283,6 +4669,7 @@ impl<'a> M3StorageRegisteredDay<'a> {
             propagation_counts: None,
             snapshot: None,
             events: Vec::new(),
+            migration: None,
         }
     }
 
@@ -4503,6 +4890,47 @@ impl<'a> M3StorageRegisteredDay<'a> {
                 };
                 Ok(())
             }
+            (SystemId::SettlementMigration, PhaseSlot::Phase9C) => {
+                let migration_config =
+                    self.effective_config.migration_config().ok_or_else(|| {
+                        M0RunError::InvariantViolation("missing migration settings".into())
+                    })?;
+                let migration_state = self.context.migration_state.as_mut().ok_or_else(|| {
+                    M0RunError::InvariantViolation("missing M3 migration state".into())
+                })?;
+                let migration_scratch =
+                    self.context.migration_scratch.as_mut().ok_or_else(|| {
+                        M0RunError::InvariantViolation("missing M3 migration scratch".into())
+                    })?;
+                let mut migration = apply_migration_storage(
+                    storage,
+                    &mut self.world.settlements,
+                    &self.context.relationship_graph,
+                    migration_config,
+                    self.context.run_context.master_seed,
+                    self.context.run_context.replicate_id,
+                    self.executed_day,
+                    migration_state,
+                    migration_scratch,
+                )
+                .map_err(|error| M0RunError::InvariantViolation(error.to_string()))?;
+                self.context.storage_memberships.clear();
+                self.context.storage_memberships.extend(
+                    storage
+                        .agent_ids()
+                        .iter()
+                        .copied()
+                        .zip(storage.group_ids().iter().copied()),
+                );
+                if !self.options.metrics_enabled {
+                    migration.metrics = None;
+                }
+                if !self.options.events_enabled {
+                    migration.events.clear();
+                }
+                self.migration = Some(migration);
+                Ok(())
+            }
             (SystemId::Propagation, PhaseSlot::Phase9C) => {
                 let config = self.propagation_config.ok_or_else(|| {
                     M0RunError::InvariantViolation("missing propagation settings".into())
@@ -4602,8 +5030,14 @@ impl<'a> M3StorageRegisteredDay<'a> {
             if self.options.events_enabled {
                 event_buffer.push(event_from_daily_metrics(&base));
             }
-            let (cross_partition_edge_count, total_directed_edge_count) =
+            let (cached_cross_partition_edge_count, total_directed_edge_count) =
                 self.context.relationship_graph.edge_ratio_counts();
+            let cross_partition_edge_count = self
+                .migration
+                .as_ref()
+                .map_or(cached_cross_partition_edge_count, |migration| {
+                    migration.current_cross_partition_edge_count
+                });
             self.metrics = Some(M3DailyMetrics {
                 metrics: base,
                 cross_partition_edge_count,
@@ -4635,15 +5069,47 @@ impl<'a> M3StorageRegisteredDay<'a> {
             ) {
                 let mut snapshot_world = self.world.clone();
                 snapshot_world.current_day = SimulationDay(self.next_day);
-                let mut snapshot_state = M3PropagationReferenceState::new(
+                let mut snapshot_state = M3PropagationReferenceState::from_parts(
                     snapshot_world,
+                    self.context.relationship_graph.clone(),
+                    propagation.clone(),
                     config,
                     &self.context.run_context,
                 )?;
-                snapshot_state.propagation = propagation.clone();
-                self.snapshot = Some(encode_m3prop_snapshot(&snapshot_state, &metadata)?);
+                if let Some(migration_state) = self.context.migration_state.as_ref() {
+                    snapshot_state.set_migration_state(migration_state.clone());
+                }
+                let base_snapshot = encode_m3prop_snapshot(&snapshot_state, &metadata)?;
+                self.snapshot = Some(
+                    if let Some(migration_state) = self.context.migration_state.as_ref() {
+                        encode_migration_snapshot(
+                            crate::migration::MigrationProfileTag::M3mPropagation,
+                            &base_snapshot,
+                            migration_state,
+                            self.world.agents.iter().map(|agent| agent.agent_id),
+                            &self.context.relationship_graph,
+                        )
+                        .map_err(M0RunError::Phase11Snapshot)?
+                    } else {
+                        base_snapshot
+                    },
+                );
             } else {
-                self.snapshot = Some(encode_snapshot(self.world, &metadata)?);
+                let base_snapshot = encode_snapshot(self.world, &metadata)?;
+                self.snapshot = Some(
+                    if let Some(migration_state) = self.context.migration_state.as_ref() {
+                        encode_migration_snapshot(
+                            crate::migration::MigrationProfileTag::M3m,
+                            &base_snapshot,
+                            migration_state,
+                            self.world.agents.iter().map(|agent| agent.agent_id),
+                            &self.context.relationship_graph,
+                        )
+                        .map_err(M0RunError::Phase11Snapshot)?
+                    } else {
+                        base_snapshot
+                    },
+                );
             }
             if self.options.events_enabled {
                 event_buffer.push(EventRecord::new(
@@ -4652,7 +5118,9 @@ impl<'a> M3StorageRegisteredDay<'a> {
                         day: metadata.day,
                         master_seed: metadata.master_seed,
                         replicate_id: metadata.replicate_id,
-                        schema_version: if self.propagation.is_some() {
+                        schema_version: if self.context.migration_state.is_some() {
+                            crate::migration::MIGRATION_SNAPSHOT_SCHEMA_VERSION
+                        } else if self.propagation.is_some() {
                             M3PROP_SNAPSHOT_SCHEMA_VERSION
                         } else {
                             SNAPSHOT_SCHEMA_VERSION
@@ -4676,6 +5144,7 @@ impl<'a> M3StorageRegisteredDay<'a> {
             metrics: self.metrics.take(),
             events: std::mem::take(&mut self.events),
             snapshot: self.snapshot.take(),
+            migration: self.migration.take(),
         })
     }
 
@@ -4695,6 +5164,7 @@ impl<'a> M3StorageRegisteredDay<'a> {
             }),
             events: std::mem::take(&mut self.events),
             snapshot: self.snapshot.take(),
+            migration: self.migration.take(),
         })
     }
 }
@@ -4957,6 +5427,7 @@ fn run_m3_storage_day_with_phase6b_and_search_reduction(
         metrics,
         events,
         snapshot,
+        migration: None,
     })
 }
 

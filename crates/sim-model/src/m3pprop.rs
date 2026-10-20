@@ -16,6 +16,7 @@ use crate::m3p::{
     run_m3p_reference_day_with_post_phase9c_registered,
 };
 use crate::m3prop::M3PROP_SNAPSHOT_SCHEMA_VERSION;
+use crate::migration::{MigrationDayData, MigrationProfileTag, encode_migration_snapshot};
 use crate::propagation::{PropagationAgentState, PropagationDailyCounts, apply_phase9c_m3p};
 use crate::relationship_graph::RelationshipGraph;
 use crate::runner::{
@@ -40,6 +41,7 @@ pub struct M3pPropagationDayOutcome {
     pub metrics: Option<M3pPropagationDailyMetrics>,
     pub events: Vec<M3pEventRecord>,
     pub snapshot: Option<CanonicalSnapshot>,
+    pub migration: Option<MigrationDayData>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,6 +100,14 @@ impl M3pPropagationReferenceState {
 
     pub fn base_state(&self) -> &M3pReferenceState {
         &self.base
+    }
+
+    pub fn migration_state(&self) -> Option<&crate::migration::MigrationState> {
+        self.base.migration_state()
+    }
+
+    pub fn set_migration_state(&mut self, state: crate::migration::MigrationState) {
+        self.base.set_migration_state(state);
     }
 
     pub fn world(&self) -> &WorldState {
@@ -373,7 +383,19 @@ fn finish_m3pprop_reference_day(
             DEFAULT_MODEL_VERSION,
             DEFAULT_CONFIG_VERSION,
         );
-        let snapshot = encode_m3pprop_snapshot(state, &metadata)?;
+        let base_snapshot = encode_m3pprop_snapshot(state, &metadata)?;
+        let snapshot = if let Some(migration_state) = state.base.migration_state() {
+            encode_migration_snapshot(
+                MigrationProfileTag::M3pmPropagation,
+                &base_snapshot,
+                migration_state,
+                state.world().agents.iter().map(|agent| agent.agent_id),
+                state.base_state().relationship_graph(),
+            )
+            .map_err(M0RunError::Phase11Snapshot)?
+        } else {
+            base_snapshot
+        };
         if options.events_enabled {
             outcome.events.push(M3pEventRecord {
                 key: EventKey::new(executed_day, 11, GLOBAL_PARTITION_KEY, 0),
@@ -381,7 +403,11 @@ fn finish_m3pprop_reference_day(
                     day: metadata.day,
                     master_seed: metadata.master_seed,
                     replicate_id: metadata.replicate_id,
-                    schema_version: M3PROP_SNAPSHOT_SCHEMA_VERSION,
+                    schema_version: if state.base.migration_state().is_some() {
+                        crate::migration::MIGRATION_SNAPSHOT_SCHEMA_VERSION
+                    } else {
+                        M3PROP_SNAPSHOT_SCHEMA_VERSION
+                    },
                 })),
             });
             outcome.events.sort_by_key(|record| record.key);
@@ -395,6 +421,7 @@ fn finish_m3pprop_reference_day(
         metrics,
         events: outcome.events,
         snapshot,
+        migration: outcome.migration,
     })
 }
 

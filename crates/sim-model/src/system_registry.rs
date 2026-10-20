@@ -15,6 +15,7 @@ use std::num::NonZeroUsize;
 pub enum SystemId {
     RelationshipGraph,
     PopulationDynamics,
+    SettlementMigration,
     Propagation,
     #[cfg(test)]
     TestNoop,
@@ -25,6 +26,7 @@ pub enum SystemId {
 pub enum FeatureSwitchKey {
     RelationshipGraph,
     PopulationDynamics,
+    Migration,
     Propagation,
     #[cfg(test)]
     TestNoop,
@@ -79,6 +81,7 @@ impl SystemExecutionOptions<'_> {
         match system {
             SystemId::RelationshipGraph => self.relationship_graph,
             SystemId::PopulationDynamics => self.population_dynamics,
+            SystemId::SettlementMigration => SystemExecutionPolicy::Serial,
             SystemId::Propagation => self.propagation,
             #[cfg(test)]
             SystemId::TestNoop => SystemExecutionPolicy::Serial,
@@ -93,6 +96,10 @@ pub enum DescriptorProfile {
     M3p,
     M3Propagation,
     M3pPropagation,
+    M3Migration,
+    M3pMigration,
+    M3MigrationPropagation,
+    M3pMigrationPropagation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -452,6 +459,7 @@ const GRAPH_PHASE_SLOTS: &[PhaseSlot] = &[
     PhaseSlot::Phase6B,
 ];
 const POPULATION_PHASE_SLOTS: &[PhaseSlot] = &[PhaseSlot::Phase9B];
+const MIGRATION_PHASE_SLOTS: &[PhaseSlot] = &[PhaseSlot::Phase9C];
 const PROPAGATION_PHASE_SLOTS: &[PhaseSlot] = &[PhaseSlot::Phase9C];
 
 const GRAPH_ACCESS: &[PhaseAccess] = &[
@@ -526,6 +534,159 @@ const PROPAGATION_ACCESS: &[PhaseAccess] = &[PhaseAccess {
     ordered_after: &[SystemId::PopulationDynamics],
 }];
 
+const MIGRATION_ACCESS: &[PhaseAccess] = &[PhaseAccess {
+    slot: PhaseSlot::Phase9C,
+    reads: &[
+        "agent.agent_id",
+        "agent.alive",
+        "agent.birth_day",
+        "agent.wealth",
+        "agent.group_id",
+        "relationship_graph.csr",
+        "settlement.resource",
+        "settlement.treasury",
+    ],
+    writes: &[
+        "agent.group_id",
+        "agent.wealth",
+        "settlement.treasury",
+        "migration.last_move_day",
+        "migration.metrics",
+        "migration.events",
+    ],
+    ordered_after: &[SystemId::RelationshipGraph, SystemId::PopulationDynamics],
+}];
+
+const MIGRATION_SNAPSHOT_SECTIONS: &[SnapshotSection] = &[
+    SnapshotSection {
+        profile: DescriptorProfile::M3Migration,
+        schema_version: 4,
+        order: 2,
+        name: "migration.last_move_day",
+        encoding: "AgentId-sorted optional u32 LE day",
+    },
+    SnapshotSection {
+        profile: DescriptorProfile::M3pMigration,
+        schema_version: 4,
+        order: 2,
+        name: "migration.last_move_day",
+        encoding: "AgentId-sorted optional u32 LE day",
+    },
+    SnapshotSection {
+        profile: DescriptorProfile::M3MigrationPropagation,
+        schema_version: 4,
+        order: 2,
+        name: "migration.last_move_day",
+        encoding: "AgentId-sorted optional u32 LE day",
+    },
+    SnapshotSection {
+        profile: DescriptorProfile::M3pMigrationPropagation,
+        schema_version: 4,
+        order: 2,
+        name: "migration.last_move_day",
+        encoding: "AgentId-sorted optional u32 LE day",
+    },
+];
+
+const MIGRATION_DIGESTS: &[DigestContribution] = &[
+    DigestContribution {
+        profile: DescriptorProfile::M3Migration,
+        kind: DigestKind::State,
+        domain_tag: b"SIMCIV_M3M_STATE_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "AgentId-sorted last_move_day records after M3 State",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3pMigration,
+        kind: DigestKind::State,
+        domain_tag: b"SIMCIV_M3PM_STATE_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "AgentId-sorted last_move_day records after M3P State",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3MigrationPropagation,
+        kind: DigestKind::State,
+        domain_tag: b"SIMCIV_M3MPROP_STATE_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "AgentId-sorted last_move_day records after M3 propagation State",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3pMigrationPropagation,
+        kind: DigestKind::State,
+        domain_tag: b"SIMCIV_M3PMPROP_STATE_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "AgentId-sorted last_move_day records after M3P propagation State",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3Migration,
+        kind: DigestKind::Metrics,
+        domain_tag: b"SIMCIV_M3M_METRICS_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "migrations, migration_cost, cross_partition_edge_count_delta",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3pMigration,
+        kind: DigestKind::Metrics,
+        domain_tag: b"SIMCIV_M3PM_METRICS_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "migrations, migration_cost, cross_partition_edge_count_delta",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3MigrationPropagation,
+        kind: DigestKind::Metrics,
+        domain_tag: b"SIMCIV_M3MPROP_METRICS_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "migrations, migration_cost, cross_partition_edge_count_delta",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3pMigrationPropagation,
+        kind: DigestKind::Metrics,
+        domain_tag: b"SIMCIV_M3PMPROP_METRICS_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "migrations, migration_cost, cross_partition_edge_count_delta",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3Migration,
+        kind: DigestKind::Events,
+        domain_tag: b"SIMCIV_M3M_EVENTS_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "SettlementMigrated records after base Phase 9b events",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3pMigration,
+        kind: DigestKind::Events,
+        domain_tag: b"SIMCIV_M3PM_EVENTS_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "SettlementMigrated records after base Phase 9b events",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3MigrationPropagation,
+        kind: DigestKind::Events,
+        domain_tag: b"SIMCIV_M3MPROP_EVENTS_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "SettlementMigrated records after base Phase 9b events",
+    },
+    DigestContribution {
+        profile: DescriptorProfile::M3pMigrationPropagation,
+        kind: DigestKind::Events,
+        domain_tag: b"SIMCIV_M3PMPROP_EVENTS_V1",
+        byte_order: ByteOrder::LittleEndian,
+        order: 4,
+        field_sequence: "SettlementMigrated records after base Phase 9b events",
+    },
+];
+
 pub static SYSTEM_REGISTRY: &[SystemDescriptor] = &[
     SystemDescriptor {
         id: SystemId::RelationshipGraph,
@@ -588,6 +749,25 @@ pub static SYSTEM_REGISTRY: &[SystemDescriptor] = &[
     },
 ];
 
+pub static MIGRATION_SYSTEM_DESCRIPTOR: SystemDescriptor = SystemDescriptor {
+    id: SystemId::SettlementMigration,
+    name: "migration",
+    feature_switch_key: FeatureSwitchKey::Migration,
+    dependencies: &[SystemId::RelationshipGraph],
+    phase_slots: MIGRATION_PHASE_SLOTS,
+    rng_subsystem_ids: &[9],
+    owned_state_columns: &["migration.last_move_day"],
+    snapshot_sections: MIGRATION_SNAPSHOT_SECTIONS,
+    digest_contributions: MIGRATION_DIGESTS,
+    metrics_fields: &[
+        "migrations",
+        "migration_cost",
+        "cross_partition_edge_count_delta",
+    ],
+    event_kinds: &["SettlementMigrated"],
+    access: MIGRATION_ACCESS,
+};
+
 const M2_SYSTEMS: &[SystemId] = &[];
 const M3_SYSTEMS: &[SystemId] = &[SystemId::RelationshipGraph];
 const M3P_SYSTEMS: &[SystemId] = &[SystemId::RelationshipGraph, SystemId::PopulationDynamics];
@@ -614,11 +794,19 @@ pub fn validate_system_registry(
     registry: &[SystemDescriptor],
     enabled_systems: &[SystemId],
 ) -> Result<Vec<RegisteredHook>, SystemRegistryError> {
+    let mut descriptors = registry.iter().collect::<Vec<_>>();
+    if enabled_systems.contains(&SystemId::SettlementMigration)
+        && !descriptors
+            .iter()
+            .any(|descriptor| descriptor.id == SystemId::SettlementMigration)
+    {
+        descriptors.push(&MIGRATION_SYSTEM_DESCRIPTOR);
+    }
     let mut ids = BTreeSet::new();
     let mut names = BTreeSet::new();
     let mut rng_ids = BTreeSet::new();
 
-    for descriptor in registry {
+    for &descriptor in &descriptors {
         if !ids.insert(descriptor.id) {
             return Err(SystemRegistryError::DuplicateSystemId(descriptor.id));
         }
@@ -649,7 +837,7 @@ pub fn validate_system_registry(
         }
     }
 
-    for descriptor in registry {
+    for &descriptor in &descriptors {
         for &dependency in descriptor.dependencies {
             if !ids.contains(&dependency) {
                 return Err(SystemRegistryError::MissingDependencyDescriptor {
@@ -680,8 +868,9 @@ pub fn validate_system_registry(
         }
     }
 
-    let selected: Vec<_> = registry
+    let selected: Vec<_> = descriptors
         .iter()
+        .copied()
         .filter(|descriptor| enabled.contains(&descriptor.id))
         .collect();
     for descriptor in &selected {
@@ -758,10 +947,14 @@ pub fn system_ids_for_features(
 
 /// Validates the descriptor set before configured runner dispatch without changing its error boundary.
 pub fn validate_configured_system_set(config: &SimConfig) -> Result<(), SystemRegistryError> {
-    let from_features = system_ids_for_features(config.effective_systems())?;
+    let mut from_features = system_ids_for_features(config.effective_systems())?;
     let from_selection = system_ids_for_runner_selection(config.runner_selection());
     if from_features != from_selection {
         return Err(SystemRegistryError::FeatureProfileMapMismatch);
+    }
+    if config.migration_enabled() {
+        from_features.push(SystemId::SettlementMigration);
+        from_features.sort_unstable();
     }
     validate_system_registry(SYSTEM_REGISTRY, &from_features).map(|_| ())
 }

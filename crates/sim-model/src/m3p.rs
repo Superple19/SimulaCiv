@@ -16,6 +16,10 @@ use crate::intents::{
     generate_intents_m3_into,
 };
 use crate::metrics::{M3DailyMetrics, phase10_observe_with_scratch};
+use crate::migration::{
+    MigrationDayData, MigrationScratch, MigrationState, apply_migration_world,
+    encode_migration_snapshot,
+};
 use crate::partitioning::phase5_partition_intents_baseline;
 use crate::phases::{
     phase1_resource_regrowth, phase2_biological_degradation, phase9_mortality_commitment,
@@ -94,6 +98,7 @@ pub struct M3pDayOutcome {
     pub metrics: Option<M3pDailyMetrics>,
     pub events: Vec<M3pEventRecord>,
     pub snapshot: Option<CanonicalSnapshot>,
+    pub migration: Option<MigrationDayData>,
 }
 
 /// Restored population-dynamics state and its canonical snapshot metadata.
@@ -112,6 +117,7 @@ pub struct M3pReferenceState {
     run_context: M0RunContext,
     relationship_degree_k: u32,
     p_local_bits: u32,
+    migration_state: Option<MigrationState>,
 }
 
 impl M3pReferenceState {
@@ -174,6 +180,11 @@ impl M3pReferenceState {
             .p_local
             .ok_or_else(|| invariant("M3P profile requires p_local"))?;
         validate_state_parts(&world.agents, &relationship_graph, next_agent_id)?;
+        let migration_state = config
+            .migration_enabled()
+            .then(|| MigrationState::new(world.agents.iter().map(|agent| agent.agent_id)))
+            .transpose()
+            .map_err(|error| invariant(error.to_string()))?;
         Ok(Self {
             world,
             relationship_graph,
@@ -181,6 +192,7 @@ impl M3pReferenceState {
             run_context: *run_context,
             relationship_degree_k: degree_k,
             p_local_bits: p_local.to_bits(),
+            migration_state,
         })
     }
 
@@ -198,6 +210,14 @@ impl M3pReferenceState {
 
     pub const fn next_agent_id(&self) -> u64 {
         self.next_agent_id
+    }
+
+    pub fn migration_state(&self) -> Option<&MigrationState> {
+        self.migration_state.as_ref()
+    }
+
+    pub fn set_migration_state(&mut self, state: MigrationState) {
+        self.migration_state = Some(state);
     }
 
     pub(crate) const fn run_context(&self) -> M0RunContext {
@@ -227,7 +247,19 @@ impl M3pReferenceState {
             &self.world.agents,
             &self.relationship_graph,
             self.next_agent_id,
-        )
+        )?;
+        if config.migration_enabled() != self.migration_state.is_some() {
+            return Err(invariant("M3P migration configuration/state mismatch"));
+        }
+        if let Some(state) = &self.migration_state {
+            state
+                .validate_agent_ids(self.world.agents.iter().map(|agent| agent.agent_id))
+                .map_err(|error| invariant(error.to_string()))?;
+            state
+                .validate_current_day(self.world.current_day.as_u32())
+                .map_err(|error| invariant(error.to_string()))?;
+        }
+        Ok(())
     }
 }
 
@@ -519,6 +551,7 @@ fn run_m3p_reference_day_registered(
         world,
         relationship_graph,
         next_agent_id,
+        migration_state,
         run_context: _,
         relationship_degree_k: _,
         p_local_bits: _,
@@ -528,20 +561,19 @@ fn run_m3p_reference_day_registered(
         run_context,
         relationship_graph,
         next_agent_id,
+        migration_state.as_mut(),
         options,
         forced_action,
     );
-    let enabled_systems: &[SystemId] = if post_phase9c.is_some() {
-        &[
-            SystemId::RelationshipGraph,
-            SystemId::PopulationDynamics,
-            SystemId::Propagation,
-        ]
-    } else {
-        &[SystemId::RelationshipGraph, SystemId::PopulationDynamics]
-    };
+    let mut enabled_systems = vec![SystemId::RelationshipGraph, SystemId::PopulationDynamics];
+    if config.migration_enabled() {
+        enabled_systems.push(SystemId::SettlementMigration);
+    }
+    if post_phase9c.is_some() {
+        enabled_systems.push(SystemId::Propagation);
+    }
     let run_options = RegisteredSystemRunOptions {
-        enabled_systems,
+        enabled_systems: &enabled_systems,
         execution: SystemExecutionOptions::default(),
     };
     let mut outcomes = if let Some(records) = recorder.take() {
@@ -639,6 +671,7 @@ struct M3pRegisteredReferenceDay<'a> {
     run_context: M0RunContext,
     relationship_graph: &'a mut RelationshipGraph,
     next_agent_id: &'a mut u64,
+    migration_state: Option<&'a mut MigrationState>,
     forced_action: Option<&'a mut ForcedActionDirective>,
     options: DayExecutionOptions,
     executed_day: u32,
@@ -658,6 +691,8 @@ struct M3pRegisteredReferenceDay<'a> {
     metrics: Option<M3pDailyMetrics>,
     snapshot: Option<CanonicalSnapshot>,
     events: Vec<M3pEventRecord>,
+    migration: Option<MigrationDayData>,
+    migration_scratch: MigrationScratch,
 }
 
 impl<'a> M3pRegisteredReferenceDay<'a> {
@@ -666,6 +701,7 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
         run_context: &M0RunContext,
         relationship_graph: &'a mut RelationshipGraph,
         next_agent_id: &'a mut u64,
+        migration_state: Option<&'a mut MigrationState>,
         options: &DayExecutionOptions,
         forced_action: Option<&'a mut ForcedActionDirective>,
     ) -> Self {
@@ -677,6 +713,7 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
             run_context: *run_context,
             relationship_graph,
             next_agent_id,
+            migration_state,
             forced_action,
             options: *options,
             executed_day: 0,
@@ -696,6 +733,11 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
             metrics: None,
             snapshot: None,
             events: Vec::new(),
+            migration: None,
+            migration_scratch: MigrationScratch::with_capacity(
+                config.world.initial_population as usize,
+                config.world.settlement_count as usize,
+            ),
         }
     }
 
@@ -811,16 +853,59 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
                     &self.effective_config,
                     &self.run_context,
                 )?;
+                phase_state.migration_state = self.migration_state.as_deref().cloned();
                 let result = apply_phase9b(
                     &mut phase_state,
                     &self.effective_config,
                     &self.run_context,
                     self.executed_day,
                 )?;
+                if let Some(migration_state) = phase_state.migration_state.as_mut()
+                    && (!result.births.is_empty() || result.compacted)
+                {
+                    migration_state
+                        .sync_agent_ids(phase_state.world.agents.iter().map(|agent| agent.agent_id))
+                        .map_err(|error| invariant(error.to_string()))?;
+                }
                 *world = phase_state.world;
                 *self.relationship_graph = phase_state.relationship_graph;
                 *self.next_agent_id = phase_state.next_agent_id;
+                if let Some(migration_state) = self.migration_state.as_deref_mut() {
+                    *migration_state = phase_state
+                        .migration_state
+                        .take()
+                        .ok_or_else(|| invariant("M3P Phase 9b lost migration state"))?;
+                }
                 self.phase9b = Some(result);
+                Ok(())
+            }
+            (SystemId::SettlementMigration, PhaseSlot::Phase9C) => {
+                let migration_config = self
+                    .effective_config
+                    .migration_config()
+                    .ok_or_else(|| invariant("migration hook has no migration settings"))?;
+                let migration_state = self
+                    .migration_state
+                    .as_deref_mut()
+                    .ok_or_else(|| invariant("migration hook has no migration state"))?;
+                let mut migration = apply_migration_world(
+                    world,
+                    self.relationship_graph,
+                    migration_config,
+                    self.run_context.master_seed,
+                    self.run_context.replicate_id,
+                    self.executed_day,
+                    migration_state,
+                    &mut self.migration_scratch,
+                )
+                .map_err(|error| invariant(error.to_string()))?;
+                if !self.options.metrics_enabled {
+                    migration.metrics = None;
+                }
+                if !self.options.events_enabled {
+                    migration.events.clear();
+                }
+                self.migration = Some(migration);
                 Ok(())
             }
             _ => Ok(()),
@@ -892,8 +977,14 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
             if self.options.events_enabled {
                 event_buffer.push(event_from_daily_metrics(&base));
             }
-            let (cross_partition_edge_count, total_directed_edge_count) =
+            let (cached_cross_partition_edge_count, total_directed_edge_count) =
                 self.relationship_graph.edge_ratio_counts();
+            let cross_partition_edge_count = self
+                .migration
+                .as_ref()
+                .map_or(cached_cross_partition_edge_count, |migration| {
+                    migration.current_cross_partition_edge_count
+                });
             self.metrics = Some(M3pDailyMetrics {
                 m3_metrics: M3DailyMetrics {
                     metrics: base,
@@ -934,7 +1025,23 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
                 DEFAULT_MODEL_VERSION,
                 DEFAULT_CONFIG_VERSION,
             );
-            self.snapshot = Some(encode_m3p_snapshot(&snapshot_state, &metadata)?);
+            let base_snapshot = encode_m3p_snapshot(&snapshot_state, &metadata)?;
+            self.snapshot = Some(if self.effective_config.migration_enabled() {
+                let migration_state = self
+                    .migration_state
+                    .as_deref()
+                    .ok_or_else(|| invariant("missing migration state at M3P snapshot"))?;
+                encode_migration_snapshot(
+                    crate::migration::MigrationProfileTag::M3pm,
+                    &base_snapshot,
+                    migration_state,
+                    world.agents.iter().map(|agent| agent.agent_id),
+                    self.relationship_graph,
+                )
+                .map_err(M0RunError::Phase11Snapshot)?
+            } else {
+                base_snapshot
+            });
             if self.options.events_enabled {
                 event_buffer.push(EventRecord::new(
                     EventKey::new(self.executed_day, 11, GLOBAL_PARTITION_KEY, 0),
@@ -942,7 +1049,11 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
                         day: metadata.day,
                         master_seed: metadata.master_seed,
                         replicate_id: metadata.replicate_id,
-                        schema_version: M3P_SNAPSHOT_SCHEMA_VERSION,
+                        schema_version: if self.effective_config.migration_enabled() {
+                            crate::migration::MIGRATION_SNAPSHOT_SCHEMA_VERSION
+                        } else {
+                            M3P_SNAPSHOT_SCHEMA_VERSION
+                        },
                     }),
                 ));
             }
@@ -1003,6 +1114,7 @@ impl<'a> M3pRegisteredReferenceDay<'a> {
             metrics: self.metrics.take(),
             events: std::mem::take(&mut self.events),
             snapshot: self.snapshot.take(),
+            migration: self.migration.take(),
         })
     }
 }
@@ -1228,6 +1340,7 @@ pub(crate) fn run_m3p_reference_day_with_post_phase9b(
         metrics,
         events,
         snapshot,
+        migration: None,
     })
 }
 

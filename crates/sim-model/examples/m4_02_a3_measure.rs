@@ -20,8 +20,8 @@ use sim_model::runner::{
     DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, DayExecutionOptions, M0RunContext,
     M3PropagationStorageRunContext, M3StorageRunContext, M3pIncrementalTopologyStorageRunContext,
     M3pPropagationStorageRunContext, M3pStorageRunContext, run_m3_storage_days,
-    run_m3prop_storage_days, run_m3p_propagation_storage_days, run_m3p_storage_days,
-    run_m3p_storage_days_incremental_topology,
+    run_m3p_propagation_storage_days, run_m3p_storage_days,
+    run_m3p_storage_days_incremental_topology, run_m3prop_storage_days,
 };
 use sim_model::snapshot::{SnapshotMetadata, decode_snapshot, encode_snapshot};
 use sim_model::state::{AuthorityMode, HybridWorldState};
@@ -127,14 +127,14 @@ fn direct_pass(request: &BranchRequest) {
             let restored = decode_snapshot(request.snapshot.as_ref()).unwrap();
             let mut world = HybridWorldState::new(restored.world, AuthorityMode::Hybrid);
             let mut context = M3StorageRunContext::new(&world, config, run_context).unwrap();
-            black_box(run_m3_storage_days(&mut world, config, &mut context, HORIZON, &OPTIONS).unwrap());
+            black_box(
+                run_m3_storage_days(&mut world, config, &mut context, HORIZON, &OPTIONS).unwrap(),
+            );
         }
         SimulationRunnerSelection::M3Propagation => {
             let restored = decode_m3prop_snapshot(request.snapshot.as_ref(), config).unwrap();
-            let mut world = HybridWorldState::new(
-                restored.state.world().clone(),
-                AuthorityMode::Hybrid,
-            );
+            let mut world =
+                HybridWorldState::new(restored.state.world().clone(), AuthorityMode::Hybrid);
             let mut context = M3PropagationStorageRunContext::from_reference_state(
                 &world,
                 config,
@@ -143,14 +143,15 @@ fn direct_pass(request: &BranchRequest) {
             )
             .unwrap();
             world.sync_to_world_agents();
-            black_box(run_m3prop_storage_days(&mut world, config, &mut context, HORIZON, &OPTIONS).unwrap());
+            black_box(
+                run_m3prop_storage_days(&mut world, config, &mut context, HORIZON, &OPTIONS)
+                    .unwrap(),
+            );
         }
         SimulationRunnerSelection::M3p => {
             let restored = decode_m3p_snapshot(request.snapshot.as_ref(), config).unwrap();
-            let mut world = HybridWorldState::new(
-                restored.state.world().clone(),
-                AuthorityMode::Hybrid,
-            );
+            let mut world =
+                HybridWorldState::new(restored.state.world().clone(), AuthorityMode::Hybrid);
             world.sync_to_world_agents();
             if request.execution == BranchExecutionOption::IncrementalTopology {
                 let mut context = M3pIncrementalTopologyStorageRunContext::from_reference_state(
@@ -178,15 +179,16 @@ fn direct_pass(request: &BranchRequest) {
                     &restored.state,
                 )
                 .unwrap();
-                black_box(run_m3p_storage_days(&mut world, config, &mut context, HORIZON, &OPTIONS).unwrap());
+                black_box(
+                    run_m3p_storage_days(&mut world, config, &mut context, HORIZON, &OPTIONS)
+                        .unwrap(),
+                );
             }
         }
         SimulationRunnerSelection::M3pPropagation => {
             let restored = decode_m3pprop_snapshot(request.snapshot.as_ref(), config).unwrap();
-            let mut world = HybridWorldState::new(
-                restored.state.world().clone(),
-                AuthorityMode::Hybrid,
-            );
+            let mut world =
+                HybridWorldState::new(restored.state.world().clone(), AuthorityMode::Hybrid);
             world.sync_to_world_agents();
             let mut context = M3pPropagationStorageRunContext::from_reference_state(
                 &world,
@@ -227,7 +229,7 @@ fn median(values: &[f64]) -> f64 {
     let mut values = values.to_vec();
     values.sort_by(f64::total_cmp);
     let mid = values.len() / 2;
-    if values.len() % 2 == 0 {
+    if values.len().is_multiple_of(2) {
         (values[mid - 1] + values[mid]) / 2.0
     } else {
         values[mid]
@@ -476,7 +478,11 @@ fn main() {
     };
     for id in selected_ids {
         if id.starts_with("recorder_m3p_serial_n") {
-            let n = id.strip_prefix("recorder_m3p_serial_n").unwrap().parse().unwrap();
+            let n = id
+                .strip_prefix("recorder_m3p_serial_n")
+                .unwrap()
+                .parse()
+                .unwrap();
             recorder_cell(n);
         } else {
             let cell = all.iter().find(|cell| cell.id == id).unwrap();

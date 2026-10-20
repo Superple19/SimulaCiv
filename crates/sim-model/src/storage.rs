@@ -310,6 +310,12 @@ impl SegmentedAgentStorage {
         &self.demography.alive
     }
 
+    /// Returns the canonical birth-day column used by dynamic system eligibility checks.
+    #[inline]
+    pub fn birth_days(&self) -> &[SimulationDay] {
+        &self.demography.birth_day
+    }
+
     /// Returns a contiguous slice over the health column (`demography.health`).
     #[inline]
     pub fn health(&self) -> &[f32] {

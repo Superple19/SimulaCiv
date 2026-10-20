@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sim_core::Money;
 
 /// Runtime semantics profile selected by the input configuration.
@@ -64,6 +64,8 @@ pub struct SimulationConfig {
 pub struct SimulationRunManifest {
     pub base_profile: SimulationProfile,
     pub systems: SimulationSystems,
+    #[serde(skip_serializing_if = "is_false")]
+    pub migration: bool,
 }
 
 /// M3-11 propagation parameters. They are required only when propagation is enabled.
@@ -73,6 +75,15 @@ pub struct PropagationConfig {
     pub transmit_probability: f32,
     pub forget_probability: f32,
     pub max_hops: u32,
+}
+
+/// Parameters for the opt-in M4-06 settlement migration system.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct MigrationConfig {
+    pub migration_probability: f32,
+    pub migration_threshold: f32,
+    pub migration_cost: Money,
+    pub migration_cooldown_days: u32,
 }
 
 /// Run and world initialization configuration.
@@ -159,11 +170,9 @@ pub struct DecisionConfig {
 }
 
 /// Master configuration container for the SimulaCiv M0 reference model.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SimConfig {
-    #[serde(default)]
     pub profile: SimulationProfile,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub simulation: Option<SimulationConfig>,
     pub world: WorldConfig,
     pub traits: TraitConfig,
@@ -171,10 +180,10 @@ pub struct SimConfig {
     pub economy: EconomyConfig,
     pub interaction: InteractionConfig,
     pub decision: DecisionConfig,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub population: Option<PopulationConfig>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub propagation: Option<PropagationConfig>,
+    migration_enabled: bool,
+    pub migration: Option<MigrationConfig>,
 }
 
 #[derive(Deserialize)]
@@ -182,7 +191,7 @@ struct SimConfigWire {
     #[serde(default)]
     profile: Option<SimulationProfile>,
     #[serde(default)]
-    simulation: Option<SimulationConfig>,
+    simulation: Option<SimulationConfigWire>,
     world: WorldConfig,
     traits: TraitConfig,
     environment: EnvironmentConfig,
@@ -193,6 +202,60 @@ struct SimConfigWire {
     population: Option<PopulationConfig>,
     #[serde(default)]
     propagation: Option<PropagationConfig>,
+    #[serde(default)]
+    migration: Option<MigrationConfig>,
+}
+
+#[derive(Deserialize)]
+struct SimulationConfigWire {
+    #[serde(default)]
+    systems: SimulationSystemsWire,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct SimulationSystemsWire {
+    relationship_graph: bool,
+    population_dynamics: bool,
+    propagation: bool,
+    migration: bool,
+}
+
+#[derive(Serialize)]
+struct SimConfigSerialize<'a> {
+    profile: SimulationProfile,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    simulation: Option<SimulationConfigSerialize>,
+    world: &'a WorldConfig,
+    traits: &'a TraitConfig,
+    environment: &'a EnvironmentConfig,
+    economy: &'a EconomyConfig,
+    interaction: &'a InteractionConfig,
+    decision: &'a DecisionConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    population: &'a Option<PopulationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    propagation: &'a Option<PropagationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    migration: &'a Option<MigrationConfig>,
+}
+
+#[derive(Serialize)]
+struct SimulationConfigSerialize {
+    systems: SimulationSystemsSerialize,
+}
+
+#[derive(Serialize)]
+struct SimulationSystemsSerialize {
+    relationship_graph: bool,
+    population_dynamics: bool,
+    propagation: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    migration: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl<'de> Deserialize<'de> for SimConfig {
@@ -201,7 +264,21 @@ impl<'de> Deserialize<'de> for SimConfig {
         D: Deserializer<'de>,
     {
         let wire = SimConfigWire::deserialize(deserializer)?;
-        let supplied_systems = wire.simulation.map(|simulation| simulation.systems);
+        let supplied_simulation = wire.simulation.map(|simulation| {
+            let systems = simulation.systems;
+            (
+                SimulationSystems {
+                    relationship_graph: systems.relationship_graph,
+                    population_dynamics: systems.population_dynamics,
+                    propagation: systems.propagation,
+                },
+                systems.migration,
+            )
+        });
+        let supplied_systems = supplied_simulation.map(|(systems, _)| systems);
+        let migration_enabled = supplied_simulation
+            .map(|(_, migration)| migration)
+            .unwrap_or(false);
         let profile = wire
             .profile
             .or_else(|| supplied_systems.map(SimulationSystems::base_profile))
@@ -224,7 +301,42 @@ impl<'de> Deserialize<'de> for SimConfig {
             decision: wire.decision,
             population: wire.population,
             propagation: wire.propagation,
+            migration_enabled,
+            migration: wire.migration,
         })
+    }
+}
+
+impl Serialize for SimConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let systems = self.effective_systems();
+        let simulation = (self.simulation.is_some() || self.migration_enabled).then_some(
+            SimulationConfigSerialize {
+                systems: SimulationSystemsSerialize {
+                    relationship_graph: systems.relationship_graph,
+                    population_dynamics: systems.population_dynamics,
+                    propagation: systems.propagation,
+                    migration: self.migration_enabled,
+                },
+            },
+        );
+        SimConfigSerialize {
+            profile: self.profile,
+            simulation,
+            world: &self.world,
+            traits: &self.traits,
+            environment: &self.environment,
+            economy: &self.economy,
+            interaction: &self.interaction,
+            decision: &self.decision,
+            population: &self.population,
+            propagation: &self.propagation,
+            migration: &self.migration,
+        }
+        .serialize(serializer)
     }
 }
 
@@ -300,6 +412,13 @@ pub enum ConfigValidationError {
     ProfileSystemsMismatch,
     MissingPropagationSettings,
     PropagationSettingsRequirePropagation,
+    MigrationRequiresM3Profile,
+    MigrationRequiresRelationshipGraph,
+    MissingMigrationSettings,
+    MigrationSettingsRequireMigration,
+    InvalidMigrationProbability(f32),
+    InvalidMigrationThreshold(f32),
+    NegativeMigrationCost(Money),
     InvalidPropagationProbability {
         name: &'static str,
         value: f32,
@@ -492,6 +611,39 @@ impl std::fmt::Display for ConfigValidationError {
                     f,
                     "[propagation] settings require simulation.systems.propagation = true"
                 )
+            }
+            Self::MigrationRequiresM3Profile => {
+                write!(f, "migration requires an M3 or M3P base profile")
+            }
+            Self::MigrationRequiresRelationshipGraph => {
+                write!(
+                    f,
+                    "migration requires simulation.systems.relationship_graph = true"
+                )
+            }
+            Self::MissingMigrationSettings => {
+                write!(f, "migration = true requires [migration] settings")
+            }
+            Self::MigrationSettingsRequireMigration => {
+                write!(
+                    f,
+                    "[migration] settings require simulation.systems.migration = true"
+                )
+            }
+            Self::InvalidMigrationProbability(value) => {
+                write!(
+                    f,
+                    "migration_probability must be finite and within [0.0, 1.0], got {value}"
+                )
+            }
+            Self::InvalidMigrationThreshold(value) => {
+                write!(
+                    f,
+                    "migration_threshold must be finite and nonnegative, got {value}"
+                )
+            }
+            Self::NegativeMigrationCost(value) => {
+                write!(f, "migration_cost cannot be negative, got {value}")
             }
             Self::InvalidPropagationProbability { name, value } => write!(
                 f,
@@ -948,6 +1100,37 @@ impl SimConfig {
             ));
         }
 
+        if self.migration_enabled {
+            if self.profile == SimulationProfile::M2 {
+                return Err(ConfigValidationError::MigrationRequiresM3Profile);
+            }
+            if !systems.relationship_graph {
+                return Err(ConfigValidationError::MigrationRequiresRelationshipGraph);
+            }
+            let migration = self
+                .migration
+                .ok_or(ConfigValidationError::MissingMigrationSettings)?;
+            if !migration.migration_probability.is_finite()
+                || !(0.0..=1.0).contains(&migration.migration_probability)
+            {
+                return Err(ConfigValidationError::InvalidMigrationProbability(
+                    migration.migration_probability,
+                ));
+            }
+            if !migration.migration_threshold.is_finite() || migration.migration_threshold < 0.0 {
+                return Err(ConfigValidationError::InvalidMigrationThreshold(
+                    migration.migration_threshold,
+                ));
+            }
+            if migration.migration_cost < 0 {
+                return Err(ConfigValidationError::NegativeMigrationCost(
+                    migration.migration_cost,
+                ));
+            }
+        } else if self.migration.is_some() {
+            return Err(ConfigValidationError::MigrationSettingsRequireMigration);
+        }
+
         Ok(())
     }
 
@@ -961,7 +1144,23 @@ impl SimConfig {
         SimulationRunManifest {
             base_profile: self.profile,
             systems: self.effective_systems(),
+            migration: self.migration_enabled,
         }
+    }
+
+    pub const fn migration_enabled(&self) -> bool {
+        self.migration_enabled
+    }
+
+    pub fn enable_migration(&mut self, migration: MigrationConfig) {
+        let systems = self.effective_systems();
+        self.simulation = Some(SimulationConfig { systems });
+        self.migration_enabled = true;
+        self.migration = Some(migration);
+    }
+
+    pub const fn migration_config(&self) -> Option<MigrationConfig> {
+        self.migration
     }
 
     pub fn runner_selection(&self) -> SimulationRunnerSelection {

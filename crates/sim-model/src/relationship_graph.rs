@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 use sim_core::{AgentId, GroupId, RngCoordinate, coordinate_prng_f32};
@@ -9,12 +10,12 @@ pub const M3_RELATIONSHIP_GRAPH_SUBSYSTEM_ID: u16 = 6;
 const MAX_EXACT_F32_POPULATION: usize = 1 << 24;
 
 /// Canonically ordered directed relationship graph in CSR form.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RelationshipGraph {
     source_ids: Vec<AgentId>,
     row_offsets: Vec<usize>,
     neighbors: Vec<AgentId>,
-    cross_partition_edges: u64,
+    cross_partition_edges: AtomicU64,
     total_edges: u64,
     // An empty cell is the dirty marker; hash only when a digest or snapshot requests it.
     csr_hash: OnceLock<[u8; 32]>,
@@ -25,12 +26,32 @@ impl PartialEq for RelationshipGraph {
         self.source_ids == other.source_ids
             && self.row_offsets == other.row_offsets
             && self.neighbors == other.neighbors
-            && self.cross_partition_edges == other.cross_partition_edges
+            && self.cross_partition_edges.load(Ordering::Relaxed)
+                == other.cross_partition_edges.load(Ordering::Relaxed)
             && self.total_edges == other.total_edges
     }
 }
 
 impl Eq for RelationshipGraph {}
+
+impl Clone for RelationshipGraph {
+    fn clone(&self) -> Self {
+        let csr_hash = OnceLock::new();
+        if let Some(hash) = self.csr_hash.get() {
+            let _ = csr_hash.set(*hash);
+        }
+        Self {
+            source_ids: self.source_ids.clone(),
+            row_offsets: self.row_offsets.clone(),
+            neighbors: self.neighbors.clone(),
+            cross_partition_edges: AtomicU64::new(
+                self.cross_partition_edges.load(Ordering::Relaxed),
+            ),
+            total_edges: self.total_edges,
+            csr_hash,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct RelationshipGraphAppendPlan {
@@ -242,7 +263,7 @@ impl RelationshipGraph {
             source_ids,
             row_offsets,
             neighbors,
-            cross_partition_edges,
+            cross_partition_edges: AtomicU64::new(cross_partition_edges),
             total_edges,
             csr_hash: OnceLock::from(csr_hash),
         })
@@ -337,7 +358,7 @@ impl RelationshipGraph {
             source_ids,
             row_offsets,
             neighbors,
-            cross_partition_edges,
+            cross_partition_edges: AtomicU64::new(cross_partition_edges),
             total_edges,
             csr_hash,
         })
@@ -361,7 +382,7 @@ impl RelationshipGraph {
         let mut row_end = self.neighbors.len();
         let mut last_source = self.source_ids.last().copied();
         let mut total_edges = self.total_edges;
-        let mut cross_partition_edges = self.cross_partition_edges;
+        let mut cross_partition_edges = self.cross_partition_edges.load(Ordering::Relaxed);
         for (source_id, source_group, neighbors) in rows {
             if last_source.is_some_and(|previous| previous >= *source_id)
                 || neighbors.len() > 16
@@ -423,7 +444,8 @@ impl RelationshipGraph {
             self.neighbors.extend_from_slice(neighbors);
             self.row_offsets.push(row_end);
         }
-        self.cross_partition_edges = plan.cross_partition_edges;
+        self.cross_partition_edges
+            .store(plan.cross_partition_edges, Ordering::Relaxed);
         self.total_edges = plan.total_edges;
         let _ = self.csr_hash.take();
     }
@@ -446,7 +468,15 @@ impl RelationshipGraph {
     }
 
     pub fn edge_ratio_counts(&self) -> (u64, u64) {
-        (self.cross_partition_edges, self.total_edges)
+        (
+            self.cross_partition_edges.load(Ordering::Relaxed),
+            self.total_edges,
+        )
+    }
+
+    /// Refreshes the membership-derived edge count without changing canonical CSR or its hash.
+    pub(crate) fn refresh_cross_partition_edge_count(&self, count: u64) {
+        self.cross_partition_edges.store(count, Ordering::Relaxed);
     }
 
     pub fn csr_hash(&self) -> &[u8; 32] {

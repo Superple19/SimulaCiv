@@ -15,6 +15,7 @@ pub mod m3p;
 pub mod m3pprop;
 pub mod m3prop;
 pub mod metrics;
+pub mod migration;
 pub mod minimal_cause;
 pub mod partitioning;
 pub mod phases;
@@ -33,9 +34,9 @@ pub use commands::{
 };
 pub use config::{
     ConfigError, ConfigValidationError, DecisionConfig, EconomyConfig, EnvironmentConfig,
-    InteractionConfig, PopulationConfig, PropagationConfig, SimConfig, SimulationConfig,
-    SimulationProfile, SimulationRunManifest, SimulationRunnerSelection, SimulationSystems,
-    TraitConfig, WorldConfig,
+    InteractionConfig, MigrationConfig, PopulationConfig, PropagationConfig, SimConfig,
+    SimulationConfig, SimulationProfile, SimulationRunManifest, SimulationRunnerSelection,
+    SimulationSystems, TraitConfig, WorldConfig,
 };
 pub use counterfactual::run_counterfactual_intervention_batch;
 pub use counterfactual::{
@@ -98,6 +99,26 @@ pub use hashing::{
     canonical_m3prop_state_hash_from_storage, canonical_metrics_bytes, canonical_metrics_hash,
     canonical_state_bytes, canonical_state_hash,
 };
+pub use hashing::{
+    DOMAIN_M3M_EVENTS, DOMAIN_M3M_METRICS, DOMAIN_M3M_STATE, DOMAIN_M3MPROP_EVENTS,
+    DOMAIN_M3MPROP_METRICS, DOMAIN_M3MPROP_STATE, DOMAIN_M3PM_EVENTS, DOMAIN_M3PM_METRICS,
+    DOMAIN_M3PM_STATE, DOMAIN_M3PMPROP_EVENTS, DOMAIN_M3PMPROP_METRICS, DOMAIN_M3PMPROP_STATE,
+    M3M_EVENT_SETTLEMENT_MIGRATED, M3PM_EVENT_SETTLEMENT_MIGRATED, canonical_m3m_event_bytes,
+    canonical_m3m_event_hash, canonical_m3m_metrics_bytes, canonical_m3m_metrics_hash,
+    canonical_m3m_state_bytes, canonical_m3m_state_bytes_from_storage, canonical_m3m_state_hash,
+    canonical_m3m_state_hash_from_storage, canonical_m3mprop_event_bytes,
+    canonical_m3mprop_event_hash, canonical_m3mprop_metrics_bytes, canonical_m3mprop_metrics_hash,
+    canonical_m3mprop_state_bytes, canonical_m3mprop_state_bytes_from_storage,
+    canonical_m3mprop_state_hash, canonical_m3mprop_state_hash_from_storage,
+    canonical_m3pm_event_bytes, canonical_m3pm_event_hash, canonical_m3pm_metrics_bytes,
+    canonical_m3pm_metrics_hash, canonical_m3pm_state_bytes,
+    canonical_m3pm_state_bytes_from_storage, canonical_m3pm_state_hash,
+    canonical_m3pm_state_hash_from_storage, canonical_m3pmprop_event_bytes,
+    canonical_m3pmprop_event_hash, canonical_m3pmprop_metrics_bytes,
+    canonical_m3pmprop_metrics_hash, canonical_m3pmprop_state_bytes,
+    canonical_m3pmprop_state_bytes_from_storage, canonical_m3pmprop_state_hash,
+    canonical_m3pmprop_state_hash_from_storage,
+};
 pub use initialization::{InitializationError, initialize_world};
 pub use intents::{
     CrossPartitionCountError, Intent, IntentError, M3Phase4IntentTimings, M3Phase4SlotProjection,
@@ -134,6 +155,12 @@ pub use metrics::{
     phase10_observe_segmented, phase10_observe_soa_fresh, phase10_observe_storage,
     phase10_observe_storage_with_scratch, phase10_observe_with_config,
     phase10_observe_with_scratch,
+};
+pub use migration::{
+    MIGRATION_RNG_SUBSYSTEM_ID, MIGRATION_SNAPSHOT_SCHEMA_VERSION, MigrationDayData,
+    MigrationError, MigrationEventRecord, MigrationMetrics, MigrationProfileTag, MigrationScratch,
+    MigrationState, RestoredMigrationSnapshot, decode_migration_snapshot,
+    encode_migration_snapshot,
 };
 pub use minimal_cause::{
     EffectComparison, MinimalCauseError, MinimalCauseGuarantee, MinimalCausePredicate,

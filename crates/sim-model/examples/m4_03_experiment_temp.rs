@@ -8,7 +8,7 @@ use sim_model::counterfactual::{
 use sim_model::m3p::{M3pReferenceState, encode_m3p_snapshot};
 use sim_model::runner::{DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, M0RunContext};
 use sim_model::snapshot::SnapshotMetadata;
-use sim_model::{SimulationProfile, SimConfig, initialize_world};
+use sim_model::{SimConfig, SimulationProfile, initialize_world};
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -33,7 +33,10 @@ fn request(seed: u64, horizon: u32, intervention_kind: &str) -> (BranchRequest, 
     let mut groups: BTreeMap<u16, Vec<AgentId>> = BTreeMap::new();
     for agent in &world.agents {
         if agent.alive {
-            groups.entry(agent.group_id.0).or_default().push(agent.agent_id);
+            groups
+                .entry(agent.group_id.0)
+                .or_default()
+                .push(agent.agent_id);
         }
     }
     let (target_group, candidates) = groups
@@ -104,7 +107,10 @@ fn main() {
                 let (request, target, target_group) = request(seed, horizon, case);
                 let expected = run_counterfactual_branch(&request).unwrap();
                 let measured = run_counterfactual_branch_with_divergence_series(&request).unwrap();
-                assert_eq!(measured.branch, expected, "M4-02 output differs: {kind}/{case}/{seed}");
+                assert_eq!(
+                    measured.branch, expected,
+                    "M4-02 output differs: {kind}/{case}/{seed}"
+                );
                 let first = measured.branch.first_divergence.as_ref();
                 let last = measured.daily_series.last().unwrap();
                 let summary = &measured.summary;
@@ -175,7 +181,14 @@ fn main() {
                     .unwrap();
                 }
                 out.flush().unwrap();
-                println!("DONE,{kind}/{case},{seed},class={:?},Dpeak={},fraction={:.6},day={:?},forced_matches={:?}", summary.classification, summary.peak_changed_agent_records, summary.peak_normalized_fraction, summary.days_to_peak, summary.forced_matches_natural);
+                println!(
+                    "DONE,{kind}/{case},{seed},class={:?},Dpeak={},fraction={:.6},day={:?},forced_matches={:?}",
+                    summary.classification,
+                    summary.peak_changed_agent_records,
+                    summary.peak_normalized_fraction,
+                    summary.days_to_peak,
+                    summary.forced_matches_natural
+                );
             }
         }
     }

@@ -11,6 +11,7 @@ use crate::m3pprop::{M3pPropagationDailyMetrics, M3pPropagationReferenceState};
 use crate::m3prop::{M3PropDailyMetrics, M3PropagationReferenceState};
 use crate::metrics::DailyMetrics;
 use crate::metrics::M3DailyMetrics;
+use crate::migration::{MigrationEventRecord, MigrationMetrics, MigrationState};
 use crate::propagation::PropagationAgentState;
 use crate::relationship_graph::RelationshipGraph;
 use crate::resolution::TargetedActionKind;
@@ -53,6 +54,22 @@ pub const DOMAIN_M3PROP_METRICS: &[u8] = b"SIMCIV_M3PROP_METRICS_V1";
 
 /// Exact ASCII domain prefix for M3 propagation event preimages.
 pub const DOMAIN_M3PROP_EVENTS: &[u8] = b"SIMCIV_M3PROP_EVENTS_V1";
+
+pub const DOMAIN_M3M_STATE: &[u8] = b"SIMCIV_M3M_STATE_V1";
+pub const DOMAIN_M3M_METRICS: &[u8] = b"SIMCIV_M3M_METRICS_V1";
+pub const DOMAIN_M3M_EVENTS: &[u8] = b"SIMCIV_M3M_EVENTS_V1";
+pub const DOMAIN_M3PM_STATE: &[u8] = b"SIMCIV_M3PM_STATE_V1";
+pub const DOMAIN_M3PM_METRICS: &[u8] = b"SIMCIV_M3PM_METRICS_V1";
+pub const DOMAIN_M3PM_EVENTS: &[u8] = b"SIMCIV_M3PM_EVENTS_V1";
+pub const DOMAIN_M3MPROP_STATE: &[u8] = b"SIMCIV_M3MPROP_STATE_V1";
+pub const DOMAIN_M3MPROP_METRICS: &[u8] = b"SIMCIV_M3MPROP_METRICS_V1";
+pub const DOMAIN_M3MPROP_EVENTS: &[u8] = b"SIMCIV_M3MPROP_EVENTS_V1";
+pub const DOMAIN_M3PMPROP_STATE: &[u8] = b"SIMCIV_M3PMPROP_STATE_V1";
+pub const DOMAIN_M3PMPROP_METRICS: &[u8] = b"SIMCIV_M3PMPROP_METRICS_V1";
+pub const DOMAIN_M3PMPROP_EVENTS: &[u8] = b"SIMCIV_M3PMPROP_EVENTS_V1";
+
+pub const M3M_EVENT_SETTLEMENT_MIGRATED: u8 = 0x05;
+pub const M3PM_EVENT_SETTLEMENT_MIGRATED: u8 = 0x07;
 
 /// Fixed M3P-only event variant tags, following the existing transition tags.
 pub const M3P_EVENT_BIRTH: u8 = 0x05;
@@ -648,6 +665,326 @@ pub fn canonical_m3pprop_state_hash_from_storage(
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
 }
 
+fn state_bytes_with_migration(
+    base: &[u8],
+    base_domain: &[u8],
+    migration_domain: &[u8],
+    state: &MigrationState,
+    agent_ids: impl IntoIterator<Item = AgentId>,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    if !base.starts_with(base_domain) {
+        return Err(CanonicalHashError::InvalidState(
+            "base State bytes do not match expected domain".into(),
+        ));
+    }
+    let mut ids = agent_ids.into_iter().collect::<Vec<_>>();
+    ids.sort_unstable();
+    state
+        .validate_agent_ids(ids.iter().copied())
+        .map_err(|error| CanonicalHashError::InvalidState(error.to_string()))?;
+    let count = u32::try_from(ids.len()).map_err(|_| CanonicalHashError::LengthOverflow)?;
+    let records = state.records().collect::<Vec<_>>();
+    let records_bytes = records.iter().try_fold(0_usize, |sum, (_, day)| {
+        sum.checked_add(if day.is_some() { 9 } else { 5 })
+            .ok_or(CanonicalHashError::ArithmeticOverflow)
+    })?;
+    let capacity = migration_domain
+        .len()
+        .checked_add(base.len() - base_domain.len())
+        .and_then(|length| length.checked_add(4))
+        .and_then(|length| length.checked_add(records_bytes))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(migration_domain);
+    bytes.extend_from_slice(&base[base_domain.len()..]);
+    bytes.extend_from_slice(&count.to_le_bytes());
+    for (agent_id, last_move_day) in records {
+        bytes.extend_from_slice(&agent_id.0.to_le_bytes());
+        match last_move_day {
+            None => bytes.push(0),
+            Some(day) => {
+                bytes.push(1);
+                bytes.extend_from_slice(&day.to_le_bytes());
+            }
+        }
+    }
+    Ok(bytes)
+}
+
+fn hash_preimage(bytes: Vec<u8>) -> CanonicalHash {
+    CanonicalHash(Sha256::digest(bytes).into())
+}
+
+pub fn canonical_m3m_state_bytes(
+    world: &WorldState,
+    graph: &RelationshipGraph,
+    migration: &MigrationState,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    migration
+        .validate_current_day(world.current_day.as_u32())
+        .map_err(|error| CanonicalHashError::InvalidState(error.to_string()))?;
+    state_bytes_with_migration(
+        &canonical_m3_state_bytes(world, graph)?,
+        DOMAIN_M3_STATE,
+        DOMAIN_M3M_STATE,
+        migration,
+        world.agents.iter().map(|agent| agent.agent_id),
+    )
+}
+
+pub fn canonical_m3m_state_hash(
+    world: &WorldState,
+    graph: &RelationshipGraph,
+    migration: &MigrationState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3m_state_bytes(
+        world, graph, migration,
+    )?))
+}
+
+pub fn canonical_m3pm_state_bytes(
+    state: &M3pReferenceState,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let migration = state.migration_state().ok_or_else(|| {
+        CanonicalHashError::InvalidState("M3PM state has no migration rows".into())
+    })?;
+    migration
+        .validate_current_day(state.world().current_day.as_u32())
+        .map_err(|error| CanonicalHashError::InvalidState(error.to_string()))?;
+    state_bytes_with_migration(
+        &canonical_m3p_state_bytes(state)?,
+        DOMAIN_M3P_STATE,
+        DOMAIN_M3PM_STATE,
+        migration,
+        state.world().agents.iter().map(|agent| agent.agent_id),
+    )
+}
+
+pub fn canonical_m3pm_state_hash(
+    state: &M3pReferenceState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3pm_state_bytes(state)?))
+}
+
+pub fn canonical_m3mprop_state_bytes(
+    state: &M3PropagationReferenceState,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let migration = state.migration_state().ok_or_else(|| {
+        CanonicalHashError::InvalidState("M3MPROP state has no migration rows".into())
+    })?;
+    migration
+        .validate_current_day(state.world().current_day.as_u32())
+        .map_err(|error| CanonicalHashError::InvalidState(error.to_string()))?;
+    state_bytes_with_migration(
+        &canonical_m3prop_state_bytes(state)?,
+        DOMAIN_M3PROP_STATE,
+        DOMAIN_M3MPROP_STATE,
+        &migration,
+        state.world().agents.iter().map(|agent| agent.agent_id),
+    )
+}
+
+pub fn canonical_m3mprop_state_hash(
+    state: &M3PropagationReferenceState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3mprop_state_bytes(state)?))
+}
+
+pub fn canonical_m3pmprop_state_bytes(
+    state: &M3pPropagationReferenceState,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let migration = state.base_state().migration_state().ok_or_else(|| {
+        CanonicalHashError::InvalidState("M3PMPROP state has no migration rows".into())
+    })?;
+    migration
+        .validate_current_day(state.world().current_day.as_u32())
+        .map_err(|error| CanonicalHashError::InvalidState(error.to_string()))?;
+    state_bytes_with_migration(
+        &canonical_m3pprop_state_bytes(state)?,
+        DOMAIN_M3PROP_STATE,
+        DOMAIN_M3PMPROP_STATE,
+        migration,
+        state.world().agents.iter().map(|agent| agent.agent_id),
+    )
+}
+
+pub fn canonical_m3pmprop_state_hash(
+    state: &M3pPropagationReferenceState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3pmprop_state_bytes(state)?))
+}
+
+pub fn canonical_m3m_state_bytes_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    migration: &MigrationState,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    migration
+        .validate_current_day(current_day.as_u32())
+        .map_err(|error| CanonicalHashError::InvalidState(error.to_string()))?;
+    state_bytes_with_migration(
+        &canonical_m3_state_bytes_from_storage(storage, current_day, settlements, graph)?,
+        DOMAIN_M3_STATE,
+        DOMAIN_M3M_STATE,
+        migration,
+        storage.agent_ids().iter().copied(),
+    )
+}
+
+pub fn canonical_m3m_state_hash_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    migration: &MigrationState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3m_state_bytes_from_storage(
+        storage,
+        current_day,
+        settlements,
+        graph,
+        migration,
+    )?))
+}
+
+pub fn canonical_m3pm_state_bytes_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    next_agent_id: u64,
+    migration: &MigrationState,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    migration
+        .validate_current_day(current_day.as_u32())
+        .map_err(|error| CanonicalHashError::InvalidState(error.to_string()))?;
+    state_bytes_with_migration(
+        &canonical_m3p_state_bytes_from_storage(
+            storage,
+            current_day,
+            settlements,
+            graph,
+            next_agent_id,
+        )?,
+        DOMAIN_M3P_STATE,
+        DOMAIN_M3PM_STATE,
+        migration,
+        storage.agent_ids().iter().copied(),
+    )
+}
+
+pub fn canonical_m3pm_state_hash_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    next_agent_id: u64,
+    migration: &MigrationState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3pm_state_bytes_from_storage(
+        storage,
+        current_day,
+        settlements,
+        graph,
+        next_agent_id,
+        migration,
+    )?))
+}
+
+pub fn canonical_m3mprop_state_bytes_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    propagation: &BTreeMap<AgentId, PropagationAgentState>,
+    migration: &MigrationState,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    migration
+        .validate_current_day(current_day.as_u32())
+        .map_err(|error| CanonicalHashError::InvalidState(error.to_string()))?;
+    state_bytes_with_migration(
+        &canonical_m3prop_state_bytes_from_storage(
+            storage,
+            current_day,
+            settlements,
+            graph,
+            propagation,
+        )?,
+        DOMAIN_M3PROP_STATE,
+        DOMAIN_M3MPROP_STATE,
+        migration,
+        storage.agent_ids().iter().copied(),
+    )
+}
+
+pub fn canonical_m3mprop_state_hash_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    propagation: &BTreeMap<AgentId, PropagationAgentState>,
+    migration: &MigrationState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3mprop_state_bytes_from_storage(
+        storage,
+        current_day,
+        settlements,
+        graph,
+        propagation,
+        migration,
+    )?))
+}
+
+pub fn canonical_m3pmprop_state_bytes_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    next_agent_id: u64,
+    propagation: &BTreeMap<AgentId, PropagationAgentState>,
+    migration: &MigrationState,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    migration
+        .validate_current_day(current_day.as_u32())
+        .map_err(|error| CanonicalHashError::InvalidState(error.to_string()))?;
+    state_bytes_with_migration(
+        &canonical_m3pprop_state_bytes_from_storage(
+            storage,
+            current_day,
+            settlements,
+            graph,
+            next_agent_id,
+            propagation,
+        )?,
+        DOMAIN_M3PROP_STATE,
+        DOMAIN_M3PMPROP_STATE,
+        migration,
+        storage.agent_ids().iter().copied(),
+    )
+}
+
+pub fn canonical_m3pmprop_state_hash_from_storage(
+    storage: &SegmentedAgentStorage,
+    current_day: SimulationDay,
+    settlements: &[crate::state::SettlementState],
+    graph: &RelationshipGraph,
+    next_agent_id: u64,
+    propagation: &BTreeMap<AgentId, PropagationAgentState>,
+    migration: &MigrationState,
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3pmprop_state_bytes_from_storage(
+        storage,
+        current_day,
+        settlements,
+        graph,
+        next_agent_id,
+        propagation,
+        migration,
+    )?))
+}
+
 // =========================================================================
 // 2. CanonicalMetricsHash
 // =========================================================================
@@ -968,6 +1305,180 @@ pub fn canonical_m3prop_metrics_hash(
 ) -> Result<CanonicalHash, CanonicalHashError> {
     let bytes = canonical_m3prop_metrics_bytes(metrics)?;
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
+fn extend_metrics_with_migration(
+    base: &[u8],
+    base_domain: &[u8],
+    migration_domain: &[u8],
+    migration: &[MigrationMetrics],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    if !base.starts_with(base_domain) || base.len() < base_domain.len() + 4 {
+        return Err(CanonicalHashError::InvalidState(
+            "base Metrics bytes do not match expected domain".into(),
+        ));
+    }
+    let count_bytes: [u8; 4] = base[base_domain.len()..base_domain.len() + 4]
+        .try_into()
+        .map_err(|_| CanonicalHashError::LengthOverflow)?;
+    let count = u32::from_le_bytes(count_bytes) as usize;
+    if count != migration.len() {
+        return Err(CanonicalHashError::InvalidState(
+            "migration metric day count does not match base metrics".into(),
+        ));
+    }
+    let records_len = base.len() - base_domain.len() - 4;
+    let record_len = if count == 0 {
+        if records_len != 0 {
+            return Err(CanonicalHashError::InvalidState(
+                "empty base metrics contain trailing records".into(),
+            ));
+        }
+        0
+    } else {
+        if !records_len.is_multiple_of(count) {
+            return Err(CanonicalHashError::InvalidState(
+                "base metric record length is not uniform".into(),
+            ));
+        }
+        records_len / count
+    };
+    let mut by_day = BTreeMap::new();
+    for metric in migration {
+        if by_day.insert(metric.day, *metric).is_some() {
+            return Err(CanonicalHashError::DuplicateMetricDay(metric.day));
+        }
+    }
+    let record_count = u32::try_from(count).map_err(|_| CanonicalHashError::LengthOverflow)?;
+    let capacity = migration_domain
+        .len()
+        .checked_add(4)
+        .and_then(|length| length.checked_add(count.checked_mul(record_len.checked_add(24)?)?))
+        .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(migration_domain);
+    bytes.extend_from_slice(&record_count.to_le_bytes());
+    let start = base_domain.len() + 4;
+    for index in 0..count {
+        let record_start = start
+            .checked_add(
+                index
+                    .checked_mul(record_len)
+                    .ok_or(CanonicalHashError::ArithmeticOverflow)?,
+            )
+            .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+        let record_end = record_start
+            .checked_add(record_len)
+            .ok_or(CanonicalHashError::ArithmeticOverflow)?;
+        let record = &base[record_start..record_end];
+        if record.len() < 4 {
+            return Err(CanonicalHashError::InvalidState(
+                "base metric record omits day".into(),
+            ));
+        }
+        let day = u32::from_le_bytes(
+            record[..4]
+                .try_into()
+                .map_err(|_| CanonicalHashError::LengthOverflow)?,
+        );
+        let migration = by_day.remove(&day).ok_or_else(|| {
+            CanonicalHashError::InvalidState(format!("missing migration metrics for day {day}"))
+        })?;
+        bytes.extend_from_slice(record);
+        bytes.extend_from_slice(&migration.migrations.to_le_bytes());
+        bytes.extend_from_slice(&migration.migration_cost.to_le_bytes());
+        bytes.extend_from_slice(&migration.cross_partition_edge_count_delta.to_le_bytes());
+    }
+    if !by_day.is_empty() {
+        return Err(CanonicalHashError::InvalidState(
+            "migration metrics contain a day absent from base metrics".into(),
+        ));
+    }
+    Ok(bytes)
+}
+
+pub fn canonical_m3m_metrics_bytes(
+    metrics: &[M3DailyMetrics],
+    migration: &[MigrationMetrics],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    extend_metrics_with_migration(
+        &canonical_m3_metrics_bytes(metrics)?,
+        DOMAIN_M3_METRICS,
+        DOMAIN_M3M_METRICS,
+        migration,
+    )
+}
+
+pub fn canonical_m3m_metrics_hash(
+    metrics: &[M3DailyMetrics],
+    migration: &[MigrationMetrics],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3m_metrics_bytes(
+        metrics, migration,
+    )?))
+}
+
+pub fn canonical_m3pm_metrics_bytes(
+    metrics: &[M3pDailyMetrics],
+    migration: &[MigrationMetrics],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    extend_metrics_with_migration(
+        &canonical_m3p_metrics_bytes(metrics)?,
+        DOMAIN_M3P_METRICS,
+        DOMAIN_M3PM_METRICS,
+        migration,
+    )
+}
+
+pub fn canonical_m3pm_metrics_hash(
+    metrics: &[M3pDailyMetrics],
+    migration: &[MigrationMetrics],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3pm_metrics_bytes(
+        metrics, migration,
+    )?))
+}
+
+pub fn canonical_m3mprop_metrics_bytes(
+    metrics: &[M3PropDailyMetrics],
+    migration: &[MigrationMetrics],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    extend_metrics_with_migration(
+        &canonical_m3prop_metrics_bytes(metrics)?,
+        DOMAIN_M3PROP_METRICS,
+        DOMAIN_M3MPROP_METRICS,
+        migration,
+    )
+}
+
+pub fn canonical_m3mprop_metrics_hash(
+    metrics: &[M3PropDailyMetrics],
+    migration: &[MigrationMetrics],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3mprop_metrics_bytes(
+        metrics, migration,
+    )?))
+}
+
+pub fn canonical_m3pmprop_metrics_bytes(
+    metrics: &[M3pPropagationDailyMetrics],
+    migration: &[MigrationMetrics],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    extend_metrics_with_migration(
+        &canonical_m3pprop_metrics_bytes(metrics)?,
+        DOMAIN_M3PROP_METRICS,
+        DOMAIN_M3PMPROP_METRICS,
+        migration,
+    )
+}
+
+pub fn canonical_m3pmprop_metrics_hash(
+    metrics: &[M3pPropagationDailyMetrics],
+    migration: &[MigrationMetrics],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3pmprop_metrics_bytes(
+        metrics, migration,
+    )?))
 }
 
 // =========================================================================
@@ -1371,4 +1882,166 @@ pub fn canonical_m3prop_event_hash(
 ) -> Result<CanonicalHash, CanonicalHashError> {
     let bytes = canonical_m3prop_event_bytes(events)?;
     Ok(CanonicalHash(Sha256::digest(&bytes).into()))
+}
+
+fn migration_event_stream_bytes(
+    domain: &[u8],
+    mut base_records: Vec<(EventKey, Vec<u8>)>,
+    migration_events: &[MigrationEventRecord],
+    migration_tag: u8,
+) -> Result<Vec<u8>, CanonicalHashError> {
+    let mut ordered_migration = migration_events.iter().collect::<Vec<_>>();
+    ordered_migration.sort_by_key(|event| (event.day, event.agent_id));
+    for event in ordered_migration {
+        let key = EventKey::new(
+            event.day,
+            9,
+            crate::events::GLOBAL_PARTITION_KEY,
+            event.local_sequence,
+        );
+        let mut record = Vec::with_capacity(CANONICAL_EVENT_KEY_BYTES + 22);
+        record.extend_from_slice(&key.day.to_le_bytes());
+        record.push(key.phase);
+        record.extend_from_slice(&key.partition_key.to_le_bytes());
+        record.extend_from_slice(&key.local_sequence.to_le_bytes());
+        record.push(EVENT_CATEGORY_STATE_TRANSITION);
+        record.push(migration_tag);
+        record.extend_from_slice(&event.agent_id.0.to_le_bytes());
+        record.extend_from_slice(&event.from_group_id.0.to_le_bytes());
+        record.extend_from_slice(&event.to_group_id.0.to_le_bytes());
+        record.extend_from_slice(&event.cost.to_le_bytes());
+        base_records.push((key, record));
+    }
+    base_records.sort_by_key(|(key, _)| *key);
+    for window in base_records.windows(2) {
+        if window[0].0 == window[1].0 {
+            return Err(CanonicalHashError::DuplicateEventKey(window[0].0));
+        }
+    }
+    let count =
+        u32::try_from(base_records.len()).map_err(|_| CanonicalHashError::LengthOverflow)?;
+    let capacity = base_records
+        .iter()
+        .try_fold(domain.len() + 4, |capacity, (_, record)| {
+            capacity
+                .checked_add(record.len())
+                .ok_or(CanonicalHashError::ArithmeticOverflow)
+        })?;
+    let mut bytes = Vec::with_capacity(capacity);
+    bytes.extend_from_slice(domain);
+    bytes.extend_from_slice(&count.to_le_bytes());
+    for (_, record) in base_records {
+        bytes.extend_from_slice(&record);
+    }
+    Ok(bytes)
+}
+
+fn base_event_records(
+    events: &[EventRecord],
+) -> Result<Vec<(EventKey, Vec<u8>)>, CanonicalHashError> {
+    let _ = canonical_event_bytes(events)?;
+    events
+        .iter()
+        .map(|event| {
+            let bytes = canonical_event_bytes(std::slice::from_ref(event))?;
+            let start = DOMAIN_EVENTS.len() + 4;
+            Ok((event.key, bytes[start..].to_vec()))
+        })
+        .collect()
+}
+
+fn base_m3p_event_records(
+    events: &[M3pEventRecord],
+) -> Result<Vec<(EventKey, Vec<u8>)>, CanonicalHashError> {
+    let _ = canonical_m3p_event_bytes(events)?;
+    events
+        .iter()
+        .map(|event| {
+            let bytes = canonical_m3p_event_bytes(std::slice::from_ref(event))?;
+            let start = DOMAIN_M3P_EVENTS.len() + 4;
+            Ok((event.key, bytes[start..].to_vec()))
+        })
+        .collect()
+}
+
+pub fn canonical_m3m_event_bytes(
+    events: &[EventRecord],
+    migration: &[MigrationEventRecord],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    migration_event_stream_bytes(
+        DOMAIN_M3M_EVENTS,
+        base_event_records(events)?,
+        migration,
+        M3M_EVENT_SETTLEMENT_MIGRATED,
+    )
+}
+
+pub fn canonical_m3m_event_hash(
+    events: &[EventRecord],
+    migration: &[MigrationEventRecord],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3m_event_bytes(events, migration)?))
+}
+
+pub fn canonical_m3pm_event_bytes(
+    events: &[M3pEventRecord],
+    migration: &[MigrationEventRecord],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    migration_event_stream_bytes(
+        DOMAIN_M3PM_EVENTS,
+        base_m3p_event_records(events)?,
+        migration,
+        M3PM_EVENT_SETTLEMENT_MIGRATED,
+    )
+}
+
+pub fn canonical_m3pm_event_hash(
+    events: &[M3pEventRecord],
+    migration: &[MigrationEventRecord],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3pm_event_bytes(
+        events, migration,
+    )?))
+}
+
+pub fn canonical_m3mprop_event_bytes(
+    events: &[EventRecord],
+    migration: &[MigrationEventRecord],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    migration_event_stream_bytes(
+        DOMAIN_M3MPROP_EVENTS,
+        base_event_records(events)?,
+        migration,
+        M3M_EVENT_SETTLEMENT_MIGRATED,
+    )
+}
+
+pub fn canonical_m3mprop_event_hash(
+    events: &[EventRecord],
+    migration: &[MigrationEventRecord],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3mprop_event_bytes(
+        events, migration,
+    )?))
+}
+
+pub fn canonical_m3pmprop_event_bytes(
+    events: &[M3pEventRecord],
+    migration: &[MigrationEventRecord],
+) -> Result<Vec<u8>, CanonicalHashError> {
+    migration_event_stream_bytes(
+        DOMAIN_M3PMPROP_EVENTS,
+        base_m3p_event_records(events)?,
+        migration,
+        M3PM_EVENT_SETTLEMENT_MIGRATED,
+    )
+}
+
+pub fn canonical_m3pmprop_event_hash(
+    events: &[M3pEventRecord],
+    migration: &[MigrationEventRecord],
+) -> Result<CanonicalHash, CanonicalHashError> {
+    Ok(hash_preimage(canonical_m3pmprop_event_bytes(
+        events, migration,
+    )?))
 }

@@ -1028,6 +1028,7 @@ impl ManualProfile {
                 metrics: Some(metrics),
                 events,
                 snapshot: None,
+                migration: None,
             },
             ProfileSample {
                 phase_us,
