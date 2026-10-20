@@ -496,6 +496,16 @@ The A-3 deterministic percentile bootstrap and thresholds are unchanged. Bootstr
 
 This approved A-4 amendment replaces A-3's host-load validity rule and sets the 41-sample protocol for the M4-02 gate; the A-3 bootstrap decision rule and threshold definitions remain frozen. It does not re-judge A-1, A-2, or A-3 measurements. No further M4-02 measurement-rule amendment is part of this task.
 
+## §11.7 A-5 — Batched sample amendment (FROZEN)
+
+This user-approved amendment supersedes only how one timed sample is built. Short 48–165 ms samples are comparable to the roughly 15.6 ms Windows scheduling granularity, which caused path MAD to exceed 5% in some 10k cells; all 100k cells, with 1–8 s samples, had 1–2% path MAD. All A-4 validity, decision, threshold, retry, host-information, and bootstrap rules remain unchanged.
+
+During warmup, choose a repetition count `r` once per cell so one timed sample lasts at least one second, then keep `r` fixed for all samples and any retry of that cell. Each timed sample repeats its paired operation `r` times back-to-back and reports per-operation time as the sample time divided by `r`. Preserve the paired-path alternation order within each sample. Use 41 timed samples; apply A-4 validity and its one retry, then A-3's deterministic bootstrap rule and frozen threshold. Report `r` for every cell.
+
+### Freeze record
+
+This approved A-5 amendment changes only sample construction to reduce short-cell scheduling noise. It keeps the existing 41-sample count, validity rule, bootstrap decision, thresholds, and one-retry limit.
+
 ## M4 standard performance-gate protocol (FROZEN)
 
-Unless a later M4 stage contract specifies otherwise, use paired measurements in one process with the stage's declared baselines, two warmups, 41 timed samples per cell, and alternating path order. Validity requires both paths to have `MAD / median <= 5%`; report host CPU and free RAM before and after as information only; rerun an invalid cell once. Compute `U` with the deterministic 10,000-resample bootstrap fixed in §11.7 A-3/A-4. Apply the stage's frozen `T` using **PASS** iff `U <= T`, **FAIL** iff `median(delta) > T`, and **INCONCLUSIVE** otherwise. Report median(delta), MAD(delta), `U`, `T`, path medians and MADs, host details, and all retry outcomes.
+Unless a later M4 stage contract specifies otherwise, use paired measurements in one process with the stage's declared baselines and two warmups. During warmup, choose `r` once per cell so a sample lasts at least one second; each sample repeats the paired operation `r` times with the paired-path alternation order preserved, and per-operation time is the sample time divided by `r`. Keep `r` fixed through samples and a retry. Use 41 timed samples per cell. Validity requires both paths to have `MAD / median <= 5%`; report host CPU and free RAM before and after as information only; rerun an invalid cell once. Compute `U` with the deterministic 10,000-resample bootstrap fixed in §11.7 A-3/A-4. Apply the stage's frozen `T` using **PASS** iff `U <= T`, **FAIL** iff `median(delta) > T`, and **INCONCLUSIVE** otherwise. Report `r`, median(delta), MAD(delta), `U`, `T`, path medians and MADs, host details, and all retry outcomes.
