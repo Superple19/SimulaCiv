@@ -858,6 +858,7 @@ M4-06 does not change migration-off semantics or the existing M2/M3/M3P/propagat
 | RQ-9 config | Four required migration fields and validation ranges in §15.5; settings while disabled are rejected. |
 | RQ-10 forward gate | Zero new public runner functions and zero generic-loop-body edits. Any required generic-loop edit is a gate failure. |
 | RQ-11 validation and measurement | New-only tests/goldens; A-5 migration-off gate at M3P 10k/100k with T=5%; migration-on cost is report-only per alive agent-day. |
+| A-1 event encoding clarification | EventKey phase 9, global partition, local sequence ascending AgentId. Payload variant tag is 0x05 for M3-based migration and 0x07 for M3P-based migration (0x05/0x06 remain Birth/Cleanup in M3P). |
 
 ### 15.11 Freeze record
 
