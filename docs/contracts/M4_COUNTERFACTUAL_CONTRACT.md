@@ -1,8 +1,8 @@
 # M4 Counterfactual Contract
 
-**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN; §12 M4-03 FROZEN; §13 M4-04 FROZEN; §14 M4-05 FROZEN; §15 M4-06 DRAFT**
+**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN; §12 M4-03 FROZEN; §13 M4-04 FROZEN; §14 M4-05 FROZEN; §15 M4-06 FROZEN**
 
-**Scope:** M4-00 freezes the counterfactual framework; §§10–14 freeze M4-01 through M4-05; §15 drafts M4-06 settlement migration. Later stages still require their own DRAFT → review → FROZEN contract.
+**Scope:** M4-00 freezes the counterfactual framework; §§10–14 freeze M4-01 through M4-05; §15 freezes M4-06 settlement migration. Later stages still require their own DRAFT → review → FROZEN contract.
 
 **Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
@@ -46,7 +46,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **M4-03 — Divergence measurement** | **COMPLETE.** The frozen series, daily component partition, cascade metrics, and target-death analysis pass the §12.6 A-5 gate; see the [M4-03 report](../performance/M4_03_DIVERGENCE.md) and [§12](#12-m4-03-divergence-measurement). |
 | **M4-04 — CRN efficiency** | **COMPLETE.** Frozen paired/independent estimators and bootstrap reporting; 100-replicate M3P sustained experiment recorded in the [M4-04 report](../performance/M4_04_CRN_EFFICIENCY.md). |
 | **M4-05 — Minimal-cause search** | **COMPLETE.** Deterministic intervention batches, cached paired evaluation, exhaustive minimum/ddmin search, JSONL replay, the N=2,000 golden, and the M3P N=10,000 A-5 gate pass; see the [M4-05 report](../performance/M4_05_MINIMAL_CAUSE.md) and [§14](#14-m4-05-minimal-cause-search). |
-| **M4-06 — Settlement migration system** | **PLANNED — DRAFT.** Use settlement migration as the first newly registered system and test the M4-01 forward gate; see [§15](#15-m4-06-settlement-migration-system). |
+| **M4-06 — Settlement migration system** | **PLANNED — CONTRACT FROZEN.** Implement registered migration with the M4-01 forward gate; see [§15](#15-m4-06-settlement-migration-system). |
 | **M4-07 — Many-branch performance** | Measure shared-state and copy-on-write options, cross-branch parallelism, and GPU suitability. A GPU implementation is not implied. M4-02 follow-up candidate: day-scan digest cost measured at 70–160 ns/agent-day; compare direct column equality with SHA-256 only on request. |
 | **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
 | **M4 audit** | Answer the research question from recorded correctness and performance evidence and classify remaining work. |
@@ -755,99 +755,110 @@ The M3-08 report measured a 100k-agent M3P tick at `165.1 ms` versus `31.6 ms` f
 
 Current group membership affects later settlement-specific processing: Phase 3 resolves settlement scarcity; M3 Phase 4 candidates come from the AgentId graph and live agent fields, while its separate cross-partition count compares initiator and target group IDs; Phase 5 buckets intents by group; and Phase 6B output, markets, welfare, metrics, and events use group IDs ([`phase3_observation_and_features_storage_with_scratch`](../../crates/sim-model/src/features.rs); [`generate_intents_m3_storage_into`, `count_cross_partition_interactions_per_day`](../../crates/sim-model/src/intents.rs); [`phase5_partition_intents`, `phase5_partition_intents_baseline`](../../crates/sim-model/src/partitioning.rs); [`phase6b_targeted_resolution_m3`, `phase7_market_clearance_storage`, `phase8_welfare_distribution_storage`](../../crates/sim-model/src/resolution.rs); [`M3StorageRegisteredDay::observe`, `M3StorageRegisteredDay::finish_day`](../../crates/sim-model/src/runner.rs)). A migration performed after Phase 9 affects Phase 10/11 outputs for that day and the next day's Phases 1–8; it cannot retroactively change already committed interactions.
 
-### 15.2 Goal and migration model options
+### 15.2 Frozen movement semantics
 
-The goal is to model deterministic agent movement between existing settlements through a registered system. A migration decision has a configured probability and cost, and uses coordinate-addressed randomness so agent iteration order or unrelated draws do not shift another agent's decision. M4-06 does not specify the final RNG draw mapping; subsystem ID `9` is reserved below, while draw indices and destination sampling remain open.
+Migration runs after Phase 9b and before Phase 9c. In M3 without population dynamics, it runs after the core Phase 9 boundary. In M3P, Phase 9b birth and cleanup completes first. The migration plan reads one immutable phase-start view; it does not observe earlier planned moves.
 
-Candidate pressure rules:
+For each alive source agent in ascending AgentId order:
 
-- **Resource pressure:** compare the current settlement's resource-per-live-agent value with one or more alternative settlements; move toward a settlement with better capacity.
-- **Food pressure:** compare a deterministic summary of agent food or settlement food availability and move away from a low-food settlement.
-- **Random movement:** choose uniformly from an explicitly ordered set of other settlements, independent of pressure.
+1. Evaluate exactly one f32 draw at (master_seed, replicate_id, day, phase=9, subsystem_id=9, source AgentId, draw_index=0). Evaluate the draw for every alive agent before eligibility filtering, including agents born today, still cooling down, lacking wealth, or having no destination. Dead agents are not iterated.
+2. Apply eligibility in this order: still alive; birth_day != day; no prior move, or day - last_move_day >= migration_cooldown_days; and wealth >= migration_cost. No second draw is made.
+3. Build the destination set from the source row's graph-neighbor AgentIds. Resolve their current GroupIds; keep distinct groups other than the source group and exclude groups with zero live residents. A dead endpoint may contribute its group if that group still has live residents. Sort the candidate GroupIds ascending.
+4. Compute each candidate's per-capita resource as settlement.resource / live_resident_count in f32. Compute the source value the same way. Select the greatest candidate value; equal f32 values choose the lowest GroupId. If the set is empty, there is no move.
+5. Move only when (destination_pc - current_pc) / max(current_pc, f32::EPSILON) > migration_threshold and the already-evaluated draw is less than migration_probability.
 
-**Proposal:** begin with resource-per-live-agent pressure over all other existing `GroupId`s, select the highest-capacity destination that exceeds the source by a declared margin, and break ties by ascending `GroupId`. A move attempt is then admitted by `move_probability` in `[0,1]`. The destination set is ordered explicitly; no hash-map iteration defines the choice. Whether to combine a pressure rule with a random fallback remains open.
+There is no capacity limit on destinations and no random fallback. Settlements without live residents are not destinations, avoiding division by zero. The graph supplies relationship destinations; edges remain attached to AgentIds.
 
-For movement cost, options are an agent-food cost, an agent-wealth cost, or a settlement-paid cost. **Proposal:** deduct a finite nonnegative `migration_food_cost` from the moving agent's current food, requiring sufficient food before a move is admitted. This reuses an existing agent column and avoids adding a second treasury transfer rule. Whether an unaffordable agent skips the move or emits a failed-attempt record is open; recommend skip with no RNG redraw and no event.
+All selected moves are committed in ascending source AgentId order only after the full plan has passed validation. A move changes the agent's GroupId, subtracts the fixed migration_cost from agent wealth, credits the same amount to the destination treasury, and sets that agent's last_move_day to the current day. Money is conserved. Aggregate treasury credits per GroupId and validate them with checked arithmetic before any commit; validate each wealth debit and every destination lookup before commit. A failed plan leaves migration-owned state and migration effects unchanged. Migration has no destination capacity reservation.
 
-Process eligible agents once in ascending `AgentId` order, plan all destinations and costs against the Phase 9/9b boundary state, validate the complete plan, then commit group and cost changes. This avoids one migration changing another agent's same-day pressure calculation. The eligibility predicate, whether dead or health-zero agents are excluded, and whether one destination may accept any number of agents must be frozen before implementation.
+### 15.3 Registered-system boundary and execution order
 
-### 15.3 Registered-system descriptor and phase slot
+Add SystemId::SettlementMigration, feature key migration, and RNG subsystem ID 9; IDs 6, 7, and 8 remain unchanged. Migration depends on RelationshipGraph. Its declared slot is the existing Phase9C slot, but its SystemId order is before Propagation, yielding Phase 9b → Migration (9m) → Propagation (9c). The registry validator and sorted (PhaseSlot, SystemId) hooks provide this order; the generic WorldState and storage loop bodies remain byte-for-byte unchanged. If migration-before-propagation cannot be obtained by the registry entry and system-specific hook dispatch alone, the M4-01 forward gate fails and implementation stops.
 
-Add a distinct `SystemId::SettlementMigration` and feature-switch key; `SystemId` is intentionally separate from the numeric RNG subsystem IDs. Reserve RNG subsystem ID `9` for the migration profile only; existing RelationshipGraph, PopulationDynamics, and Propagation descriptors use IDs `6`, `7`, and `8` respectively ([`SystemId`, `FeatureSwitchKey`, `SystemDescriptor`, `SYSTEM_REGISTRY`](../../crates/sim-model/src/system_registry.rs); [`M3P_BIRTH_SUBSYSTEM_ID`](../../crates/sim-model/src/m3p.rs)).
+The descriptor owns persistent migration.last_move_day; it reads AgentId, alive, birth day, wealth, GroupId, relationship CSR, settlement resource/treasury, and live group counts; it writes GroupId, agent wealth, destination treasury, migration state, migration metrics, and migration events. It uses serial execution only. Migration does not alter the graph, AgentId allocation, or Phase 4 projection.
 
-Proposed descriptor:
+### 15.4 Population and propagation composition
 
-| Descriptor field | Draft value |
-|---|---|
-| System identity | `SettlementMigration`; feature key `settlement_migration` |
-| Dependencies | RelationshipGraph; order after PopulationDynamics only when that system is enabled |
-| RNG subsystem | `9` |
-| Phase slot | After core Phase 9 and any Phase 9b population hook, before Phase 9c propagation |
-| Owned persistent columns | None for the initial stateless rule; writes the existing agent group and food columns |
-| Snapshot contribution | A migration-profile section/version, plus any future migration state if selected |
-| Digest contribution | New profile-specific State, Metrics, and Events domains |
-| Metrics/events | Daily migrated count and cost; a typed migration event with AgentId, source, destination, and cost |
-| Declared access | Read agent identity/alive/health/food/group, settlement identity/resource, and derived live group counts; write agent group and food plus migration metrics/events |
+Migration is enabled through [simulation.systems] migration = true, with relationship_graph = true. The base profile remains m3 or m3p; migration parameters are required in [migration]. M3 plus migration is the m3m effective profile label; M3P plus migration is m3pm. With propagation = true, the corresponding effective labels are m3m+propagation and m3pm+propagation. These labels do not change the base profile configuration value.
 
-Current `PhaseSlot` has `Phase9B` and `Phase9C` but no distinct slot between them. Both generic day loops invoke `Phase9B` hooks after core Phase 9 and invoke `Phase9C` hooks afterward; registry hooks are sorted by `(PhaseSlot, SystemId)` ([`PhaseSlot`, `validate_system_registry`](../../crates/sim-model/src/system_registry.rs); [`run_registered_world_day_loop_impl`, `run_registered_storage_day_loop`](../../crates/sim-model/src/runner.rs)). **Proposal:** use the existing Phase9C slot, with Migration ordered before Propagation in the registry, so the generic loop bodies remain unchanged. The current registry's order is a stable enum sort, not a topological scheduler; the implementation must prove the chosen descriptor/SystemId order and dependency validation produce migration-before-propagation. Adding a new Phase9D slot that requires editing generic-loop bodies would fail the frozen M4-01 forward gate and must be reported, not worked around.
+The migration switch requires RelationshipGraph and supports both M3 and M3P. The two propagation combinations are required to use the same registered hook order without generic-loop changes; parity tests must establish whether current propagation callbacks compose without further dispatch edits. Newborns are included in the post-Phase-9b live-resident counts but are ineligible to move on their birth day. A parent that moves on day D affects the group inherited by a later birth on day D+1 or later.
 
-### 15.4 Relationship graph and population dynamics interaction
+### 15.5 Configuration and validation
 
-The relationship graph is keyed by `AgentId`; its rows are not keyed by storage slot. Phase 4 projects those rows to slots for execution. M3P Phase 9b attaches newborn edges using the parent's current group and updates graph rows only for births/compaction ([`RelationshipGraph`](../../crates/sim-model/src/relationship_graph.rs); [`M3Phase4SlotProjection`](../../crates/sim-model/src/intents.rs); [`plan_phase9b_from_view`, `apply_phase9b_storage_incremental`](../../crates/sim-model/src/m3p.rs)).
+The migration section requires all four values whenever migration is enabled:
 
-Graph choices:
+| Field | Type | Validation |
+|---|---|---|
+| migration_probability | f32 | finite and in [0, 1] |
+| migration_threshold | f32 | finite and >= 0 |
+| migration_cost | Money | >= 0 |
+| migration_cooldown_days | u32 | any representable value |
 
-- **Keep identity edges:** existing CSR endpoints follow the same AgentIds after a move. Edges may become cross-partition or local as `group_id` changes; the graph and CSR hash do not change because of movement.
-- **Rewire on move:** resample one or both endpoints to preserve a locality target; this mutates CSR and its digest contribution on every affected move and must update the M3-09 incremental topology and snapshot state.
+Reject migration on the M2 base profile, reject migration without RelationshipGraph, reject missing parameters when enabled, and reject a [migration] section when the switch is disabled. Existing configs without the switch keep the current default feature set and behavior.
 
-**Proposal:** keep identity edges for M4-06. The graph describes relationships between agents, not their current settlement membership; locality can change as an observed workload property. Rewiring would couple migration to dynamic topology maintenance and obscure the first system-registration gate. Under this proposal, cross-partition edge and interaction metrics are recalculated against current group IDs at the declared observation boundary; exact daily metric names and accumulation order remain to be frozen.
+### 15.6 Persistent state, digests, snapshots, metrics, and events
 
-When PopulationDynamics is enabled, its Phase 9b birth/cleanup work precedes the proposed migration slot. **Proposal:** newborns do not migrate on their birth day and become eligible from day `D+1`, matching the current rule that they act beginning the next day. Existing live agents may migrate on day `D`. Whether migration runs with m3p at all, and how migration affects parent/child group inheritance on subsequent births, remains open.
+Migration state stores one optional last_move_day per current AgentId. It is initialized as unset for existing agents and newborns. During M3P compaction it is pruned for the same removed AgentIds as canonical state. Its canonical order is ascending AgentId; an unset value is encoded as a presence byte 0, while a set value is presence byte 1 followed by u32 little-endian day.
 
-### 15.5 Profile, digest, snapshot, metrics, and events
+Migration profiles use separate canonical digest domains. The base State fields are encoded in the existing M1 order, including current GroupIds, then the migration-state count and ordered (AgentId:u32 LE, last_move_day) records are appended. Metrics retain the base profile's frozen field order, then append migrations:u64 LE, migration_cost:Money as i64 LE, and cross_partition_edge_count_delta:i64 LE. Events retain the base event order and payloads, then encode migration events in ascending AgentId order after Phase 9b mortality/birth/cleanup events and before Phase 9c system events. The event is SettlementMigrated { agent_id:u32 LE, from_group_id:u32 LE, to_group_id:u32 LE, cost:i64 LE }. Only these migration-enabled domains and records are new; migration-off M2/M3/M3P/propagation encodings stay unchanged.
 
-Propose a new profile name `m3m` for M3 plus migration. A combined migration + population profile (for example `m3pm`) and propagation combinations need their own explicit mapping; they must not be inferred from a partial feature set. `SimulationProfile`, `SimulationSystems`, and `SimConfig::runner_selection` currently map only the existing m2/m3/m3p profiles and propagation combinations ([`SimulationProfile`, `SimulationSystems`, `SimConfig::runner_selection`](../../crates/sim-model/src/config.rs)).
+Domains are fixed by effective profile:
 
-For the new profile, propose domains `SIMCIV_M3M_STATE_V1`, `SIMCIV_M3M_METRICS_V1`, and `SIMCIV_M3M_EVENTS_V1`, and a profile-specific snapshot schema version `4`. The canonical agent record already encodes `group_id`; migration therefore changes canonical state through that existing field, while the new domain identifies the profile semantics. Snapshot v4 should store the canonical relationship CSR, current group assignments, and any persistent migration state chosen by the freeze. Existing M2/M3/M3P/propagation digest domains and snapshot bytes remain unchanged ([domain constants](../../crates/sim-model/src/hashing.rs); [`encode_m3p_snapshot`, `decode_m3p_snapshot`](../../crates/sim-model/src/m3p.rs); [`M3PROP_SNAPSHOT_SCHEMA_VERSION`](../../crates/sim-model/src/m3prop.rs)).
-
-Proposed daily metrics append `migrations` and checked `migration_food_cost`; if a pressure metric is useful, record it only as a declared M3M metric and define its accumulation order. Proposed event payload is `SettlementMigrated { agent_id, from_group_id, to_group_id, food_cost }`, ordered by ascending AgentId in the post-Phase-9c event stream. These are profile-specific M3M records/digests; existing `M3pEvent`, `M3pDailyMetrics`, and frozen M3/M3P schemas do not change ([`M3pEvent`, `M3pDailyMetrics`](../../crates/sim-model/src/m3p.rs); [`M3pPropagationDailyMetrics`](../../crates/sim-model/src/m3pprop.rs)).
-
-### 15.6 M4-01 forward gate and implementation inventory
-
-The frozen M4-01 forward gate applies without exception: M4-06 adds **zero public runner functions** and makes **zero edits to the bodies** of `run_registered_world_day_loop_impl` and `run_registered_storage_day_loop`. A changed generic-loop body is a gate failure to report; do not work around it by renaming a loop or moving the same dispatch into another generic function. Existing generic loops already accept registered hook callbacks; M4-06 may add a system-owned implementation and adapt existing system-specific hook dispatch, but must count and list that code honestly ([M4-01 forward gate](#10-m4-01-system-registration-architecture); generic loops and M3P day entry points in [`runner.rs`](../../crates/sim-model/src/runner.rs)).
-
-The implementation report must include the production runner/context inventory and wiring-line count before/after using the §10.1 method, list every changed file, and report changed lines outside the new migration system's own source files. Expected integration files—not a permission to edit any of them—include `config.rs`, `system_registry.rs`, existing system-specific dispatch in `runner.rs`/`m3p.rs`, canonical hashing and snapshot codecs, and exports/tests. Identify which files actually changed. Any new public runner entry point or generic-loop-body edit fails the gate rather than getting excluded from the count.
-
-### 15.7 Correctness gates and tests
-
-Before marking M4-06 complete:
-
-- compare the M3M WorldState reference and Segmented SoA storage paths per day for State/Metrics/Events digests, migration records, intents, Phase 6B resolutions, and errors;
-- test exact replay across several seeds, candidate orderings, and DenseSlot permutations;
-- test the migration plan's deterministic AgentId ordering, destination tie-break, cost boundary, no-candidate/no-move behavior, and validation failure atomicity;
-- test snapshot pause/resume with the migration system enabled and any selected graph/population/propagation composition;
-- preserve all existing M2/M3/M3P/propagation golden digests and snapshot bytes unchanged, and add separate M3M goldens;
-- test the proposed sustained-workload configuration long enough to report alive population, migration counts, and settlement occupancy; include M3P if that profile composition is selected;
-- assert the M4-01 forward gate: no new runner functions, no generic-loop-body edits, and a complete touched-file/line-count record.
-
-### 15.8 Performance budget
-
-Use the frozen [M4 standard performance-gate protocol](#m4-standard-performance-gate-protocol-frozen): same-process paired runs, two warmups, fixed `r` chosen so each sample is at least one second, 41 timed samples, alternating operation order, `MAD/median <= 5%` validity, deterministic bootstrap, and one retry for an invalid cell. **Proposal:** measure uninstrumented whole-tick M3M against the same workload with migration disabled, at `N = 10,000` and `N = 100,000`, and set `T = 5%` of the baseline median. Report migration phase time and all cells; this draft does not freeze whether a 5% overhead is the right budget or whether a M3/M3P runner is the preferred baseline.
-
-### 15.9 Non-goals and open questions
-
-M4-06 does not change existing M2/M3/M3P behavior, add an automatic parallel scheduler, revise the generic day loops, or introduce unregistered migrations. Its target is the first registered settlement-movement workload; it does not define a general agent-transport framework.
-
-| Question | Status | Options / consequence | Recommendation |
+| Effective profile | State | Metrics | Events |
 |---|---|---|---|
-| OQ-15.1 Pressure and destination pool | **Blocking** | Resource-per-capita vs food pressure; pressure-only vs random fallback; all settlements vs an explicit neighbor set. These choices define movement semantics and RNG draws. | Start with resource-per-capita over all other settlements, deterministic maximum with lowest-GroupId tie-break. |
-| OQ-15.2 Probability coordinates and eligibility | **Blocking** | Per-agent draws and the alive/health predicate determine draw coverage and must be frozen with subsystem 9. | One stateless decision coordinate per eligible live agent in ascending AgentId order; no retry draw. Freeze the exact coordinate fields/draw indices. |
-| OQ-15.3 Cost and failure behavior | **Blocking** | Food, wealth, or treasury cost; skip vs event on an unaffordable move; checked arithmetic and atomic commit. | Food cost, insufficient food means no move and no migration event. |
-| OQ-15.4 Phase slot and registry ordering | **Blocking** | Existing Phase9C before Propagation preserves generic-loop bodies but shares a slot; a distinct slot may require a forbidden loop edit. | Use Phase9C with explicit stable Migration-before-Propagation hook ordering; prove it with registry tests. If this cannot be done without generic-loop edits, report the gate failure. |
-| OQ-15.5 Graph semantics | **Blocking** | Keep edges attached to AgentIds or rewire after migration. Rewiring changes CSR hashes and incremental/snapshot work. | Keep edges fixed; recompute partition-relative measurements from current groups. |
-| OQ-15.6 Population interaction | **Blocking** | Enable migration only on m3, or compose with m3p; allow newborn migration on day D or defer to D+1. | Defer newborn movement to D+1; decide profile composition before freezing. |
-| OQ-15.7 Profile and persistence | **Blocking** | `m3m` alone vs composed profiles; schema version and any owned migration state; digest/event/metrics domain layout. | Use separate profile-specific domains and snapshot v4; persist only state required to reproduce future moves. |
-| OQ-15.8 Performance threshold | **Non-blocking for draft; blocking before freeze** | 5% proposed whole-tick overhead against a disabled-system baseline, or another declared threshold/baseline. | Use A-5 and retain the 5% proposal unless measurements show it is inappropriate. |
-| OQ-15.9 Migration metric detail | **Non-blocking for draft; blocking before freeze** | Count successful moves only, or also attempted/pressure statistics; each extra value changes M3M metrics bytes. | Start with successful move count and total cost only. |
+| m3m | SIMCIV_M3M_STATE_V1 | SIMCIV_M3M_METRICS_V1 | SIMCIV_M3M_EVENTS_V1 |
+| m3pm | SIMCIV_M3PM_STATE_V1 | SIMCIV_M3PM_METRICS_V1 | SIMCIV_M3PM_EVENTS_V1 |
+| m3m+propagation | SIMCIV_M3MPROP_STATE_V1 | SIMCIV_M3MPROP_METRICS_V1 | SIMCIV_M3MPROP_EVENTS_V1 |
+| m3pm+propagation | SIMCIV_M3PMPROP_STATE_V1 | SIMCIV_M3PMPROP_METRICS_V1 | SIMCIV_M3PMPROP_EVENTS_V1 |
 
-No implementation is authorized by this draft. Resolve the blocking questions, review the M4-01 forward gate, and freeze §15 before requesting M4-06 implementation.
+The feature manifest remains outside all digest preimages. Snapshot schema v4 wraps the byte-identical base-profile snapshot with the effective-profile tag, the length-prefixed base snapshot, and a migration section containing one ordered AgentId/last_move_day record per current agent. Restore validates exact AgentId coverage, ordering, and day bounds before use. Existing snapshot v1/v2/v3 encoders and decoders are not modified semantically; migration-enabled restore uses only v4.
+
+cross_partition_edge_count_delta is the signed difference in directed cross-partition edges measured immediately before migration (after Phase 9b) and immediately after the complete migration commit. It is zero when no move changes that count. The M3/M3P base metrics and event records are otherwise unchanged.
+
+### 15.7 M4-01 forward gate and correctness gates
+
+The frozen forward gate is strict: add zero public runner functions and make zero edits to the bodies of run_registered_world_day_loop_impl and run_registered_storage_day_loop. Adding a system descriptor and system-specific hook dispatch is allowed; changing either generic-loop body is a gate failure to report, not to work around. Report every touched file, production runner/context inventory, wiring-line count before/after under §10.1, and changed lines outside the migration system's own files.
+
+Add only new tests and new migration golden files. Required checks:
+
+- migration-off byte identity for every existing profile, including M2/M3/M3P and propagation combinations;
+- determinism and CRN-friendly draw coverage, including ineligible alive agents receiving their coordinate draw;
+- destination selection, tie-breaking, empty destination groups, cooldown and birth-day exclusion;
+- checked money conservation and aggregate treasury overflow prevalidation;
+- plan-then-commit independence from input and DenseSlot order;
+- reference/storage per-day equality for intents, Phase 6B resolutions, migration records, outcomes, digests, events, and errors;
+- snapshot-v4 pause/resume parity;
+- all four migration-enabled profile combinations, including both propagation combinations;
+- seeded replay and shuffled storage slots.
+
+The M4-01 generic-loop line-count forward gate must pass; a test showing that dispatch requires a generic-loop edit is a stop condition, not permission to edit the loop.
+
+### 15.8 Performance and experiment protocol
+
+For migration-off parity/performance, apply the frozen M4 A-5 gate to M3P serial at N=10,000 and N=100,000 against the existing migration-off runner, with T = 5% of direct median. Use 2 warmups, per-cell r fixed after warmup so each paired sample is at least one second, 41 samples, paired/interleaved order, the A-5 path-spread validity and bootstrap decision rule, High priority and affinity 0x555; allow one retry for an invalid cell. Keep a committed harness and raw CSV/JSON under docs/data/m4_06/.
+
+Migration-on cost is descriptive only: report migration hook time in ns per alive agent-day, with the same configuration and no absolute pass threshold. The experiment harness reports (a) M3P sustained N=10,000, five seeds, H=365: live population, settlement occupancy distribution, move count, and money conservation; and (b) M4-03 food=0 at H=365, five seeds, migration on/off: cascade onset, first day another settlement is touched, settlements touched over time, and day-365 divergence fraction. Each report table cites its committed example and raw data file. Mark any interpretation as inference.
+
+### 15.9 Non-goals
+
+M4-06 does not change migration-off semantics or the existing M2/M3/M3P/propagation digest and snapshot bytes. It does not rewire relationship edges, change birth rules or AgentId allocation, alter any generic loop, add a public runner function, or add automatic parallelism. It is not a general migration framework and makes no claim that migration removes the inter-settlement divergence bottleneck without the prescribed experiment.
+
+### 15.10 Frozen decision register
+
+| Decision | Frozen choice |
+|---|---|
+| RQ-1 destination | Distinct graph-neighbor GroupIds, sorted ascending, current group excluded; exclude groups with no live residents; greatest resource per live resident wins, ties choose lowest GroupId; move only when the strict threshold and probability predicates both pass. |
+| RQ-2 RNG and eligibility | One subsystem-9 f32 coordinate draw for every alive agent at phase 9/draw 0 before eligibility; dead agents are not drawn. Apply the frozen eligibility sequence without redraw. |
+| RQ-3 cost | Fixed nonnegative Money deducted from agent wealth and credited to destination treasury, with checked aggregate validation before commit. |
+| RQ-4 order | Phase 9b → 9m → 9c; phase-start plan; validate all effects; commit ascending AgentId. |
+| RQ-5 graph and metric | Graph edges remain unchanged. Record signed directed cross-partition edge-count change across the migration commit. |
+| RQ-6 switches and profiles | [simulation.systems] migration; requires RelationshipGraph; M3 and M3P base profiles required. Effective labels are m3m/m3pm, optionally with propagation. |
+| RQ-7 persistence | Per-AgentId last_move_day; separate migration domains; snapshot schema v4 wraps the frozen base snapshot and migration records; feature manifest is not hashed. |
+| RQ-8 propagation | M3+Migration+Propagation and M3P+Migration+Propagation are required composition gates and must use registry ordering with no generic-loop edit. |
+| RQ-9 config | Four required migration fields and validation ranges in §15.5; settings while disabled are rejected. |
+| RQ-10 forward gate | Zero new public runner functions and zero generic-loop-body edits. Any required generic-loop edit is a gate failure. |
+| RQ-11 validation and measurement | New-only tests/goldens; A-5 migration-off gate at M3P 10k/100k with T=5%; migration-on cost is report-only per alive agent-day. |
+
+### 15.11 Freeze record
+
+This freeze fixes movement eligibility, destination ordering and scoring, coordinate coverage, money transfer, phase order, system composition, profile-specific digests, snapshot v4, metrics/events, the M4-01 forward gate, and the A-5 measurement protocol. It authorizes the M4-06 implementation within this task; it does not authorize changing generic-loop bodies or existing tests, goldens, snapshots, or CI files.
