@@ -4,6 +4,7 @@
 pub mod commands;
 pub mod config;
 pub mod counterfactual;
+pub mod crn_efficiency;
 pub mod decision;
 pub mod events;
 pub mod features;
@@ -42,6 +43,10 @@ pub use counterfactual::{
     DailyDifference, DivergenceClassification, DivergenceDayRecord, DivergenceSummary,
     FirstDivergence, ForcedActionOutcome, RecordedSlot, TargetDeathRelation,
     run_counterfactual_branch, run_counterfactual_branch_with_divergence_series,
+};
+pub use crn_efficiency::{
+    CrnEfficiencyError, CrnEfficiencyRequest, CrnEfficiencyResult, CrnOutcome, CrnOutcomeEstimate,
+    CrnVarianceRatio, run_crn_efficiency,
 };
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,
