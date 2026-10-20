@@ -110,16 +110,18 @@ fn assert_partition_invariant(result: &sim_model::BranchDivergenceResult) {
 
 fn encode_golden(result: &sim_model::BranchDivergenceResult) -> String {
     let mut output = String::from(
-        "# day|D|CRN-loss|L|u|base-alive|branch-alive|state|graph|allocator|propagation|settlement-global|normalized-bits|unmatched-fraction-bits\n",
+        "# day|D|CRN-loss|L-records|settlements-touched|D-by-settlement|u|base-alive|branch-alive|state|graph|allocator|propagation|settlement-global|normalized-bits|unmatched-fraction-bits\n",
     );
     for day in &result.daily_series {
         writeln!(
             output,
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:016x}|{:016x}",
+            "{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{:016x}|{:016x}",
             day.day,
             day.changed_agent_records,
             day.newborn_crn_loss,
-            day.matched_alive_entities,
+            day.matched_entities_with_record,
+            day.settlements_touched,
+            day.divergence_by_settlement,
             day.unmatched_birth_records,
             day.base_alive_population,
             day.branch_alive_population,
@@ -136,7 +138,8 @@ fn encode_golden(result: &sim_model::BranchDivergenceResult) -> String {
     let summary = &result.summary;
     writeln!(
         output,
-        "summary|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{:016x}|{:?}|{}|{:?}|{:?}|{:?}",
+        "summary|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{:016x}|{:?}|{}|{:?}|{:?}|{:?}|{:?}",
+        summary.classification,
         summary.first_divergent_day,
         summary.cascade_onset_day,
         summary.plateau_days,
@@ -149,6 +152,7 @@ fn encode_golden(result: &sim_model::BranchDivergenceResult) -> String {
         summary.base_target_death_day,
         summary.branch_target_death_day,
         summary.onset_vs_branch_target_death,
+        summary.forced_matches_natural,
     )
     .unwrap();
     output
@@ -176,6 +180,16 @@ fn identity_series_and_state_partition_hold_for_all_four_profiles() {
                 && day.unmatched_birth_fraction == 0.0
         }));
         assert_partition_invariant(&measured);
+        assert!(measured.daily_series.iter().all(|day| {
+            day.normalized_divergence <= 1.0
+                && day
+                    .divergence_by_settlement
+                    .iter()
+                    .map(|(_, count)| count)
+                    .sum::<u64>()
+                    == day.changed_agent_records
+                && day.settlements_touched == day.divergence_by_settlement.len() as u64
+        }));
     }
 }
 
@@ -206,6 +220,19 @@ fn intervention_series_match_m4_02_and_m4_03_golden() {
         assert_eq!(measured.branch, expected);
         assert_eq!(measured.daily_series.len(), 60);
         assert_partition_invariant(&measured);
+        assert!(measured.daily_series.iter().all(|day| {
+            day.normalized_divergence <= 1.0
+                && day
+                    .divergence_by_settlement
+                    .iter()
+                    .map(|(_, count)| count)
+                    .sum::<u64>()
+                    == day.changed_agent_records
+                && day.settlements_touched == day.divergence_by_settlement.len() as u64
+        }));
+        if case_index == 2 {
+            assert!(measured.summary.forced_matches_natural.is_some());
+        }
         if case_index == 1 {
             golden = Some(measured);
         }

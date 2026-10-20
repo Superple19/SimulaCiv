@@ -145,6 +145,7 @@ pub(crate) struct ForcedActionDirective {
     pub action: Action,
     pub day: u32,
     found_choice: bool,
+    pub matches_natural: Option<bool>,
     pub outcome: Option<ForcedActionOutcome>,
 }
 
@@ -155,6 +156,7 @@ impl ForcedActionDirective {
             action,
             day,
             found_choice: false,
+            matches_natural: None,
             outcome: None,
         }
     }
@@ -169,6 +171,7 @@ impl ForcedActionDirective {
                 .iter_mut()
                 .find(|choice| choice.agent_id == self.agent_id)
         {
+            self.matches_natural = Some(choice.action == self.action);
             choice.action = self.action;
             self.found_choice = true;
         }
@@ -489,7 +492,9 @@ pub struct DivergenceDayRecord {
     pub day: u32,
     pub changed_agent_records: u64,
     pub newborn_crn_loss: u64,
-    pub matched_alive_entities: u64,
+    pub matched_entities_with_record: u64,
+    pub divergence_by_settlement: Vec<(u16, u64)>,
+    pub settlements_touched: u64,
     pub normalized_divergence: f64,
     pub unmatched_birth_records: u64,
     pub unmatched_birth_fraction: f64,
@@ -500,6 +505,14 @@ pub struct DivergenceDayRecord {
     pub allocator_changed: bool,
     pub propagation_changed: bool,
     pub settlement_global_changed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DivergenceClassification {
+    NoDivergence,
+    ImmediateGlobalDivergence,
+    Cascade,
+    NoCascade,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -514,6 +527,7 @@ pub enum TargetDeathRelation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DivergenceSummary {
+    pub classification: DivergenceClassification,
     pub first_divergent_day: Option<u32>,
     pub cascade_onset_day: Option<u32>,
     pub plateau_days: Option<u32>,
@@ -527,6 +541,7 @@ pub struct DivergenceSummary {
     pub base_target_death_day: Option<u32>,
     pub branch_target_death_day: Option<u32>,
     pub onset_vs_branch_target_death: TargetDeathRelation,
+    pub forced_matches_natural: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2293,13 +2308,29 @@ fn difference_for_day_canonical_internal(
         let left = base.agent_record(*id);
         let right = branch.agent_record(*id);
         if let Some(stats) = population_stats.as_deref_mut()
-            && (left.is_some_and(|record| record.alive) || right.is_some_and(|record| record.alive))
+            && (left.is_some() || right.is_some())
         {
-            stats.matched_alive_entities += 1;
+            stats.matched_entities_with_record += 1;
         }
         match (left, right) {
-            (Some(left), Some(right)) if left != right => changed_agent_records += 1,
-            (Some(_), None) | (None, Some(_)) => changed_agent_records += 1,
+            (Some(left), Some(right)) if left != right => {
+                changed_agent_records += 1;
+                if let Some(stats) = population_stats.as_deref_mut() {
+                    *stats
+                        .divergence_by_settlement
+                        .entry(left.group_id)
+                        .or_default() += 1;
+                }
+            }
+            (Some(record), None) | (None, Some(record)) => {
+                changed_agent_records += 1;
+                if let Some(stats) = population_stats.as_deref_mut() {
+                    *stats
+                        .divergence_by_settlement
+                        .entry(record.group_id)
+                        .or_default() += 1;
+                }
+            }
             _ => {}
         }
     }
@@ -2308,14 +2339,29 @@ fn difference_for_day_canonical_internal(
             let left = base.agent_record(*base_id);
             let right = branch.agent_record(*branch_id);
             if let Some(stats) = population_stats.as_deref_mut()
-                && (left.is_some_and(|record| record.alive)
-                    || right.is_some_and(|record| record.alive))
+                && (left.is_some() || right.is_some())
             {
-                stats.matched_alive_entities += 1;
+                stats.matched_entities_with_record += 1;
             }
             match (left, right) {
-                (Some(left), Some(right)) if left != right => changed_agent_records += 1,
-                (Some(_), None) | (None, Some(_)) => changed_agent_records += 1,
+                (Some(left), Some(right)) if left != right => {
+                    changed_agent_records += 1;
+                    if let Some(stats) = population_stats.as_deref_mut() {
+                        *stats
+                            .divergence_by_settlement
+                            .entry(left.group_id)
+                            .or_default() += 1;
+                    }
+                }
+                (Some(record), None) | (None, Some(record)) => {
+                    changed_agent_records += 1;
+                    if let Some(stats) = population_stats.as_deref_mut() {
+                        *stats
+                            .divergence_by_settlement
+                            .entry(record.group_id)
+                            .or_default() += 1;
+                    }
+                }
                 _ => {}
             }
         }
@@ -2391,29 +2437,22 @@ fn populate_divergence_population_stats(
             let right_alive = right.alive()[slot];
             stats.base_alive_population += u64::from(left_alive);
             stats.branch_alive_population += u64::from(right_alive);
-            stats.matched_alive_entities += u64::from(left_alive || right_alive);
         }
+        stats.matched_entities_with_record = left.len() as u64;
         return;
     }
     stats.base_alive_population = alive_population(base);
     stats.branch_alive_population = alive_population(branch);
     for id in base_initial.union(branch_initial) {
-        if base.agent_record(*id).is_some_and(|record| record.alive)
-            || branch.agent_record(*id).is_some_and(|record| record.alive)
-        {
-            stats.matched_alive_entities += 1;
+        if base.agent_record(*id).is_some() || branch.agent_record(*id).is_some() {
+            stats.matched_entities_with_record += 1;
         }
     }
     for (key, base_id) in base_lineage_agents {
         if let Some(branch_id) = branch_lineage_agents.get(key)
-            && (base
-                .agent_record(*base_id)
-                .is_some_and(|record| record.alive)
-                || branch
-                    .agent_record(*branch_id)
-                    .is_some_and(|record| record.alive))
+            && (base.agent_record(*base_id).is_some() || branch.agent_record(*branch_id).is_some())
         {
-            stats.matched_alive_entities += 1;
+            stats.matched_entities_with_record += 1;
         }
     }
 }
@@ -2559,9 +2598,10 @@ fn difference_for_day_fast_measured(
 
 #[derive(Default)]
 struct DivergencePopulationStats {
-    matched_alive_entities: u64,
+    matched_entities_with_record: u64,
     base_alive_population: u64,
     branch_alive_population: u64,
+    divergence_by_settlement: BTreeMap<u16, u64>,
 }
 
 fn difference_for_day_fast_with_population_stats(
@@ -2654,9 +2694,16 @@ fn difference_for_day_fast_internal(
                 let right_alive = right_record.alive;
                 stats.base_alive_population += u64::from(left_alive);
                 stats.branch_alive_population += u64::from(right_alive);
-                stats.matched_alive_entities += u64::from(left_alive || right_alive);
+                stats.matched_entities_with_record += 1;
             }
-            changed += u64::from(left_record != right_record);
+            let differs = left_record != right_record;
+            changed += u64::from(differs);
+            if differs && let Some(stats) = population_stats.as_deref_mut() {
+                *stats
+                    .divergence_by_settlement
+                    .entry(left_record.group_id)
+                    .or_default() += 1;
+            }
         }
         changed
     } else {
@@ -2733,7 +2780,7 @@ fn intervention_boundary_divergence(
 
 /// Runs one snapshot-backed base/branch pair for the requested horizon.
 pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult, BranchError> {
-    run_counterfactual_branch_inner(request, RecorderComparisonMode::Enabled, None, None)
+    run_counterfactual_branch_inner(request, RecorderComparisonMode::Enabled, None, None, None)
 }
 
 /// Runs the M4-02 branch and records the analysis-only M4-03 divergence series.
@@ -2741,13 +2788,20 @@ pub fn run_counterfactual_branch_with_divergence_series(
     request: &BranchRequest,
 ) -> Result<BranchDivergenceResult, BranchError> {
     let mut daily_series = Vec::with_capacity(request.horizon_days as usize);
+    let mut forced_matches_natural = None;
     let branch = run_counterfactual_branch_inner(
         request,
         RecorderComparisonMode::Enabled,
         None,
         Some(&mut daily_series),
+        Some(&mut forced_matches_natural),
     )?;
-    let summary = summarize_divergence(&branch, &daily_series, &request.intervention);
+    let summary = summarize_divergence(
+        &branch,
+        &daily_series,
+        &request.intervention,
+        forced_matches_natural,
+    );
     Ok(BranchDivergenceResult {
         branch,
         daily_series,
@@ -2771,6 +2825,7 @@ pub fn run_counterfactual_branch_with_analysis_mode(
                 RecorderComparisonMode::Enabled,
                 Some(&mut costs),
                 None,
+                None,
             )?;
             Ok(BranchAnalysisOutput::Full { result, costs })
         }
@@ -2786,6 +2841,7 @@ pub fn run_counterfactual_branch_with_analysis_mode(
                 request,
                 RecorderComparisonMode::DisabledUntil(&expected),
                 Some(&mut costs),
+                None,
                 None,
             )?;
             Ok(BranchAnalysisOutput::Full { result, costs })
@@ -2914,6 +2970,7 @@ fn run_counterfactual_branch_inner(
     recorder_mode: RecorderComparisonMode<'_>,
     mut analysis_costs: Option<&mut BranchAnalysisCosts>,
     mut divergence_series: Option<&mut Vec<DivergenceDayRecord>>,
+    forced_matches_natural: Option<&mut Option<bool>>,
 ) -> Result<BranchResult, BranchError> {
     let PreparedBranch {
         branch_config,
@@ -3134,6 +3191,11 @@ fn run_counterfactual_branch_inner(
         base_days.push(base_record);
         branch_days.push(branch_record);
     }
+    if let Some(result) = forced_matches_natural {
+        *result = forced_directive
+            .as_ref()
+            .and_then(|directive| directive.matches_natural);
+    }
     let forced_action = forced_directive.and_then(|directive| directive.outcome);
     Ok(BranchResult {
         base_days,
@@ -3157,13 +3219,13 @@ fn divergence_day_record(
 ) -> DivergenceDayRecord {
     let unmatched_birth_records =
         unmatched_birth_records_present(base, branch, base_lineage_agents, branch_lineage_agents);
-    let normalized_divergence = if population.matched_alive_entities == 0 {
+    let normalized_divergence = if population.matched_entities_with_record == 0 {
         0.0
     } else {
-        difference.changed_agent_records as f64 / population.matched_alive_entities as f64
+        difference.changed_agent_records as f64 / population.matched_entities_with_record as f64
     };
     let unmatched_denominator = population
-        .matched_alive_entities
+        .matched_entities_with_record
         .saturating_add(unmatched_birth_records);
     let unmatched_birth_fraction = if unmatched_denominator == 0 {
         0.0
@@ -3174,7 +3236,9 @@ fn divergence_day_record(
         day,
         changed_agent_records: difference.changed_agent_records,
         newborn_crn_loss: difference.newborn_crn_loss,
-        matched_alive_entities: population.matched_alive_entities,
+        matched_entities_with_record: population.matched_entities_with_record,
+        settlements_touched: population.divergence_by_settlement.len() as u64,
+        divergence_by_settlement: population.divergence_by_settlement.into_iter().collect(),
         normalized_divergence,
         unmatched_birth_records,
         unmatched_birth_fraction,
@@ -3238,6 +3302,7 @@ fn summarize_divergence(
     branch: &BranchResult,
     daily_series: &[DivergenceDayRecord],
     intervention: &BranchIntervention,
+    forced_matches_natural: Option<bool>,
 ) -> DivergenceSummary {
     let first_divergent_day = branch.first_divergence.as_ref().map(|first| first.day);
     let first_index = first_divergent_day
@@ -3254,8 +3319,10 @@ fn summarize_divergence(
             (Some(index), count, fraction)
         });
 
+    let immediate_global_divergence =
+        first_index.is_some_and(|index| daily_series[index].normalized_divergence >= 0.5);
     let mut cascade_onset_day = None;
-    if let Some(first_index) = first_index {
+    if !immediate_global_divergence && let Some(first_index) = first_index {
         let mut prior_max = daily_series[first_index].changed_agent_records;
         for day in daily_series.iter().skip(first_index + 1) {
             let threshold = prior_max.saturating_mul(2).max(prior_max.saturating_add(5));
@@ -3327,7 +3394,19 @@ fn summarize_divergence(
         }
     };
 
+    let classification = match (
+        first_divergent_day,
+        immediate_global_divergence,
+        cascade_onset_day,
+    ) {
+        (None, _, _) => DivergenceClassification::NoDivergence,
+        (Some(_), true, _) => DivergenceClassification::ImmediateGlobalDivergence,
+        (Some(_), false, Some(_)) => DivergenceClassification::Cascade,
+        (Some(_), false, None) => DivergenceClassification::NoCascade,
+    };
+
     DivergenceSummary {
+        classification,
         first_divergent_day,
         cascade_onset_day,
         plateau_days,
@@ -3345,6 +3424,7 @@ fn summarize_divergence(
         base_target_death_day,
         branch_target_death_day,
         onset_vs_branch_target_death,
+        forced_matches_natural,
     }
 }
 
