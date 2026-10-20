@@ -43,7 +43,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **M4-00 — Counterfactual contract** | Freeze the research question, framework terminology, inherited invariants, housekeeping options, and stage boundaries. This document is frozen; later sections freeze their own details. |
 | **M4-01 — System registration architecture** | **COMPLETE.** Static registry and generic WorldState/SegmentedAgentStorage loops preserve profile behavior; see the [M4-01 report](../performance/M4_01_SYSTEM_REGISTRY.md). |
 | **M4-02 — Branching primitive and divergence-point detection** | **COMPLETE.** Snapshot-backed branches and exact first-divergence reporting pass the A-5 gate; see the [M4-02 report](../performance/M4_02_BRANCHING.md) and [§11](#11-m4-02-branching-and-divergence-detection). |
-| **M4-03 — Divergence measurement** | **FROZEN.** Specify divergence curves, component differences, and spread metrics in [§12](#12-m4-03-divergence-measurement); implementation is authorized by the freeze. |
+| **M4-03 — Divergence measurement** | **COMPLETE.** The frozen series, daily component partition, cascade metrics, and target-death analysis pass the §12.6 A-5 gate; see the [M4-03 report](../performance/M4_03_DIVERGENCE.md) and [§12](#12-m4-03-divergence-measurement). |
 | **M4-04 — CRN efficiency** | Specify paired and independent estimators, replicate counts, and variance reporting. |
 | **M4-05 — Minimal-cause search** | Specify candidate-set construction, predicates, minimality, tie-breaking, and search limits. |
 | **M4-06 — Settlement migration system** | Use settlement migration as the first newly registered system; report how much code outside the registered system changes. |
@@ -51,7 +51,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
 | **M4 audit** | Answer the research question from recorded correctness and performance evidence and classify remaining work. |
 
-M4-00, M4-01, and M4-02 are complete. M4-03's contract is frozen; implementation and its gates remain outstanding.
+M4-00 through M4-03 are complete. M4-04 and later stages remain planned.
 
 ## 4. Invariants carried from M0–M3
 
