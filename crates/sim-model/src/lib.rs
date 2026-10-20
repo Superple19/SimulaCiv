@@ -137,8 +137,9 @@ pub use metrics::{
 };
 pub use minimal_cause::{
     EffectComparison, MinimalCauseError, MinimalCauseGuarantee, MinimalCausePredicate,
-    MinimalCauseRequest, MinimalCauseResult, MinimalCauseStatus, build_agent_field_candidates,
-    build_config_candidates, build_forced_action_candidates, search_minimal_cause,
+    MinimalCauseRequest, MinimalCauseResult, MinimalCauseStatus, MinimalCauseSubsetEvaluation,
+    build_agent_field_candidates, build_config_candidates, build_forced_action_candidates,
+    evaluate_subset, search_minimal_cause,
 };
 pub use partitioning::{
     Phase5Error, Phase5PartitionScratch, SettlementIntentPartition, phase5_partition_intents,

@@ -7,7 +7,7 @@ use sim_model::{
     ConfigValue, EffectComparison, IdentifiedIntervention, MinimalCauseGuarantee,
     MinimalCausePredicate, MinimalCauseRequest, MinimalCauseStatus, SimConfig, SimulationConfig,
     SimulationProfile, SimulationSystems, build_agent_field_candidates, build_config_candidates,
-    run_counterfactual_branch, run_counterfactual_branch_with_divergence_series,
+    evaluate_subset, run_counterfactual_branch, run_counterfactual_branch_with_divergence_series,
     run_counterfactual_intervention_batch, search_minimal_cause,
 };
 use std::fs;
@@ -308,7 +308,7 @@ fn minimal_cause_incomplete_result_replays_from_jsonl_log() {
     };
     let first = search_minimal_cause(&request).unwrap();
     assert_eq!(first.status, MinimalCauseStatus::Incomplete);
-    assert_eq!(first.guarantee, MinimalCauseGuarantee::None);
+    assert_eq!(first.guarantee, MinimalCauseGuarantee::Incomplete);
     assert_eq!(first.stop_reason.as_deref(), Some("max_branch_evaluations"));
     assert_eq!(search_minimal_cause(&request).unwrap(), first);
     let _ = fs::remove_file(path);
@@ -348,10 +348,16 @@ fn committed_minimal_cause_ci_golden() {
     };
     let result = search_minimal_cause(&request).unwrap();
     assert_eq!(search_minimal_cause(&request).unwrap(), result);
+    let direct = evaluate_subset(&request, &result.cause_ids).unwrap();
+    assert_eq!(
+        direct.mean_effect.to_bits(),
+        result.mean_effect.unwrap().to_bits()
+    );
+    assert!(direct.predicate_value);
     let golden = format!(
-        "status={:?}\nguarantee={:?}\ncause={}\nevaluations={}\nmean_effect={:016x}\npredicate={}\n",
+        "result_schema=2\nstatus={:?}\nguarantee={}\ncause={}\nevaluations={}\nmean_effect={:016x}\npredicate={}\n",
         result.status,
-        result.guarantee,
+        serde_json::to_string(&result.guarantee).unwrap(),
         result.cause_ids.join(","),
         result.evaluation_count,
         result.mean_effect.unwrap_or_default().to_bits(),
@@ -434,5 +440,51 @@ fn exhaustive_tie_break_selects_the_smallest_sorted_id_set() {
     let result = search_minimal_cause(&request).unwrap();
     assert_eq!(result.guarantee, MinimalCauseGuarantee::Minimum);
     assert_eq!(result.cause_ids, vec!["F:agent=0:health=0x00000000"]);
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn exhaustive_absence_and_ddmin_not_found_have_distinct_guarantees() {
+    let (config, context, snapshot) = fixture(300);
+    let path = std::env::temp_dir().join(format!("m4-05-absence-{}.jsonl", std::process::id()));
+    let _ = fs::remove_file(&path);
+    let mut request = MinimalCauseRequest {
+        batch: batch_request(config, context, snapshot, Vec::new(), 1),
+        candidates: vec![IdentifiedIntervention::config_override(
+            ConfigParameter::BirthProbability,
+            ConfigValue::F32(0.0),
+        )],
+        predicate: MinimalCausePredicate {
+            outcome: sim_model::CrnOutcome::AlivePopulation,
+            target_group_id: None,
+            comparison: EffectComparison::GreaterThan,
+            threshold: 1_000.0,
+        },
+        replicate_ids: vec![1],
+        exploratory_single_replicate: true,
+        max_branch_evaluations: 100,
+        max_wall_time: Duration::from_secs(120),
+        evaluation_log_path: path.clone(),
+    };
+    let exhaustive = search_minimal_cause(&request).unwrap();
+    assert_eq!(exhaustive.status, MinimalCauseStatus::NoCause);
+    assert_eq!(
+        exhaustive.guarantee,
+        MinimalCauseGuarantee::ExhaustedNoCause
+    );
+    let _ = fs::remove_file(&path);
+
+    request.candidates = (0..11)
+        .map(|agent_id| {
+            IdentifiedIntervention::agent_field_override(
+                AgentId(agent_id),
+                AgentField::Health,
+                AgentFieldValue::Health(0.0),
+            )
+        })
+        .collect();
+    let ddmin = search_minimal_cause(&request).unwrap();
+    assert_eq!(ddmin.status, MinimalCauseStatus::NoCause);
+    assert_eq!(ddmin.guarantee, MinimalCauseGuarantee::UnprovenNoCause);
     let _ = fs::remove_file(path);
 }

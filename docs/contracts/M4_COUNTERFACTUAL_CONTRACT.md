@@ -729,3 +729,14 @@ The timed gate compares batch-of-one with the M4-02 single-intervention API on M
 ### 14.9 Freeze record
 
 This freeze defines M4-05 batch semantics, candidate identity, predicate inputs, paired evaluation and base caching, search guarantees, limits, resume behavior, JSONL output, and gates. It authorizes the M4-05 implementation and experiments in this request; it does not mark M4-05 complete. M4-02/03/04 outputs and all existing profile semantics remain unchanged.
+
+### 14.10 A-1 — Explicit search completion and direct subset evaluation (FROZEN)
+
+This user-approved amendment supersedes only the guarantee values for exhaustive no-cause and limit results in §§14.5–14.8 and adds a direct subset-evaluation helper. Guarantees serialize as snake_case, and the JSONL evaluation-log header schema is version `2`.
+
+- A completed exhaustive search with no satisfying subset returns status `no_cause` and guarantee `exhausted_no_cause`. This proves absence only under the request's profile, replicate set, and paired or exploratory evaluation mode.
+- Any branch-evaluation or wall-time limit returns status and guarantee `incomplete`, preserving the best satisfying set found so far.
+- For `|I| > 10`, if the initial complete set does not satisfy the predicate, return status `no_cause` with guarantee `unproven_no_cause`. `ddmin` has not tested every subset, so it cannot prove absence. A completed reduction still returns `one_minimal`.
+- `evaluate_subset(request, subset_ids)` resolves the sorted, unique IDs against `request.candidates`, runs exactly that paired subset through the existing batch runner, and returns per-replicate effects, their mean, and the predicate result. It performs no padding, search, or JSONL-cache mutation; the request's evaluation and wall-time limits apply.
+
+No simulation transition, intervention, RNG coordinate, digest, snapshot, event, M2–M4 behavior, or search ordering changes. The new M4-05 CI golden is intentionally updated to assert the serialized guarantee schema.

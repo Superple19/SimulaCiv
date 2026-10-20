@@ -38,10 +38,14 @@ pub struct MinimalCausePredicate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MinimalCauseGuarantee {
     Minimum,
     OneMinimal,
-    None,
+    ExhaustedNoCause,
+    Incomplete,
+    /// `ddmin` only tested the full set, which did not satisfy the predicate.
+    UnprovenNoCause,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +79,15 @@ pub struct MinimalCauseResult {
     pub predicate_value: bool,
     pub stop_reason: Option<String>,
     pub evaluation_log_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MinimalCauseSubsetEvaluation {
+    pub subset_ids: Vec<String>,
+    /// Effects aligned with `MinimalCauseRequest::replicate_ids`.
+    pub per_replicate_effects: Vec<f64>,
+    pub mean_effect: f64,
+    pub predicate_value: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,6 +188,114 @@ fn sort_candidates(
     Ok(candidates)
 }
 
+/// Directly evaluates one candidate subset without padding it or running a search.
+///
+/// Request limits apply. The direct probe does not read or append the search JSONL cache.
+pub fn evaluate_subset(
+    request: &MinimalCauseRequest,
+    subset_ids: &[String],
+) -> Result<MinimalCauseSubsetEvaluation, MinimalCauseError> {
+    validate_request(request)?;
+    let mut candidates = BTreeMap::new();
+    for candidate in &request.candidates {
+        candidates.insert(candidate.id.as_str(), candidate);
+    }
+    let mut selected_ids = subset_ids.to_vec();
+    selected_ids.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+    if selected_ids.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(MinimalCauseError::InvalidRequest(
+            "subset IDs must be unique".into(),
+        ));
+    }
+    let subset = selected_ids
+        .iter()
+        .map(|id| {
+            candidates
+                .get(id.as_str())
+                .copied()
+                .cloned()
+                .ok_or_else(|| {
+                    MinimalCauseError::InvalidRequest(format!("unknown subset candidate {id}"))
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if !subset.is_empty() {
+        validate_identified_batch(&subset).map_err(MinimalCauseError::from)?;
+    }
+
+    let final_day = request
+        .batch
+        .snapshot
+        .metadata
+        .day
+        .checked_add(request.batch.horizon_days - 1)
+        .ok_or_else(|| MinimalCauseError::InvalidRequest("day overflow".into()))?;
+    let branch_runs = (request.replicate_ids.len() as u64)
+        .checked_mul(if subset.is_empty() { 0 } else { 2 })
+        .ok_or_else(|| MinimalCauseError::InvalidRequest("evaluation count overflow".into()))?;
+    if branch_runs > request.max_branch_evaluations {
+        return Err(MinimalCauseError::InvalidRequest(
+            "subset exceeds max_branch_evaluations".into(),
+        ));
+    }
+    let started = Instant::now();
+    let mut effects = Vec::with_capacity(request.replicate_ids.len());
+    for &replicate_id in &request.replicate_ids {
+        if started.elapsed() >= request.max_wall_time {
+            return Err(MinimalCauseError::InvalidRequest(
+                "subset reached max_wall_time".into(),
+            ));
+        }
+        if subset.is_empty() {
+            effects.push(0.0);
+            continue;
+        }
+        let (config, run_context, snapshot) = rebound_counterfactual_run(
+            &request.batch.snapshot,
+            &request.batch.config,
+            replicate_id,
+        )?;
+        let result = crate::counterfactual::run_counterfactual_intervention_batch(
+            &BranchInterventionBatchRequest {
+                snapshot,
+                config: config.clone(),
+                run_context,
+                interventions: subset.clone(),
+                horizon_days: request.batch.horizon_days,
+                snapshot_days: vec![final_day],
+            },
+        )?;
+        let base = result
+            .base_days
+            .last()
+            .ok_or_else(|| MinimalCauseError::InvalidRequest("empty base horizon".into()))?;
+        let branch = result
+            .branch_days
+            .last()
+            .ok_or_else(|| MinimalCauseError::InvalidRequest("empty branch horizon".into()))?;
+        effects.push(
+            extract_one(
+                branch,
+                &config,
+                request.predicate.target_group_id,
+                request.predicate.outcome,
+            )? - extract_one(
+                base,
+                &config,
+                request.predicate.target_group_id,
+                request.predicate.outcome,
+            )?,
+        );
+    }
+    let mean_effect = effects.iter().sum::<f64>() / effects.len() as f64;
+    Ok(MinimalCauseSubsetEvaluation {
+        subset_ids: selected_ids,
+        per_replicate_effects: effects,
+        mean_effect,
+        predicate_value: predicate_matches(&request.predicate, mean_effect),
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 enum LogRecord {
@@ -236,7 +357,7 @@ pub fn search_minimal_cause(
         append_log(
             &request.evaluation_log_path,
             &LogRecord::Header {
-                schema: 1,
+                schema: 2,
                 fingerprint,
             },
         )?;
@@ -264,7 +385,7 @@ pub fn search_minimal_cause(
                     request,
                     &mut cache,
                     Vec::new(),
-                    MinimalCauseGuarantee::None,
+                    MinimalCauseGuarantee::Incomplete,
                     evaluations,
                     None,
                     false,
@@ -280,7 +401,7 @@ pub fn search_minimal_cause(
                 request,
                 &mut cache,
                 Vec::new(),
-                MinimalCauseGuarantee::None,
+                MinimalCauseGuarantee::Incomplete,
                 evaluations,
                 None,
                 false,
@@ -410,7 +531,7 @@ impl SearchState<'_> {
                     return Ok((
                         ids(&subset),
                         if stop.is_some() {
-                            MinimalCauseGuarantee::None
+                            MinimalCauseGuarantee::Incomplete
                         } else {
                             MinimalCauseGuarantee::Minimum
                         },
@@ -423,7 +544,7 @@ impl SearchState<'_> {
                     let (best, best_mean) = self.best.clone().unwrap_or_default();
                     return Ok((
                         ids(&best),
-                        MinimalCauseGuarantee::None,
+                        MinimalCauseGuarantee::Incomplete,
                         Some(best_mean),
                         self.best.is_some(),
                         Some(reason),
@@ -431,7 +552,13 @@ impl SearchState<'_> {
                 }
             }
         }
-        Ok((Vec::new(), MinimalCauseGuarantee::None, None, false, None))
+        Ok((
+            Vec::new(),
+            MinimalCauseGuarantee::ExhaustedNoCause,
+            None,
+            false,
+            None,
+        ))
     }
 
     fn ddmin(&mut self) -> Result<SearchProgress, MinimalCauseError> {
@@ -444,7 +571,7 @@ impl SearchState<'_> {
             let (best, best_mean) = self.best.clone().unwrap_or_default();
             return Ok((
                 ids(&best),
-                MinimalCauseGuarantee::None,
+                MinimalCauseGuarantee::Incomplete,
                 self.best.as_ref().map(|_| best_mean).or(full_mean),
                 self.best.is_some(),
                 Some(reason),
@@ -453,7 +580,7 @@ impl SearchState<'_> {
         if !full_matches {
             return Ok((
                 Vec::new(),
-                MinimalCauseGuarantee::None,
+                MinimalCauseGuarantee::UnprovenNoCause,
                 full_mean,
                 false,
                 None,
@@ -482,7 +609,7 @@ impl SearchState<'_> {
                     let (best, best_mean) = self.best.clone().unwrap_or_default();
                     return Ok((
                         ids(&best),
-                        MinimalCauseGuarantee::None,
+                        MinimalCauseGuarantee::Incomplete,
                         Some(best_mean),
                         self.best.is_some(),
                         Some(reason),
@@ -517,7 +644,7 @@ impl SearchState<'_> {
                     let (best, best_mean) = self.best.clone().unwrap_or_default();
                     return Ok((
                         ids(&best),
-                        MinimalCauseGuarantee::None,
+                        MinimalCauseGuarantee::Incomplete,
                         Some(best_mean),
                         self.best.is_some(),
                         Some(reason),
@@ -1014,7 +1141,7 @@ fn load_cache(path: &PathBuf, fingerprint: &str) -> Result<CachedLog, MinimalCau
             .map_err(|error| MinimalCauseError::Log(format!("line {}: {error}", line_index + 1)))?;
         match record {
             LogRecord::Header {
-                schema: 1,
+                schema: 2,
                 fingerprint: actual,
             } if line_index == 0 && actual == fingerprint => {}
             LogRecord::Header { .. } => {
