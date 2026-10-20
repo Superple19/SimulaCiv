@@ -39,7 +39,8 @@ use crate::runner::{
 use crate::snapshot::{CanonicalSnapshot, SnapshotError, SnapshotMetadata, decode_snapshot};
 use crate::state::{AgentState, AuthorityMode, HybridWorldState, WorldState};
 use crate::system_registry::{
-    RegisteredSystemRunOptions, SystemExecutionOptions, SystemExecutionPolicy, SystemId,
+    RegisteredSystemRunOptions, SYSTEM_REGISTRY, SystemExecutionOptions, SystemExecutionPolicy,
+    SystemId,
 };
 use sha2::{Digest, Sha256};
 use sim_core::{AgentId, Money};
@@ -1324,6 +1325,87 @@ fn storage_recorder_metrics_hash(
     }
 }
 
+#[derive(Clone, Copy)]
+struct RecorderComponentMask {
+    agent_rows: bool,
+    graph: bool,
+    allocator: bool,
+    propagation: bool,
+    metrics_so_far: bool,
+}
+
+impl RecorderComponentMask {
+    const ALL: Self = Self {
+        agent_rows: true,
+        graph: true,
+        allocator: true,
+        propagation: true,
+        metrics_so_far: true,
+    };
+
+    fn from_writes(writes: &[&str]) -> Self {
+        Self {
+            agent_rows: writes.iter().any(|write| write.starts_with("agent.")),
+            graph: writes
+                .iter()
+                .any(|write| write.starts_with("relationship_graph.")),
+            allocator: writes.contains(&"population.next_agent_id"),
+            propagation: writes.iter().any(|write| write.starts_with("propagation.")),
+            metrics_so_far: writes.contains(&"phase10.metrics"),
+        }
+    }
+}
+
+fn recorder_component_mask(
+    boundary: crate::runner::RegisteredWorldBoundary,
+) -> RecorderComponentMask {
+    use crate::runner::RegisteredCorePhase as Core;
+
+    match boundary {
+        crate::runner::RegisteredWorldBoundary::Core(phase) => match phase {
+            Core::Phase2 | Core::Phase6A | Core::Phase7 | Core::Phase8 | Core::Phase9 => {
+                RecorderComponentMask {
+                    agent_rows: true,
+                    graph: false,
+                    allocator: false,
+                    propagation: false,
+                    metrics_so_far: false,
+                }
+            }
+            Core::Phase10 => RecorderComponentMask {
+                agent_rows: false,
+                graph: false,
+                allocator: false,
+                propagation: false,
+                metrics_so_far: true,
+            },
+            Core::Phase1
+            | Core::Phase3
+            | Core::Phase4
+            | Core::Phase5
+            | Core::Phase6B
+            | Core::Phase11 => RecorderComponentMask {
+                agent_rows: false,
+                graph: false,
+                allocator: false,
+                propagation: false,
+                metrics_so_far: false,
+            },
+        },
+        crate::runner::RegisteredWorldBoundary::Hook(hook) => SYSTEM_REGISTRY
+            .iter()
+            .find(|descriptor| descriptor.id == hook.system_id)
+            .and_then(|descriptor| {
+                descriptor
+                    .access
+                    .iter()
+                    .find(|access| access.slot == hook.slot)
+            })
+            .map(|access| RecorderComponentMask::from_writes(access.writes))
+            .unwrap_or(RecorderComponentMask::ALL),
+    }
+}
+
 fn m3p_storage_phase_difference(
     day: u32,
     boundary: crate::runner::RegisteredWorldBoundary,
@@ -1333,16 +1415,64 @@ fn m3p_storage_phase_difference(
     right_storage: &crate::storage::SegmentedAgentStorage,
     right_state: &M3pStorageRegisteredDay<'_>,
 ) -> Result<Option<FirstDivergence>, M0RunError> {
-    let first_agent = scratch.first_difference(left_storage, right_storage);
-    let mut differing = Vec::with_capacity(5);
-    if first_agent.is_some() {
+    let mask = recorder_component_mask(boundary);
+    let difference = m3p_storage_component_difference(
+        day,
+        boundary,
+        mask,
+        scratch,
+        left_storage,
+        left_state,
+        right_storage,
+        right_state,
+    )?;
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(
+        difference,
+        m3p_storage_component_difference(
+            day,
+            boundary,
+            RecorderComponentMask::ALL,
+            scratch,
+            left_storage,
+            left_state,
+            right_storage,
+            right_state,
+        )?,
+        "write-set recorder comparison diverged from the full comparison at {boundary:?}"
+    );
+    Ok(difference)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn m3p_storage_component_difference(
+    day: u32,
+    boundary: crate::runner::RegisteredWorldBoundary,
+    mask: RecorderComponentMask,
+    scratch: &M3pStoragePhaseCompareScratch,
+    left_storage: &crate::storage::SegmentedAgentStorage,
+    left_state: &M3pStorageRegisteredDay<'_>,
+    right_storage: &crate::storage::SegmentedAgentStorage,
+    right_state: &M3pStorageRegisteredDay<'_>,
+) -> Result<Option<FirstDivergence>, M0RunError> {
+    let first_agent = if mask.agent_rows {
+        scratch.first_difference(left_storage, right_storage)
+    } else {
+        None
+    };
+    let mut differing = Vec::new();
+    if mask.agent_rows && first_agent.is_some() {
         differing.push("agent_rows");
     }
-    if left_state.phase_recorder_graph().csr_hash() != right_state.phase_recorder_graph().csr_hash()
+    if mask.graph
+        && left_state.phase_recorder_graph().csr_hash()
+            != right_state.phase_recorder_graph().csr_hash()
     {
         differing.push("graph");
     }
-    if left_state.phase_recorder_allocator() != right_state.phase_recorder_allocator() {
+    if mask.allocator
+        && left_state.phase_recorder_allocator() != right_state.phase_recorder_allocator()
+    {
         differing.push("allocator");
     }
     let phase9b_population_hook = matches!(
@@ -1352,30 +1482,33 @@ fn m3p_storage_phase_difference(
                 && hook.slot == crate::system_registry::PhaseSlot::Phase9B
     );
     // The reference path materializes newborn propagation rows at Phase 9C.
-    let propagation_differs = match (
-        left_state.phase_recorder_propagation(),
-        right_state.phase_recorder_propagation(),
-    ) {
-        (Some(left), Some(right)) if phase9b_population_hook => left
-            .iter()
-            .filter(|(id, _)| {
-                left_state
-                    .phase_recorder_newborn_ids()
-                    .binary_search(id)
-                    .is_err()
-            })
-            .ne(right.iter().filter(|(id, _)| {
-                right_state
-                    .phase_recorder_newborn_ids()
-                    .binary_search(id)
-                    .is_err()
-            })),
-        (left, right) => left != right,
-    };
+    let propagation_differs = mask.propagation
+        && match (
+            left_state.phase_recorder_propagation(),
+            right_state.phase_recorder_propagation(),
+        ) {
+            (Some(left), Some(right)) if phase9b_population_hook => left
+                .iter()
+                .filter(|(id, _)| {
+                    left_state
+                        .phase_recorder_newborn_ids()
+                        .binary_search(id)
+                        .is_err()
+                })
+                .ne(right.iter().filter(|(id, _)| {
+                    right_state
+                        .phase_recorder_newborn_ids()
+                        .binary_search(id)
+                        .is_err()
+                })),
+            (left, right) => left != right,
+        };
     if propagation_differs {
         differing.push("propagation");
     }
-    if storage_recorder_metrics_hash(left_state)? != storage_recorder_metrics_hash(right_state)? {
+    if mask.metrics_so_far
+        && storage_recorder_metrics_hash(left_state)? != storage_recorder_metrics_hash(right_state)?
+    {
         differing.push("metrics_so_far");
     }
     Ok((!differing.is_empty()).then(|| first_divergence_at(day, boundary, differing, first_agent)))
@@ -2775,6 +2908,70 @@ mod tests {
         (runtime, config, context)
     }
 
+    fn recorder_test_config(population: bool, propagation: bool) -> SimConfig {
+        let fixture = if population {
+            include_str!("../tests/fixtures/m3p_propagation_sustained.toml")
+        } else {
+            include_str!("../tests/fixtures/m3_propagation.toml")
+        };
+        let mut config = SimConfig::parse_and_validate(fixture).unwrap();
+        config.simulation = None;
+        config.propagation = propagation.then_some(config.propagation).flatten();
+        if population {
+            config.profile = crate::config::SimulationProfile::M3p;
+        } else {
+            config.profile = crate::config::SimulationProfile::M3;
+            config.population = None;
+        }
+        if propagation {
+            config.simulation = Some(crate::config::SimulationConfig {
+                systems: crate::config::SimulationSystems {
+                    relationship_graph: true,
+                    population_dynamics: population,
+                    propagation: true,
+                },
+            });
+        }
+        config.validate().unwrap();
+        config
+    }
+
+    fn recorder_test_snapshot(config: &SimConfig, context: &M0RunContext) -> CanonicalSnapshot {
+        let world = crate::initialization::initialize_world(config).unwrap();
+        let metadata = SnapshotMetadata::new(
+            world.current_day.as_u32(),
+            context.master_seed,
+            context.replicate_id,
+            DEFAULT_MODEL_VERSION,
+            DEFAULT_CONFIG_VERSION,
+        );
+        match config.runner_selection() {
+            SimulationRunnerSelection::M3 => encode_snapshot(&world, &metadata).unwrap(),
+            SimulationRunnerSelection::M3Propagation => {
+                let state = M3PropagationReferenceState::new(world, config, context).unwrap();
+                crate::m3prop::encode_m3prop_snapshot(&state, &metadata).unwrap()
+            }
+            SimulationRunnerSelection::M3p => {
+                let state = M3pReferenceState::new(world, config, context).unwrap();
+                crate::m3p::encode_m3p_snapshot(&state, &metadata).unwrap()
+            }
+            SimulationRunnerSelection::M3pPropagation => {
+                let state =
+                    crate::m3pprop::M3pPropagationReferenceState::new(world, config, context)
+                        .unwrap();
+                crate::m3pprop::encode_m3pprop_snapshot(&state, &metadata).unwrap()
+            }
+            SimulationRunnerSelection::M2 => unreachable!(),
+        }
+    }
+
+    fn reverse_branch_start_slots(start: &mut BranchStartState) {
+        let storage = start.world.segmented_storage.as_ref().unwrap();
+        let mut agents = storage.to_agents();
+        agents.reverse();
+        start.world.segmented_storage = Some(SegmentedAgentStorage::from_agents(&agents));
+    }
+
     fn birth_event(parent: u32, child: u32, sequence: u64) -> M3pEventRecord {
         M3pEventRecord {
             key: crate::events::EventKey::new(0, 9, crate::events::GLOBAL_PARTITION_KEY, sequence),
@@ -3129,6 +3326,98 @@ mod tests {
                             slot: crate::system_registry::PhaseSlot::Phase9B,
                         }))
             );
+        }
+    }
+
+    #[test]
+    fn selective_recorder_matches_full_comparison_for_all_profiles() {
+        for (population, propagation) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let config = recorder_test_config(population, propagation);
+            let context = M0RunContext::new(config.world.master_seed, config.world.replicate_id);
+            let snapshot = recorder_test_snapshot(&config, &context);
+            let intervention = if population {
+                BranchIntervention::ConfigOverride {
+                    parameter: ConfigParameter::BirthProbability,
+                    value: ConfigValue::F32(1.0),
+                }
+            } else {
+                BranchIntervention::ConfigOverride {
+                    parameter: ConfigParameter::BaseMetabolicCost,
+                    value: ConfigValue::F32(config.environment.base_metabolic_cost + 0.01),
+                }
+            };
+            let mut branch_config = config.clone();
+            if let BranchIntervention::ConfigOverride { parameter, value } = &intervention {
+                apply_config_override(&mut branch_config, *parameter, *value).unwrap();
+            }
+            let request = BranchRequest {
+                snapshot: snapshot.clone(),
+                config: config.clone(),
+                run_context: context,
+                intervention,
+                horizon_days: 1,
+                execution: BranchExecutionOption::Serial,
+                snapshot_days: Vec::new(),
+            };
+            let actual = run_counterfactual_branch(&request).unwrap();
+
+            let mut base_runtime =
+                BranchRuntime::restore(&snapshot, &config, &context, BranchExecutionOption::Serial)
+                    .unwrap();
+            let mut branch_runtime = BranchRuntime::restore(
+                &snapshot,
+                &branch_config,
+                &context,
+                BranchExecutionOption::Serial,
+            )
+            .unwrap();
+            let base_start = base_runtime.start_state();
+            let mut branch_start = branch_runtime.start_state();
+            reverse_branch_start_slots(&mut branch_start);
+            let mut base_trace = Vec::new();
+            let mut branch_trace = Vec::new();
+            base_start
+                .record_reference_day(&config, &context, None, &mut base_trace)
+                .unwrap();
+            branch_start
+                .record_reference_day(&branch_config, &context, None, &mut branch_trace)
+                .unwrap();
+            let reference = first_phase_difference(&base_trace, &branch_trace, 0);
+            assert_eq!(actual.first_divergence, reference);
+
+            if population {
+                assert!(matches!(
+                    &actual.branch_days[0].events,
+                    BranchEventsRecord::Population(records)
+                        if records.iter().any(|record| matches!(
+                            &record.event,
+                            crate::m3p::M3pEvent::Birth { .. }
+                        ))
+                ));
+                let storage = locate_m3p_storage_day_divergence(
+                    &base_start,
+                    &branch_start,
+                    &config,
+                    &branch_config,
+                    &context,
+                    BranchExecutionOption::Serial,
+                    0,
+                    None,
+                )
+                .unwrap();
+                assert_eq!(storage, reference);
+                assert_eq!(
+                    storage.as_ref().map(|divergence| &divergence.slot),
+                    Some(&RecordedSlot::Hook(
+                        crate::system_registry::RegisteredHook {
+                            system_id: SystemId::PopulationDynamics,
+                            slot: crate::system_registry::PhaseSlot::Phase9B,
+                        }
+                    ))
+                );
+            }
         }
     }
 }
