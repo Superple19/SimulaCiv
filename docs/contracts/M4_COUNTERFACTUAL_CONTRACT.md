@@ -1,8 +1,8 @@
 # M4 Counterfactual Contract
 
-**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN; §12 M4-03 FROZEN; §13 M4-04 FROZEN**
+**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN; §12 M4-03 FROZEN; §13 M4-04 FROZEN; §14 M4-05 DRAFT**
 
-**Scope:** M4-00 freezes the counterfactual framework; §10 freezes M4-01; §11 freezes M4-02 branching and divergence detection; §12 freezes M4-03 divergence measurement. Each later stage still requires its own DRAFT → review → FROZEN contract.
+**Scope:** M4-00 freezes the counterfactual framework; §10 freezes M4-01; §11 freezes M4-02 branching and divergence detection; §12 freezes M4-03 divergence measurement; §13 freezes M4-04 CRN efficiency. §14 is the M4-05 draft; later stages still require their own DRAFT → review → FROZEN contract.
 
 **Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
@@ -45,7 +45,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **M4-02 — Branching primitive and divergence-point detection** | **COMPLETE.** Snapshot-backed branches and exact first-divergence reporting pass the A-5 gate; see the [M4-02 report](../performance/M4_02_BRANCHING.md) and [§11](#11-m4-02-branching-and-divergence-detection). |
 | **M4-03 — Divergence measurement** | **COMPLETE.** The frozen series, daily component partition, cascade metrics, and target-death analysis pass the §12.6 A-5 gate; see the [M4-03 report](../performance/M4_03_DIVERGENCE.md) and [§12](#12-m4-03-divergence-measurement). |
 | **M4-04 — CRN efficiency** | **COMPLETE.** Frozen paired/independent estimators and bootstrap reporting; 100-replicate M3P sustained experiment recorded in the [M4-04 report](../performance/M4_04_CRN_EFFICIENCY.md). |
-| **M4-05 — Minimal-cause search** | Specify candidate-set construction, predicates, minimality, tie-breaking, and search limits. |
+| **M4-05 — Minimal-cause search** | **DRAFT.** Candidate construction, predicates, minimum versus one-minimal guarantees, and search limits are under review in [§14](#14-m4-05-minimal-cause-search). |
 | **M4-06 — Settlement migration system** | Use settlement migration as the first newly registered system; report how much code outside the registered system changes. |
 | **M4-07 — Many-branch performance** | Measure shared-state and copy-on-write options, cross-branch parallelism, and GPU suitability. A GPU implementation is not implied. M4-02 follow-up candidate: day-scan digest cost measured at 70–160 ns/agent-day; compare direct column equality with SHA-256 only on request. |
 | **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
@@ -655,3 +655,93 @@ Report simulation time, snapshot construction/extraction, outcome extraction, an
 ### 13.9 Freeze record
 
 This freeze defines M4-04 outcomes, replicate identities, estimators, bootstrap reporting, initial profile support, CI gate, and report-only experiment matrix. The replicate runner reuses M4-02 branch execution and leaves all simulation outputs unchanged. It authorizes M4-04 implementation and measurement; it does not mark M4-04 complete.
+
+## 14. M4-05 Minimal-Cause Search
+
+**Status: DRAFT — NOT FROZEN**
+
+**Scope:** find a smallest declared set of interventions that satisfies a finite, machine-checkable outcome predicate, using the M4-00 minimal-cause definition and its frozen lexicographic tie-break. This section proposes search inputs, predicate forms, guarantees, limits, and acceptance gates. It does not authorize implementation.
+
+### 14.1 Branch and intervention batches
+
+The current M4-02 `BranchRequest` has one `intervention: BranchIntervention` field, and `run_counterfactual_branch` executes that one snapshot-backed base/branch pair. `prepare_branch` applies one configuration override, validates one target for a field override or forced action, applies one field override, and creates at most one forced-action directive ([`BranchRequest`, `BranchIntervention`, `run_counterfactual_branch`, `prepare_branch`, `set_intervention_field`, `apply_config_override`](../../crates/sim-model/src/counterfactual.rs)).
+
+**Proposal:** add a batch request alongside the existing request, for example `BranchInterventionBatchRequest { base: BranchRequestWithoutIntervention, interventions: Vec<IdentifiedIntervention> }`. The legacy single-intervention API remains unchanged. A batch with one item must produce a `BranchResult` bit-identical to the existing M4-02 API, including errors, precedence, digests, events, and snapshots. An empty batch is the no-intervention/base case. The current `PreparedBranch` stores only one `ForcedActionDirective`; a batch implementation needs an ordered collection of day/agent directives and must apply the matching directive only on its declared day ([`PreparedBranch`, `ForcedActionDirective`, `ForcedActionDirective::apply_choices`](../../crates/sim-model/src/counterfactual.rs)).
+
+Validate the whole batch before mutating the restored branch. Reject duplicate targets under M4-00's rules: one config parameter at the same boundary, one `(AgentId, field)` target, or one `(AgentId, day)` forced-action target. Apply type classes in the frozen `(a) config, (b) field, (c) forced action` order. Within each class use a documented stable target order; field overrides and forced actions sort by `AgentId` first, with field or day as a secondary key. Config parameters need a canonical order, proposed as their stable parameter names. Duplicate and invalid-target errors must be independent of caller vector order ([M4-00 §2](#2-terminology); [`prepare_branch`, `BranchRuntime::validate_live_target`](../../crates/sim-model/src/counterfactual.rs)).
+
+`apply_config_override` currently validates the full config after each individual override. If multiple individually valid changes make the final config valid only together, sequential application can expose intermediate validation errors. **Proposal:** type/range-check each value, apply the batch to a cloned config in canonical order, validate the resulting config once, and only then restore/apply state interventions. One-item batches keep the current validation result. Whether batch validation must instead reproduce sequential per-item errors is an open question ([`apply_config_override`, `prepare_branch`](../../crates/sim-model/src/counterfactual.rs)).
+
+### 14.2 Intervention IDs and candidate sets
+
+Each candidate needs a unique, stable `InterventionId` for evaluation logs, deterministic enumeration, and the M4-00 tie-break. **Proposal:** use a typed canonical tuple rather than caller-provided display text:
+
+- config: `(type=config, parameter, typed canonical value)`;
+- field: `(type=field, AgentId, field, typed canonical value)`;
+- forced action: `(type=action, day, AgentId, action kind)`.
+
+Encode enum variants by stable names, `f32` values by their `u32` bit pattern, and integer/Money values by their canonical integer representation. Sort the resulting IDs lexicographically by canonical bytes. Rust enum discriminants and the input vector's order are not ID semantics ([`ConfigParameter`, `ConfigValue`, `AgentField`, `AgentFieldValue`, `BranchIntervention`](../../crates/sim-model/src/counterfactual.rs)).
+
+Construct candidate sets from explicit, finite declarations: a sorted list of eligible AgentIds (optionally restricted to one `GroupId`), selected fields/actions and allowed values, and a declared list of config parameters and values. Generate each tuple once, reject duplicate IDs, then sort. Alternative values for the same target may appear as separate candidates, but any evaluated subset containing more than one such candidate is invalid under the duplicate-target rule. Candidate construction must not silently add every value supported by `ConfigParameter`; caller-declared domains are part of the request.
+
+### 14.3 Outcome predicates
+
+**Proposal:** provide a small typed predicate language over day-`H` values, with optional settlement scope where defined. Reuse M4-04's `alive_population`, `total_wealth`, `mean_health_alive`, `target_settlement_alive_population`, and `target_settlement_wealth` extraction rules. The existing `CrnOutcome` and `extract_outcomes` support M3P and M3P+propagation only; the M4-04 replicator explicitly rejects other profiles. A predicate can compare a branch value with an absolute threshold or compare `branch − base` with a threshold, using an explicit comparator (`<`, `<=`, `==`, `>=`, `>`). The group for settlement-scoped values must be named in the predicate. Undefined values, such as mean health when no agent is alive, are evaluation errors rather than implicit false results ([`CrnOutcome`, `validate_request`, `extract_outcomes`](../../crates/sim-model/src/crn_efficiency.rs); [M4-04 §13.1](#13-m4-04-crn-efficiency)).
+
+M4-00 also gives explicit `agent(id).health(day)` and `D_H contains AgentId` examples. The current `DivergenceDayRecord` exposes changed-record counts and settlement counts, not the changed AgentId set; exact membership would need snapshot-based record comparison. **Proposal:** first version supports aggregate outcomes and `|D_H|`, while deferring arbitrary record-field and membership predicates until their snapshot-read and birth-matching costs are specified ([`DivergenceDayRecord`, `BranchDayRecord`](../../crates/sim-model/src/counterfactual.rs); [`run_counterfactual_branch_with_divergence_series`](../../crates/sim-model/src/counterfactual.rs)). In M4-03, food and health interventions reached 98.4–99.1% normalized record divergence by H=365, while M4-04's health intervention at H=365 changed total wealth by about `−3,321` and target-settlement wealth by about `−3,278`; broad record divergence and an outcome's magnitude are different predicates ([M4-03 H=365 results](../performance/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun); [M4-04 results](../performance/M4_04_CRN_EFFICIENCY.md#health_0_01)). This restriction avoids treating a large `D_H` as a proxy for an aggregate effect.
+
+### 14.4 Single-run and CRN-replicated predicates
+
+Two evaluation modes are proposed:
+
+- **Single replicate:** evaluate the declared predicate for one fixed `(master_seed, replicate_id)` from the same branch-point snapshot. This is deterministic and comparatively inexpensive, but the cause is specific to that run identity.
+- **Paired CRN replicates:** evaluate `Δ_s = Y(intervention,s) − Y(base,s)` for declared replicate IDs, then test a paired-mean predicate such as “the 95% CI excludes zero in the declared direction” (or a declared threshold on the paired mean). Use M4-04's paired estimator and confidence method if this mode is selected. The current M4-02 API runs both base and intervention for each replicate, so evaluating `R` replicates can require about `2R` day trajectories per candidate subset plus snapshot/outcome analysis; exhaustive search multiplies this by the number of subsets. Reusing base trajectories across candidate subsets could reduce that cost, but is not supported by the current API ([`run_counterfactual_branch`, `run_crn_efficiency`, `bootstrap_intervals`](../../crates/sim-model/src/counterfactual.rs); [`run_crn_efficiency`](../../crates/sim-model/src/crn_efficiency.rs)).
+
+The selected mode, seed/replicate identities, horizon, and confidence rule are part of the predicate definition and result. A search must not change modes between candidate subsets. A single-replicate result must not be described as evidence that an effect persists across replicates.
+
+### 14.5 Search algorithms and guarantees
+
+For `|I|` at or below a small declared bound, exhaustive search enumerates subsets in increasing cardinality; subsets of equal cardinality are visited in lexicographic order of their sorted `InterventionId`s. The first satisfying set is a true minimum-cardinality cause, and this order implements M4-00's frozen equal-cardinality tie-break ([M4-00 §2](#2-terminology), [§8 decision register](#8-decision-register)). A bound such as `|I| <= 12` is a proposal for measurement, not a frozen default.
+
+For larger sets, deterministic delta debugging may reduce an initially satisfying candidate set. After reduction, explicitly test every single-item removal in canonical ID order. The result is **1-minimal** only if no single remaining intervention can be removed while preserving the predicate; it is not guaranteed to have minimum cardinality or to be the lexicographically smallest minimum. Report the guarantee actually achieved. Do not label an interrupted or merely satisfying superset a “minimal cause.”
+
+The predicate can be non-monotone: adding an intervention may make it false, and duplicates can make a subset invalid. Search order and invalid-subset handling therefore need to be specified and tested rather than relying on monotonic delta-debugging assumptions.
+
+### 14.6 Limits and result record
+
+**Proposal:** accept both `max_branch_evaluations` and a wall-time safeguard. The deterministic evaluation-count limit controls reproducible stopping. A wall-time stop is operational and host-dependent: return `Interrupted`, preserve the evaluations already completed, and claim no minimum or 1-minimal guarantee unless its required verification finished. Exhaustive search may report `Minimum` only after every smaller subset has been ruled out and the first satisfying subset in cardinality/lexicographic order is found. An exhaustive run with no satisfying subset reports `ExhaustedNoCause`; a heuristic that completes without finding one reports `HeuristicNoCause` and guarantee `None`, not proof that no cause exists. A timed performance comparison is a gate only if explicitly frozen and must follow the [M4 standard A-5 protocol](#m4-standard-performance-gate-protocol-frozen).
+
+Define one branch evaluation for limit accounting as one run-identity invocation of the proposed snapshot-backed batch API (one paired base/branch result); an `R`-replicate predicate consumes `R` such evaluations for a subset. The evaluation log is per subset predicate and lists the replicate identities it used. If base results are reused across subsets, the contract must specify how that affects this count ([current `BranchRequest` and `run_counterfactual_branch`](../../crates/sim-model/src/counterfactual.rs)).
+
+The result record should contain:
+
+- the canonical candidate-set and predicate identifiers, branch-point identity, run mode, horizon, and replicate set;
+- the sorted cause intervention IDs (empty when no cause is found within the completed search);
+- guarantee: `Minimum`, `OneMinimal`, or `None`; completion status: `CauseFound`, `ExhaustedNoCause`, `HeuristicNoCause`, or `Interrupted`;
+- branch-evaluation count and stop reason;
+- an ordered evaluation log containing each subset's sorted IDs, outcome summary, predicate result, and typed evaluation error if any.
+
+Evaluation-log retention may be bounded by a separately declared limit, but any truncated log must say so and preserve the total evaluation count. No M4-05 analysis field changes canonical State, Metrics, Events, or snapshot encodings.
+
+### 14.7 Proposed gates and tests
+
+Correctness gates should include exact one-item batch parity with `run_counterfactual_branch`; batch order invariance; duplicate and invalid-target rejection before mutation; canonical candidate IDs under shuffled input; exhaustive search returning a known minimum and the frozen lexical tie-break; delta debugging producing a verified 1-minimal set without claiming global minimum; and deterministic evaluation logs for the same request.
+
+Predicate tests should cover branch-vs-base and absolute thresholds, settlement scope, exact boundary comparisons, undefined outcomes, single-replicate determinism, and a paired-replicate case whose CI respectively excludes or includes zero. Add a synthetic search where a known two-item set is the unique minimum, plus a tie case where lexicographic order selects between equal-size minima. Search-limit tests must distinguish `ExhaustedNoCause` from `HeuristicNoCause` and from `Interrupted`.
+
+If the implementation adds a timing gate, compare the search-enabled path against the same branch evaluations without search orchestration under A-5; report predicate/search overhead separately from simulation time. Existing M4-02/M4-03 branch outputs, M4-04 estimator outputs, and all profile goldens/snapshot bytes remain unchanged.
+
+### 14.8 Open questions
+
+| ID | Question | Status / recommendation |
+|---|---|---|
+| OQ-14.1 | Should batching be a separate request/API while `BranchRequest` remains unchanged, what exact within-class ordering is frozen, and are multiple config overrides validated sequentially or as a final config? | **Blocking.** Recommend a separate batch API; sort by stable parameter name and target tuple, then validate the assembled config before mutating branch state. |
+| OQ-14.2 | What canonical byte schema and human-readable form define `InterventionId` and candidate-set identity? | **Blocking.** Recommend typed tuple encoding with float bit patterns as proposed in §14.2. |
+| OQ-14.3 | Which predicates, profile set, and numeric comparison rules are supported, especially equality, non-finite/undefined values, and whether M4-00 record examples need snapshot-level extraction? | **Blocking.** Recommend M4-04 scalar outcomes plus `|D_H|` initially; decide whether to add per-AgentId snapshot predicates and extraction for the M3 profiles that M4-02 supports but M4-04 does not. |
+| OQ-14.4 | Is the default predicate single-replicate or paired CRN; if paired, what `R`, replicate IDs, and CI rule are required? | **Blocking.** Recommend single-replicate as the low-cost default, with CRN mode explicit and using frozen M4-04 inference rules. |
+| OQ-14.5 | What exhaustive candidate bound and evaluation budget are acceptable? | **Blocking.** Measure small bounds; `|I| <= 12` is only a starting proposal. |
+| OQ-14.6 | Which deterministic delta-debugging schedule is used, and is a 1-minimal result acceptable when minimum cardinality cannot be proven? | **Blocking.** Recommend explicit `OneMinimal` output, never conflated with M4-00 `Minimum`. |
+| OQ-14.7 | How much of the evaluation log is retained, and can completed base outcomes be cached safely across subsets? | **Non-blocking** for the predicate/search semantics; decide before the implementation API is frozen. |
+| OQ-14.8 | How does a wall-time limit interact with result guarantees and resumability? | **Blocking.** Recommend it produce `Interrupted` unless the deterministic verification for a stronger guarantee has finished. |
+
+This draft does not freeze M4-05 choices or begin implementation.
