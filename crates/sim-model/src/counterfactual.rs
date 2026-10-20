@@ -485,6 +485,58 @@ pub struct BranchResult {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct DivergenceDayRecord {
+    pub day: u32,
+    pub changed_agent_records: u64,
+    pub newborn_crn_loss: u64,
+    pub matched_alive_entities: u64,
+    pub normalized_divergence: f64,
+    pub unmatched_birth_records: u64,
+    pub unmatched_birth_fraction: f64,
+    pub base_alive_population: u64,
+    pub branch_alive_population: u64,
+    pub state_digests_differ: bool,
+    pub graph_changed: bool,
+    pub allocator_changed: bool,
+    pub propagation_changed: bool,
+    pub settlement_global_changed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetDeathRelation {
+    Before,
+    SameDay,
+    After,
+    NoDeath,
+    NoCascade,
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DivergenceSummary {
+    pub first_divergent_day: Option<u32>,
+    pub cascade_onset_day: Option<u32>,
+    pub plateau_days: Option<u32>,
+    pub growth_slope: Option<f64>,
+    pub doubling_time_days: Option<f64>,
+    pub peak_changed_agent_records: u64,
+    pub peak_normalized_fraction: f64,
+    pub days_to_peak: Option<u32>,
+    pub newborn_crn_loss: u64,
+    pub target_agent_id: Option<AgentId>,
+    pub base_target_death_day: Option<u32>,
+    pub branch_target_death_day: Option<u32>,
+    pub onset_vs_branch_target_death: TargetDeathRelation,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchDivergenceResult {
+    pub branch: BranchResult,
+    pub daily_series: Vec<DivergenceDayRecord>,
+    pub summary: DivergenceSummary,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum BranchError {
     UnsupportedProfile,
     UnsupportedExecutionOption,
@@ -2182,9 +2234,70 @@ fn difference_for_day_canonical(
     base_births: &[(AgentId, AgentId, AgentMatchKey)],
     branch_births: &[(AgentId, AgentId, AgentMatchKey)],
 ) -> DailyDifference {
+    difference_for_day_canonical_internal(
+        day,
+        base,
+        branch,
+        base_initial,
+        branch_initial,
+        base_lineage_agents,
+        branch_lineage_agents,
+        base_births,
+        branch_births,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn difference_for_day_canonical_with_population_stats(
+    day: u32,
+    base: &BranchRuntime,
+    branch: &BranchRuntime,
+    base_initial: &BTreeSet<AgentId>,
+    branch_initial: &BTreeSet<AgentId>,
+    base_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+    branch_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+    base_births: &[(AgentId, AgentId, AgentMatchKey)],
+    branch_births: &[(AgentId, AgentId, AgentMatchKey)],
+    population_stats: &mut DivergencePopulationStats,
+) -> DailyDifference {
+    difference_for_day_canonical_internal(
+        day,
+        base,
+        branch,
+        base_initial,
+        branch_initial,
+        base_lineage_agents,
+        branch_lineage_agents,
+        base_births,
+        branch_births,
+        Some(population_stats),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn difference_for_day_canonical_internal(
+    day: u32,
+    base: &BranchRuntime,
+    branch: &BranchRuntime,
+    base_initial: &BTreeSet<AgentId>,
+    branch_initial: &BTreeSet<AgentId>,
+    base_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+    branch_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+    base_births: &[(AgentId, AgentId, AgentMatchKey)],
+    branch_births: &[(AgentId, AgentId, AgentMatchKey)],
+    mut population_stats: Option<&mut DivergencePopulationStats>,
+) -> DailyDifference {
     let mut changed_agent_records = 0u64;
     for id in base_initial.union(branch_initial) {
-        match (base.agent_record(*id), branch.agent_record(*id)) {
+        let left = base.agent_record(*id);
+        let right = branch.agent_record(*id);
+        if let Some(stats) = population_stats.as_deref_mut()
+            && (left.is_some_and(|record| record.alive) || right.is_some_and(|record| record.alive))
+        {
+            stats.matched_alive_entities += 1;
+        }
+        match (left, right) {
             (Some(left), Some(right)) if left != right => changed_agent_records += 1,
             (Some(_), None) | (None, Some(_)) => changed_agent_records += 1,
             _ => {}
@@ -2192,12 +2305,24 @@ fn difference_for_day_canonical(
     }
     for (key, base_id) in base_lineage_agents {
         if let Some(branch_id) = branch_lineage_agents.get(key) {
-            match (base.agent_record(*base_id), branch.agent_record(*branch_id)) {
+            let left = base.agent_record(*base_id);
+            let right = branch.agent_record(*branch_id);
+            if let Some(stats) = population_stats.as_deref_mut()
+                && (left.is_some_and(|record| record.alive)
+                    || right.is_some_and(|record| record.alive))
+            {
+                stats.matched_alive_entities += 1;
+            }
+            match (left, right) {
                 (Some(left), Some(right)) if left != right => changed_agent_records += 1,
                 (Some(_), None) | (None, Some(_)) => changed_agent_records += 1,
                 _ => {}
             }
         }
+    }
+    if let Some(stats) = population_stats {
+        stats.base_alive_population = alive_population(base);
+        stats.branch_alive_population = alive_population(branch);
     }
     let base_birth_keys: BTreeSet<_> = base_births.iter().map(|(_, _, key)| key.clone()).collect();
     let branch_birth_keys: BTreeSet<_> = branch_births
@@ -2244,6 +2369,65 @@ fn difference_for_day_canonical(
         unmatched_branch_births,
         newborn_crn_loss,
     }
+}
+
+fn populate_divergence_population_stats(
+    stats: &mut DivergencePopulationStats,
+    base: &BranchRuntime,
+    branch: &BranchRuntime,
+    base_initial: &BTreeSet<AgentId>,
+    branch_initial: &BTreeSet<AgentId>,
+    base_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+    branch_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+) {
+    if base_initial == branch_initial
+        && base_lineage_agents == branch_lineage_agents
+        && base.same_slot_mapping(branch)
+    {
+        let left = base.world.segmented_storage.as_ref().unwrap();
+        let right = branch.world.segmented_storage.as_ref().unwrap();
+        for slot in 0..left.len() {
+            let left_alive = left.alive()[slot];
+            let right_alive = right.alive()[slot];
+            stats.base_alive_population += u64::from(left_alive);
+            stats.branch_alive_population += u64::from(right_alive);
+            stats.matched_alive_entities += u64::from(left_alive || right_alive);
+        }
+        return;
+    }
+    stats.base_alive_population = alive_population(base);
+    stats.branch_alive_population = alive_population(branch);
+    for id in base_initial.union(branch_initial) {
+        if base.agent_record(*id).is_some_and(|record| record.alive)
+            || branch.agent_record(*id).is_some_and(|record| record.alive)
+        {
+            stats.matched_alive_entities += 1;
+        }
+    }
+    for (key, base_id) in base_lineage_agents {
+        if let Some(branch_id) = branch_lineage_agents.get(key)
+            && (base
+                .agent_record(*base_id)
+                .is_some_and(|record| record.alive)
+                || branch
+                    .agent_record(*branch_id)
+                    .is_some_and(|record| record.alive))
+        {
+            stats.matched_alive_entities += 1;
+        }
+    }
+}
+
+fn alive_population(runtime: &BranchRuntime) -> u64 {
+    runtime
+        .world
+        .segmented_storage
+        .as_ref()
+        .expect("branch runtime has segmented storage")
+        .alive()
+        .iter()
+        .filter(|alive| **alive)
+        .count() as u64
 }
 
 struct BirthDifference {
@@ -2373,9 +2557,31 @@ fn difference_for_day_fast_measured(
     difference_for_day_fast_impl(input, Some(costs))
 }
 
+#[derive(Default)]
+struct DivergencePopulationStats {
+    matched_alive_entities: u64,
+    base_alive_population: u64,
+    branch_alive_population: u64,
+}
+
+fn difference_for_day_fast_with_population_stats(
+    input: DailyDifferenceInput<'_>,
+    population_stats: &mut DivergencePopulationStats,
+) -> DailyDifference {
+    difference_for_day_fast_internal(input, None, Some(population_stats))
+}
+
 fn difference_for_day_fast_impl(
     input: DailyDifferenceInput<'_>,
     costs: Option<&mut BranchAnalysisCosts>,
+) -> DailyDifference {
+    difference_for_day_fast_internal(input, costs, None)
+}
+
+fn difference_for_day_fast_internal(
+    input: DailyDifferenceInput<'_>,
+    costs: Option<&mut BranchAnalysisCosts>,
+    mut population_stats: Option<&mut DivergencePopulationStats>,
 ) -> DailyDifference {
     let DailyDifferenceInput {
         day,
@@ -2401,6 +2607,17 @@ fn difference_for_day_fast_impl(
         costs.lineage_ns += started.elapsed().as_nanos();
     }
     if state_digests_equal {
+        if let Some(stats) = population_stats.as_deref_mut() {
+            populate_divergence_population_stats(
+                stats,
+                base,
+                branch,
+                base_initial,
+                branch_initial,
+                base_lineage_agents,
+                branch_lineage_agents,
+            );
+        }
         return DailyDifference {
             day,
             changed_agent_records: 0,
@@ -2428,23 +2645,46 @@ fn difference_for_day_fast_impl(
             .segmented_storage
             .as_ref()
             .expect("hybrid authority has storage");
-        left.agent_ids()
-            .iter()
-            .enumerate()
-            .filter(|(slot, _)| agent_record_at(left, *slot) != agent_record_at(right, *slot))
-            .count() as u64
+        let mut changed = 0u64;
+        for slot in 0..left.len() {
+            let left_record = agent_record_at(left, slot);
+            let right_record = agent_record_at(right, slot);
+            if let Some(stats) = population_stats.as_deref_mut() {
+                let left_alive = left_record.alive;
+                let right_alive = right_record.alive;
+                stats.base_alive_population += u64::from(left_alive);
+                stats.branch_alive_population += u64::from(right_alive);
+                stats.matched_alive_entities += u64::from(left_alive || right_alive);
+            }
+            changed += u64::from(left_record != right_record);
+        }
+        changed
     } else {
-        return difference_for_day_canonical(
-            day,
-            base,
-            branch,
-            base_initial,
-            branch_initial,
-            base_lineage_agents,
-            branch_lineage_agents,
-            base_births,
-            branch_births,
-        );
+        return match population_stats {
+            Some(stats) => difference_for_day_canonical_with_population_stats(
+                day,
+                base,
+                branch,
+                base_initial,
+                branch_initial,
+                base_lineage_agents,
+                branch_lineage_agents,
+                base_births,
+                branch_births,
+                stats,
+            ),
+            None => difference_for_day_canonical(
+                day,
+                base,
+                branch,
+                base_initial,
+                branch_initial,
+                base_lineage_agents,
+                branch_lineage_agents,
+                base_births,
+                branch_births,
+            ),
+        };
     };
 
     DailyDifference {
@@ -2493,7 +2733,26 @@ fn intervention_boundary_divergence(
 
 /// Runs one snapshot-backed base/branch pair for the requested horizon.
 pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult, BranchError> {
-    run_counterfactual_branch_inner(request, RecorderComparisonMode::Enabled, None)
+    run_counterfactual_branch_inner(request, RecorderComparisonMode::Enabled, None, None)
+}
+
+/// Runs the M4-02 branch and records the analysis-only M4-03 divergence series.
+pub fn run_counterfactual_branch_with_divergence_series(
+    request: &BranchRequest,
+) -> Result<BranchDivergenceResult, BranchError> {
+    let mut daily_series = Vec::with_capacity(request.horizon_days as usize);
+    let branch = run_counterfactual_branch_inner(
+        request,
+        RecorderComparisonMode::Enabled,
+        None,
+        Some(&mut daily_series),
+    )?;
+    let summary = summarize_divergence(&branch, &daily_series, &request.intervention);
+    Ok(BranchDivergenceResult {
+        branch,
+        daily_series,
+        summary,
+    })
 }
 
 #[doc(hidden)]
@@ -2511,6 +2770,7 @@ pub fn run_counterfactual_branch_with_analysis_mode(
                 request,
                 RecorderComparisonMode::Enabled,
                 Some(&mut costs),
+                None,
             )?;
             Ok(BranchAnalysisOutput::Full { result, costs })
         }
@@ -2526,6 +2786,7 @@ pub fn run_counterfactual_branch_with_analysis_mode(
                 request,
                 RecorderComparisonMode::DisabledUntil(&expected),
                 Some(&mut costs),
+                None,
             )?;
             Ok(BranchAnalysisOutput::Full { result, costs })
         }
@@ -2652,6 +2913,7 @@ fn run_counterfactual_branch_inner(
     request: &BranchRequest,
     recorder_mode: RecorderComparisonMode<'_>,
     mut analysis_costs: Option<&mut BranchAnalysisCosts>,
+    mut divergence_series: Option<&mut Vec<DivergenceDayRecord>>,
 ) -> Result<BranchResult, BranchError> {
     let PreparedBranch {
         branch_config,
@@ -2770,10 +3032,30 @@ fn run_counterfactual_branch_inner(
             state_digests_equal,
             all_day_digests_equal,
         };
-        let difference = match analysis_costs.as_deref_mut() {
-            Some(costs) => difference_for_day_fast_measured(difference_input, costs),
-            None => difference_for_day_fast_impl(difference_input, None),
+        let (difference, population_stats) = if divergence_series.is_some() {
+            let mut stats = DivergencePopulationStats::default();
+            let difference =
+                difference_for_day_fast_with_population_stats(difference_input, &mut stats);
+            (difference, Some(stats))
+        } else {
+            let difference = match analysis_costs.as_deref_mut() {
+                Some(costs) => difference_for_day_fast_measured(difference_input, costs),
+                None => difference_for_day_fast_impl(difference_input, None),
+            };
+            (difference, None)
         };
+        if let (Some(series), Some(stats)) = (divergence_series.as_deref_mut(), population_stats) {
+            series.push(divergence_day_record(
+                day,
+                !state_digests_equal,
+                &difference,
+                stats,
+                &base,
+                &branch,
+                &base_lineage.agents,
+                &branch_lineage.agents,
+            ));
+        }
         if let (Some(costs), Some(started)) = (analysis_costs.as_deref_mut(), difference_started) {
             let total_ns = started.elapsed().as_nanos();
             let lineage_ns = costs.lineage_ns.saturating_sub(lineage_before_difference);
@@ -2861,6 +3143,238 @@ fn run_counterfactual_branch_inner(
         forced_action,
     })
 }
+
+#[allow(clippy::too_many_arguments)]
+fn divergence_day_record(
+    day: u32,
+    state_digests_differ: bool,
+    difference: &DailyDifference,
+    population: DivergencePopulationStats,
+    base: &BranchRuntime,
+    branch: &BranchRuntime,
+    base_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+    branch_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+) -> DivergenceDayRecord {
+    let unmatched_birth_records =
+        unmatched_birth_records_present(base, branch, base_lineage_agents, branch_lineage_agents);
+    let normalized_divergence = if population.matched_alive_entities == 0 {
+        0.0
+    } else {
+        difference.changed_agent_records as f64 / population.matched_alive_entities as f64
+    };
+    let unmatched_denominator = population
+        .matched_alive_entities
+        .saturating_add(unmatched_birth_records);
+    let unmatched_birth_fraction = if unmatched_denominator == 0 {
+        0.0
+    } else {
+        unmatched_birth_records as f64 / unmatched_denominator as f64
+    };
+    DivergenceDayRecord {
+        day,
+        changed_agent_records: difference.changed_agent_records,
+        newborn_crn_loss: difference.newborn_crn_loss,
+        matched_alive_entities: population.matched_alive_entities,
+        normalized_divergence,
+        unmatched_birth_records,
+        unmatched_birth_fraction,
+        base_alive_population: population.base_alive_population,
+        branch_alive_population: population.branch_alive_population,
+        state_digests_differ,
+        graph_changed: difference.graph_changed,
+        allocator_changed: difference.allocator_changed,
+        propagation_changed: difference.propagation_changed,
+        settlement_global_changed: !canonical_world_globals_equal(
+            &base.world.world,
+            &branch.world.world,
+        ),
+    }
+}
+
+fn unmatched_birth_records_present(
+    base: &BranchRuntime,
+    branch: &BranchRuntime,
+    base_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+    branch_lineage_agents: &HashMap<AgentMatchKey, AgentId>,
+) -> u64 {
+    if base_lineage_agents == branch_lineage_agents {
+        return 0;
+    }
+    let base_only = base_lineage_agents
+        .iter()
+        .filter(|(key, id)| {
+            !branch_lineage_agents.contains_key(*key) && base.agent_record(**id).is_some()
+        })
+        .count();
+    let branch_only = branch_lineage_agents
+        .iter()
+        .filter(|(key, id)| {
+            !base_lineage_agents.contains_key(*key) && branch.agent_record(**id).is_some()
+        })
+        .count();
+    (base_only + branch_only) as u64
+}
+
+fn canonical_world_globals_equal(base: &WorldState, branch: &WorldState) -> bool {
+    if base.current_day != branch.current_day || base.settlements.len() != branch.settlements.len()
+    {
+        return false;
+    }
+    let mut base_settlements: Vec<_> = base.settlements.iter().collect();
+    let mut branch_settlements: Vec<_> = branch.settlements.iter().collect();
+    base_settlements.sort_by_key(|settlement| settlement.group_id);
+    branch_settlements.sort_by_key(|settlement| settlement.group_id);
+    base_settlements
+        .iter()
+        .zip(branch_settlements)
+        .all(|(left, right)| {
+            left.group_id == right.group_id
+                && left.resource.to_bits() == right.resource.to_bits()
+                && left.treasury == right.treasury
+        })
+}
+
+fn summarize_divergence(
+    branch: &BranchResult,
+    daily_series: &[DivergenceDayRecord],
+    intervention: &BranchIntervention,
+) -> DivergenceSummary {
+    let first_divergent_day = branch.first_divergence.as_ref().map(|first| first.day);
+    let first_index = first_divergent_day
+        .and_then(|first_day| daily_series.iter().position(|day| day.day >= first_day));
+    let (peak_index, peak_changed_agent_records, peak_normalized_fraction) = daily_series
+        .iter()
+        .enumerate()
+        .filter(|(_, day)| first_divergent_day.is_none_or(|first| day.day >= first))
+        .fold(None, |peak, (index, day)| match peak {
+            Some((_, count, _)) if count >= day.changed_agent_records => peak,
+            _ => Some((index, day.changed_agent_records, day.normalized_divergence)),
+        })
+        .map_or((None, 0, 0.0), |(index, count, fraction)| {
+            (Some(index), count, fraction)
+        });
+
+    let mut cascade_onset_day = None;
+    if let Some(first_index) = first_index {
+        let mut prior_max = daily_series[first_index].changed_agent_records;
+        for day in daily_series.iter().skip(first_index + 1) {
+            let threshold = prior_max.saturating_mul(2).max(prior_max.saturating_add(5));
+            if day.changed_agent_records >= threshold {
+                cascade_onset_day = Some(day.day);
+                break;
+            }
+            prior_max = prior_max.max(day.changed_agent_records);
+        }
+    }
+    let plateau_days = cascade_onset_day
+        .zip(first_divergent_day)
+        .map(|(onset, first)| onset.saturating_sub(first));
+
+    let growth_slope = match (cascade_onset_day, peak_index) {
+        (Some(onset), Some(peak_index)) => {
+            let onset_index = daily_series
+                .iter()
+                .position(|day| day.day == onset)
+                .expect("cascade onset is in the daily series");
+            let count = 10.min(peak_index.saturating_sub(onset_index) + 1);
+            if count < 2 {
+                None
+            } else {
+                let n = count as f64;
+                let sum_x = (0..count).map(|x| x as f64).sum::<f64>();
+                let sum_y = daily_series[onset_index..onset_index + count]
+                    .iter()
+                    .map(|day| libm::log1p(day.changed_agent_records as f64))
+                    .sum::<f64>();
+                let sum_xx = (0..count).map(|x| (x * x) as f64).sum::<f64>();
+                let sum_xy = daily_series[onset_index..onset_index + count]
+                    .iter()
+                    .enumerate()
+                    .map(|(x, day)| x as f64 * libm::log1p(day.changed_agent_records as f64))
+                    .sum::<f64>();
+                Some((n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x))
+            }
+        }
+        _ => None,
+    };
+    let doubling_time_days = growth_slope
+        .filter(|slope| *slope > 0.0)
+        .map(|slope| std::f64::consts::LN_2 / slope);
+    let days_to_peak = first_divergent_day
+        .zip(peak_index.map(|index| daily_series[index].day))
+        .map(|(first, peak)| peak.saturating_sub(first));
+
+    let target_agent_id = match intervention {
+        BranchIntervention::AgentFieldOverride { agent_id, .. }
+        | BranchIntervention::ForcedAction { agent_id, .. } => Some(*agent_id),
+        BranchIntervention::ConfigOverride { .. } => None,
+    };
+    let base_target_death_day =
+        target_agent_id.and_then(|target| first_target_death_day(&branch.base_days, target));
+    let branch_target_death_day =
+        target_agent_id.and_then(|target| first_target_death_day(&branch.branch_days, target));
+    let onset_vs_branch_target_death = match (target_agent_id, cascade_onset_day) {
+        (None, _) => TargetDeathRelation::NotApplicable,
+        (Some(_), None) => TargetDeathRelation::NoCascade,
+        (Some(_), Some(_)) if branch_target_death_day.is_none() => TargetDeathRelation::NoDeath,
+        (Some(_), Some(onset)) => {
+            let death = branch_target_death_day.expect("checked above");
+            match onset.cmp(&death) {
+                std::cmp::Ordering::Less => TargetDeathRelation::Before,
+                std::cmp::Ordering::Equal => TargetDeathRelation::SameDay,
+                std::cmp::Ordering::Greater => TargetDeathRelation::After,
+            }
+        }
+    };
+
+    DivergenceSummary {
+        first_divergent_day,
+        cascade_onset_day,
+        plateau_days,
+        growth_slope,
+        doubling_time_days,
+        peak_changed_agent_records,
+        peak_normalized_fraction,
+        days_to_peak,
+        newborn_crn_loss: branch
+            .daily_differences
+            .iter()
+            .map(|day| day.newborn_crn_loss)
+            .sum(),
+        target_agent_id,
+        base_target_death_day,
+        branch_target_death_day,
+        onset_vs_branch_target_death,
+    }
+}
+
+fn first_target_death_day(days: &[BranchDayRecord], target: AgentId) -> Option<u32> {
+    days.iter().find_map(|day| {
+        let found = match &day.events {
+            BranchEventsRecord::Standard(records) => records.iter().any(|record| {
+                matches!(
+                    &record.event,
+                    crate::events::Event::StateTransition(
+                        crate::events::StateTransitionEvent::MortalityCommitted { agent_id }
+                    ) if *agent_id == target
+                )
+            }),
+            BranchEventsRecord::Population(records) => records.iter().any(|record| {
+                matches!(
+                    &record.event,
+                    crate::m3p::M3pEvent::Existing(crate::events::Event::StateTransition(
+                        crate::events::StateTransitionEvent::MortalityCommitted { agent_id }
+                    )) if *agent_id == target
+                )
+            }),
+        };
+        found.then_some(day.day)
+    })
+}
+
+#[cfg(test)]
+#[path = "counterfactual_m4_03_tests.rs"]
+mod m4_03_tests;
 
 #[cfg(test)]
 mod tests {

@@ -36,10 +36,12 @@ pub use config::{
     TraitConfig, WorldConfig,
 };
 pub use counterfactual::{
-    AgentField, AgentFieldValue, AgentMatchKey, BranchDayRecord, BranchError, BranchEventsRecord,
-    BranchExecutionOption, BranchIntervention, BranchMetricsRecord, BranchRequest, BranchResult,
-    ConfigParameter, ConfigValue, DailyDifference, FirstDivergence, ForcedActionOutcome,
-    RecordedSlot, run_counterfactual_branch,
+    AgentField, AgentFieldValue, AgentMatchKey, BranchDayRecord, BranchDivergenceResult,
+    BranchError, BranchEventsRecord, BranchExecutionOption, BranchIntervention,
+    BranchMetricsRecord, BranchRequest, BranchResult, ConfigParameter, ConfigValue,
+    DailyDifference, DivergenceDayRecord, DivergenceSummary, FirstDivergence, ForcedActionOutcome,
+    RecordedSlot, TargetDeathRelation, run_counterfactual_branch,
+    run_counterfactual_branch_with_divergence_series,
 };
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,
