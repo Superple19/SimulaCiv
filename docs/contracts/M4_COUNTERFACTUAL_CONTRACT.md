@@ -1,8 +1,8 @@
 # M4 Counterfactual Contract
 
-**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN; §12 M4-03 FROZEN; §13 M4-04 FROZEN; §14 M4-05 FROZEN; §15 M4-06 FROZEN**
+**Status: M4-00 FROZEN; §10 M4-01 FROZEN; §11 M4-02 FROZEN; §12 M4-03 FROZEN; §13 M4-04 FROZEN; §14 M4-05 FROZEN; §15 M4-06 FROZEN; §16 M4-07 FROZEN**
 
-**Scope:** M4-00 freezes the counterfactual framework; §§10–14 freeze M4-01 through M4-05; §15 freezes M4-06 settlement migration. Later stages still require their own DRAFT → review → FROZEN contract.
+**Scope:** M4-00 freezes the counterfactual framework; §§10–14 freeze M4-01 through M4-05; §15 freezes M4-06 settlement migration; §16 freezes M4-07 many-branch performance. Later stages still require their own DRAFT → review → FROZEN contract.
 
 **Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
@@ -47,7 +47,7 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **M4-04 — CRN efficiency** | **COMPLETE.** Frozen paired/independent estimators and bootstrap reporting; 100-replicate M3P sustained experiment recorded in the [M4-04 report](../performance/M4_04_CRN_EFFICIENCY.md). |
 | **M4-05 — Minimal-cause search** | **COMPLETE.** Deterministic intervention batches, cached paired evaluation, exhaustive minimum/ddmin search, JSONL replay, the N=2,000 golden, and the M3P N=10,000 A-5 gate pass; see the [M4-05 report](../performance/M4_05_MINIMAL_CAUSE.md) and [§14](#14-m4-05-minimal-cause-search). |
 | **M4-06 — Settlement migration system** | **COMPLETE.** Registered serial migration, v4 snapshots, all four profile combinations, migration-off A-5 gate, and five-seed H=365 experiment are recorded in the [M4-06 report](../performance/M4_06_MIGRATION.md); see [§15](#15-m4-06-settlement-migration-system). |
-| **M4-07 — Many-branch performance** | Measure shared-state and copy-on-write options, cross-branch parallelism, and GPU suitability. A GPU implementation is not implied. M4-02 follow-up candidate: day-scan digest cost measured at 70–160 ns/agent-day; compare direct column equality with SHA-256 only on request. |
+| **M4-07 — Many-branch performance** | **CONTRACT FROZEN.** Measure and implement opt-in cross-branch parallel evaluation, direct-column divergence scans, and removal of discarded independent-side work; measure the copy-on-write share before deciding whether to implement it; write a GPU suitability assessment only; see [§16](#16-m4-07-many-branch-performance). |
 | **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
 | **M4 audit** | Answer the research question from recorded correctness and performance evidence and classify remaining work. |
 
@@ -874,3 +874,66 @@ M3 schema-v1 and M3PROP schema-v3 base snapshots do not persist the relationship
 ### 15.13 A-3 — Fix v4 migration profile tag values (FROZEN)
 
 The v4 profile-byte values listed in §15.6 and §15.10 are frozen as the tags used by the M4-06 implementation. The envelope decoder rejects unknown tags and verifies that the wrapped base snapshot schema matches the selected profile. This fixes previously unspecified envelope encoding values without changing any existing snapshot schema or migration-off snapshot bytes.
+
+### 15.14 A-4 — Counterfactual branch support for migration profiles (FROZEN)
+
+This M4-06 amendment extends the M4-02 branch APIs' supported system sets to the four migration-enabled combinations: M3+Migration, M3P+Migration, M3+Migration+Propagation, and M3P+Migration+Propagation. The branch dispatcher validates the enabled set through `SimulationSystems` and the static system registry; the corresponding M3M/M3PM v4 snapshot and digest profiles are used. The existing M4-02 intervention boundary, ordering, no-op identity, and explicit-parallel rejection remain unchanged. M3 and M3P paths accept the same explicit serial/incremental-topology options they accepted before; the migration hook itself remains serial. This amendment authorizes the M4-06 branch/API follow-up implementation and does not change any simulation transition or existing profile encoding.
+
+## 16. M4-07 Many-Branch Performance
+
+**Status: FROZEN**
+
+**Scope:** reduce M4 replicate and branch-evaluation cost while preserving bit-identical branch results. Existing M4 serial APIs remain the oracle and default. M4-07 adds explicit opt-in parallel evaluation and an opt-in direct-column day-scan mode; it does not change simulation semantics, RNG coordinates, profile digest/snapshot schemas, or the existing default execution policy.
+
+### 16.1 Cross-branch parallelism
+
+M4-04 replicate-set evaluation and M4-05 subset evaluation may run independent replicate/branch evaluations on a caller-owned `rayon::ThreadPool`. The APIs take the pool explicitly and collect results in the existing deterministic order: replicate IDs for M4-04; candidate/subset order and then replicate ID for M4-05. The runner never builds, resizes, or replaces a pool. Serial remains the default. For each request, every output record, estimator, search result, error, and evaluation-log record must equal the serial path.
+
+### 16.2 Direct-column day-scan equality
+
+An opt-in day-scan mode compares canonical State components directly rather than hashing both complete State preimages on every day. It compares logical agent records in ascending `AgentId` order, followed by settlement/global records, graph, allocator, and propagation components where present; physical slot order is not semantic. It may use a slot-wise fast path only when both runs have the same `AgentId`-to-slot mapping, and must retain an AgentId-ordered fallback otherwise.
+
+The mode computes SHA-256 for a day only when the caller requests the full digest sequence or when a direct comparison finds the first divergent day. In the latter case it computes both sides' canonical State digests for that day. It returns the same `D_d`, component flags, and first divergence as the existing SHA-based scan. Existing M4-02/03 APIs and their digest outputs remain unchanged.
+
+### 16.3 Independent intervention path
+
+For M4-04 independent intervention replicates, the intervention-side run starts from its declared common branch-point snapshot and executes only the intervention branch. It does not execute and discard an independent base side. Replicate IDs, paired/independent sample sets, outcomes, estimator arithmetic, and confidence intervals remain unchanged. The independent base sample continues to use the base outcomes already collected from the paired set, as frozen in §13.
+
+### 16.4 Copy-on-write decision gate
+
+Measure snapshot restore and state clone time as a share of total branch time at `N ∈ {10,000, 100,000}` and horizons `H ∈ {30, 90}` using the same request and execution order for each comparison. Implement copy-on-write only if the measured restore/clone share is at least 20% in the reported workload. Otherwise record **“not needed”** with the measured shares and keep snapshot-backed branching. Any implementation must preserve the serial branch result exactly.
+
+### 16.5 GPU assessment
+
+The M4-07 report contains a written assessment only. It identifies which measured phases expose data-parallel work, estimates state/record transfer volume and synchronization costs, and lists determinism risks from reduction order, dynamic branch workloads, and device math. This section authorizes no GPU implementation and no new runtime backend.
+
+### 16.6 Gates and measurements
+
+- Bit identity: serial and explicit parallel M4-04 replicate sets, M4-05 subset evaluations, and SHA/direct day-scan modes produce equal outputs, in deterministic collection order.
+- Independent-side removal: verify that the independent intervention path returns the same branch records and statistics as the paired implementation while making no base-side day calls.
+- Copy-on-write: report the restore/clone share for all four `(N, H)` cells and apply the 20% decision above.
+- Performance: report throughput and wall-time speedups; speedups are informative and have no absolute pass threshold.
+- Any change to a default execution path must pass the frozen M4 A-5 gate with `T = 5%` of the direct-path median. Opt-in paths require bit identity but are not gated on speedup.
+
+Required tests cover fixed-order collection across thread counts and chunk sizes; M4-04 estimator equality for all three interventions and four horizons; M4-05 case (a) serial/parallel result and evaluation-log equality; direct-column vs SHA equality for `D_d`, flags, and first divergence; slot permutation; no discarded base evaluation on the independent intervention side; and snapshot-backed branch identity. New tests do not modify or replace existing M4 goldens or CI gates.
+
+The committed measurement harnesses and raw outputs live under `crates/sim-model/examples/` and `docs/data/m4_07/`; every report table cites its harness and data file. The report records paired execution on six cores, all tested modes and cell timings, the CoW decision, and the GPU assessment.
+
+### 16.7 Non-goals
+
+M4-07 does not make parallel execution the default, add automatic pool selection, change simulation phases or RNG mappings, alter existing digest/snapshot bytes, implement GPU execution, or implement copy-on-write unless the 20% measured-share gate is met.
+
+### 16.8 Frozen decision register
+
+| Decision | Frozen choice |
+|---|---|
+| Cross-branch execution | Explicit caller-owned Rayon pool; fixed-order collection; serial default; exact result parity. |
+| Day scan | Optional canonical-column equality; SHA only on request or at the first divergent day; identical `D_d`, flags, and first divergence. |
+| Independent intervention | Do not run the unused independent base side; retain the frozen replicate sets and estimator inputs. |
+| Copy-on-write | Measure at 10k/100k and H=30/90; implement only at a restore/clone share ≥20%, otherwise record “not needed”. |
+| GPU | Written suitability assessment only; no implementation. |
+| Performance gates | Speedups reported, not gated; any default-path change uses M4 A-5 with T=5%; every opt-in mode must be bit-identical. |
+
+### 16.9 Freeze record
+
+This freeze fixes opt-in cross-branch parallelism, deterministic result collection, direct-column day-scan equality, independent intervention-side execution, the copy-on-write decision threshold, GPU assessment scope, and correctness/performance gates. It authorizes the M4-07 implementation and measurements to be requested; it does not start them.
