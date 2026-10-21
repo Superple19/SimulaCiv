@@ -48,10 +48,10 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **M4-05 — Minimal-cause search** | **COMPLETE.** Deterministic intervention batches, cached paired evaluation, exhaustive minimum/ddmin search, JSONL replay, the N=2,000 golden, and the M3P N=10,000 A-5 gate pass; see the [M4-05 report](../performance/M4_05_MINIMAL_CAUSE.md) and [§14](#14-m4-05-minimal-cause-search). |
 | **M4-06 — Settlement migration system** | **COMPLETE.** Registered serial migration, v4 snapshots, all four profile combinations, migration-off A-5 gate, and five-seed H=365 experiment are recorded in the [M4-06 report](../performance/M4_06_MIGRATION.md); see [§15](#15-m4-06-settlement-migration-system). |
 | **M4-07 — Many-branch performance** | **COMPLETE.** Opt-in cross-branch parallel evaluation and direct-column day scans pass exact parity; independent intervention runs omit the discarded base day path; restore/clone stayed below the 20% threshold, so copy-on-write was not needed. See the [M4-07 report](../performance/M4_07_MANY_BRANCH.md) and [§16](#16-m4-07-many-branch-performance). |
-| **Viewer follow-up after M4-02** | Add a branch-comparison view to the existing read-only trace viewer after the branch record format is frozen. |
-| **M4 audit** | Answer the research question from recorded correctness and performance evidence and classify remaining work. |
+| **Viewer follow-up after M4-02** | **COMPLETE.** The read-only viewer has an M4 branch-comparison view, a committed M4-03 sample, and a local exporter; see the [viewer instructions](../../viewer/README.md#m4-branch-comparison). |
+| **M4 audit** | **COMPLETE — graduation provisional until hosted Linux, Windows, and macOS CI passes on the final commit.** The [final audit](../performance/M4_FINAL_AUDIT_AND_GRADUATION.md) answers the research question, records stage evidence and known debt, and specifies the M5 direction. |
 
-M4-00 through M4-07 are complete. The M4 audit remains planned.
+M4-00 through M4-07, the branch viewer, and the M4 audit are complete. M4 graduation remains provisional until hosted CI passes on the final commit.
 
 ## 4. Invariants carried from M0–M3
 
