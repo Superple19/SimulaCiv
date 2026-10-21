@@ -3785,6 +3785,7 @@ pub fn run_counterfactual_branch_with_direct_day_scan(
         if digest_mode == BranchDayScanDigestMode::EveryDay {
             base_state_digest = Some(base.state_digest()?);
             branch_state_digest = Some(branch.state_digest()?);
+            digests_at_intervention_boundary = false;
         }
         let divergence = divergence_day_record(
             day,

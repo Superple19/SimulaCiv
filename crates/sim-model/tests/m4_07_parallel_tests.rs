@@ -114,6 +114,7 @@ fn direct_column_day_scan_matches_sha_scan_and_hashes_only_as_requested() {
             .unwrap();
     assert_eq!(every.daily_records.len(), sha.branch.base_days.len());
     for (index, record) in every.daily_records.iter().enumerate() {
+        assert!(!record.digests_at_intervention_boundary);
         assert_eq!(
             record.base_state_digest,
             Some(sha.branch.base_days[index].state_digest)
