@@ -48,7 +48,7 @@ use crate::runner::{
 use crate::snapshot::{
     CanonicalSnapshot, SnapshotError, SnapshotMetadata, decode_snapshot, encode_snapshot,
 };
-use crate::state::{AgentState, AuthorityMode, HybridWorldState, WorldState};
+use crate::state::{AgentState, AuthorityMode, HybridWorldState, SettlementState, WorldState};
 use crate::system_registry::{
     RegisteredSystemRunOptions, SYSTEM_REGISTRY, SystemExecutionOptions, SystemExecutionPolicy,
     SystemId, system_ids_for_features, validate_system_registry,
@@ -510,6 +510,7 @@ pub enum BranchAnalysisMode {
 #[doc(hidden)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BranchAnalysisCosts {
+    pub snapshot_restore_ns: u128,
     pub digest_ns: u128,
     pub d_d_ns: u128,
     pub lineage_ns: u128,
@@ -820,6 +821,27 @@ pub struct BranchDivergenceResult {
     pub summary: DivergenceSummary,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchDayScanDigestMode {
+    FirstDivergentDay,
+    EveryDay,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchDayScanRecord {
+    pub day: u32,
+    pub divergence: DivergenceDayRecord,
+    pub base_state_digest: Option<CanonicalHash>,
+    pub branch_state_digest: Option<CanonicalHash>,
+    pub digests_at_intervention_boundary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchDayScanResult {
+    pub daily_records: Vec<BranchDayScanRecord>,
+    pub first_divergence: Option<FirstDivergence>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum BranchError {
     UnsupportedProfile,
@@ -975,7 +997,202 @@ struct BranchStartState {
     profile: SimulationRunnerSelection,
 }
 
+struct DirectStateView<'a> {
+    hybrid_world: &'a HybridWorldState,
+    graph: &'a RelationshipGraph,
+    allocator: Option<u64>,
+    propagation: Option<&'a BTreeMap<AgentId, PropagationAgentState>>,
+    migration: Option<&'a MigrationState>,
+    profile: SimulationRunnerSelection,
+}
+
+impl DirectStateView<'_> {
+    fn equals(&self, other: &DirectStateView<'_>) -> bool {
+        let left_storage = self
+            .hybrid_world
+            .segmented_storage
+            .as_ref()
+            .expect("branch state uses hybrid storage");
+        let right_storage = other
+            .hybrid_world
+            .segmented_storage
+            .as_ref()
+            .expect("branch state uses hybrid storage");
+        self.profile == other.profile
+            && self.hybrid_world.world.current_day == other.hybrid_world.world.current_day
+            && agent_columns_equal(left_storage, right_storage)
+            && settlements_equal(
+                &self.hybrid_world.world.settlements,
+                &other.hybrid_world.world.settlements,
+            )
+            && graphs_equal(self.graph, other.graph)
+            && self.allocator == other.allocator
+            && self.propagation == other.propagation
+            && self.migration == other.migration
+    }
+}
+
+fn agent_columns_equal(
+    left: &crate::storage::SegmentedAgentStorage,
+    right: &crate::storage::SegmentedAgentStorage,
+) -> bool {
+    let left_ids = left.agent_ids();
+    let right_ids = right.agent_ids();
+    if left.len() != right.len() || left_ids.len() != left.len() || right_ids.len() != right.len() {
+        return false;
+    }
+    if left_ids == right_ids {
+        return (0..left.len())
+            .all(|slot| agent_record_at(left, slot) == agent_record_at(right, slot));
+    }
+    let mut left_slots = (0..left.len()).collect::<Vec<_>>();
+    let mut right_slots = (0..right.len()).collect::<Vec<_>>();
+    left_slots.sort_unstable_by_key(|&slot| left_ids[slot]);
+    right_slots.sort_unstable_by_key(|&slot| right_ids[slot]);
+    left_slots.len() == right_slots.len()
+        && left_slots
+            .iter()
+            .zip(right_slots)
+            .all(|(&left_slot, right_slot)| {
+                left_ids[left_slot] == right_ids[right_slot]
+                    && agent_record_at(left, left_slot) == agent_record_at(right, right_slot)
+            })
+}
+
+fn settlements_equal(left: &[SettlementState], right: &[SettlementState]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut left = left.iter().collect::<Vec<_>>();
+    let mut right = right.iter().collect::<Vec<_>>();
+    left.sort_unstable_by_key(|settlement| settlement.group_id);
+    right.sort_unstable_by_key(|settlement| settlement.group_id);
+    left.iter().zip(right).all(|(left, right)| {
+        left.group_id == right.group_id
+            && left.resource.to_bits() == right.resource.to_bits()
+            && left.treasury == right.treasury
+    })
+}
+
+fn graphs_equal(left: &RelationshipGraph, right: &RelationshipGraph) -> bool {
+    left.source_ids() == right.source_ids()
+        && left
+            .source_ids()
+            .iter()
+            .all(|&source| left.neighbors_of(source) == right.neighbors_of(source))
+}
+
+fn canonical_branch_state_hash(
+    hybrid_world: &HybridWorldState,
+    graph: &RelationshipGraph,
+    allocator: Option<u64>,
+    propagation: Option<&BTreeMap<AgentId, PropagationAgentState>>,
+    migration: Option<&MigrationState>,
+    profile: SimulationRunnerSelection,
+) -> Result<CanonicalHash, BranchError> {
+    let storage = hybrid_world
+        .segmented_storage
+        .as_ref()
+        .expect("branch state uses hybrid storage");
+    let current_day = hybrid_world.world.current_day;
+    let settlements = &hybrid_world.world.settlements;
+    Ok(match (profile, migration) {
+        (SimulationRunnerSelection::M3, Some(state)) => {
+            canonical_m3m_state_hash_from_storage(storage, current_day, settlements, graph, state)?
+        }
+        (SimulationRunnerSelection::M3, None) => {
+            canonical_m3_state_hash_from_storage(storage, current_day, settlements, graph)?
+        }
+        (SimulationRunnerSelection::M3Propagation, Some(state)) => {
+            canonical_m3mprop_state_hash_from_storage(
+                storage,
+                current_day,
+                settlements,
+                graph,
+                propagation.expect("M3 propagation rows"),
+                state,
+            )?
+        }
+        (SimulationRunnerSelection::M3Propagation, None) => {
+            canonical_m3prop_state_hash_from_storage(
+                storage,
+                current_day,
+                settlements,
+                graph,
+                propagation.expect("M3 propagation rows"),
+            )?
+        }
+        (SimulationRunnerSelection::M3p, Some(state)) => canonical_m3pm_state_hash_from_storage(
+            storage,
+            current_day,
+            settlements,
+            graph,
+            allocator.expect("M3P allocator"),
+            state,
+        )?,
+        (SimulationRunnerSelection::M3p, None) => canonical_m3p_state_hash_from_storage(
+            storage,
+            current_day,
+            settlements,
+            graph,
+            allocator.expect("M3P allocator"),
+        )?,
+        (SimulationRunnerSelection::M3pPropagation, Some(state)) => {
+            canonical_m3pmprop_state_hash_from_storage(
+                storage,
+                current_day,
+                settlements,
+                graph,
+                allocator.expect("M3P allocator"),
+                propagation.expect("M3P propagation rows"),
+                state,
+            )?
+        }
+        (SimulationRunnerSelection::M3pPropagation, None) => {
+            canonical_m3pprop_state_hash_from_storage(
+                storage,
+                current_day,
+                settlements,
+                graph,
+                allocator.expect("M3P allocator"),
+                propagation.expect("M3P propagation rows"),
+            )?
+        }
+        (SimulationRunnerSelection::M2, _) => return Err(BranchError::UnsupportedProfile),
+    })
+}
+
 impl BranchRuntime {
+    fn state_digest(&self) -> Result<CanonicalHash, BranchError> {
+        canonical_branch_state_hash(
+            &self.world,
+            self.graph(),
+            self.allocator_cursor(),
+            self.propagation(),
+            self.migration_state(),
+            self.profile,
+        )
+    }
+
+    fn direct_state_equal(&self, other: &Self) -> bool {
+        DirectStateView {
+            hybrid_world: &self.world,
+            graph: self.graph(),
+            allocator: self.allocator_cursor(),
+            propagation: self.propagation(),
+            migration: self.migration_state(),
+            profile: self.profile,
+        }
+        .equals(&DirectStateView {
+            hybrid_world: &other.world,
+            graph: other.graph(),
+            allocator: other.allocator_cursor(),
+            propagation: other.propagation(),
+            migration: other.migration_state(),
+            profile: other.profile,
+        })
+    }
+
     fn restore(
         snapshot: &CanonicalSnapshot,
         config: &SimConfig,
@@ -2340,6 +2557,25 @@ fn locate_m3p_storage_day_divergence_with_mode(
 }
 
 impl BranchStartState {
+    fn direct_state_equal(&self, other: &Self) -> bool {
+        DirectStateView {
+            hybrid_world: &self.world,
+            graph: &self.graph,
+            allocator: self.allocator,
+            propagation: self.propagation.as_ref(),
+            migration: self.migration.as_ref(),
+            profile: self.profile,
+        }
+        .equals(&DirectStateView {
+            hybrid_world: &other.world,
+            graph: &other.graph,
+            allocator: other.allocator,
+            propagation: other.propagation.as_ref(),
+            migration: other.migration.as_ref(),
+            profile: other.profile,
+        })
+    }
+
     fn restore_m3p_storage_runtime(
         &self,
         config: &SimConfig,
@@ -2432,85 +2668,14 @@ impl BranchStartState {
     }
 
     fn state_digest(&self) -> Result<CanonicalHash, BranchError> {
-        let storage = self
-            .world
-            .segmented_storage
-            .as_ref()
-            .expect("hybrid authority has storage");
-        let current_day = self.world.world.current_day;
-        let settlements = &self.world.world.settlements;
-        let migration = self.migration.as_ref();
-        Ok(match self.profile {
-            SimulationRunnerSelection::M3 => match migration {
-                Some(state) => canonical_m3m_state_hash_from_storage(
-                    storage,
-                    current_day,
-                    settlements,
-                    &self.graph,
-                    state,
-                )?,
-                None => canonical_m3_state_hash_from_storage(
-                    storage,
-                    current_day,
-                    settlements,
-                    &self.graph,
-                )?,
-            },
-            SimulationRunnerSelection::M3Propagation => match migration {
-                Some(state) => canonical_m3mprop_state_hash_from_storage(
-                    storage,
-                    current_day,
-                    settlements,
-                    &self.graph,
-                    self.propagation.as_ref().expect("M3 propagation rows"),
-                    state,
-                )?,
-                None => canonical_m3prop_state_hash_from_storage(
-                    storage,
-                    current_day,
-                    settlements,
-                    &self.graph,
-                    self.propagation.as_ref().expect("M3 propagation rows"),
-                )?,
-            },
-            SimulationRunnerSelection::M3p => match migration {
-                Some(state) => canonical_m3pm_state_hash_from_storage(
-                    storage,
-                    current_day,
-                    settlements,
-                    &self.graph,
-                    self.allocator.expect("M3P allocator"),
-                    state,
-                )?,
-                None => canonical_m3p_state_hash_from_storage(
-                    storage,
-                    current_day,
-                    settlements,
-                    &self.graph,
-                    self.allocator.expect("M3P allocator"),
-                )?,
-            },
-            SimulationRunnerSelection::M3pPropagation => match migration {
-                Some(state) => canonical_m3pmprop_state_hash_from_storage(
-                    storage,
-                    current_day,
-                    settlements,
-                    &self.graph,
-                    self.allocator.expect("M3P allocator"),
-                    self.propagation.as_ref().expect("M3P propagation rows"),
-                    state,
-                )?,
-                None => canonical_m3pprop_state_hash_from_storage(
-                    storage,
-                    current_day,
-                    settlements,
-                    &self.graph,
-                    self.allocator.expect("M3P allocator"),
-                    self.propagation.as_ref().expect("M3P propagation rows"),
-                )?,
-            },
-            SimulationRunnerSelection::M2 => return Err(BranchError::UnsupportedProfile),
-        })
+        canonical_branch_state_hash(
+            &self.world,
+            &self.graph,
+            self.allocator,
+            self.propagation.as_ref(),
+            self.migration.as_ref(),
+            self.profile,
+        )
     }
 
     fn record_reference_day(
@@ -2637,6 +2802,15 @@ impl BranchSimulationDay {
             Self::M3Propagation(value) => value.executed_day,
             Self::M3p(value) => value.executed_day,
             Self::M3pPropagation(value) => value.executed_day,
+        }
+    }
+
+    fn events_record(&self) -> BranchEventsRecord {
+        match self {
+            Self::M3(value) => BranchEventsRecord::Standard(value.events.clone()),
+            Self::M3Propagation(value) => BranchEventsRecord::Standard(value.events.clone()),
+            Self::M3p(value) => BranchEventsRecord::Population(value.events.clone()),
+            Self::M3pPropagation(value) => BranchEventsRecord::Population(value.events.clone()),
         }
     }
 }
@@ -3466,6 +3640,176 @@ fn intervention_boundary_divergence(
     })
 }
 
+fn locate_direct_scan_first_divergence(
+    base_start: &BranchStartState,
+    branch_start: &BranchStartState,
+    request: &BranchRequest,
+    branch_config: &SimConfig,
+    day: u32,
+) -> Result<Option<FirstDivergence>, BranchError> {
+    let phase_force = match request.intervention {
+        BranchIntervention::ForcedAction { agent_id, action } => {
+            Some(ForcedActionDirective::new(agent_id, action, day))
+        }
+        _ => None,
+    };
+    if matches!(
+        base_start.profile,
+        SimulationRunnerSelection::M3p | SimulationRunnerSelection::M3pPropagation
+    ) {
+        let located = locate_m3p_storage_day_divergence_with_mode(
+            base_start,
+            branch_start,
+            &request.config,
+            branch_config,
+            &request.run_context,
+            request.execution,
+            day,
+            phase_force,
+            RecorderComparisonMode::Enabled,
+            None,
+        )?;
+        if located.is_some() {
+            return Ok(located);
+        }
+    }
+    let mut base_trace = Vec::new();
+    let mut branch_trace = Vec::new();
+    base_start.record_reference_day(
+        &request.config,
+        &request.run_context,
+        None,
+        &mut base_trace,
+    )?;
+    let mut phase_force = match request.intervention {
+        BranchIntervention::ForcedAction { agent_id, action } => {
+            Some(ForcedActionDirective::new(agent_id, action, day))
+        }
+        _ => None,
+    };
+    branch_start.record_reference_day(
+        branch_config,
+        &request.run_context,
+        phase_force.as_mut(),
+        &mut branch_trace,
+    )?;
+    Ok(first_phase_difference(&base_trace, &branch_trace, day))
+}
+
+pub fn run_counterfactual_branch_with_direct_day_scan(
+    request: &BranchRequest,
+    digest_mode: BranchDayScanDigestMode,
+) -> Result<BranchDayScanResult, BranchError> {
+    let PreparedBranch {
+        branch_config,
+        mut base,
+        mut branch,
+        mut forced_directive,
+        ..
+    } = prepare_branch(request)?;
+    let base_initial = base.initial_agent_ids();
+    let branch_initial = branch.initial_agent_ids();
+    let mut base_lineage = LineageTracker::default();
+    let mut branch_lineage = LineageTracker::default();
+    let mut daily_records = Vec::with_capacity(request.horizon_days as usize);
+    let mut first_divergence = None;
+
+    for _ in 0..request.horizon_days {
+        let day = base.world.world.current_day.as_u32();
+        if day != branch.world.world.current_day.as_u32() {
+            return Err(BranchError::InvalidIntervention(
+                "base and branch resume cursors diverged".into(),
+            ));
+        }
+        let include_snapshot = request.snapshot_days.binary_search(&day).is_ok();
+        let day_start = first_divergence
+            .is_none()
+            .then(|| (base.start_state(), branch.start_state()));
+        let intervention_boundary_differs = day_start
+            .as_ref()
+            .is_some_and(|(left, right)| !left.direct_state_equal(right));
+        let mut base_state_digest = None;
+        let mut branch_state_digest = None;
+        let mut digests_at_intervention_boundary = false;
+        if intervention_boundary_differs {
+            let (left, right) = day_start
+                .as_ref()
+                .expect("captured before first divergence");
+            first_divergence = Some(intervention_boundary_divergence(day, left, right)?);
+            if digest_mode == BranchDayScanDigestMode::FirstDivergentDay {
+                base_state_digest = Some(left.state_digest()?);
+                branch_state_digest = Some(right.state_digest()?);
+                digests_at_intervention_boundary = true;
+            }
+        }
+
+        let base_outcome = base.run_day_outcome(&request.config, include_snapshot, None)?;
+        let branch_outcome =
+            branch.run_day_outcome(&branch_config, include_snapshot, forced_directive.as_mut())?;
+        let base_events = base_outcome.events_record();
+        let branch_events = branch_outcome.events_record();
+        let base_births = record_births(&base_events, &base_initial, &mut base_lineage);
+        let branch_births = record_births(&branch_events, &branch_initial, &mut branch_lineage);
+        let state_equal = base.direct_state_equal(&branch);
+        let mut population_stats = DivergencePopulationStats::default();
+        let difference = difference_for_day_fast_with_population_stats(
+            DailyDifferenceInput {
+                day,
+                base: &base,
+                branch: &branch,
+                base_initial: &base_initial,
+                branch_initial: &branch_initial,
+                base_lineage_agents: &base_lineage.agents,
+                branch_lineage_agents: &branch_lineage.agents,
+                base_births: &base_births,
+                branch_births: Some(&branch_births),
+                state_digests_equal: state_equal,
+                all_day_digests_equal: false,
+            },
+            &mut population_stats,
+        );
+
+        if first_divergence.is_none() && !state_equal {
+            let (left, right) = day_start
+                .as_ref()
+                .expect("day-start states retained until first divergence");
+            first_divergence =
+                locate_direct_scan_first_divergence(left, right, request, &branch_config, day)?;
+            if digest_mode == BranchDayScanDigestMode::FirstDivergentDay
+                && first_divergence.is_some()
+            {
+                base_state_digest = Some(base.state_digest()?);
+                branch_state_digest = Some(branch.state_digest()?);
+            }
+        }
+        if digest_mode == BranchDayScanDigestMode::EveryDay {
+            base_state_digest = Some(base.state_digest()?);
+            branch_state_digest = Some(branch.state_digest()?);
+        }
+        let divergence = divergence_day_record(
+            day,
+            !state_equal,
+            &difference,
+            population_stats,
+            &base,
+            &branch,
+            &base_lineage.agents,
+            &branch_lineage.agents,
+        );
+        daily_records.push(BranchDayScanRecord {
+            day,
+            divergence,
+            base_state_digest,
+            branch_state_digest,
+            digests_at_intervention_boundary,
+        });
+    }
+    Ok(BranchDayScanResult {
+        daily_records,
+        first_divergence,
+    })
+}
+
 /// Runs one snapshot-backed base/branch pair for the requested horizon.
 pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult, BranchError> {
     run_counterfactual_branch_inner(request, RecorderComparisonMode::Enabled, None, None, None)
@@ -3914,6 +4258,13 @@ struct PreparedBranch {
 }
 
 fn prepare_branch(request: &BranchRequest) -> Result<PreparedBranch, BranchError> {
+    prepare_branch_with_costs(request, None)
+}
+
+fn prepare_branch_with_costs(
+    request: &BranchRequest,
+    analysis_costs: Option<&mut BranchAnalysisCosts>,
+) -> Result<PreparedBranch, BranchError> {
     if request.execution == BranchExecutionOption::ExplicitParallel {
         return Err(BranchError::UnsupportedExecutionOption);
     }
@@ -3923,6 +4274,7 @@ fn prepare_branch(request: &BranchRequest) -> Result<PreparedBranch, BranchError
     if let BranchIntervention::ConfigOverride { parameter, value } = request.intervention {
         apply_config_override(&mut branch_config, parameter, value)?;
     }
+    let restore_started = analysis_costs.as_ref().map(|_| Instant::now());
     let base = BranchRuntime::restore(
         &request.snapshot,
         &request.config,
@@ -3935,6 +4287,9 @@ fn prepare_branch(request: &BranchRequest) -> Result<PreparedBranch, BranchError
         &request.run_context,
         request.execution,
     )?;
+    if let (Some(costs), Some(started)) = (analysis_costs, restore_started) {
+        costs.snapshot_restore_ns += started.elapsed().as_nanos();
+    }
     let start_day = base.world.world.current_day.as_u32();
     let end_day = start_day
         .checked_add(request.horizon_days)
@@ -4013,6 +4368,29 @@ fn run_counterfactual_branch_simulation_only(
     })
 }
 
+pub(crate) fn run_counterfactual_intervention_only(
+    request: &BranchRequest,
+) -> Result<Vec<BranchDayRecord>, BranchError> {
+    let PreparedBranch {
+        branch_config,
+        mut branch,
+        mut forced_directive,
+        ..
+    } = prepare_branch(request)?;
+    let mut branch_days = Vec::with_capacity(request.horizon_days as usize);
+    for _ in 0..request.horizon_days {
+        let day = branch.world.world.current_day.as_u32();
+        let include_snapshot = request.snapshot_days.binary_search(&day).is_ok();
+        branch_days.push(branch.day(
+            &branch_config,
+            &request.run_context,
+            include_snapshot,
+            forced_directive.as_mut(),
+        )?);
+    }
+    Ok(branch_days)
+}
+
 fn run_counterfactual_branch_inner(
     request: &BranchRequest,
     recorder_mode: RecorderComparisonMode<'_>,
@@ -4026,7 +4404,7 @@ fn run_counterfactual_branch_inner(
         mut branch,
         start_day,
         mut forced_directive,
-    } = prepare_branch(request)?;
+    } = prepare_branch_with_costs(request, analysis_costs.as_deref_mut())?;
     let base_initial = base.initial_agent_ids();
     let branch_initial = branch.initial_agent_ids();
     let mut base_lineage = LineageTracker::default();
@@ -4612,6 +4990,13 @@ mod tests {
         let mut agents = storage.to_agents();
         agents.reverse();
         start.world.segmented_storage = Some(SegmentedAgentStorage::from_agents(&agents));
+    }
+
+    #[test]
+    fn direct_day_scan_state_equality_ignores_dense_slot_permutation() {
+        let (base, _, _) = m3_runtime(false);
+        let (shuffled, _, _) = m3_runtime(true);
+        assert!(base.direct_state_equal(&shuffled));
     }
 
     fn birth_event(parent: u32, child: u32, sequence: u64) -> M3pEventRecord {

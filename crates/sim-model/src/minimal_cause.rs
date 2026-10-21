@@ -11,12 +11,15 @@ use crate::crn_efficiency::CrnOutcome;
 use crate::m3p::decode_m3p_snapshot;
 use crate::snapshot::{CanonicalSnapshot, decode_snapshot};
 use crate::state::WorldState;
+use rayon::ThreadPool;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sim_core::GroupId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -344,6 +347,21 @@ struct CachedEvaluation {
 pub fn search_minimal_cause(
     request: &MinimalCauseRequest,
 ) -> Result<MinimalCauseResult, MinimalCauseError> {
+    search_minimal_cause_with_execution(request, None)
+}
+
+pub fn search_minimal_cause_parallel(
+    request: &MinimalCauseRequest,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<MinimalCauseResult, MinimalCauseError> {
+    search_minimal_cause_with_execution(request, Some((pool, chunk_size)))
+}
+
+fn search_minimal_cause_with_execution(
+    request: &MinimalCauseRequest,
+    execution: Option<(&ThreadPool, NonZeroUsize)>,
+) -> Result<MinimalCauseResult, MinimalCauseError> {
     validate_request(request)?;
     let fingerprint = request_fingerprint(request)?;
     let mut cache = load_cache(&request.evaluation_log_path, &fingerprint)?;
@@ -472,6 +490,7 @@ pub fn search_minimal_cause(
         start,
         evaluations,
         best: None,
+        execution,
     };
     let (cause, guarantee, mean_effect, predicate_value, stop_reason) =
         if request.candidates.len() <= 10 {
@@ -499,6 +518,7 @@ struct SearchState<'a> {
     start: Instant,
     evaluations: u64,
     best: Option<(Vec<IdentifiedIntervention>, f64)>,
+    execution: Option<(&'a ThreadPool, NonZeroUsize)>,
 }
 
 type SearchProgress = (
@@ -508,6 +528,43 @@ type SearchProgress = (
     bool,
     Option<String>,
 );
+
+fn evaluate_subset_replicate(
+    request: &MinimalCauseRequest,
+    bases: &BTreeMap<u32, f64>,
+    subset: &[IdentifiedIntervention],
+    final_day: u32,
+    replicate_id: u32,
+) -> Result<f64, MinimalCauseError> {
+    let base = *bases.get(&replicate_id).ok_or_else(|| {
+        MinimalCauseError::InvalidRequest(format!(
+            "missing base cache for replicate {replicate_id}"
+        ))
+    })?;
+    if subset.is_empty() {
+        return Ok(0.0);
+    }
+    let (config, context, snapshot) =
+        rebound_counterfactual_run(&request.batch.snapshot, &request.batch.config, replicate_id)?;
+    let batch = BranchInterventionBatchRequest {
+        snapshot,
+        config: config.clone(),
+        run_context: context,
+        interventions: subset.to_vec(),
+        horizon_days: request.batch.horizon_days,
+        snapshot_days: vec![final_day],
+    };
+    let (days, _) = run_counterfactual_batch_branch_days(&batch)?;
+    let record = days
+        .last()
+        .ok_or_else(|| MinimalCauseError::InvalidRequest("empty branch horizon".into()))?;
+    Ok(extract_one(
+        record,
+        &config,
+        request.predicate.target_group_id,
+        request.predicate.outcome,
+    )? - base)
+}
 
 impl SearchState<'_> {
     fn exhaustive(&mut self) -> Result<SearchProgress, MinimalCauseError> {
@@ -730,47 +787,33 @@ impl SearchState<'_> {
         }
         self.evaluations += replicate_count;
 
-        let evaluation = (|| {
-            let mut effects = Vec::new();
+        let evaluation = {
             let final_day =
                 self.request.batch.snapshot.metadata.day + self.request.batch.horizon_days - 1;
-            for &replicate_id in &self.request.replicate_ids {
-                let base = *self.bases.get(&replicate_id).ok_or_else(|| {
-                    MinimalCauseError::InvalidRequest(format!(
-                        "missing base cache for replicate {replicate_id}"
-                    ))
-                })?;
-                let branch = if subset.is_empty() {
-                    base
-                } else {
-                    let (config, context, snapshot) = rebound_counterfactual_run(
-                        &self.request.batch.snapshot,
-                        &self.request.batch.config,
-                        replicate_id,
-                    )?;
-                    let batch = BranchInterventionBatchRequest {
-                        snapshot,
-                        config: config.clone(),
-                        run_context: context,
-                        interventions: subset.to_vec(),
-                        horizon_days: self.request.batch.horizon_days,
-                        snapshot_days: vec![final_day],
-                    };
-                    let (days, _) = run_counterfactual_batch_branch_days(&batch)?;
-                    let record = days.last().ok_or_else(|| {
-                        MinimalCauseError::InvalidRequest("empty branch horizon".into())
-                    })?;
-                    extract_one(
-                        record,
-                        &config,
-                        self.request.predicate.target_group_id,
-                        self.request.predicate.outcome,
-                    )?
-                };
-                effects.push(branch - base);
-            }
-            Ok::<_, MinimalCauseError>(effects)
-        })();
+            let request = self.request;
+            let bases = &self.bases;
+            let selected = subset;
+            let work = |replicate_id| {
+                evaluate_subset_replicate(request, bases, selected, final_day, replicate_id)
+            };
+            let effects = if let Some((pool, chunk_size)) = self.execution {
+                pool.install(|| {
+                    request
+                        .replicate_ids
+                        .par_iter()
+                        .with_min_len(chunk_size.get())
+                        .map(|&replicate_id| work(replicate_id))
+                        .collect::<Vec<_>>()
+                })
+            } else {
+                request
+                    .replicate_ids
+                    .iter()
+                    .map(|&replicate_id| work(replicate_id))
+                    .collect::<Vec<_>>()
+            };
+            effects.into_iter().collect::<Result<Vec<_>, _>>()
+        };
         let effects = match evaluation {
             Ok(effects) => effects,
             Err(error) => {

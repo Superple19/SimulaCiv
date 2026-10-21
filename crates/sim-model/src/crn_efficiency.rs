@@ -2,8 +2,8 @@
 
 use crate::config::{SimConfig, SimulationRunnerSelection};
 use crate::counterfactual::{
-    BranchError, BranchIntervention, BranchRequest, run_counterfactual_branch,
-    run_counterfactual_branch_with_divergence_series,
+    BranchError, BranchIntervention, BranchRequest,
+    run_counterfactual_branch_with_divergence_series, run_counterfactual_intervention_only,
 };
 use crate::m3p::{M3pReferenceState, decode_m3p_snapshot, encode_m3p_snapshot};
 use crate::m3pprop::{
@@ -12,8 +12,11 @@ use crate::m3pprop::{
 use crate::runner::M0RunContext;
 use crate::snapshot::{CanonicalSnapshot, SnapshotError};
 use crate::state::WorldState;
+use rayon::ThreadPool;
+use rayon::prelude::*;
 use sim_core::GroupId;
 use std::fmt;
+use std::num::NonZeroUsize;
 
 const MIN_REPLICATES: usize = 2;
 const MAX_REPLICATES: usize = 100;
@@ -191,10 +194,51 @@ struct PairedObservation {
     newborn_crn_loss: u64,
 }
 
+fn ordered_replicate_map<T, F>(
+    replicate_ids: &[u32],
+    execution: Option<(&ThreadPool, NonZeroUsize)>,
+    work: F,
+) -> Result<Vec<T>, CrnEfficiencyError>
+where
+    T: Send,
+    F: Fn(u32) -> Result<T, CrnEfficiencyError> + Sync,
+{
+    let results: Vec<_> = if let Some((pool, chunk_size)) = execution {
+        pool.install(|| {
+            replicate_ids
+                .par_iter()
+                .with_min_len(chunk_size.get())
+                .map(|&replicate_id| work(replicate_id))
+                .collect()
+        })
+    } else {
+        replicate_ids
+            .iter()
+            .map(|&replicate_id| work(replicate_id))
+            .collect()
+    };
+    results.into_iter().collect()
+}
+
 /// Runs paired and independent M3P replicate sets using the existing branch API.
 /// The paired base runs also form the independent base sample prescribed by §13.
 pub fn run_crn_efficiency(
     request: &CrnEfficiencyRequest,
+) -> Result<CrnEfficiencyResult, CrnEfficiencyError> {
+    run_crn_efficiency_with_execution(request, None)
+}
+
+pub fn run_crn_efficiency_parallel(
+    request: &CrnEfficiencyRequest,
+    pool: &ThreadPool,
+    chunk_size: NonZeroUsize,
+) -> Result<CrnEfficiencyResult, CrnEfficiencyError> {
+    run_crn_efficiency_with_execution(request, Some((pool, chunk_size)))
+}
+
+fn run_crn_efficiency_with_execution(
+    request: &CrnEfficiencyRequest,
+    execution: Option<(&ThreadPool, NonZeroUsize)>,
 ) -> Result<CrnEfficiencyResult, CrnEfficiencyError> {
     validate_request(request)?;
     let start_day = request.branch_point.metadata.day;
@@ -218,79 +262,98 @@ pub fn run_crn_efficiency(
 
     let replicate_ids = replicate_id_sets(request.replicate_count);
     debug_assert_eq!(replicate_ids.independent_base, replicate_ids.paired);
-    for &replicate in &replicate_ids.paired {
-        let (config, context, snapshot) = rebound_run(request, replicate)?;
-        let run = BranchRequest {
-            config: config.clone(),
-            run_context: context,
-            snapshot,
-            intervention: request.intervention.clone(),
-            horizon_days,
-            execution: crate::counterfactual::BranchExecutionOption::Serial,
-            snapshot_days: snapshot_days.clone(),
-        };
-        let result = run_counterfactual_branch_with_divergence_series(&run)?;
-        for (horizon_index, horizon) in request.horizons.iter().enumerate() {
-            let day = start_day + *horizon - 1;
-            let base_record = find_day(&result.branch.base_days, day)?;
-            let intervention_record = find_day(&result.branch.branch_days, day)?;
-            let base = extract_outcomes(
-                base_record,
-                &config,
-                request.target_group_id,
-                CrnOutcome::ALL,
-            )?;
-            let intervention = extract_outcomes(
-                intervention_record,
-                &config,
-                request.target_group_id,
-                CrnOutcome::ALL,
-            )?;
-            let divergence = result
-                .daily_series
-                .iter()
-                .find(|record| record.day == day)
-                .ok_or(CrnEfficiencyError::MissingDay(day))?;
-            let newborn_crn_loss = result
-                .daily_series
-                .iter()
-                .filter(|record| record.day <= day)
-                .try_fold(0u64, |total, record| {
-                    total.checked_add(record.newborn_crn_loss)
-                })
-                .ok_or(CrnEfficiencyError::ArithmeticOverflow)?;
-            paired[horizon_index].push(PairedObservation {
-                base,
-                intervention,
-                divergent_records: divergence.changed_agent_records,
-                newborn_crn_loss,
-            });
+    let paired_by_replicate =
+        ordered_replicate_map(&replicate_ids.paired, execution, |replicate| {
+            let (config, context, snapshot) = rebound_run(request, replicate)?;
+            let run = BranchRequest {
+                config: config.clone(),
+                run_context: context,
+                snapshot,
+                intervention: request.intervention.clone(),
+                horizon_days,
+                execution: crate::counterfactual::BranchExecutionOption::Serial,
+                snapshot_days: snapshot_days.clone(),
+            };
+            let result = run_counterfactual_branch_with_divergence_series(&run)?;
+            let mut observations = Vec::with_capacity(request.horizons.len());
+            for horizon in &request.horizons {
+                let day = start_day + *horizon - 1;
+                let base_record = find_day(&result.branch.base_days, day)?;
+                let intervention_record = find_day(&result.branch.branch_days, day)?;
+                let base = extract_outcomes(
+                    base_record,
+                    &config,
+                    request.target_group_id,
+                    CrnOutcome::ALL,
+                )?;
+                let intervention = extract_outcomes(
+                    intervention_record,
+                    &config,
+                    request.target_group_id,
+                    CrnOutcome::ALL,
+                )?;
+                let divergence = result
+                    .daily_series
+                    .iter()
+                    .find(|record| record.day == day)
+                    .ok_or(CrnEfficiencyError::MissingDay(day))?;
+                let newborn_crn_loss = result
+                    .daily_series
+                    .iter()
+                    .filter(|record| record.day <= day)
+                    .try_fold(0u64, |total, record| {
+                        total.checked_add(record.newborn_crn_loss)
+                    })
+                    .ok_or(CrnEfficiencyError::ArithmeticOverflow)?;
+                observations.push(PairedObservation {
+                    base,
+                    intervention,
+                    divergent_records: divergence.changed_agent_records,
+                    newborn_crn_loss,
+                });
+            }
+            Ok(observations)
+        })?;
+    for observations in paired_by_replicate {
+        for (horizon_index, observation) in observations.into_iter().enumerate() {
+            paired[horizon_index].push(observation);
         }
     }
 
     let mut independent_intervention =
         vec![Vec::<[f64; 5]>::with_capacity(request.replicate_count); request.horizons.len()];
-    for &replicate in &replicate_ids.independent_intervention {
-        let (config, context, snapshot) = rebound_run(request, replicate)?;
-        let run = BranchRequest {
-            config: config.clone(),
-            run_context: context,
-            snapshot,
-            intervention: request.intervention.clone(),
-            horizon_days,
-            execution: crate::counterfactual::BranchExecutionOption::Serial,
-            snapshot_days: snapshot_days.clone(),
-        };
-        let result = run_counterfactual_branch(&run)?;
-        for (horizon_index, horizon) in request.horizons.iter().enumerate() {
-            let day = start_day + *horizon - 1;
-            let record = find_day(&result.branch_days, day)?;
-            independent_intervention[horizon_index].push(extract_outcomes(
-                record,
-                &config,
-                request.target_group_id,
-                CrnOutcome::ALL,
-            )?);
+    let independent_by_replicate = ordered_replicate_map(
+        &replicate_ids.independent_intervention,
+        execution,
+        |replicate| {
+            let (config, context, snapshot) = rebound_run(request, replicate)?;
+            let run = BranchRequest {
+                config: config.clone(),
+                run_context: context,
+                snapshot,
+                intervention: request.intervention.clone(),
+                horizon_days,
+                execution: crate::counterfactual::BranchExecutionOption::Serial,
+                snapshot_days: snapshot_days.clone(),
+            };
+            let records = run_counterfactual_intervention_only(&run)?;
+            let mut observations = Vec::with_capacity(request.horizons.len());
+            for horizon in &request.horizons {
+                let day = start_day + *horizon - 1;
+                let record = find_day(&records, day)?;
+                observations.push(extract_outcomes(
+                    record,
+                    &config,
+                    request.target_group_id,
+                    CrnOutcome::ALL,
+                )?);
+            }
+            Ok(observations)
+        },
+    )?;
+    for observations in independent_by_replicate {
+        for (horizon_index, observation) in observations.into_iter().enumerate() {
+            independent_intervention[horizon_index].push(observation);
         }
     }
 
@@ -655,6 +718,7 @@ fn next_u64(state: &mut u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::counterfactual::run_counterfactual_branch;
     use crate::m3p::{M3pReferenceState, encode_m3p_snapshot};
     use crate::m3pprop::{
         M3pPropagationReferenceState, decode_m3pprop_snapshot, encode_m3pprop_snapshot,
@@ -662,6 +726,7 @@ mod tests {
     use crate::runner::{DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION};
     use crate::snapshot::SnapshotMetadata;
     use crate::{SimulationConfig, SimulationProfile, SimulationSystems, initialize_world};
+    use rayon::ThreadPoolBuilder;
 
     fn small_request() -> CrnEfficiencyRequest {
         let mut config = SimConfig::parse_and_validate(include_str!(
@@ -812,6 +877,30 @@ mod tests {
         let paired = run_counterfactual_branch_with_divergence_series(&branch_request).unwrap();
         assert_eq!(paired.branch, direct);
         assert_eq!(paired.daily_series.len(), 7);
+    }
+
+    #[test]
+    fn parallel_replicate_sets_match_serial_and_independent_branch_only_records() {
+        let request = small_request();
+        let serial = run_crn_efficiency(&request).unwrap();
+        let pool = ThreadPoolBuilder::new().num_threads(6).build().unwrap();
+        let parallel =
+            run_crn_efficiency_parallel(&request, &pool, NonZeroUsize::new(2).unwrap()).unwrap();
+        assert_eq!(parallel, serial);
+
+        let (config, context, snapshot) = rebound_run(&request, 100_001).unwrap();
+        let branch_request = BranchRequest {
+            config,
+            run_context: context,
+            snapshot,
+            intervention: request.intervention,
+            horizon_days: 7,
+            execution: crate::counterfactual::BranchExecutionOption::Serial,
+            snapshot_days: vec![6],
+        };
+        let full = run_counterfactual_branch(&branch_request).unwrap();
+        let branch_only = run_counterfactual_intervention_only(&branch_request).unwrap();
+        assert_eq!(branch_only, full.branch_days);
     }
 
     #[test]

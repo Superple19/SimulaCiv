@@ -40,18 +40,19 @@ pub use config::{
 };
 pub use counterfactual::run_counterfactual_intervention_batch;
 pub use counterfactual::{
-    AgentField, AgentFieldValue, AgentMatchKey, BranchDayRecord, BranchDivergenceResult,
-    BranchError, BranchEventsRecord, BranchExecutionOption, BranchIntervention,
-    BranchInterventionBatchRequest, BranchInterventionBatchResult, BranchMetricsRecord,
-    BranchRequest, BranchResult, ConfigParameter, ConfigValue, DailyDifference,
-    DivergenceClassification, DivergenceDayRecord, DivergenceSummary, FirstDivergence,
-    ForcedActionBatchOutcome, ForcedActionOutcome, IdentifiedIntervention, RecordedSlot,
-    TargetDeathRelation, run_counterfactual_branch,
+    AgentField, AgentFieldValue, AgentMatchKey, BranchDayRecord, BranchDayScanDigestMode,
+    BranchDayScanRecord, BranchDayScanResult, BranchDivergenceResult, BranchError,
+    BranchEventsRecord, BranchExecutionOption, BranchIntervention, BranchInterventionBatchRequest,
+    BranchInterventionBatchResult, BranchMetricsRecord, BranchRequest, BranchResult,
+    ConfigParameter, ConfigValue, DailyDifference, DivergenceClassification, DivergenceDayRecord,
+    DivergenceSummary, FirstDivergence, ForcedActionBatchOutcome, ForcedActionOutcome,
+    IdentifiedIntervention, RecordedSlot, TargetDeathRelation, run_counterfactual_branch,
+    run_counterfactual_branch_with_direct_day_scan,
     run_counterfactual_branch_with_divergence_series,
 };
 pub use crn_efficiency::{
     CrnEfficiencyError, CrnEfficiencyRequest, CrnEfficiencyResult, CrnOutcome, CrnOutcomeEstimate,
-    CrnVarianceRatio, run_crn_efficiency,
+    CrnVarianceRatio, run_crn_efficiency, run_crn_efficiency_parallel,
 };
 pub use decision::{
     Action, DecisionError, PrimaryActionChoice, evaluate_utilities, phase4_action_selection,
@@ -166,7 +167,7 @@ pub use minimal_cause::{
     EffectComparison, MinimalCauseError, MinimalCauseGuarantee, MinimalCausePredicate,
     MinimalCauseRequest, MinimalCauseResult, MinimalCauseStatus, MinimalCauseSubsetEvaluation,
     build_agent_field_candidates, build_config_candidates, build_forced_action_candidates,
-    evaluate_subset, search_minimal_cause,
+    evaluate_subset, search_minimal_cause, search_minimal_cause_parallel,
 };
 pub use partitioning::{
     Phase5Error, Phase5PartitionScratch, SettlementIntentPartition, phase5_partition_intents,
