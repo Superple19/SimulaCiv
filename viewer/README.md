@@ -12,3 +12,16 @@ cargo run --release -p sim-model --example m3_trace -- --config sustained --n 10
 Use `--config <path.toml>` for a custom TOML config; the trace command overrides profile, population, settlement count, relationship degree, locality, seed, and replicate from its arguments. Parallel runs use `--runner parallel:<threads>:<chunk>`.
 
 Count charts use zero-based axes with 1/2/5-step ticks. Undefined measurements appear as line gaps; identical metric traces are marked in the legend and overlaid with a dashed line, while each same-config group reports whether its final digests match.
+
+## M4 branch comparison
+
+Select **Branch comparison** in the viewer, then load or drop an M4 branch JSONL file. A sample is committed at [`docs/data/m4_viewer/food_0_h90.jsonl`](../docs/data/m4_viewer/food_0_h90.jsonl). The branch view shows base/branch daily metrics and alive counts, divergence curves and first-divergence/cascade markers, component flags, and the per-settlement heatmap. All parsing and rendering stays local in the browser.
+
+Generate any of the M4-03 M3P sustained cases (`food_0` or `health_0.01`, horizon 90 or 365) with:
+
+```sh
+cargo run --release -p sim-model --example m4_branch_trace -- --case food_0 --horizon 90 --output target/m4_viewer/food_0_h90.jsonl
+cargo run --release -p sim-model --example m4_branch_trace -- --case health_0.01 --horizon 365 --output target/m4_viewer/health_0_01_h365.jsonl
+```
+
+The exporter checks the M4-03 branch result against a separate M4-02 branch API result before writing the trace.

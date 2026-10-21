@@ -105,6 +105,28 @@
     .raw-records { margin-top:7px; }
     #tooltip { position:fixed; z-index:5; display:none; pointer-events:none; padding:7px 9px; border-radius:6px; background:var(--fg); color:var(--bg); font:12px ui-monospace,monospace; white-space:pre; box-shadow:0 2px 10px #0004; }
     .empty { padding:25px; text-align:center; color:var(--muted); }
+    .branch-view { max-width:1500px; margin:auto; padding:8px 18px 18px; }
+    .branch-toolbar { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin:5px 0 10px; }
+    .branch-summary { padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card); overflow-wrap:anywhere; }
+    .branch-summary dl { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:3px 12px; margin:0; }
+    .branch-summary dt { color:var(--muted); }
+    .branch-summary dd { margin:0; font-family:ui-monospace,monospace; font-size:.8rem; }
+    .branch-charts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin-top:10px; }
+    .branch-chart { min-width:0; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+    .branch-chart h2 { margin:0 0 5px; font-size:.9rem; }
+    .branch-chart svg { width:100%; height:auto; }
+    .branch-axis { fill:var(--muted); font-size:11px; }
+    .branch-gridline { stroke:var(--line); stroke-width:1; }
+    .branch-series { fill:none; stroke-width:2.2; }
+    .branch-marker { stroke-width:1.4; stroke-dasharray:5 4; }
+    .branch-metrics { margin-top:10px; max-height:370px; }
+    .branch-metrics table { min-width:940px; font-size:.76rem; }
+    .branch-metrics th,.branch-metrics td { white-space:nowrap; }
+    .branch-metrics td { text-align:right; font-variant-numeric:tabular-nums; }
+    .branch-metrics tr.selected { outline:2px solid var(--accent); outline-offset:-2px; }
+    .branch-drop { flex:1; min-width:220px; }
+    @media (max-width:900px) { .branch-charts { grid-template-columns:1fr; } }
+    @media (max-width:600px) { .branch-view { padding:8px 10px 14px; } .branch-summary dl { grid-template-columns:1fr; gap:0; } .branch-summary dd { margin:0 0 5px; } }
     @media (min-width:1200px) and (min-height:900px) {
       header,main,#status-bar { padding-top:5px; padding-bottom:5px; }
       h1 { font-size:1.35rem; }
@@ -133,11 +155,34 @@
       <label><input id="wall-log" type="checkbox"> Log scale</label>
       <small class="wall-log-hint">each gridline is ×10; use when values span orders of magnitude</small>
       <button id="clear" type="button">Clear traces</button>
+      <button id="open-branch-view" type="button">Branch comparison</button>
     </div>
     <div id="drop" class="drop">Drop one or more JSONL files here</div>
     <div id="warning" class="warning"></div>
   </header>
   <section id="status-bar" aria-label="Digest comparison status"></section>
+  <section id="branch-view" class="branch-view" hidden>
+    <div class="branch-toolbar">
+      <button id="close-branch-view" type="button">Single-run view</button>
+      <label class="file-button" for="branch-files">Load M4 branch JSONL</label>
+      <input id="branch-files" type="file" accept=".jsonl,.json,.txt,application/json" multiple>
+      <label for="branch-trace-select">Trace</label><select id="branch-trace-select"></select>
+      <div id="branch-drop" class="drop branch-drop">Drop branch comparison JSONL files here</div>
+    </div>
+    <div id="branch-empty" class="empty">Load the committed sample at docs/data/m4_viewer/food_0_h90.jsonl or generate another with the example command in viewer/README.md.</div>
+    <div id="branch-content" hidden>
+      <div id="branch-summary" class="branch-summary"></div>
+      <div class="branch-charts">
+        <section class="branch-chart"><h2>Alive population</h2><div id="branch-alive-chart"></div></section>
+        <section class="branch-chart"><h2>Changed agent records |D<sub>d</sub>|</h2><div id="branch-count-chart"></div></section>
+        <section class="branch-chart"><h2>Normalized divergence</h2><div id="branch-normalized-chart"></div></section>
+        <section class="branch-chart"><h2>Touched settlements</h2><div id="branch-touched-chart"></div></section>
+      </div>
+      <section class="branch-chart" style="margin-top:9px"><h2>Component-flag timeline</h2><div id="branch-components"></div></section>
+      <section class="branch-chart" style="margin-top:9px"><h2>Per-settlement divergence heatmap</h2><p>Rows are GroupId; columns are day. Cell intensity shows changed matched agent records.</p><div id="branch-heatmap"></div></section>
+      <section class="branch-chart" style="margin-top:9px"><h2>Daily metrics: base and branch</h2><div class="controls"><label for="branch-day-slider">Selected day <span id="branch-day-label">0</span></label><input id="branch-day-slider" type="range" min="0" max="0" value="0"></div><div id="branch-selected-day"></div><div id="branch-daily-table" class="table-wrap branch-metrics"></div></section>
+    </div>
+  </section>
   <main>
     <section id="trace-section" hidden>
       <div class="trace-config-heading"><h2 class="section-title">Traces</h2><label><input id="config-diff-only" type="checkbox" checked> Differences only</label></div>
@@ -898,6 +943,183 @@
     for(const name of ["dragleave","drop"])drop.addEventListener(name,event=>{event.preventDefault();drop.classList.remove("over");});
     drop.addEventListener("drop",event=>acceptFiles(event.dataTransfer.files));
     render();
+  </script>
+  <script>
+    (() => {
+      const branchTraces=[];
+      const branchInput=document.getElementById("branch-files");
+      const branchDrop=document.getElementById("branch-drop");
+      const branchSelect=document.getElementById("branch-trace-select");
+      const svgNs="http://www.w3.org/2000/svg";
+      const bEl=(tag,text,className)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(className)node.className=className;return node;};
+      const bSvg=(tag,attrs={})=>{const node=document.createElementNS(svgNs,tag);for(const [key,value] of Object.entries(attrs))node.setAttribute(key,String(value));return node;};
+      const dayMetrics=(metric)=>metric?.m3_metrics?.metrics??metric?.m3p_metrics?.m3_metrics?.metrics??null;
+      const branchMetrics=(metric)=>metric?.m3p_metrics??metric;
+      const field=(metric,key)=>dayMetrics(metric)?.[key];
+      const countText=value=>value===undefined||value===null?"—":Number(value).toLocaleString();
+      const floatText=value=>value===undefined||value===null?"—":Number(value).toFixed(3);
+      const jsonText=value=>value===undefined?"—":typeof value==="object"?JSON.stringify(value):String(value);
+
+      async function loadBranchFiles(fileList) {
+        for(const file of [...fileList]) {
+          const records=(await file.text()).split(/\r?\n/).filter(line=>line.trim()).map(line=>JSON.parse(line));
+          const header=records[0],days=records.filter(row=>row.kind==="day"),final=records.find(row=>row.kind==="final");
+          if(header?.schema!=="simulaciv-m4-branch-trace-v1"||!days.length||!final)throw new Error(`${file.name}: unsupported or incomplete M4 branch trace`);
+          days.sort((a,b)=>a.day-b.day);
+          branchTraces.push({name:file.name,header,days,final});
+        }
+        const previous=branchSelect.value;
+        branchSelect.replaceChildren();
+        branchTraces.forEach((trace,index)=>{const option=bEl("option",`${trace.name} · ${trace.header.case} · H=${trace.header.horizon_days}`);option.value=String(index);branchSelect.append(option);});
+        if(previous&&branchTraces[Number(previous)])branchSelect.value=previous;
+        renderBranch();
+      }
+
+      function lineChart(rootId,series,maximum,trace,format) {
+        const root=document.getElementById(rootId);root.replaceChildren();
+        const width=1000,height=210,left=58,right=982,top=14,bottom=172,days=trace.days;
+        const svg=bSvg("svg",{viewBox:`0 0 ${width} ${height}`,role:"img","aria-label":rootId});
+        const maxDay=Math.max(1,days.at(-1).day),maxValue=Math.max(Number.EPSILON,maximum);
+        for(let tick=0;tick<=4;tick++) {
+          const value=maxValue*tick/4,y=bottom-(bottom-top)*tick/4;
+          svg.append(bSvg("line",{x1:left,x2:right,y1:y,y2:y,class:"branch-gridline"}));
+          const label=bSvg("text",{x:left-7,y:y+4,"text-anchor":"end",class:"branch-axis"});label.textContent=format(value);svg.append(label);
+        }
+        for(const day of [...new Set([0,Math.floor(maxDay/2),maxDay])]) {
+          const x=left+(right-left)*day/maxDay,line=bSvg("text",{x,y:height-8,"text-anchor":"middle",class:"branch-axis"});line.textContent=String(day);svg.append(line);
+        }
+        const markers=[
+          [trace.header.first_divergence?.day,"#c23d3d","first divergence"],
+          [trace.header.summary?.cascade_onset_day,"#ba7a00","cascade onset"]
+        ];
+        for(const [day,color,label] of markers)if(day!==null&&day!==undefined&&day<=maxDay) {
+          const x=left+(right-left)*day/maxDay;svg.append(bSvg("line",{x1:x,x2:x,y1:top,y2:bottom,stroke:color,class:"branch-marker"}));
+          const title=bSvg("title");title.textContent=`${label}: day ${day}`;svg.lastChild.append(title);
+        }
+        for(const item of series) {
+          const points=days.map(record=>{
+            const value=item.value(record);const x=left+(right-left)*record.day/maxDay;const y=bottom-(bottom-top)*Math.max(0,Number(value)||0)/maxValue;return `${x.toFixed(2)},${y.toFixed(2)}`;
+          }).join(" ");
+          svg.append(bSvg("polyline",{points,stroke:item.color,class:"branch-series"}));
+        }
+        const legend=bEl("div",undefined,"legend-item");
+        for(const item of series){const swatch=bEl("span",undefined,"swatch");swatch.style.setProperty("--swatch",item.color);legend.append(swatch,bEl("span",item.label));}
+        root.append(legend,svg);
+      }
+
+      function renderFlags(trace) {
+        const root=document.getElementById("branch-components");root.replaceChildren();
+        const flags=[
+          ["State digest",d=>d.divergence.state_digests_differ],
+          ["Graph",d=>d.divergence.graph_changed],
+          ["Allocator",d=>d.divergence.allocator_changed],
+          ["Propagation",d=>d.divergence.propagation_changed],
+          ["Settlement/global",d=>d.divergence.settlement_global_changed]
+        ];
+        const width=1000,left=130,right=985,rowHeight=24,height=flags.length*rowHeight+22,maxDay=Math.max(1,trace.days.at(-1).day),svg=bSvg("svg",{viewBox:`0 0 ${width} ${height}`,role:"img","aria-label":"daily component differences"});
+        flags.forEach(([label,enabled],row)=>{
+          const y=12+row*rowHeight,text=bSvg("text",{x:left-8,y:y+13,"text-anchor":"end",class:"branch-axis"});text.textContent=label;svg.append(text);
+          for(const day of trace.days){const x=left+(right-left)*day.day/maxDay,w=Math.max(1,(right-left)/Math.max(1,trace.days.length));const rect=bSvg("rect",{x,y,width:w,height:15,fill:enabled(day)?"#c23d3d":"#9aa6b8","fill-opacity":enabled(day)?0.9:0.14});const title=bSvg("title");title.textContent=`day ${day.day}: ${label} ${enabled(day)?"changed":"unchanged"}`;rect.append(title);svg.append(rect);}
+        });root.append(svg);
+      }
+
+      function renderHeatmap(trace) {
+        const root=document.getElementById("branch-heatmap");root.replaceChildren();
+        const settlementCount=Number(trace.header.settlements)||1,days=trace.days,maxDay=Math.max(1,days.at(-1).day),left=52,right=988,rowHeight=8,top=20,height=top+settlementCount*rowHeight+25;
+        const svg=bSvg("svg",{viewBox:`0 0 1000 ${height}`,role:"img","aria-label":"changed agents by settlement and day"});
+        const counts=days.map(day=>new Map(day.divergence.by_settlement.map(item=>[Number(item.settlement),Number(item.changed_agents)])));
+        const maxCount=Math.max(1,...counts.flatMap(map=>[...map.values()]));
+        for(let group=0;group<settlementCount;group++) {
+          const y=top+group*rowHeight;
+          for(let index=0;index<days.length;index++) {
+            const day=days[index],value=counts[index].get(group)||0,x=left+(right-left)*day.day/maxDay,w=Math.max(1,(right-left)/Math.max(1,days.length));
+            const rect=bSvg("rect",{x,y,width:w,height:rowHeight-1,fill:value?"#bd3e3e":"#8f9bad","fill-opacity":value?0.15+0.8*value/maxCount:0.07});
+            const title=bSvg("title");title.textContent=`day ${day.day} · GroupId ${group} · ${value} changed agents`;rect.append(title);svg.append(rect);
+          }
+        }
+        for(const group of [...new Set([0,Math.floor((settlementCount-1)/2),settlementCount-1])]){const label=bSvg("text",{x:left-7,y:top+group*rowHeight+7,"text-anchor":"end",class:"branch-axis"});label.textContent=String(group);svg.append(label);}
+        for(const day of [...new Set([0,Math.floor(maxDay/2),maxDay])]){const label=bSvg("text",{x:left+(right-left)*day/maxDay,y:height-5,"text-anchor":"middle",class:"branch-axis"});label.textContent=String(day);svg.append(label);}
+        root.append(svg);
+      }
+
+      function renderDailyMetrics(trace) {
+        const root=document.getElementById("branch-daily-table");root.replaceChildren();
+        const table=bEl("table"),head=document.createElement("thead"),headRow=document.createElement("tr");
+        for(const label of ["Day","Base alive","Branch alive","Base food","Branch food","Base treasury","Branch treasury","Base births","Branch births","|D_d|","Normalized","Touched settlements"])headRow.append(bEl("th",label));
+        head.append(headRow);table.append(head);const body=document.createElement("tbody");
+        for(const row of trace.days){const tr=document.createElement("tr");tr.dataset.day=String(row.day);const b=row.base_metrics,branch=row.branch_metrics,d=row.divergence;
+          const values=[row.day,field(b,"population"),field(branch,"population"),field(b,"total_food_reserves"),field(branch,"total_food_reserves"),field(b,"total_treasury"),field(branch,"total_treasury"),branchMetrics(b)?.births,branchMetrics(branch)?.births,d.changed_agent_records,d.normalized_divergence,d.settlements_touched];
+          values.forEach((value,index)=>tr.append(bEl(index===0?"th":"td",index===0?countText(value):([3,4,10].includes(index)?floatText(value):countText(value)))));body.append(tr);
+        }
+        table.append(body);root.append(table);
+      }
+
+      function selectBranchDay(day) {
+        const trace=branchTraces[Number(branchSelect.value)];if(!trace)return;
+        document.getElementById("branch-day-label").textContent=String(day);
+        const row=trace.days.find(item=>item.day===day);if(!row)return;
+        document.querySelectorAll("#branch-daily-table tr.selected").forEach(node=>node.classList.remove("selected"));
+        document.querySelector(`#branch-daily-table tr[data-day="${day}"]`)?.classList.add("selected");
+        const root=document.getElementById("branch-selected-day");root.replaceChildren();
+        const table=bEl("table"),body=document.createElement("tbody");
+        const entries=[
+          ["Alive population",field(row.base_metrics,"population"),field(row.branch_metrics,"population")],
+          ["Mean wealth Gini",field(row.base_metrics,"wealth_gini"),field(row.branch_metrics,"wealth_gini")],
+          ["Food reserves",field(row.base_metrics,"total_food_reserves"),field(row.branch_metrics,"total_food_reserves")],
+          ["Treasury",field(row.base_metrics,"total_treasury"),field(row.branch_metrics,"total_treasury")],
+          ["Births",branchMetrics(row.base_metrics)?.births,branchMetrics(row.branch_metrics)?.births],
+          ["Changed records",row.divergence.changed_agent_records,null],
+          ["Normalized divergence",row.divergence.normalized_divergence,null],
+          ["Touched settlements",row.divergence.settlements_touched,null]
+        ];
+        for(const [label,base,branch] of entries){const tr=document.createElement("tr");tr.append(bEl("th",label),bEl("td",jsonText(base)),bEl("td",jsonText(branch)));body.append(tr);}
+        table.append(body);root.append(table);
+      }
+
+      function renderBranch() {
+        const trace=branchTraces[Number(branchSelect.value)];
+        document.getElementById("branch-content").hidden=!trace;document.getElementById("branch-empty").hidden=!!trace;
+        if(!trace)return;
+        const {header,days,final}=trace,first=header.first_divergence,summary=header.summary;
+        const root=document.getElementById("branch-summary");root.replaceChildren();
+        const title=bEl("h2",`${header.case} · ${header.preset} · N=${countText(header.population)} · H=${header.horizon_days}`);root.append(title);
+        const details=document.createElement("dl");
+        const firstText=first?`day ${first.day}, ${first.slot}, AgentId ${first.agent_id??"—"}; components ${first.components.join(", ")||"—"}; SystemId ${first.system_id??"—"}; RNG IDs [${first.rng_subsystem_ids.join(", ")}]`:"none";
+        const summaryRows=[
+          ["First divergence",firstText],
+          ["Classification / onset",`${summary.classification} · ${summary.cascade_onset_day??"no cascade"}`],
+          ["Peak |D| / normalized",`${countText(summary.peak_changed_agent_records)} · ${floatText(summary.peak_normalized_fraction)}`],
+          ["M4-02 exact check",header.runner],
+          ["Final base digests",`State ${final.base_digests.state} · Metrics ${final.base_digests.metrics} · Events ${final.base_digests.events}`],
+          ["Final branch digests",`State ${final.branch_digests.state} · Metrics ${final.branch_digests.metrics} · Events ${final.branch_digests.events}`]
+        ];
+        for(const [label,value] of summaryRows){details.append(bEl("dt",label),bEl("dd",value));}root.append(details);
+        const populationMax=Math.max(1,...days.flatMap(row=>[field(row.base_metrics,"population")||0,field(row.branch_metrics,"population")||0]));
+        const changedMax=Math.max(1,...days.map(row=>row.divergence.changed_agent_records));
+        lineChart("branch-alive-chart",[
+          {label:"base",color:"#315fce",value:row=>field(row.base_metrics,"population")},
+          {label:"branch",color:"#c23d3d",value:row=>field(row.branch_metrics,"population")}
+        ],populationMax,trace,countText);
+        lineChart("branch-count-chart",[{label:"|D_d|",color:"#c23d3d",value:row=>row.divergence.changed_agent_records}],changedMax,trace,countText);
+        lineChart("branch-normalized-chart",[{label:"|D_d| / matched records",color:"#7b4bb7",value:row=>row.divergence.normalized_divergence}],1,trace,value=>Number(value).toFixed(2));
+        lineChart("branch-touched-chart",[{label:"settlements touched",color:"#20846a",value:row=>row.divergence.settlements_touched}],Number(header.settlements)||1,trace,countText);
+        renderFlags(trace);renderHeatmap(trace);renderDailyMetrics(trace);
+        const slider=document.getElementById("branch-day-slider");slider.max=String(days.at(-1).day);slider.value=String(days.at(-1).day);selectBranchDay(Number(slider.value));
+      }
+
+      document.getElementById("open-branch-view").addEventListener("click",()=>{
+        document.getElementById("status-bar").hidden=true;document.querySelector("main").hidden=true;document.getElementById("branch-view").hidden=false;
+      });
+      document.getElementById("close-branch-view").addEventListener("click",()=>{
+        document.getElementById("branch-view").hidden=true;document.getElementById("status-bar").hidden=false;document.querySelector("main").hidden=false;
+      });
+      branchInput.addEventListener("change",event=>loadBranchFiles(event.target.files).catch(error=>{document.getElementById("branch-empty").hidden=false;document.getElementById("branch-empty").textContent=error.message;}));
+      branchSelect.addEventListener("change",renderBranch);
+      document.getElementById("branch-day-slider").addEventListener("input",event=>selectBranchDay(Number(event.target.value)));
+      for(const name of ["dragenter","dragover"])branchDrop.addEventListener(name,event=>{event.preventDefault();branchDrop.classList.add("over");});
+      for(const name of ["dragleave","drop"])branchDrop.addEventListener(name,event=>{event.preventDefault();branchDrop.classList.remove("over");});
+      branchDrop.addEventListener("drop",event=>loadBranchFiles(event.dataTransfer.files).catch(error=>{document.getElementById("branch-empty").hidden=false;document.getElementById("branch-empty").textContent=error.message;}));
+    })();
   </script>
 </body>
 </html>
