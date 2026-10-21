@@ -1045,11 +1045,23 @@
       function renderDailyMetrics(trace) {
         const root=document.getElementById("branch-daily-table");root.replaceChildren();
         const table=bEl("table"),head=document.createElement("thead"),headRow=document.createElement("tr");
-        for(const label of ["Day","Base alive","Branch alive","Base food","Branch food","Base treasury","Branch treasury","Base births","Branch births","|D_d|","Normalized","Touched settlements"])headRow.append(bEl("th",label));
+        for(const label of ["Day","Base alive","Branch alive","Base Gini","Branch Gini","Base food","Branch food","Base treasury","Branch treasury","Base cross edges","Branch cross edges","Base cross interactions","Branch cross interactions","Base births","Branch births","Base removed","Branch removed","Base replaced edges","Branch replaced edges","|D_d|","Normalized","Touched settlements"])headRow.append(bEl("th",label));
         head.append(headRow);table.append(head);const body=document.createElement("tbody");
         for(const row of trace.days){const tr=document.createElement("tr");tr.dataset.day=String(row.day);const b=row.base_metrics,branch=row.branch_metrics,d=row.divergence;
-          const values=[row.day,field(b,"population"),field(branch,"population"),field(b,"total_food_reserves"),field(branch,"total_food_reserves"),field(b,"total_treasury"),field(branch,"total_treasury"),branchMetrics(b)?.births,branchMetrics(branch)?.births,d.changed_agent_records,d.normalized_divergence,d.settlements_touched];
-          values.forEach((value,index)=>tr.append(bEl(index===0?"th":"td",index===0?countText(value):([3,4,10].includes(index)?floatText(value):countText(value)))));body.append(tr);
+          const topology=(metrics,key)=>branchMetrics(metrics)?.m3_metrics?.[key];
+          const values=[
+            [row.day,"count"],[field(b,"population"),"count"],[field(branch,"population"),"count"],
+            [field(b,"wealth_gini"),"float"],[field(branch,"wealth_gini"),"float"],
+            [field(b,"total_food_reserves"),"float"],[field(branch,"total_food_reserves"),"float"],
+            [field(b,"total_treasury"),"raw"],[field(branch,"total_treasury"),"raw"],
+            [topology(b,"cross_partition_edge_count"),"count"],[topology(branch,"cross_partition_edge_count"),"count"],
+            [topology(b,"cross_partition_interaction_count"),"count"],[topology(branch,"cross_partition_interaction_count"),"count"],
+            [branchMetrics(b)?.births,"count"],[branchMetrics(branch)?.births,"count"],
+            [branchMetrics(b)?.removed,"count"],[branchMetrics(branch)?.removed,"count"],
+            [branchMetrics(b)?.replaced_edges,"count"],[branchMetrics(branch)?.replaced_edges,"count"],
+            [d.changed_agent_records,"count"],[d.normalized_divergence,"float"],[d.settlements_touched,"count"]
+          ];
+          values.forEach(([value,format],index)=>tr.append(bEl(index===0?"th":"td",format==="float"?floatText(value):format==="raw"?jsonText(value):countText(value))));body.append(tr);
         }
         table.append(body);root.append(table);
       }
