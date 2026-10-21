@@ -49,9 +49,12 @@ Unless explicitly requested:
 
 Semantics and contracts come before optimization.
 
-- **M0** — Reference Model
-- **M1** — Contract Freeze
-- **M2** — Optimized Runtime
+- **M0 — Reference Model:** complete, `v0.1.0-m0`.
+- **M1 — Contract Freeze:** complete, `v0.2.0-m1`.
+- **M2 — Optimized Runtime:** complete, `v0.3.0-m2`.
+- **M3 — Interaction Complexity:** complete, `v0.4.0-m3`.
+- **M4 — Counterfactual Research:** complete, `v0.5.0-m4`.
+- **M5 — Reproducibility and Research Hardening:** planned; contract draft is under review.
 
 Rules:
 
@@ -148,3 +151,10 @@ Do not begin follow-up work even if the next step appears obvious.
 Do not fix newly discovered unrelated issues unless explicitly instructed.
 
 Wait for explicit user instruction before proceeding.
+
+## 12. Standing research rules
+
+- Commit each experiment or measurement harness under `crates/sim-model/examples/` or `crates/sim-model/benches/`; do not delete it after measuring. Temporary instrumentation inside library code may be removed, but the driver that exercised it stays committed.
+- Commit raw outputs under `docs/data/<stage>/` and follow the data-size policy frozen by M5-00. Cite both the harness and its data file for every report table.
+- Choose thresholds and parameters from a measured effect distribution; record the choices before running the experiment.
+- Preserve historical documents, including frozen contracts and past audits. Add a dated **Later update** note instead of rewriting their historical wording.
