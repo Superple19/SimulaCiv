@@ -49,9 +49,9 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | **M4-06 — Settlement migration system** | **COMPLETE.** Registered serial migration, v4 snapshots, all four profile combinations, migration-off A-5 gate, and five-seed H=365 experiment are recorded in the [M4-06 report](../performance/M4_06_MIGRATION.md); see [§15](#15-m4-06-settlement-migration-system). |
 | **M4-07 — Many-branch performance** | **COMPLETE.** Opt-in cross-branch parallel evaluation and direct-column day scans pass exact parity; independent intervention runs omit the discarded base day path; restore/clone stayed below the 20% threshold, so copy-on-write was not needed. See the [M4-07 report](../performance/M4_07_MANY_BRANCH.md) and [§16](#16-m4-07-many-branch-performance). |
 | **Viewer follow-up after M4-02** | **COMPLETE.** The read-only viewer has an M4 branch-comparison view, a committed M4-03 sample, and a local exporter; see the [viewer instructions](../../viewer/README.md#m4-branch-comparison). |
-| **M4 audit** | **COMPLETE — graduation provisional until hosted Linux, Windows, and macOS CI passes on the final commit.** The [final audit](../performance/M4_FINAL_AUDIT_AND_GRADUATION.md) answers the research question, records stage evidence and known debt, and specifies the M5 direction. |
+| **M4 audit** | **COMPLETE — M4-GRADUATE (`v0.5.0-m4`). Hosted Linux, Windows, and macOS CI passed on commit `5a4972c`.** The [final audit](../performance/M4_FINAL_AUDIT_AND_GRADUATION.md) answers the research question, records stage evidence and known debt, and specifies the M5 direction. |
 
-M4-00 through M4-07, the branch viewer, and the M4 audit are complete. M4 graduation remains provisional until hosted CI passes on the final commit.
+M4-00 through M4-07, the branch viewer, and the M4 audit are complete. M4 graduated as `v0.5.0-m4`; hosted Linux, Windows, and macOS CI passed on commit `5a4972c`.
 
 ## 4. Invariants carried from M0–M3
 

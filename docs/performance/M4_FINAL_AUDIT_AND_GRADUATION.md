@@ -1,6 +1,6 @@
 # M4 Final Audit and Graduation
 
-**Status: M4 complete; graduation is provisional until hosted Linux, Windows, and macOS CI passes on the final commit.**
+**Status: M4-GRADUATE — `v0.5.0-m4`. Hosted Linux, Windows, and macOS CI passed on commit `5a4972c`.**
 
 ## Research question and answer
 
@@ -89,4 +89,4 @@ Later candidates, not part of the M5 commitment: inverse inference, distributed 
 
 ## Graduation gate
 
-M4 is complete in the repository, but graduation remains **provisional** until hosted CI passes on Linux, Windows, and macOS for the final graduation commit.
+Hosted Linux, Windows, and macOS CI passed on graduation commit `5a4972c`. M4 is graduated as `v0.5.0-m4`.

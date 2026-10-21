@@ -10,7 +10,7 @@ The current reference workload is an agent-based synthetic society. The project 
 
 ## Status
 
-**M4 complete — graduation provisional pending hosted Linux, Windows, and macOS CI.** M3 graduated at `v0.4.0-m3` ([M3 final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)); settlement migration was delivered in [M4-06](docs/performance/M4_06_MIGRATION.md).
+**M4 graduated — `v0.5.0-m4`.** M3 graduated at `v0.4.0-m3` ([M3 final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)); settlement migration was delivered in [M4-06](docs/performance/M4_06_MIGRATION.md).
 
 Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
 
@@ -20,7 +20,7 @@ Canonical State, Metrics, and Events digests and snapshots are verified on Linux
 | M1 — `v0.2.0-m1` | Complete | Frozen semantic contracts and machine-readable contract manifest |
 | M2 — `v0.3.0-m2` | Graduated | High-performance runtime with canonical parity |
 | M3 — `v0.4.0-m3` | Graduated — M3-00 through M3-11 complete; settlement migration delivered in M4-06 | Deterministic relationship-graph runtime, M3P population dynamics, incremental topology, feature switches, and propagation; [final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md), [M4-06 migration](docs/performance/M4_06_MIGRATION.md) |
-| M4 — Counterfactual | Complete — graduation provisional until hosted Linux, Windows, and macOS CI passes | Static system registry, snapshot-backed branching, divergence measurement, CRN efficiency, minimal-cause search, opt-in settlement migration, and measured many-branch execution; [M4 final audit](docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md), [M4 branch viewer](viewer/README.md#m4-branch-comparison) |
+| M4 — Counterfactual | Graduated — `v0.5.0-m4` | Static system registry, snapshot-backed branching, divergence measurement, CRN efficiency, minimal-cause search, opt-in settlement migration, and measured many-branch execution; [M4 final audit](docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md), [M4 branch viewer](viewer/README.md#m4-branch-comparison) |
 
 The M2 production path uses authoritative Segmented SoA storage. Serial remains the default; deterministic Phase4 Rayon execution is an explicit opt-in, and Auto policy remains experimental. Canonical State, Metrics, Events, and Day 100/250/500 snapshots were validated for exact parity. The measured workloads scale near-linearly through 100k agents; the 200k high-K results remain follow-up evidence. Timings depend on workload and host.
 
@@ -86,11 +86,11 @@ The central research question is:
 
 > How much interaction complexity can a deterministic simulation runtime support before its execution model or data architecture must fundamentally change?
 
-## M4 direction — complete, graduation provisional pending hosted CI
+## M4 direction — graduated — `v0.5.0-m4`
 
 M4 studies counterfactual branching: **In a deterministic world, how precisely can cause and effect be separated?** M4-00 through M4-07 and the branch-comparison viewer are complete. The [final audit](docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md) answers the research question and records the remaining limits. Divergence measurements are in the [M4-03 report](docs/performance/M4_03_DIVERGENCE.md), paired versus independent CRN estimates are in the [M4-04 report](docs/performance/M4_04_CRN_EFFICIENCY.md), minimal-cause experiments are in the [M4-05 report](docs/performance/M4_05_MINIMAL_CAUSE.md), migration experiments are in the [M4-06 report](docs/performance/M4_06_MIGRATION.md), many-branch results are in the [M4-07 report](docs/performance/M4_07_MANY_BRANCH.md), and the [branch viewer](viewer/README.md#m4-branch-comparison) includes a [sample trace](docs/data/m4_viewer/food_0_h90.jsonl). See also: [M4-01 report](docs/performance/M4_01_SYSTEM_REGISTRY.md), [M4-02 report](docs/performance/M4_02_BRANCHING.md), [M4-03 frozen contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md#12-m4-03-divergence-measurement), [M4-04 frozen contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md#13-m4-04-crn-efficiency), [M4-05 frozen contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md#14-m4-05-minimal-cause-search), [M4-06 frozen contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md#15-m4-06-settlement-migration-system), [M4-07 frozen contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md#16-m4-07-many-branch-performance).
 
-M4 graduation is provisional until hosted CI passes on Linux, Windows, and macOS for the final commit.
+Hosted Linux, Windows, and macOS CI passed on commit `5a4972c`.
 
 ## Build and validate
 
