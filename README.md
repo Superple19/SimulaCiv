@@ -10,7 +10,7 @@ The current reference workload is an agent-based synthetic society. The project 
 
 ## Status
 
-**M3 graduated — `v0.4.0-m3`. M3-00 through M3-11 complete ([final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)); spatial migration remains deferred without a stage number.**
+**M4 complete — graduation provisional pending hosted Linux, Windows, and macOS CI.** M3 graduated at `v0.4.0-m3` ([M3 final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)); settlement migration was delivered in [M4-06](docs/performance/M4_06_MIGRATION.md).
 
 Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
 
@@ -19,7 +19,7 @@ Canonical State, Metrics, and Events digests and snapshots are verified on Linux
 | M0 — `v0.1.0-m0` | Complete | Deterministic executable reference semantics and replay gate |
 | M1 — `v0.2.0-m1` | Complete | Frozen semantic contracts and machine-readable contract manifest |
 | M2 — `v0.3.0-m2` | Graduated | High-performance runtime with canonical parity |
-| M3 — `v0.4.0-m3` | Graduated — M3-00 through M3-11 complete; spatial migration deferred | Deterministic relationship-graph runtime, M3P population dynamics, incremental topology, feature switches, and propagation; [final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md) |
+| M3 — `v0.4.0-m3` | Graduated — M3-00 through M3-11 complete; settlement migration delivered in M4-06 | Deterministic relationship-graph runtime, M3P population dynamics, incremental topology, feature switches, and propagation; [final audit](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md), [M4-06 migration](docs/performance/M4_06_MIGRATION.md) |
 | M4 — Counterfactual | Complete — graduation provisional until hosted Linux, Windows, and macOS CI passes | Static system registry, snapshot-backed branching, divergence measurement, CRN efficiency, minimal-cause search, opt-in settlement migration, and measured many-branch execution; [M4 final audit](docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md), [M4 branch viewer](viewer/README.md#m4-branch-comparison) |
 
 The M2 production path uses authoritative Segmented SoA storage. Serial remains the default; deterministic Phase4 Rayon execution is an explicit opt-in, and Auto policy remains experimental. Canonical State, Metrics, Events, and Day 100/250/500 snapshots were validated for exact parity. The measured workloads scale near-linearly through 100k agents; the 200k high-K results remain follow-up evidence. Timings depend on workload and host.
@@ -28,7 +28,7 @@ The M2 production path uses authoritative Segmented SoA storage. Serial remains 
 
 **Correct first. Freeze the semantics. Then optimize. Then increase complexity.**
 
-M0 establishes the reference behavior, M1 freezes its contracts, and M2 optimizes execution without semantic drift. The next research question is how to increase interaction complexity, not only agent count.
+M0 establishes the reference behavior, M1 freezes its contracts, and M2 optimizes execution without semantic drift. M4 asks **“In a deterministic world, how precisely can cause and effect be separated?”** The next direction is M5 **Reproducibility and research hardening**, as recorded in the [M4 final audit](docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md#m5-proposal-reproducibility-and-research-hardening).
 
 ## What the runtime explores
 
@@ -42,17 +42,18 @@ M0 establishes the reference behavior, M1 freezes its contracts, and M2 optimize
 ## Runtime structure
 
 ```text
-contracts/
-└─ m1_contract.toml       machine-readable frozen contract manifest
-
 crates/
 ├─ sim-core/              stable IDs, money/day primitives, coordinate-based PRNG
 └─ sim-model/             reference model, phases, production runners, storage,
-                          events, metrics, canonical hashing, snapshots
+   ├─ src/                events, metrics, canonical hashing, snapshots
+   └─ examples/           committed trace exporters and research harnesses
 
 docs/
-├─ contracts/             M1 semantic freeze and M2 optimization contract
-└─ performance/           M2 profiling, gates, and graduation evidence
+├─ contracts/             M1–M4 semantic and runtime contracts
+├─ performance/           M2–M4 profiling, audits, and graduation evidence
+└─ data/                  committed benchmark, experiment, and viewer data
+
+viewer/                   static local viewer for M3 traces and M4 branches
 ```
 
 The runtime keeps logical `AgentId` identity separate from physical `DenseSlot` layout. The M2 production runner uses transient runtime scratch for execution; canonical state and snapshots remain defined by the frozen contracts.
@@ -76,10 +77,10 @@ The model represents a synthetic population with biological, economic, group, an
 - **M3-09 — Incremental topology maintenance:** complete; append newborn CSR and Phase 4 projection rows on non-compaction days ([performance report](docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md)).
 - **M3-10 — Feature switches:** complete; explicit runtime feature dispatch under frozen compatibility rules.
 - **M3-11 (formerly M3-05) — Propagation:** complete; synchronous multi-hop spread with serial default and explicit parallel opt-in ([performance report](docs/performance/M3_11_PROPAGATION.md)).
-- **Spatial migration (formerly M3-03):** deferred without a stage number.
+- **Spatial migration (formerly M3-03):** delivered as a registered system in [M4-06](docs/performance/M4_06_MIGRATION.md).
 - **M3 audit and graduation:** complete; [M3-GRADUATE](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md), with no M4 architecture change indicated by current evidence.
 
-M3 is graduated for the measured workloads; spatial migration remains a deferred extension.
+M3 is graduated for the measured workloads; settlement migration was delivered in M4-06.
 
 The central research question is:
 
@@ -107,11 +108,15 @@ Run the baseline benchmark with:
 cargo bench --bench m0_baseline_bench
 ```
 
-Open the [read-only M3 trace viewer](viewer/index.html) to load local JSONL traces in the browser.
+Open the [read-only viewer](viewer/index.html) for local M3 trace exploration and M4 branch comparison.
 
 ## Further reading
 
 - [System design specification](SIMULACIV_DESIGN_SPECIFICATION.md)
 - [M1 contract freeze](docs/contracts/M1_CONTRACT_FREEZE.md)
 - [M2 optimization contract](docs/contracts/M2_OPTIMIZATION_CONTRACT.md)
+- [M3 interaction contract](docs/contracts/M3_INTERACTION_CONTRACT.md)
+- [M4 counterfactual contract](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md)
 - [M2 final runtime profile and graduation gate](docs/performance/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)
+- [M3 final runtime profile and graduation gate](docs/performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)
+- [M4 final audit and graduation gate](docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md)

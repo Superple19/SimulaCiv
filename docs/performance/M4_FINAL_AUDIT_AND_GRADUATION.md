@@ -32,13 +32,13 @@ The frozen stage definitions are in the [M4 Counterfactual Contract](../contract
 
 ## How M4 answered its question
 
-1. **Static structures held to one million agents.** The M3 scale audit found no architecture replacement was required for the measured static-topology workload; settlement indexing removed a measured high-K lookup cost. [M3 graduation audit](M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md), [M3 settlement index](M3_SETTLEMENT_INDEX.md)
-2. **Small per-item work did not benefit from within-trajectory parallelism.** Parallel Phase 6B measured 0.967× whole-tick speedup, while M3-03 search reduction also did not produce a whole-tick gain in its measured workload. Per-interaction work was too small to amortize parallel bookkeeping and the candidate-search costs remained material. [M3-02 report](M3_02_PARALLEL_PHASE6B.md), [M3-03 search report](M3_02B_SEARCH_REDUCTION.md)
-3. **Scale search exposed and fixed a hidden O(K²) settlement lookup.** The indexed path removed that structural cost and improved the measured 1M-agent full tick by about 18%. [M3 scale report](M3_SCALE_LIMIT.md), [settlement index report](M3_SETTLEMENT_INDEX.md)
-4. **Residual costs were sensitive to memory access and locality.** The M3 residual analysis found higher per-agent costs and layout sensitivity without identifying a remaining superlinear settlement scan. These are measurements on the recorded host, not a universal cache model. [M3-07 residual report](M3_07_SCALE_RESIDUAL.md)
-5. **Dynamic topology broke the static rebuild-per-change design.** M3-08's M3P tick was 5.23× the equal-live M3 tick at 100k agents, with graph and slot-projection rebuilds dominating normal-day Phase 9b. [M3-08 report](M3_08_POPULATION_DYNAMICS.md)
-6. **Incremental topology maintenance reduced that cost.** M3-09 and its follow-up brought the equal-live M3P/M3 ratio to 1.49× at 100k. [M3-09 report](M3_09_INCREMENTAL_TOPOLOGY.md)
-7. **Propagation was the first measured workload where within-trajectory parallelism paid off.** The report measured about 3.2× Phase 9c speedup and about 2.26× whole-tick speedup at large frontiers. This is the same work-granularity principle observed in M3-02 from the other side: parallel work pays when each scheduled unit has enough useful work. [M3-11 report](M3_11_PROPAGATION.md)
+1. **M4-01 registered systems behind generic day loops.** The loop architecture generalized, but per-profile state and codec wiring remained duplicated. [M4-01 report](M4_01_SYSTEM_REGISTRY.md)
+2. **M4-02 made a branch reproducible and located its first divergence.** Snapshot-backed base and intervention runs established the comparison path; the A-5 gate eventually passed after its measurement protocol was corrected. [M4-02 report](M4_02_BRANCHING.md)
+3. **M4-03 showed record-level divergence approaching 99%.** Food and health interventions reached about 99% normalized divergence at H=365 in the tested M3P workload. [M4-03 report](M4_03_DIVERGENCE.md)
+4. **M4-04 showed that CRN retained aggregate signal where independent runs had substantial noise.** At H=365, ratios were about 1.5–80×. For health=0.01, the target-settlement wealth effect (-3,278.25) was nearly the world effect (-3,320.8); paired estimates distinguished both from zero, while independent world-level estimates had substantially more variance. [M4-04 report](M4_04_CRN_EFFICIENCY.md)
+5. **M4-05 found minimal causes, but not one unique cause set.** The exhaustive case had 15 satisfying minimum-size sets, and the minimum changed or disappeared across seeds. [M4-05 report](M4_05_MINIMAL_CAUSE.md)
+6. **M4-06 added settlement migration without editing generic loop bodies.** The forward gate passed, but profile-specific state/codec/context plumbing added 1,896 production lines outside the migration module. [M4-06 report](M4_06_MIGRATION.md)
+7. **M4-07 made independent branch work parallel.** Six-thread measurements were 4.3–5.1× faster for M4-04 branch evaluation; restore plus clone was only 1.03–3.12% of branch time, so copy-on-write was not needed for the measured cells. [M4-07 report](M4_07_MANY_BRANCH.md)
 
 ## Engine findings
 
@@ -48,13 +48,13 @@ The gate required a sequence of corrections because short measurements were nois
 
 | Protocol | What changed and why |
 |---|---|
-| A-1 | The paired-delta spread rule left near-zero overhead inconclusive because it divided spread by the delta median. |
-| A-2 | Replaced that decision statistic with an upper-confidence-bound rule, but total-CPU validity included the harness's own CPU and Windows process counters proved unreliable. |
-| A-3 | Separated harness CPU from other-process load and used a deterministic bootstrap upper bound; the process counter returned zero or lost its trace. |
-| A-4 | Removed unreliable per-process counters and used path-spread validity with informational host samples; some short cells remained invalid or inconclusive. |
-| A-5 | Found the short-cell timing issue: 48–165 ms samples approached Windows' ~15.6 ms scheduling granularity. Each sample therefore repeated a paired operation back-to-back until it exceeded one second, with a fixed repetition count selected during warmup. The final nine cells were valid PASS. |
+| A-1 | Used a MAD/median ratio for paired deltas; this cannot pass when the delta is near zero because the ratio becomes unstable or unbounded. |
+| A-2 | Used `median + 2×MAD`, which measures sample spread rather than uncertainty of the median. Its total-CPU validity rule also included the harness's own core. |
+| A-3 | Introduced the bootstrap upper bound and per-process CPU accounting; the Windows process counter returned zero or lost its trace. |
+| A-4 | Dropped the unreliable process counters and retained path-spread validity; short cells still exceeded the spread limit. |
+| A-5 | Batches paired operations until each timed sample is at least one second, with a fixed repetition count selected during warmup. The final nine cells passed. |
 
-The A-5 final table records the host controls, 41 samples, medians/MADs, and passing outcome for all nine cells. [M4-02 final A-5 table](M4_02_BRANCHING.md#final-confirmatory-measurement-under-frozen-117-a-5)
+The A-1 to A-3 changes were measurement-rule design errors, not simulation implementation costs. A-5's final table records host controls, 41 samples, medians/MADs, and passing results for all nine cells. [M4-02 final A-5 table](M4_02_BRANCHING.md#final-confirmatory-measurement-under-frozen-117-a-5)
 
 ### Parallel branches, CoW, and GPU
 

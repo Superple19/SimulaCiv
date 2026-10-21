@@ -318,6 +318,8 @@ The synchronous multi-hop overlay semantics are frozen in [§16](#16-m3-11-propa
 
 M3-04 and M3-05 extend the measured answer for sustained workloads and scale limits. M3-08 through M3-11 deepen the research question with population dynamics, incremental topology maintenance, feature switches, and propagation; M3-07 diagnoses residual scaling after indexed settlement lookups.
 
+Later update (2026-10-21): spatial migration was delivered as a registered system in M4-06; see [M4-06 report](../performance/M4_06_MIGRATION.md). The text above records the status at the time of this document.
+
 ## 9. M3-01 Optimized path and serial baseline
 
 **Status: FROZEN**

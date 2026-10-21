@@ -86,3 +86,5 @@ The sustained M3P extension also measured a clear Phase 9c gain at one hundred t
 **M3-GRADUATE.** M3-00 through M3-11 are complete, their documented correctness gates passed locally and in hosted CI, and the measured evidence does not identify an architectural or correctness blocker. Serial remains the default; explicit parallel execution remains opt-in. Spatial migration is deferred.
 
 **Hosted CI record:** graduation commit `f568376c509040cda4cccdd87e888e739a5514dd` passed all three operating-system jobs in [Actions run 39194209453](https://github.com/Superple19/SimulaCiv/actions/runs/39194209453).
+
+Later update (2026-10-21): spatial migration was delivered as a registered system in M4-06; see [M4-06 report](M4_06_MIGRATION.md). The text above records the status at the time of this document.
