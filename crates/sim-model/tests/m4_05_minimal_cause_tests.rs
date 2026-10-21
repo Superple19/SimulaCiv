@@ -365,7 +365,7 @@ fn committed_minimal_cause_ci_golden() {
     );
     assert_eq!(
         golden,
-        include_str!("fixtures/m4_05_minimal_cause_golden.txt")
+        include_str!("fixtures/m4_05_minimal_cause_golden.txt").replace("\r\n", "\n")
     );
     let _ = fs::remove_file(path);
 }
