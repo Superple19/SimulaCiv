@@ -1276,6 +1276,10 @@ impl M3pIncrementalTopologyStorageRunContext {
         self.storage_context.next_agent_id()
     }
 
+    pub fn migration_state(&self) -> Option<&MigrationState> {
+        self.storage_context.migration_state()
+    }
+
     pub(crate) fn phase_recorder_parts_mut(
         &mut self,
     ) -> (
@@ -1409,6 +1413,10 @@ impl M3pPropagationIncrementalTopologyStorageRunContext {
 
     pub const fn next_agent_id(&self) -> u64 {
         self.storage_context.next_agent_id()
+    }
+
+    pub fn migration_state(&self) -> Option<&MigrationState> {
+        self.storage_context.storage_context.migration_state()
     }
 
     pub(crate) fn phase_recorder_parts_mut(

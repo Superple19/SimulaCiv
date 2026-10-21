@@ -5,8 +5,13 @@ use crate::decision::Action;
 use crate::events::EventRecord;
 use crate::hashing::{
     CanonicalHash, CanonicalHashError, canonical_event_hash, canonical_m3_metrics_hash,
-    canonical_m3_state_hash_from_storage, canonical_m3p_event_hash, canonical_m3p_metrics_hash,
-    canonical_m3p_state_hash_from_storage, canonical_m3pprop_event_hash,
+    canonical_m3_state_hash_from_storage, canonical_m3m_event_hash, canonical_m3m_metrics_hash,
+    canonical_m3m_state_hash_from_storage, canonical_m3mprop_event_hash,
+    canonical_m3mprop_metrics_hash, canonical_m3mprop_state_hash_from_storage,
+    canonical_m3p_event_hash, canonical_m3p_metrics_hash, canonical_m3p_state_hash_from_storage,
+    canonical_m3pm_event_hash, canonical_m3pm_metrics_hash, canonical_m3pm_state_hash_from_storage,
+    canonical_m3pmprop_event_hash, canonical_m3pmprop_metrics_hash,
+    canonical_m3pmprop_state_hash_from_storage, canonical_m3pprop_event_hash,
     canonical_m3pprop_metrics_hash, canonical_m3pprop_state_hash_from_storage,
     canonical_m3prop_event_hash, canonical_m3prop_metrics_hash,
     canonical_m3prop_state_hash_from_storage,
@@ -16,7 +21,7 @@ use crate::m3p::{
     run_m3p_reference_day_with_phase_recorder,
 };
 use crate::m3pprop::{
-    M3pPropagationDailyMetrics, decode_m3pprop_snapshot,
+    M3pPropagationDailyMetrics, M3pPropagationReferenceState, decode_m3pprop_snapshot,
     run_m3pprop_reference_day_with_phase_recorder,
 };
 use crate::m3prop::{
@@ -24,6 +29,10 @@ use crate::m3prop::{
     run_m3prop_reference_day_with_phase_recorder,
 };
 use crate::metrics::M3DailyMetrics;
+use crate::migration::{
+    MigrationEventRecord, MigrationMetrics, MigrationProfileTag, MigrationState,
+    RestoredMigrationSnapshot, decode_migration_snapshot,
+};
 use crate::propagation::PropagationAgentState;
 use crate::relationship_graph::RelationshipGraph;
 use crate::runner::{
@@ -42,7 +51,7 @@ use crate::snapshot::{
 use crate::state::{AgentState, AuthorityMode, HybridWorldState, WorldState};
 use crate::system_registry::{
     RegisteredSystemRunOptions, SYSTEM_REGISTRY, SystemExecutionOptions, SystemExecutionPolicy,
-    SystemId,
+    SystemId, system_ids_for_features, validate_system_registry,
 };
 use sha2::{Digest, Sha256};
 use sim_core::{AgentId, Money};
@@ -485,6 +494,8 @@ pub struct BranchDayRecord {
     pub metrics_digest: CanonicalHash,
     pub events: BranchEventsRecord,
     pub events_digest: CanonicalHash,
+    pub migration_metrics: Option<MigrationMetrics>,
+    pub migration_events: Vec<MigrationEventRecord>,
     pub snapshot: Option<CanonicalSnapshot>,
 }
 
@@ -885,6 +896,47 @@ fn ensure_snapshot_identity(
     Ok(())
 }
 
+fn validate_counterfactual_system_set(config: &SimConfig) -> Result<(), BranchError> {
+    let mut systems = system_ids_for_features(config.effective_systems())
+        .map_err(|error| BranchError::InvalidConfig(error.to_string()))?;
+    if config.migration_enabled() {
+        systems.push(SystemId::SettlementMigration);
+        systems.sort_unstable();
+    }
+    if !systems.contains(&SystemId::RelationshipGraph) {
+        return Err(BranchError::UnsupportedProfile);
+    }
+    validate_system_registry(SYSTEM_REGISTRY, &systems)
+        .map(|_| ())
+        .map_err(|error| BranchError::InvalidConfig(error.to_string()))
+}
+
+fn migration_profile_tag(config: &SimConfig) -> MigrationProfileTag {
+    match (
+        config.runner_selection(),
+        config.effective_systems().propagation,
+    ) {
+        (SimulationRunnerSelection::M3, false) => MigrationProfileTag::M3m,
+        (SimulationRunnerSelection::M3p, false) => MigrationProfileTag::M3pm,
+        (SimulationRunnerSelection::M3Propagation, true) => MigrationProfileTag::M3mPropagation,
+        (SimulationRunnerSelection::M3pPropagation, true) => MigrationProfileTag::M3pmPropagation,
+        _ => unreachable!("validated migration config has an M3-family profile"),
+    }
+}
+
+fn restore_migration_snapshot(
+    snapshot: &CanonicalSnapshot,
+    expected: MigrationProfileTag,
+) -> Result<RestoredMigrationSnapshot, BranchError> {
+    let restored = decode_migration_snapshot(snapshot)?;
+    if restored.profile != expected {
+        return Err(BranchError::InvalidSnapshot(SnapshotError::InvalidState(
+            "migration snapshot profile does not match branch configuration".into(),
+        )));
+    }
+    Ok(restored)
+}
+
 enum StorageContext {
     M3(M3StorageRunContext),
     M3Propagation(M3PropagationStorageRunContext),
@@ -919,6 +971,7 @@ struct BranchStartState {
     graph: RelationshipGraph,
     allocator: Option<u64>,
     propagation: Option<BTreeMap<AgentId, PropagationAgentState>>,
+    migration: Option<MigrationState>,
     profile: SimulationRunnerSelection,
 }
 
@@ -929,6 +982,7 @@ impl BranchRuntime {
         run_context: &M0RunContext,
         execution: BranchExecutionOption,
     ) -> Result<Self, BranchError> {
+        validate_counterfactual_system_set(config)?;
         if config.world.master_seed != run_context.master_seed
             || config.world.replicate_id != run_context.replicate_id
         {
@@ -937,70 +991,230 @@ impl BranchRuntime {
         let runner = config.runner_selection();
         let runtime = match runner {
             SimulationRunnerSelection::M3 => {
-                let restored = decode_snapshot(snapshot.as_ref())?;
-                ensure_snapshot_identity(&restored.metadata, run_context)?;
-                let world = HybridWorldState::new(restored.world, AuthorityMode::Hybrid);
-                let context = M3StorageRunContext::new(&world, config, run_context)?;
-                Self {
-                    world,
-                    context: StorageContext::M3(context),
-                    profile: runner,
+                if config.migration_enabled() {
+                    let migration =
+                        restore_migration_snapshot(snapshot, migration_profile_tag(config))?;
+                    let restored = decode_snapshot(&migration.base_snapshot)?;
+                    ensure_snapshot_identity(&restored.metadata, run_context)?;
+                    let world = HybridWorldState::new(restored.world, AuthorityMode::Hybrid);
+                    let mut context = M3StorageRunContext::new(&world, config, run_context)?;
+                    let storage = world.segmented_storage.as_ref().expect("hybrid storage");
+                    let memberships = storage
+                        .agent_ids()
+                        .iter()
+                        .copied()
+                        .zip(storage.group_ids().iter().copied())
+                        .collect::<Vec<_>>();
+                    let graph = migration
+                        .relationship_graph(&memberships)?
+                        .expect("M3M v4 stores the relationship graph");
+                    context.restore_migration_snapshot(&world, graph, migration.migration_state)?;
+                    Self {
+                        world,
+                        context: StorageContext::M3(context),
+                        profile: runner,
+                    }
+                } else {
+                    let restored = decode_snapshot(snapshot.as_ref())?;
+                    ensure_snapshot_identity(&restored.metadata, run_context)?;
+                    let world = HybridWorldState::new(restored.world, AuthorityMode::Hybrid);
+                    let context = M3StorageRunContext::new(&world, config, run_context)?;
+                    Self {
+                        world,
+                        context: StorageContext::M3(context),
+                        profile: runner,
+                    }
                 }
             }
             SimulationRunnerSelection::M3Propagation => {
-                let restored = decode_m3prop_snapshot(snapshot.as_ref(), config)?;
-                ensure_snapshot_identity(&restored.metadata, run_context)?;
-                let mut world =
-                    HybridWorldState::new(restored.state.world().clone(), AuthorityMode::Hybrid);
-                let context = M3PropagationStorageRunContext::from_reference_state(
-                    &world,
-                    config,
-                    run_context,
-                    &restored.state,
-                )?;
-                world.sync_to_world_agents();
-                Self {
-                    world,
-                    context: StorageContext::M3Propagation(context),
-                    profile: runner,
-                }
-            }
-            SimulationRunnerSelection::M3p => {
-                let restored = decode_m3p_snapshot(snapshot.as_ref(), config)?;
-                ensure_snapshot_identity(&restored.metadata, run_context)?;
-                let mut world =
-                    HybridWorldState::new(restored.state.world().clone(), AuthorityMode::Hybrid);
-                world.sync_to_world_agents();
-                let context = if execution == BranchExecutionOption::IncrementalTopology {
-                    StorageContext::M3pIncremental(
-                        M3pIncrementalTopologyStorageRunContext::from_reference_state(
-                            &world,
-                            config,
-                            run_context,
-                            &restored.state,
-                        )?,
-                    )
+                if config.migration_enabled() {
+                    let migration =
+                        restore_migration_snapshot(snapshot, migration_profile_tag(config))?;
+                    let restored = decode_m3prop_snapshot(&migration.base_snapshot, config)?;
+                    ensure_snapshot_identity(&restored.metadata, run_context)?;
+                    let mut world = HybridWorldState::new(
+                        restored.state.world().clone(),
+                        AuthorityMode::Hybrid,
+                    );
+                    let memberships = restored
+                        .state
+                        .world()
+                        .agents
+                        .iter()
+                        .map(|agent| (agent.agent_id, agent.group_id))
+                        .collect::<Vec<_>>();
+                    let graph = migration
+                        .relationship_graph(&memberships)?
+                        .expect("M3M+propagation v4 stores the relationship graph");
+                    let mut reference = M3PropagationReferenceState::from_parts(
+                        restored.state.world().clone(),
+                        graph,
+                        restored.state.propagation().clone(),
+                        config,
+                        run_context,
+                    )?;
+                    reference.set_migration_state(migration.migration_state);
+                    let context = M3PropagationStorageRunContext::from_reference_state(
+                        &world,
+                        config,
+                        run_context,
+                        &reference,
+                    )?;
+                    world.sync_to_world_agents();
+                    Self {
+                        world,
+                        context: StorageContext::M3Propagation(context),
+                        profile: runner,
+                    }
                 } else {
-                    StorageContext::M3p(M3pStorageRunContext::from_reference_state(
+                    let restored = decode_m3prop_snapshot(snapshot.as_ref(), config)?;
+                    ensure_snapshot_identity(&restored.metadata, run_context)?;
+                    let mut world = HybridWorldState::new(
+                        restored.state.world().clone(),
+                        AuthorityMode::Hybrid,
+                    );
+                    let context = M3PropagationStorageRunContext::from_reference_state(
                         &world,
                         config,
                         run_context,
                         &restored.state,
-                    )?)
-                };
-                Self {
-                    world,
-                    context,
-                    profile: runner,
+                    )?;
+                    world.sync_to_world_agents();
+                    Self {
+                        world,
+                        context: StorageContext::M3Propagation(context),
+                        profile: runner,
+                    }
+                }
+            }
+            SimulationRunnerSelection::M3p => {
+                if config.migration_enabled() {
+                    let migration =
+                        restore_migration_snapshot(snapshot, migration_profile_tag(config))?;
+                    let restored = decode_m3p_snapshot(&migration.base_snapshot, config)?;
+                    ensure_snapshot_identity(&restored.metadata, run_context)?;
+                    let mut world = HybridWorldState::new(
+                        restored.state.world().clone(),
+                        AuthorityMode::Hybrid,
+                    );
+                    world.sync_to_world_agents();
+                    let mut reference = M3pReferenceState::from_parts(
+                        restored.state.world().clone(),
+                        restored.state.relationship_graph().clone(),
+                        restored.state.next_agent_id(),
+                        config,
+                        run_context,
+                    )?;
+                    reference.set_migration_state(migration.migration_state);
+                    let context = if execution == BranchExecutionOption::IncrementalTopology {
+                        StorageContext::M3pIncremental(
+                            M3pIncrementalTopologyStorageRunContext::from_reference_state(
+                                &world,
+                                config,
+                                run_context,
+                                &reference,
+                            )?,
+                        )
+                    } else {
+                        StorageContext::M3p(M3pStorageRunContext::from_reference_state(
+                            &world,
+                            config,
+                            run_context,
+                            &reference,
+                        )?)
+                    };
+                    Self {
+                        world,
+                        context,
+                        profile: runner,
+                    }
+                } else {
+                    let restored = decode_m3p_snapshot(snapshot.as_ref(), config)?;
+                    ensure_snapshot_identity(&restored.metadata, run_context)?;
+                    let mut world = HybridWorldState::new(
+                        restored.state.world().clone(),
+                        AuthorityMode::Hybrid,
+                    );
+                    world.sync_to_world_agents();
+                    let context = if execution == BranchExecutionOption::IncrementalTopology {
+                        StorageContext::M3pIncremental(
+                            M3pIncrementalTopologyStorageRunContext::from_reference_state(
+                                &world,
+                                config,
+                                run_context,
+                                &restored.state,
+                            )?,
+                        )
+                    } else {
+                        StorageContext::M3p(M3pStorageRunContext::from_reference_state(
+                            &world,
+                            config,
+                            run_context,
+                            &restored.state,
+                        )?)
+                    };
+                    Self {
+                        world,
+                        context,
+                        profile: runner,
+                    }
                 }
             }
             SimulationRunnerSelection::M3pPropagation => {
-                let restored = decode_m3pprop_snapshot(snapshot.as_ref(), config)?;
-                ensure_snapshot_identity(&restored.metadata, run_context)?;
-                let mut world =
-                    HybridWorldState::new(restored.state.world().clone(), AuthorityMode::Hybrid);
-                let context =
-                    if execution == BranchExecutionOption::IncrementalTopology {
+                if config.migration_enabled() {
+                    let migration =
+                        restore_migration_snapshot(snapshot, migration_profile_tag(config))?;
+                    let restored = decode_m3pprop_snapshot(&migration.base_snapshot, config)?;
+                    ensure_snapshot_identity(&restored.metadata, run_context)?;
+                    let base_state = restored.state.base_state();
+                    let mut world =
+                        HybridWorldState::new(base_state.world().clone(), AuthorityMode::Hybrid);
+                    world.sync_to_world_agents();
+                    let mut base = M3pReferenceState::from_parts(
+                        base_state.world().clone(),
+                        base_state.relationship_graph().clone(),
+                        base_state.next_agent_id(),
+                        &crate::m3pprop::m3p_base_config(config),
+                        run_context,
+                    )?;
+                    base.set_migration_state(migration.migration_state);
+                    let reference = M3pPropagationReferenceState::from_parts(
+                        base,
+                        restored.state.propagation().clone(),
+                        config,
+                    )?;
+                    let context = if execution == BranchExecutionOption::IncrementalTopology {
+                        StorageContext::M3pPropagationIncremental(
+                            M3pPropagationIncrementalTopologyStorageRunContext::from_reference_state(
+                                &world,
+                                config,
+                                run_context,
+                                &reference,
+                            )?,
+                        )
+                    } else {
+                        StorageContext::M3pPropagation(
+                            M3pPropagationStorageRunContext::from_reference_state(
+                                &world,
+                                config,
+                                run_context,
+                                &reference,
+                            )?,
+                        )
+                    };
+                    Self {
+                        world,
+                        context,
+                        profile: runner,
+                    }
+                } else {
+                    let restored = decode_m3pprop_snapshot(snapshot.as_ref(), config)?;
+                    ensure_snapshot_identity(&restored.metadata, run_context)?;
+                    let mut world = HybridWorldState::new(
+                        restored.state.world().clone(),
+                        AuthorityMode::Hybrid,
+                    );
+                    let context = if execution == BranchExecutionOption::IncrementalTopology {
                         StorageContext::M3pPropagationIncremental(
                         M3pPropagationIncrementalTopologyStorageRunContext::from_reference_state(
                             &world, config, run_context, &restored.state,
@@ -1016,11 +1230,12 @@ impl BranchRuntime {
                             )?,
                         )
                     };
-                world.sync_to_world_agents();
-                Self {
-                    world,
-                    context,
-                    profile: runner,
+                    world.sync_to_world_agents();
+                    Self {
+                        world,
+                        context,
+                        profile: runner,
+                    }
                 }
             }
             SimulationRunnerSelection::M2 => return Err(BranchError::UnsupportedProfile),
@@ -1212,28 +1427,67 @@ impl BranchRuntime {
             .as_ref()
             .expect("hybrid authority has storage");
         let day = outcome.executed_day();
-        let (state_digest, metrics, metrics_digest, events, events_digest, snapshot) = match outcome
-        {
+        let migration_state = self.migration_state().cloned();
+        let (
+            state_digest,
+            metrics,
+            metrics_digest,
+            events,
+            events_digest,
+            migration_metrics,
+            migration_events,
+            snapshot,
+        ) = match outcome {
             BranchSimulationDay::M3(value) => {
                 let context = match &self.context {
                     StorageContext::M3(c) => c,
                     _ => unreachable!(),
                 };
-                let state = canonical_m3_state_hash_from_storage(
-                    storage,
-                    self.world.world.current_day,
-                    &self.world.world.settlements,
-                    context.relationship_graph(),
-                )?;
+                let state = match &migration_state {
+                    Some(migration) => canonical_m3m_state_hash_from_storage(
+                        storage,
+                        self.world.world.current_day,
+                        &self.world.world.settlements,
+                        context.relationship_graph(),
+                        migration,
+                    )?,
+                    None => canonical_m3_state_hash_from_storage(
+                        storage,
+                        self.world.world.current_day,
+                        &self.world.world.settlements,
+                        context.relationship_graph(),
+                    )?,
+                };
                 let metrics = value.metrics.expect("branch metrics enabled");
-                let metric_hash = canonical_m3_metrics_hash(std::slice::from_ref(&metrics))?;
-                let event_hash = canonical_event_hash(&value.events)?;
+                let migration_data = value.migration;
+                let (migration_metrics, migration_events) = migration_data
+                    .map(|data| (data.metrics, data.events))
+                    .unwrap_or((None, Vec::new()));
+                let metric_hash = match (&migration_state, migration_metrics) {
+                    (Some(_), Some(migration)) => canonical_m3m_metrics_hash(
+                        std::slice::from_ref(&metrics),
+                        std::slice::from_ref(&migration),
+                    )?,
+                    (Some(_), None) => {
+                        return Err(BranchError::Runner(M0RunError::InvariantViolation(
+                            "migration branch outcome omitted migration metrics".into(),
+                        )));
+                    }
+                    (None, _) => canonical_m3_metrics_hash(std::slice::from_ref(&metrics))?,
+                };
+                let event_hash = if migration_state.is_some() {
+                    canonical_m3m_event_hash(&value.events, &migration_events)?
+                } else {
+                    canonical_event_hash(&value.events)?
+                };
                 (
                     state,
                     BranchMetricsRecord::M3(metrics),
                     metric_hash,
                     BranchEventsRecord::Standard(value.events),
                     event_hash,
+                    migration_metrics,
+                    migration_events,
                     value.snapshot,
                 )
             }
@@ -1242,22 +1496,53 @@ impl BranchRuntime {
                     StorageContext::M3Propagation(c) => c,
                     _ => unreachable!(),
                 };
-                let state = canonical_m3prop_state_hash_from_storage(
-                    storage,
-                    self.world.world.current_day,
-                    &self.world.world.settlements,
-                    context.relationship_graph(),
-                    context.propagation(),
-                )?;
+                let state = match &migration_state {
+                    Some(migration) => canonical_m3mprop_state_hash_from_storage(
+                        storage,
+                        self.world.world.current_day,
+                        &self.world.world.settlements,
+                        context.relationship_graph(),
+                        context.propagation(),
+                        migration,
+                    )?,
+                    None => canonical_m3prop_state_hash_from_storage(
+                        storage,
+                        self.world.world.current_day,
+                        &self.world.world.settlements,
+                        context.relationship_graph(),
+                        context.propagation(),
+                    )?,
+                };
                 let metrics = value.metrics.expect("branch metrics enabled");
-                let metric_hash = canonical_m3prop_metrics_hash(std::slice::from_ref(&metrics))?;
-                let event_hash = canonical_m3prop_event_hash(&value.events)?;
+                let migration_data = value.migration;
+                let (migration_metrics, migration_events) = migration_data
+                    .map(|data| (data.metrics, data.events))
+                    .unwrap_or((None, Vec::new()));
+                let metric_hash = match (&migration_state, migration_metrics) {
+                    (Some(_), Some(migration)) => canonical_m3mprop_metrics_hash(
+                        std::slice::from_ref(&metrics),
+                        std::slice::from_ref(&migration),
+                    )?,
+                    (Some(_), None) => {
+                        return Err(BranchError::Runner(M0RunError::InvariantViolation(
+                            "migration branch outcome omitted migration metrics".into(),
+                        )));
+                    }
+                    (None, _) => canonical_m3prop_metrics_hash(std::slice::from_ref(&metrics))?,
+                };
+                let event_hash = if migration_state.is_some() {
+                    canonical_m3mprop_event_hash(&value.events, &migration_events)?
+                } else {
+                    canonical_m3prop_event_hash(&value.events)?
+                };
                 (
                     state,
                     BranchMetricsRecord::M3Propagation(metrics),
                     metric_hash,
                     BranchEventsRecord::Standard(value.events),
                     event_hash,
+                    migration_metrics,
+                    migration_events,
                     value.snapshot,
                 )
             }
@@ -1269,22 +1554,53 @@ impl BranchRuntime {
                     }
                     _ => unreachable!(),
                 };
-                let state = canonical_m3p_state_hash_from_storage(
-                    storage,
-                    self.world.world.current_day,
-                    &self.world.world.settlements,
-                    graph,
-                    cursor,
-                )?;
+                let state = match &migration_state {
+                    Some(migration) => canonical_m3pm_state_hash_from_storage(
+                        storage,
+                        self.world.world.current_day,
+                        &self.world.world.settlements,
+                        graph,
+                        cursor,
+                        migration,
+                    )?,
+                    None => canonical_m3p_state_hash_from_storage(
+                        storage,
+                        self.world.world.current_day,
+                        &self.world.world.settlements,
+                        graph,
+                        cursor,
+                    )?,
+                };
                 let metrics = value.metrics.expect("branch metrics enabled");
-                let metric_hash = canonical_m3p_metrics_hash(std::slice::from_ref(&metrics))?;
-                let event_hash = canonical_m3p_event_hash(&value.events)?;
+                let migration_data = value.migration;
+                let (migration_metrics, migration_events) = migration_data
+                    .map(|data| (data.metrics, data.events))
+                    .unwrap_or((None, Vec::new()));
+                let metric_hash = match (&migration_state, migration_metrics) {
+                    (Some(_), Some(migration)) => canonical_m3pm_metrics_hash(
+                        std::slice::from_ref(&metrics),
+                        std::slice::from_ref(&migration),
+                    )?,
+                    (Some(_), None) => {
+                        return Err(BranchError::Runner(M0RunError::InvariantViolation(
+                            "migration branch outcome omitted migration metrics".into(),
+                        )));
+                    }
+                    (None, _) => canonical_m3p_metrics_hash(std::slice::from_ref(&metrics))?,
+                };
+                let event_hash = if migration_state.is_some() {
+                    canonical_m3pm_event_hash(&value.events, &migration_events)?
+                } else {
+                    canonical_m3p_event_hash(&value.events)?
+                };
                 (
                     state,
                     BranchMetricsRecord::M3p(metrics),
                     metric_hash,
                     BranchEventsRecord::Population(value.events),
                     event_hash,
+                    migration_metrics,
+                    migration_events,
                     value.snapshot,
                 )
             }
@@ -1298,23 +1614,55 @@ impl BranchRuntime {
                     }
                     _ => unreachable!(),
                 };
-                let state = canonical_m3pprop_state_hash_from_storage(
-                    storage,
-                    self.world.world.current_day,
-                    &self.world.world.settlements,
-                    graph,
-                    cursor,
-                    propagation,
-                )?;
+                let state = match &migration_state {
+                    Some(migration) => canonical_m3pmprop_state_hash_from_storage(
+                        storage,
+                        self.world.world.current_day,
+                        &self.world.world.settlements,
+                        graph,
+                        cursor,
+                        propagation,
+                        migration,
+                    )?,
+                    None => canonical_m3pprop_state_hash_from_storage(
+                        storage,
+                        self.world.world.current_day,
+                        &self.world.world.settlements,
+                        graph,
+                        cursor,
+                        propagation,
+                    )?,
+                };
                 let metrics = value.metrics.expect("branch metrics enabled");
-                let metric_hash = canonical_m3pprop_metrics_hash(std::slice::from_ref(&metrics))?;
-                let event_hash = canonical_m3pprop_event_hash(&value.events)?;
+                let migration_data = value.migration;
+                let (migration_metrics, migration_events) = migration_data
+                    .map(|data| (data.metrics, data.events))
+                    .unwrap_or((None, Vec::new()));
+                let metric_hash = match (&migration_state, migration_metrics) {
+                    (Some(_), Some(migration)) => canonical_m3pmprop_metrics_hash(
+                        std::slice::from_ref(&metrics),
+                        std::slice::from_ref(&migration),
+                    )?,
+                    (Some(_), None) => {
+                        return Err(BranchError::Runner(M0RunError::InvariantViolation(
+                            "migration branch outcome omitted migration metrics".into(),
+                        )));
+                    }
+                    (None, _) => canonical_m3pprop_metrics_hash(std::slice::from_ref(&metrics))?,
+                };
+                let event_hash = if migration_state.is_some() {
+                    canonical_m3pmprop_event_hash(&value.events, &migration_events)?
+                } else {
+                    canonical_m3pprop_event_hash(&value.events)?
+                };
                 (
                     state,
                     BranchMetricsRecord::M3pPropagation(metrics),
                     metric_hash,
                     BranchEventsRecord::Population(value.events),
                     event_hash,
+                    migration_metrics,
+                    migration_events,
                     value.snapshot,
                 )
             }
@@ -1330,6 +1678,8 @@ impl BranchRuntime {
             metrics_digest,
             events,
             events_digest,
+            migration_metrics,
+            migration_events,
             snapshot,
         })
     }
@@ -1352,7 +1702,19 @@ impl BranchRuntime {
             graph: self.graph().clone(),
             allocator: self.allocator_cursor(),
             propagation: self.propagation().cloned(),
+            migration: self.migration_state().cloned(),
             profile: self.profile,
+        }
+    }
+
+    fn migration_state(&self) -> Option<&MigrationState> {
+        match &self.context {
+            StorageContext::M3(context) => context.migration_state(),
+            StorageContext::M3Propagation(context) => context.migration_state(),
+            StorageContext::M3p(context) => context.migration_state(),
+            StorageContext::M3pIncremental(context) => context.migration_state(),
+            StorageContext::M3pPropagation(context) => context.migration_state(),
+            StorageContext::M3pPropagationIncremental(context) => context.migration_state(),
         }
     }
 
@@ -1900,23 +2262,19 @@ fn locate_m3p_storage_day_divergence_with_mode(
         events_enabled: false,
         snapshot_boundary: false,
     };
-    let enabled_systems: &[SystemId] =
-        if base_start.profile == SimulationRunnerSelection::M3pPropagation {
-            &[
-                SystemId::RelationshipGraph,
-                SystemId::PopulationDynamics,
-                SystemId::Propagation,
-            ]
-        } else {
-            &[SystemId::RelationshipGraph, SystemId::PopulationDynamics]
-        };
+    let mut enabled_systems = system_ids_for_features(config.effective_systems())
+        .map_err(|error| BranchError::InvalidConfig(error.to_string()))?;
+    if config.migration_enabled() {
+        enabled_systems.push(SystemId::SettlementMigration);
+        enabled_systems.sort_unstable();
+    }
     let population_dynamics = if execution == BranchExecutionOption::IncrementalTopology {
         SystemExecutionPolicy::IncrementalTopology
     } else {
         SystemExecutionPolicy::Serial
     };
     let run_options = RegisteredSystemRunOptions {
-        enabled_systems,
+        enabled_systems: &enabled_systems,
         execution: SystemExecutionOptions {
             population_dynamics,
             ..SystemExecutionOptions::default()
@@ -1991,13 +2349,16 @@ impl BranchStartState {
         let world = self.world.clone();
         match self.profile {
             SimulationRunnerSelection::M3p => {
-                let reference = M3pReferenceState::from_parts(
+                let mut reference = M3pReferenceState::from_parts(
                     self.world.world.clone(),
                     self.graph.clone(),
                     self.allocator.expect("M3P allocator"),
                     config,
                     run_context,
                 )?;
+                if let Some(migration) = &self.migration {
+                    reference.set_migration_state(migration.clone());
+                }
                 let context = if execution == BranchExecutionOption::IncrementalTopology {
                     StorageContext::M3pIncremental(
                         M3pIncrementalTopologyStorageRunContext::from_reference_state(
@@ -2023,13 +2384,16 @@ impl BranchStartState {
             }
             SimulationRunnerSelection::M3pPropagation => {
                 let base_config = crate::m3pprop::m3p_base_config(config);
-                let base = M3pReferenceState::from_parts(
+                let mut base = M3pReferenceState::from_parts(
                     self.world.world.clone(),
                     self.graph.clone(),
                     self.allocator.expect("M3P allocator"),
                     &base_config,
                     run_context,
                 )?;
+                if let Some(migration) = &self.migration {
+                    base.set_migration_state(migration.clone());
+                }
                 let reference = crate::m3pprop::M3pPropagationReferenceState::from_parts(
                     base,
                     self.propagation.clone().expect("M3P propagation rows"),
@@ -2075,35 +2439,76 @@ impl BranchStartState {
             .expect("hybrid authority has storage");
         let current_day = self.world.world.current_day;
         let settlements = &self.world.world.settlements;
+        let migration = self.migration.as_ref();
         Ok(match self.profile {
-            SimulationRunnerSelection::M3 => canonical_m3_state_hash_from_storage(
-                storage,
-                current_day,
-                settlements,
-                &self.graph,
-            )?,
-            SimulationRunnerSelection::M3Propagation => canonical_m3prop_state_hash_from_storage(
-                storage,
-                current_day,
-                settlements,
-                &self.graph,
-                self.propagation.as_ref().expect("M3 propagation rows"),
-            )?,
-            SimulationRunnerSelection::M3p => canonical_m3p_state_hash_from_storage(
-                storage,
-                current_day,
-                settlements,
-                &self.graph,
-                self.allocator.expect("M3P allocator"),
-            )?,
-            SimulationRunnerSelection::M3pPropagation => canonical_m3pprop_state_hash_from_storage(
-                storage,
-                current_day,
-                settlements,
-                &self.graph,
-                self.allocator.expect("M3P allocator"),
-                self.propagation.as_ref().expect("M3P propagation rows"),
-            )?,
+            SimulationRunnerSelection::M3 => match migration {
+                Some(state) => canonical_m3m_state_hash_from_storage(
+                    storage,
+                    current_day,
+                    settlements,
+                    &self.graph,
+                    state,
+                )?,
+                None => canonical_m3_state_hash_from_storage(
+                    storage,
+                    current_day,
+                    settlements,
+                    &self.graph,
+                )?,
+            },
+            SimulationRunnerSelection::M3Propagation => match migration {
+                Some(state) => canonical_m3mprop_state_hash_from_storage(
+                    storage,
+                    current_day,
+                    settlements,
+                    &self.graph,
+                    self.propagation.as_ref().expect("M3 propagation rows"),
+                    state,
+                )?,
+                None => canonical_m3prop_state_hash_from_storage(
+                    storage,
+                    current_day,
+                    settlements,
+                    &self.graph,
+                    self.propagation.as_ref().expect("M3 propagation rows"),
+                )?,
+            },
+            SimulationRunnerSelection::M3p => match migration {
+                Some(state) => canonical_m3pm_state_hash_from_storage(
+                    storage,
+                    current_day,
+                    settlements,
+                    &self.graph,
+                    self.allocator.expect("M3P allocator"),
+                    state,
+                )?,
+                None => canonical_m3p_state_hash_from_storage(
+                    storage,
+                    current_day,
+                    settlements,
+                    &self.graph,
+                    self.allocator.expect("M3P allocator"),
+                )?,
+            },
+            SimulationRunnerSelection::M3pPropagation => match migration {
+                Some(state) => canonical_m3pmprop_state_hash_from_storage(
+                    storage,
+                    current_day,
+                    settlements,
+                    &self.graph,
+                    self.allocator.expect("M3P allocator"),
+                    self.propagation.as_ref().expect("M3P propagation rows"),
+                    state,
+                )?,
+                None => canonical_m3pprop_state_hash_from_storage(
+                    storage,
+                    current_day,
+                    settlements,
+                    &self.graph,
+                    self.allocator.expect("M3P allocator"),
+                    self.propagation.as_ref().expect("M3P propagation rows"),
+                )?,
+            },
             SimulationRunnerSelection::M2 => return Err(BranchError::UnsupportedProfile),
         })
     }
@@ -2124,6 +2529,13 @@ impl BranchStartState {
         match self.profile {
             SimulationRunnerSelection::M3 => {
                 let context = M3ReferenceContext::new(&world, config, run_context)?;
+                if let Some(migration) = &self.migration {
+                    context.restore_migration_state(
+                        migration.clone(),
+                        world.agents.len(),
+                        world.settlements.len(),
+                    );
+                }
                 let mut world = world;
                 run_m3_reference_day_with_phase_recorder(
                     &mut world,
@@ -2135,13 +2547,16 @@ impl BranchStartState {
                 )?;
             }
             SimulationRunnerSelection::M3p => {
-                let state = M3pReferenceState::from_parts(
+                let mut state = M3pReferenceState::from_parts(
                     world,
                     self.graph.clone(),
                     self.allocator.expect("M3P allocator"),
                     config,
                     run_context,
                 )?;
+                if let Some(migration) = &self.migration {
+                    state.set_migration_state(migration.clone());
+                }
                 let mut state = state;
                 run_m3p_reference_day_with_phase_recorder(
                     &mut state,
@@ -2155,13 +2570,16 @@ impl BranchStartState {
             SimulationRunnerSelection::M3Propagation
             | SimulationRunnerSelection::M3pPropagation => {
                 if self.profile == SimulationRunnerSelection::M3Propagation {
-                    let state = M3PropagationReferenceState::from_parts(
+                    let mut state = M3PropagationReferenceState::from_parts(
                         world,
                         self.graph.clone(),
                         self.propagation.clone().expect("M3 propagation rows"),
                         config,
                         run_context,
                     )?;
+                    if let Some(migration) = &self.migration {
+                        state.set_migration_state(migration.clone());
+                    }
                     let mut state = state;
                     run_m3prop_reference_day_with_phase_recorder(
                         &mut state,
@@ -2172,14 +2590,17 @@ impl BranchStartState {
                         records,
                     )?;
                 } else {
-                    let base = M3pReferenceState::from_parts(
+                    let mut base = M3pReferenceState::from_parts(
                         world,
                         self.graph.clone(),
                         self.allocator.expect("M3P allocator"),
                         &crate::m3pprop::m3p_base_config(config),
                         run_context,
                     )?;
-                    let mut state = crate::m3pprop::M3pPropagationReferenceState::from_parts(
+                    if let Some(migration) = &self.migration {
+                        base.set_migration_state(migration.clone());
+                    }
+                    let mut state = M3pPropagationReferenceState::from_parts(
                         base,
                         self.propagation.clone().expect("M3P propagation rows"),
                         config,
@@ -3054,12 +3475,7 @@ pub fn run_counterfactual_branch(request: &BranchRequest) -> Result<BranchResult
 pub fn run_counterfactual_intervention_batch(
     request: &BranchInterventionBatchRequest,
 ) -> Result<BranchInterventionBatchResult, BranchError> {
-    if !matches!(
-        request.config.runner_selection(),
-        SimulationRunnerSelection::M3 | SimulationRunnerSelection::M3p
-    ) {
-        return Err(BranchError::UnsupportedProfile);
-    }
+    validate_counterfactual_system_set(&request.config)?;
     validate_identified_batch(&request.interventions)?;
     let start_day = request.snapshot.metadata.day;
     let ordered = ordered_interventions(&request.interventions);
@@ -3160,12 +3576,7 @@ pub fn run_counterfactual_intervention_batch(
 pub(crate) fn run_counterfactual_batch_branch_days(
     request: &BranchInterventionBatchRequest,
 ) -> Result<(Vec<BranchDayRecord>, Vec<ForcedActionBatchOutcome>), BranchError> {
-    if !matches!(
-        request.config.runner_selection(),
-        SimulationRunnerSelection::M3 | SimulationRunnerSelection::M3p
-    ) {
-        return Err(BranchError::UnsupportedProfile);
-    }
+    validate_counterfactual_system_set(&request.config)?;
     validate_identified_batch(&request.interventions)?;
     let ordered = ordered_interventions(&request.interventions);
     let PreparedBatch {
@@ -3350,9 +3761,7 @@ fn prepare_intervention_batch(
     request: &BranchInterventionBatchRequest,
     ordered: &[IdentifiedIntervention],
 ) -> Result<PreparedBatch, BranchError> {
-    if request.config.runner_selection() == SimulationRunnerSelection::M2 {
-        return Err(BranchError::UnsupportedProfile);
-    }
+    validate_counterfactual_system_set(&request.config)?;
     request.config.validate().map_err(BranchError::from)?;
     let mut branch_config = request.config.clone();
     for item in ordered {
@@ -3474,10 +3883,7 @@ pub fn run_counterfactual_branch_with_analysis_mode(
             Ok(BranchAnalysisOutput::Full { result, costs })
         }
         BranchAnalysisMode::RecorderComparisonsDisabled { expected } => {
-            if !matches!(
-                request.config.runner_selection(),
-                SimulationRunnerSelection::M3p | SimulationRunnerSelection::M3pPropagation
-            ) {
+            if !request.config.effective_systems().population_dynamics {
                 return Err(BranchError::UnsupportedProfile);
             }
             let mut costs = BranchAnalysisCosts::default();
@@ -3511,9 +3917,7 @@ fn prepare_branch(request: &BranchRequest) -> Result<PreparedBranch, BranchError
     if request.execution == BranchExecutionOption::ExplicitParallel {
         return Err(BranchError::UnsupportedExecutionOption);
     }
-    if request.config.runner_selection() == SimulationRunnerSelection::M2 {
-        return Err(BranchError::UnsupportedProfile);
-    }
+    validate_counterfactual_system_set(&request.config)?;
     request.config.validate().map_err(BranchError::from)?;
     let mut branch_config = request.config.clone();
     if let BranchIntervention::ConfigOverride { parameter, value } = request.intervention {

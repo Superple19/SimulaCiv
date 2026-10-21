@@ -280,6 +280,31 @@ pub(crate) fn apply_migration_world(
     state: &mut MigrationState,
     scratch: &mut MigrationScratch,
 ) -> Result<MigrationDayData, MigrationError> {
+    apply_migration_world_with_search_skip(
+        world,
+        graph,
+        config,
+        master_seed,
+        replicate_id,
+        day,
+        state,
+        scratch,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_migration_world_with_search_skip(
+    world: &mut WorldState,
+    graph: &RelationshipGraph,
+    config: MigrationConfig,
+    master_seed: u64,
+    replicate_id: u32,
+    day: u32,
+    state: &mut MigrationState,
+    scratch: &mut MigrationScratch,
+    skip_destination_search: bool,
+) -> Result<MigrationDayData, MigrationError> {
     scratch.reset();
     for (slot, agent) in world.agents.iter().enumerate() {
         scratch.agents.push(AgentView {
@@ -300,6 +325,7 @@ pub(crate) fn apply_migration_world(
         day,
         state,
         scratch,
+        skip_destination_search,
     )?;
     for planned in &scratch.moves {
         let agent = world
@@ -371,6 +397,7 @@ pub(crate) fn apply_migration_storage(
         day,
         state,
         scratch,
+        true,
     )?;
     for planned in &scratch.moves {
         let slot = storage
@@ -407,6 +434,7 @@ fn prepare_migration_plan(
     day: u32,
     state: &mut MigrationState,
     scratch: &mut MigrationScratch,
+    skip_destination_search: bool,
 ) -> Result<(), MigrationError> {
     scratch.agents.sort_unstable_by_key(|agent| agent.agent_id);
     for (index, agent) in scratch.agents.iter().enumerate() {
@@ -479,6 +507,9 @@ fn prepare_migration_plan(
             }
         }
         if source.wealth < config.migration_cost {
+            continue;
+        }
+        if skip_destination_search && draw >= config.migration_probability {
             continue;
         }
 
@@ -906,4 +937,129 @@ fn read_u64(bytes: &[u8], cursor: &mut usize) -> Result<u64, SnapshotError> {
             .try_into()
             .map_err(|_| SnapshotError::UnexpectedEof)?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        MigrationConfig, MigrationScratch, MigrationState, apply_migration_world,
+        apply_migration_world_with_search_skip,
+    };
+    use crate::config::{SimConfig, SimulationConfig, SimulationProfile, SimulationSystems};
+    use crate::initialization::initialize_world;
+    use crate::relationship_graph::RelationshipGraph;
+
+    fn migration_config(population: bool, propagation: bool, probability: f32) -> SimConfig {
+        let source = if population {
+            include_str!("../tests/fixtures/m3p_propagation_sustained.toml")
+        } else {
+            include_str!("../tests/fixtures/m3_propagation.toml")
+        };
+        let mut config = SimConfig::parse_and_validate(source).unwrap();
+        config.profile = if population {
+            SimulationProfile::M3p
+        } else {
+            SimulationProfile::M3
+        };
+        config.world.initial_population = 300;
+        config.world.settlement_count = 3;
+        config.world.master_seed = 0x55aa;
+        config.world.replicate_id = 7;
+        config.simulation = Some(SimulationConfig {
+            systems: SimulationSystems {
+                relationship_graph: true,
+                population_dynamics: population,
+                propagation,
+            },
+        });
+        if !population {
+            config.population = None;
+        }
+        if !propagation {
+            config.propagation = None;
+        }
+        config.enable_migration(MigrationConfig {
+            migration_probability: probability,
+            migration_threshold: 0.0,
+            migration_cost: 10,
+            migration_cooldown_days: 0,
+        });
+        config.validate().unwrap();
+        config
+    }
+
+    #[test]
+    fn destination_search_skip_matches_the_preoptimization_plan_for_all_migration_profiles() {
+        for population in [false, true] {
+            for propagation in [false, true] {
+                for probability in [0.0, 0.05, 0.5] {
+                    let config = migration_config(population, propagation, probability);
+                    let initial = initialize_world(&config).unwrap();
+                    let memberships = initial
+                        .agents
+                        .iter()
+                        .map(|agent| (agent.agent_id, agent.group_id))
+                        .collect::<Vec<_>>();
+                    let graph = RelationshipGraph::generate(
+                        &memberships,
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        config.interaction.relationship_degree_k.unwrap() as u32,
+                        config.interaction.p_local.unwrap(),
+                    )
+                    .unwrap();
+                    let migration = config.migration.unwrap();
+                    let agent_ids = initial
+                        .agents
+                        .iter()
+                        .map(|agent| agent.agent_id)
+                        .collect::<Vec<_>>();
+
+                    let mut optimized_world = initial.clone();
+                    let mut legacy_world = initial;
+                    for settlement in &mut optimized_world.settlements {
+                        settlement.resource *= f32::from(settlement.group_id.0 + 1);
+                    }
+                    legacy_world
+                        .settlements
+                        .clone_from(&optimized_world.settlements);
+                    let optimized_graph = graph.clone();
+                    let legacy_graph = graph;
+                    let mut optimized_state = MigrationState::new(agent_ids.clone()).unwrap();
+                    let mut legacy_state = MigrationState::new(agent_ids).unwrap();
+                    let mut optimized_scratch = MigrationScratch::with_capacity(300, 3);
+                    let mut legacy_scratch = MigrationScratch::with_capacity(300, 3);
+
+                    let optimized = apply_migration_world(
+                        &mut optimized_world,
+                        &optimized_graph,
+                        migration,
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        1,
+                        &mut optimized_state,
+                        &mut optimized_scratch,
+                    )
+                    .unwrap();
+                    let legacy = apply_migration_world_with_search_skip(
+                        &mut legacy_world,
+                        &legacy_graph,
+                        migration,
+                        config.world.master_seed,
+                        config.world.replicate_id,
+                        1,
+                        &mut legacy_state,
+                        &mut legacy_scratch,
+                        false,
+                    )
+                    .unwrap();
+
+                    assert_eq!(optimized, legacy);
+                    assert_eq!(optimized_world, legacy_world);
+                    assert_eq!(optimized_state, legacy_state);
+                    assert_eq!(optimized_graph, legacy_graph);
+                }
+            }
+        }
+    }
 }
