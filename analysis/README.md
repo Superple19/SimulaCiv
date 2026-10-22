@@ -8,7 +8,6 @@ Install uv 0.13.5, Quarto CLI 1.10.19, and just 1.58.0 using their official inst
 
 ```sh
 uv python install
-just analysis-sync
 ```
 
 `just check` runs the analysis tests and verifies links, claims, and committed reports without rewriting them. To reproduce the M5-01 report from the committed ledger, run the single command:
@@ -17,4 +16,4 @@ just analysis-sync
 just report-m5-01
 ```
 
-This regenerates the `.qmd` and renders its GitHub-flavored Markdown output with the pinned Quarto version. Raw claims are regenerated separately with `just claims`.
+This regenerates the tidy claim ledger, `.qmd`, and rendered GitHub-flavored Markdown with the pinned tools. Use `just claims` alone when only the ledger needs regeneration.

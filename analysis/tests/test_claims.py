@@ -2,7 +2,7 @@ import csv
 import gzip
 from pathlib import Path
 
-from simciv_analysis.claims import extract_claims, ledger_bytes
+from simciv_analysis.claims import _tier, extract_claims, ledger_bytes
 
 
 def test_claims_exclude_inputs_match_exact_metadata_and_pack_one_row_each(tmp_path):
@@ -66,3 +66,12 @@ def test_conflicting_old_metadata_is_unmapped(tmp_path):
     claim = extract_claims(tmp_path, old)[0]
     assert claim["status"] == "unmapped"
     assert "ambiguous" in claim["notes"]
+
+
+def test_key_tier_does_not_promote_completed_stage_scope_lines():
+    assert _tier("M5 stage plan", "M5-03 implementation COMPLETE", audit=False) == "supporting"
+    assert _tier("Validation record", "8 analysis tests passed", audit=False) == "key"
+    assert _tier("Audit appendix", "population count 42", audit=True) == "supporting"
+    assert _tier("Audit appendix", "| final | 42 |", audit=True, table_row=True) == "key"
+    assert _tier("Results", "gate verdict: PASS", audit=False) == "key"
+    assert _tier("Status", "Status: complete (42)", audit=False) == "key"

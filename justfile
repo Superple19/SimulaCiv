@@ -15,7 +15,7 @@ claims: analysis-sync
 claims-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.claims --check
 
-report-m5-01: analysis-sync
+report-m5-01: claims
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_01
 
 report-m5-01-check: analysis-sync

@@ -1,6 +1,6 @@
 # M5 Reproducibility and Research Hardening Contract
 
-**Status: M5-00, M5-02, and M5-03 FROZEN; M5-01 COMPLETE**
+**Status: M5-00, M5-02, and M5-03 FROZEN; M5-01 COMPLETE; M5-03 implementation COMPLETE**
 **Baseline: `v0.5.0-m4`**
 
 ## 1. Research question
@@ -66,7 +66,7 @@ The order is structure → tooling → verification → new experiments → clea
 | **M5-00 — Contract and data policy** | **COMPLETE.** Freeze reproducibility definitions, the selected data-size policy, provenance requirements, and acceptance gates. |
 | **M5-01 — Reproducibility inventory** | **COMPLETE.** Inventory every numeric claim in M0–M4 reports and measured contract statements; map claim values to harnesses, raw data, status, class, and next stage. |
 | **M5-02 — Repository layout** | **FROZEN; implementation in progress.** Organize contracts, reports, data, reproducibility outputs, and analysis tools under the frozen layout in §10. |
-| **M5-03 — Analysis toolchain** | **FROZEN.** Add the pinned `uv` project, `pandas`, `matplotlib`, Quarto, `just`, `pytest`, deterministic report generation, link checking, and the approved Ubuntu analysis CI job. Regenerate M5-01 as a tidy one-row-per-claim gzip ledger, exclude configuration/input values, add key/supporting tiers, and recheck the 29 M1 claims currently labeled unrecoverable. |
+| **M5-03 — Analysis toolchain** | **FROZEN; implementation COMPLETE.** Add the pinned `uv` project, `pandas`, `matplotlib`, Quarto, `just`, `pytest`, deterministic report generation, link checking, and the approved Ubuntu analysis CI job. Regenerate M5-01 as a tidy one-row-per-claim gzip ledger, exclude configuration/input values, add key/supporting tiers, and recheck the 29 M1 claims currently labeled unrecoverable. |
 | **M5-04 — M4 regeneration** | Re-run existing Rust harnesses against committed M4 data, verify deterministic outputs bit-exactly, and produce a Quarto report. |
 | **M5-05 — M0–M3 regeneration and re-measurement** | Regenerate or re-measure key M0–M3 tables, preserving old values as history and applying the frozen timing comparison rule. |
 | **M5-06 — Python bindings** | Add PyO3/maturin bindings and an experiment runner with commit, configuration, and host provenance. |
@@ -213,3 +213,14 @@ All selected versions are latest stable as checked on the date above; no compati
 ### 11.5 Freeze record
 
 This freeze authorizes the M5-03 analysis environment, report generator, claim-ledger regeneration, and the separate Ubuntu analysis CI job described above. It does not authorize simulation runs, Python bindings, or changes to simulation semantics.
+
+### 11.6 Implementation and validation record
+
+M5-03 implementation completed with the pins in §11.1. The M5-01 inventory is generated from the committed tidy ledger; the old packed ledger and hand-written report remain under `docs/reproducibility/superseded/` for comparison. The new CI workflow has a separate Ubuntu analysis job; hosted CI has not yet run for this commit.
+
+- `just check` — passed: 9 analysis tests; 736 relative Markdown links; claim ledger byte check; temporary Quarto render byte comparison.
+- `cargo fmt --check` — passed.
+- `cargo clippy --workspace --all-targets -- -D warnings` — passed.
+- `cargo test --workspace` — passed.
+- `git diff --check` — passed.
+- No benchmark or experiment harness was run.

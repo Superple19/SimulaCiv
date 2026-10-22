@@ -36,3 +36,30 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+  analysis:
+    name: Analysis tooling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.13.5"
+
+      - name: Install pinned Python
+        run: uv python install
+
+      - name: Install pinned Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: "1.10.19"
+
+      - name: Install pinned just
+        uses: extractions/setup-just@v4
+        with:
+          just-version: "1.58.0"
+
+      - name: Check analysis tooling and reports
+        run: just check

@@ -154,11 +154,17 @@ def _tokens(text: str) -> Iterator[tuple[str, str]]:
         yield value, unit
 
 
-def _tier(section: str, line: str, *, audit: bool) -> str:
-    context = f"{section} {line}".lower()
-    if audit or any(term in context for term in ("summary", "findings", "gate verdict", "graduation")):
+def _tier(section: str, line: str, *, audit: bool, header: str = "", table_row: bool = False) -> str:
+    context = f"{section} {header} {line}".lower()
+    if any(term in context for term in ("summary", "findings", "gate verdict")):
         return "key"
-    if re.search(r"\b(?:pass|fail|inconclusive|complete|blocked)\b", context):
+    if re.match(r"^\s*(?:[-*+]\s*)?(?:\*\*)?(?:validation\s+)?status(?:\*\*)?\s*:", line, re.IGNORECASE) and re.search(
+        r"\b(?:pass(?:ed)?|fail(?:ed)?|inconclusive|complete|blocked)\b", context, re.IGNORECASE
+    ):
+        return "key"
+    if re.search(r"\b(?:pass(?:ed)?|fail(?:ed)?|inconclusive)\b", context, re.IGNORECASE):
+        return "key"
+    if table_row and (audit or "graduation" in context):
         return "key"
     return "supporting"
 
@@ -204,7 +210,6 @@ def _line_claims(
         "line": line_number,
         "section anchor": _slug(section),
         "claim text (short)": line.strip()[:240],
-        "tier": _tier(section, line, audit=audit),
     }
     output: list[dict[str, object]] = []
     if line.lstrip().startswith("|") and headers is not None and not _is_separator(_split_cells(line)):
@@ -218,14 +223,19 @@ def _line_claims(
                     continue
                 unit = unit or _header_unit(header)
                 row = dict(base)
-                row.update(value=value, unit=unit, **{"class": _class(value, unit, f"{header} {context}")})
+                row.update(
+                    value=value,
+                    unit=unit,
+                    tier=_tier(section, line, audit=audit, header=header, table_row=True),
+                    **{"class": _class(value, unit, f"{header} {context}")},
+                )
                 output.append(row)
         return output
 
     if _eligible_text(line, section, contract=contract):
         for value, unit in _tokens(line):
             row = dict(base)
-            row.update(value=value, unit=unit, **{"class": _class(value, unit, context)})
+            row.update(value=value, unit=unit, tier=_tier(section, line, audit=audit), **{"class": _class(value, unit, context)})
             output.append(row)
     return output
 

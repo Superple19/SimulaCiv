@@ -1,10 +1,7 @@
 # M5-01 Reproducibility Inventory
 
 
-## Status
-
-Complete. This is a document inventory only; no simulation harness was
-run.
+Status: current
 
 ## Question
 
@@ -17,7 +14,7 @@ remain?
 The committed extractor
 [claims.py](../../analysis/simciv_analysis/claims.py) reads the
 report/contract source tree. Its tidy output
-[claims.csv.gz](claims.csv.gz) contains **32,702** rows; the prior
+[claims.csv.gz](claims.csv.gz) contains **32,705** rows; the prior
 packed ledger [superseded/claims.csv](superseded/claims.csv) contains
 **37,612** expanded scalar values. Excluded inputs are table columns or
 labeled assignments for population/workload sizes, group and neighbor
@@ -34,25 +31,28 @@ the report generator
 [report_m5_01.py](../../analysis/simciv_analysis/report_m5_01.py).
 Old-ledger comparisons additionally read the retained packed ledger.
 
+The tidy ledger contains **2,952** key claims and **29,753** supporting
+claims.
+
 ### Counts by milestone, class, status, and tier
 
 | milestone | class         | status             | tier       | claims |
 |-----------|---------------|--------------------|------------|--------|
 | M0        | —             | —                  | —          | 0      |
-| M1        | derived       | unmapped           | key        | 9      |
-| M1        | derived       | unmapped           | supporting | 100    |
+| M1        | derived       | unmapped           | key        | 8      |
+| M1        | derived       | unmapped           | supporting | 101    |
 | M1        | derived       | unrecoverable      | key        | 9      |
 | M1        | deterministic | unmapped           | supporting | 9      |
 | M1        | deterministic | unrecoverable      | key        | 20     |
 | M2        | derived       | missing-data       | key        | 6      |
 | M2        | derived       | missing-data       | supporting | 4      |
-| M2        | derived       | unmapped           | key        | 1,360  |
-| M2        | derived       | unmapped           | supporting | 1,925  |
+| M2        | derived       | unmapped           | key        | 1,356  |
+| M2        | derived       | unmapped           | supporting | 1,929  |
 | M2        | derived       | unrecoverable      | supporting | 1      |
 | M2        | deterministic | reproducible-now   | key        | 19     |
 | M2        | deterministic | reproducible-now   | supporting | 116    |
-| M2        | deterministic | unmapped           | key        | 88     |
-| M2        | deterministic | unmapped           | supporting | 92     |
+| M2        | deterministic | unmapped           | key        | 91     |
+| M2        | deterministic | unmapped           | supporting | 89     |
 | M2        | deterministic | unrecoverable      | supporting | 6      |
 | M2        | timing        | missing-data       | key        | 1      |
 | M2        | timing        | missing-data       | supporting | 25     |
@@ -60,11 +60,11 @@ Old-ledger comparisons additionally read the retained packed ledger.
 | M2        | timing        | unmapped           | supporting | 697    |
 | M3        | derived       | missing-data       | key        | 4      |
 | M3        | derived       | missing-data       | supporting | 2,211  |
-| M3        | derived       | unmapped           | key        | 271    |
-| M3        | derived       | unmapped           | supporting | 10,901 |
+| M3        | derived       | unmapped           | key        | 266    |
+| M3        | derived       | unmapped           | supporting | 10,906 |
 | M3        | derived       | unrecoverable      | supporting | 3      |
-| M3        | deterministic | reproducible-now   | key        | 24     |
-| M3        | deterministic | reproducible-now   | supporting | 2,686  |
+| M3        | deterministic | reproducible-now   | key        | 26     |
+| M3        | deterministic | reproducible-now   | supporting | 2,684  |
 | M3        | deterministic | unmapped           | key        | 2      |
 | M3        | deterministic | unmapped           | supporting | 152    |
 | M3        | deterministic | unrecoverable      | supporting | 69     |
@@ -74,13 +74,13 @@ Old-ledger comparisons additionally read the retained packed ledger.
 | M3        | timing        | unrecoverable      | supporting | 4      |
 | M4        | derived       | reproducible-now   | supporting | 24     |
 | M4        | derived       | restored-not-rerun | supporting | 47     |
-| M4        | derived       | unmapped           | key        | 395    |
-| M4        | derived       | unmapped           | supporting | 2,354  |
+| M4        | derived       | unmapped           | key        | 423    |
+| M4        | derived       | unmapped           | supporting | 2,326  |
 | M4        | derived       | unrecoverable      | supporting | 11     |
 | M4        | deterministic | reproducible-now   | key        | 2      |
 | M4        | deterministic | reproducible-now   | supporting | 5      |
-| M4        | deterministic | restored-not-rerun | key        | 32     |
-| M4        | deterministic | restored-not-rerun | supporting | 980    |
+| M4        | deterministic | restored-not-rerun | key        | 34     |
+| M4        | deterministic | restored-not-rerun | supporting | 978    |
 | M4        | deterministic | unmapped           | key        | 27     |
 | M4        | deterministic | unmapped           | supporting | 45     |
 | M4        | deterministic | unrecoverable      | supporting | 5      |
@@ -88,7 +88,8 @@ Old-ledger comparisons additionally read the retained packed ledger.
 | M4        | timing        | unmapped           | key        | 451    |
 | M4        | timing        | unmapped           | supporting | 188    |
 | M4        | timing        | unrecoverable      | supporting | 13     |
-| M5        | derived       | unmapped           | supporting | 55     |
+| M5        | derived       | unmapped           | key        | 6      |
+| M5        | derived       | unmapped           | supporting | 52     |
 | M5        | deterministic | reproducible-now   | supporting | 18     |
 | M5        | deterministic | unmapped           | supporting | 4      |
 | M5        | deterministic | unrecoverable      | supporting | 1      |
@@ -99,7 +100,7 @@ Old-ledger comparisons additionally read the retained packed ledger.
 | Ledger view | rows | exact tuple records | unmapped/excluded | reason |
 |----|----|----|----|----|
 | old packed records | 37,612 | 6,755 | 30,857 | old one-row-or-range records expanded to scalar values |
-| new tidy records | 32,702 | 6,416 | 26,286 | one row per selected numeric claim; no exact provenance is inferred |
+| new tidy records | 32,705 | 6,416 | 26,289 | one row per selected numeric claim; no exact provenance is inferred |
 | new rows with conflicting old metadata | 257 | 0 | 257 | duplicate old report/line/value keys disagree, so provenance remains unmapped |
 
 #### Exact-match and unmapped reasons
@@ -112,7 +113,7 @@ Old-ledger comparisons additionally read the retained packed ledger.
 | source, line, or value no longer matches | 26,768 | no exact current source evidence; left unmapped |
 
 The tidy ledger has **6,416** rows with transferred prior
-status/provenance and **26,286** rows marked unmapped. Exact transfers
+status/provenance and **26,289** rows marked unmapped. Exact transfers
 require an unambiguous (report, line, value) key; all others remain
 unguessed.
 
@@ -161,7 +162,6 @@ Supporting claims remain in the ledger.
 | M1 | M1_CONTRACT_FREEZE.md | 77 | 3-c01-c10-frozen-contract-matrix | 1 |  | derived | unmapped |
 | M1 | M1_CONTRACT_FREEZE.md | 77 | 3-c01-c10-frozen-contract-matrix | 12 |  | derived | unmapped |
 | M1 | M1_CONTRACT_FREEZE.md | 77 | 3-c01-c10-frozen-contract-matrix | 15 |  | derived | unmapped |
-| M1 | M1_CONTRACT_FREEZE.md | 143 | 4-authoritative-m1-daily-lifecycle-specification | 1 |  | derived | unmapped |
 | M2 | M2_07_ALLOCATION_ANALYSIS.md | 128 | 4-rejected-optimization-candidates-summary | 6 |  | derived | unmapped |
 | M2 | M2_07_ALLOCATION_ANALYSIS.md | 129 | 4-rejected-optimization-candidates-summary | 7 |  | derived | unmapped |
 | M2 | M2_07_ALLOCATION_ANALYSIS.md | 130 | 4-rejected-optimization-candidates-summary | 3 |  | derived | unmapped |
@@ -242,8 +242,9 @@ Supporting claims remain in the ledger.
 | M2 | M2_14_SOA_FEASIBILITY_ANALYSIS.md | 282 | 6-2-root-cause-hypothesis-evaluation | 32 |  | timing | unmapped |
 | M2 | M2_14_SOA_FEASIBILITY_ANALYSIS.md | 282 | 6-2-root-cause-hypothesis-evaluation | 10 |  | derived | missing-data |
 | M2 | M2_14_SOA_FEASIBILITY_ANALYSIS.md | 282 | 6-2-root-cause-hypothesis-evaluation | 750 |  | timing | unmapped |
-| M2 | M2_18_SEGMENTED_SOA_STORAGE_POC.md | 24 | key-finding | 3.23 | x | derived | unmapped |
-| M2 | M2_18_SEGMENTED_SOA_STORAGE_POC.md | 24 | key-finding | 3.36 | x | derived | unmapped |
+| M2 | M2_17_HOT_PATH_SOA_EXPANSION_ANALYSIS.md | 103 | verification-results | 5b396f23a8195fd7155a7b9577b0eaca265e59768a81f0cafd8ab68c0d9d67b9 | sha256 | deterministic | unmapped |
+| M2 | M2_17_HOT_PATH_SOA_EXPANSION_ANALYSIS.md | 104 | verification-results | ffbadbfda9bba1f799d4e72eac222e4e58deca4905ee8447a44ece8cec3baa3b | sha256 | deterministic | unmapped |
+| M2 | M2_17_HOT_PATH_SOA_EXPANSION_ANALYSIS.md | 105 | verification-results | 2a40e01a7cd0b981eba037a14cf2f40c748ae0ff9e0df290ed802ba8b0c51cac | sha256 | deterministic | unmapped |
 | M2 | M2_34_POST_ALGORITHM_REPROFILING.md | 174 | 12-rayon-suitability | 4.47 |  | derived | unmapped |
 | M2 | M2_34_POST_ALGORITHM_REPROFILING.md | 174 | 12-rayon-suitability | 4.71 | % | derived | unmapped |
 | M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | 45 | 3-serial-and-explicit-rayon-full-tick-results | 100 |  | derived | unmapped |
@@ -1801,8 +1802,6 @@ Supporting claims remain in the ledger.
 | M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | 506 | 22-correctness-values | 5b396f23a8195fd7155a7b9577b0eaca265e59768a81f0cafd8ab68c0d9d67b9 | sha256 | deterministic | unmapped |
 | M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | 507 | 22-correctness-values | ffbadbfda9bba1f799d4e72eac222e4e58deca4905ee8447a44ece8cec3baa3b | sha256 | deterministic | unmapped |
 | M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | 508 | 22-correctness-values | 2a40e01a7cd0b981eba037a14cf2f40c748ae0ff9e0df290ed802ba8b0c51cac | sha256 | deterministic | unmapped |
-| M2 | M2_OPTIMIZATION_CONTRACT.md | 136 | 4-2-mandatory-validation-scopes | 2 |  | derived | unmapped |
-| M2 | M2_OPTIMIZATION_CONTRACT.md | 136 | 4-2-mandatory-validation-scopes | 500 |  | derived | unmapped |
 | M2 | M2_X_REBASELINE_REPORT.md | 66 | 4-allocation-scratch-buffer-optimization-ledger-m2-02-to-m2-12 | 8 |  | deterministic | unmapped |
 | M2 | M2_X_REBASELINE_REPORT.md | 66 | 4-allocation-scratch-buffer-optimization-ledger-m2-02-to-m2-12 | 8 |  | deterministic | unmapped |
 | M2 | M2_X_REBASELINE_REPORT.md | 66 | 4-allocation-scratch-buffer-optimization-ledger-m2-02-to-m2-12 | -48.0 | % | deterministic | unmapped |
@@ -1813,6 +1812,12 @@ Supporting claims remain in the ledger.
 | M2 | M2_X_REBASELINE_REPORT.md | 67 | 4-allocation-scratch-buffer-optimization-ledger-m2-02-to-m2-12 | -39.8 | % | derived | unmapped |
 | M2 | M2_X_REBASELINE_REPORT.md | 67 | 4-allocation-scratch-buffer-optimization-ledger-m2-02-to-m2-12 | 0.196 |  | derived | unmapped |
 | M2 | M2_X_REBASELINE_REPORT.md | 67 | 4-allocation-scratch-buffer-optimization-ledger-m2-02-to-m2-12 | 0.118 | ms | timing | unmapped |
+| M3 | M3_02_PARALLEL_PHASE6B.md | 1,241 | outcome-counts-over-days-1-3 | 3742 | days | deterministic | reproducible-now |
+| M3 | M3_02_PARALLEL_PHASE6B.md | 1,242 | outcome-counts-over-days-1-3 | 3742 |  | derived | unmapped |
+| M3 | M3_02_PARALLEL_PHASE6B.md | 1,243 | outcome-counts-over-days-1-3 | 3742 |  | derived | unmapped |
+| M3 | M3_02_PARALLEL_PHASE6B.md | 1,244 | outcome-counts-over-days-1-3 | 36902 | days | deterministic | reproducible-now |
+| M3 | M3_02_PARALLEL_PHASE6B.md | 1,245 | outcome-counts-over-days-1-3 | 36902 |  | derived | unmapped |
+| M3 | M3_02_PARALLEL_PHASE6B.md | 1,246 | outcome-counts-over-days-1-3 | 36902 |  | derived | unmapped |
 | M3 | M3_03_SEARCH_REDUCTION.md | 128 | candidate-decisions | 4 |  | derived | unmapped |
 | M3 | M3_03_SEARCH_REDUCTION.md | 128 | candidate-decisions | 74.2 |  | derived | unmapped |
 | M3 | M3_03_SEARCH_REDUCTION.md | 128 | candidate-decisions | 31.7 | µs | timing | unmapped |
@@ -1820,7 +1825,6 @@ Supporting claims remain in the ledger.
 | M3 | M3_03_SEARCH_REDUCTION.md | 128 | candidate-decisions | 6 |  | derived | unmapped |
 | M3 | M3_03_SEARCH_REDUCTION.md | 128 | candidate-decisions | 18.4 |  | derived | unmapped |
 | M3 | M3_03_SEARCH_REDUCTION.md | 128 | candidate-decisions | 84.9 | µs | timing | unmapped |
-| M3 | M3_03_SEARCH_REDUCTION.md | 130 | candidate-decisions | 11.2 |  | derived | unmapped |
 | M3 | M3_04_SUSTAINED_WORKLOAD.md | 344 | comparison-with-m3-02-interim-audit-findings | 0.53 |  | derived | unmapped |
 | M3 | M3_04_SUSTAINED_WORKLOAD.md | 344 | comparison-with-m3-02-interim-audit-findings | 0.54 |  | derived | unmapped |
 | M3 | M3_04_SUSTAINED_WORKLOAD.md | 344 | comparison-with-m3-02-interim-audit-findings | 0 |  | derived | unmapped |
@@ -2097,9 +2101,6 @@ Supporting claims remain in the ledger.
 | M3 | M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | 22 | milestone-questions | 9 |  | derived | unmapped |
 | M3 | M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | 42 | scope-and-stage-record | 6 |  | derived | unmapped |
 | M3 | M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | 42 | scope-and-stage-record | 6 |  | derived | unmapped |
-| M3 | M3_INTERACTION_CONTRACT.md | 253 | stage-number-mapping | 14 |  | derived | unmapped |
-| M3 | M3_INTERACTION_CONTRACT.md | 254 | stage-number-mapping | 15 |  | derived | unmapped |
-| M3 | M3_INTERACTION_CONTRACT.md | 255 | stage-number-mapping | 16 |  | derived | unmapped |
 | M3 | M3_INTERACTION_CONTRACT.md | 364 | 9-5-phases-that-retain-the-m2-storage-path | 8 |  | derived | unmapped |
 | M3 | M3_INTERACTION_CONTRACT.md | 364 | 9-5-phases-that-retain-the-m2-storage-path | 6 |  | derived | unmapped |
 | M3 | M3_INTERACTION_CONTRACT.md | 411 | 9-11-frozen-decision-register | 9.7 |  | derived | unmapped |
@@ -2126,11 +2127,6 @@ Supporting claims remain in the ledger.
 | M3 | M3_INTERACTION_CONTRACT.md | 614 | 11-9-frozen-decision-register | 200 |  | derived | unmapped |
 | M3 | M3_INTERACTION_CONTRACT.md | 614 | 11-9-frozen-decision-register | 199 |  | derived | unmapped |
 | M3 | M3_INTERACTION_CONTRACT.md | 614 | 11-9-frozen-decision-register | 2800 |  | derived | unmapped |
-| M3 | M3_INTERACTION_CONTRACT.md | 616 | 11-9-frozen-decision-register | 3 |  | derived | unmapped |
-| M3 | M3_INTERACTION_CONTRACT.md | 616 | 11-9-frozen-decision-register | 4 |  | derived | unmapped |
-| M3 | M3_INTERACTION_CONTRACT.md | 616 | 11-9-frozen-decision-register | 5 |  | derived | unmapped |
-| M3 | M3_INTERACTION_CONTRACT.md | 618 | 11-9-frozen-decision-register | 2 |  | derived | unmapped |
-| M3 | M3_INTERACTION_CONTRACT.md | 898 | 14-8-frozen-decision-register | 2 |  | derived | unmapped |
 | M3 | M3_INTERACTION_CONTRACT.md | 937 | 15-4-frozen-decision-register | 1 |  | derived | unmapped |
 | M4 | M4_01_SYSTEM_REGISTRY.md | 39 | host-and-method | 2176.97 |  | timing | unmapped |
 | M4 | M4_01_SYSTEM_REGISTRY.md | 39 | host-and-method | 45.87 |  | timing | unmapped |
@@ -2528,6 +2524,42 @@ Supporting claims remain in the ledger.
 | M4 | M4_02_BRANCHING.md | 214 | recorder-gate | 21.504 |  | timing | unmapped |
 | M4 | M4_02_BRANCHING.md | 214 | recorder-gate | 26.061 |  | deterministic | unmapped |
 | M4 | M4_02_BRANCHING.md | 214 | recorder-gate | 0.281 |  | deterministic | unmapped |
+| M4 | M4_02_BRANCHING.md | 222 | per-cell-cpu-load-trace-and-disposition | 28.68 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 222 | per-cell-cpu-load-trace-and-disposition | 31.49 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 222 | per-cell-cpu-load-trace-and-disposition | 2 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 222 | per-cell-cpu-load-trace-and-disposition | 2 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 223 | per-cell-cpu-load-trace-and-disposition | 30.77 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 223 | per-cell-cpu-load-trace-and-disposition | 30.81 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 223 | per-cell-cpu-load-trace-and-disposition | 2 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 223 | per-cell-cpu-load-trace-and-disposition | 2 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 224 | per-cell-cpu-load-trace-and-disposition | 30.03 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 224 | per-cell-cpu-load-trace-and-disposition | 35.61 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 224 | per-cell-cpu-load-trace-and-disposition | 3 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 224 | per-cell-cpu-load-trace-and-disposition | 3 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 225 | per-cell-cpu-load-trace-and-disposition | 28.20 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 225 | per-cell-cpu-load-trace-and-disposition | 32.09 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 225 | per-cell-cpu-load-trace-and-disposition | 4 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 225 | per-cell-cpu-load-trace-and-disposition | 4 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 226 | per-cell-cpu-load-trace-and-disposition | 26.43 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 226 | per-cell-cpu-load-trace-and-disposition | 30.51 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 226 | per-cell-cpu-load-trace-and-disposition | 13 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 226 | per-cell-cpu-load-trace-and-disposition | 13 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 227 | per-cell-cpu-load-trace-and-disposition | 27.61 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 227 | per-cell-cpu-load-trace-and-disposition | 30.26 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 227 | per-cell-cpu-load-trace-and-disposition | 7 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 227 | per-cell-cpu-load-trace-and-disposition | 7 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 228 | per-cell-cpu-load-trace-and-disposition | 27.08 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 228 | per-cell-cpu-load-trace-and-disposition | 28.26 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 228 | per-cell-cpu-load-trace-and-disposition | 5 |  | deterministic | restored-not-rerun |
+| M4 | M4_02_BRANCHING.md | 228 | per-cell-cpu-load-trace-and-disposition | 5 |  | deterministic | restored-not-rerun |
+| M4 | M4_02_BRANCHING.md | 229 | per-cell-cpu-load-trace-and-disposition | 27.94 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 229 | per-cell-cpu-load-trace-and-disposition | 28.70 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 229 | per-cell-cpu-load-trace-and-disposition | 3 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 229 | per-cell-cpu-load-trace-and-disposition | 3 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 230 | per-cell-cpu-load-trace-and-disposition | 18.92 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 230 | per-cell-cpu-load-trace-and-disposition | 28.02 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 230 | per-cell-cpu-load-trace-and-disposition | 2 |  | derived | unmapped |
+| M4 | M4_02_BRANCHING.md | 230 | per-cell-cpu-load-trace-and-disposition | 3 |  | derived | unmapped |
 | M4 | M4_02_BRANCHING.md | 246 | a-3-numerical-decision-calculations | 10 | k | deterministic | restored-not-rerun |
 | M4 | M4_02_BRANCHING.md | 246 | a-3-numerical-decision-calculations | 1.81 |  | timing | unmapped |
 | M4 | M4_02_BRANCHING.md | 246 | a-3-numerical-decision-calculations | 3.56 |  | timing | unmapped |
@@ -3012,14 +3044,9 @@ Supporting claims remain in the ledger.
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 46 | 3-m4-stage-plan-planned | 5 |  | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 46 | 3-m4-stage-plan-planned | 12 |  | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 46 | 3-m4-stage-plan-planned | 12 |  | derived | unmapped |
-| M4 | M4_COUNTERFACTUAL_CONTRACT.md | 47 | 3-m4-stage-plan-planned | 100 |  | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 48 | 3-m4-stage-plan-planned | 5 |  | deterministic | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 48 | 3-m4-stage-plan-planned | 14 |  | deterministic | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 48 | 3-m4-stage-plan-planned | 14 |  | deterministic | unmapped |
-| M4 | M4_COUNTERFACTUAL_CONTRACT.md | 49 | 3-m4-stage-plan-planned | 5 |  | derived | unmapped |
-| M4 | M4_COUNTERFACTUAL_CONTRACT.md | 49 | 3-m4-stage-plan-planned | 365 |  | derived | unmapped |
-| M4 | M4_COUNTERFACTUAL_CONTRACT.md | 49 | 3-m4-stage-plan-planned | 15 |  | derived | unmapped |
-| M4 | M4_COUNTERFACTUAL_CONTRACT.md | 49 | 3-m4-stage-plan-planned | 15 |  | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 50 | 3-m4-stage-plan-planned | 20 | % | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 50 | 3-m4-stage-plan-planned | 16 |  | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 50 | 3-m4-stage-plan-planned | 16 |  | derived | unmapped |
@@ -3033,7 +3060,6 @@ Supporting claims remain in the ledger.
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 511 | m4-standard-performance-gate-protocol-frozen | 4 |  | timing | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 555 | 12-6-performance-gate | 5 | % | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 555 | 12-6-performance-gate | 5 |  | derived | unmapped |
-| M4 | M4_COUNTERFACTUAL_CONTRACT.md | 720 | 14-8-decision-register | 3 |  | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 842 | 15-8-performance-and-experiment-protocol | 365 |  | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 842 | 15-8-performance-and-experiment-protocol | 0 |  | derived | unmapped |
 | M4 | M4_COUNTERFACTUAL_CONTRACT.md | 842 | 15-8-performance-and-experiment-protocol | 365 |  | derived | unmapped |
@@ -3045,6 +3071,12 @@ Supporting claims remain in the ledger.
 | M5 | M5_REPRODUCIBILITY_CONTRACT.md | 94 | 8-m5-00-decision-register-frozen | 9600 | X | timing | unmapped |
 | M5 | M5_REPRODUCIBILITY_CONTRACT.md | 94 | 8-m5-00-decision-register-frozen | 1 |  | timing | unmapped |
 | M5 | M5_REPRODUCIBILITY_CONTRACT.md | 94 | 8-m5-00-decision-register-frozen | 20 | % | timing | unmapped |
+| M5 | M5_REPRODUCIBILITY_CONTRACT.md | 160 | 10-5-validation-record | 1 |  | derived | unmapped |
+| M5 | M5_REPRODUCIBILITY_CONTRACT.md | 160 | 10-5-validation-record | -3 |  | derived | unmapped |
+| M5 | M5_REPRODUCIBILITY_CONTRACT.md | 160 | 10-5-validation-record | 719 |  | derived | unmapped |
+| M5 | M5_REPRODUCIBILITY_CONTRACT.md | 160 | 10-5-validation-record | 0 |  | derived | unmapped |
+| M5 | M5_REPRODUCIBILITY_CONTRACT.md | 221 | 11-6-implementation-and-validation-record | 9 |  | derived | unmapped |
+| M5 | M5_REPRODUCIBILITY_CONTRACT.md | 221 | 11-6-implementation-and-validation-record | 736 |  | derived | unmapped |
 
 ### M1 unrecoverable-claim recheck
 

@@ -153,6 +153,7 @@ def _report_parts() -> dict[str, str]:
         "unmapped": f"{int((~mapped).sum()):,}",
         "m1_count": f"{len(m1):,}",
         "key_count": f"{len(key_claims):,}",
+        "supporting_count": f"{len(claims) - len(key_claims):,}",
         "old_count": f"{len(expand_old_ledger(OLD_LEDGER)):,}",
     }
 
@@ -164,9 +165,7 @@ title: "M5-01 Reproducibility Inventory"
 format: gfm
 ---
 
-## Status
-
-Complete. This is a document inventory only; no simulation harness was run.
+Status: current
 
 ## Question
 
@@ -179,6 +178,8 @@ The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) re
 ## Results
 
 Every table below is generated from [claims.csv.gz](claims.csv.gz) by the report generator [report_m5_01.py](../../analysis/simciv_analysis/report_m5_01.py). Old-ledger comparisons additionally read the retained packed ledger.
+
+The tidy ledger contains **{parts['key_count']}** key claims and **{parts['supporting_count']}** supporting claims.
 
 ### Counts by milestone, class, status, and tier
 
