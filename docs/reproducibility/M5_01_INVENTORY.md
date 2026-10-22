@@ -107,3 +107,7 @@ The commands below were checked against the current source tree and report comma
 5. **M5-04, missing-probe reconstruction last:** only rebuild the removed drivers needed for M2-31/37/40 and M3-01/08/09 claims that remain decision-relevant. Keep each new driver committed; label old probe values unrecoverable when the original source/data cannot be recovered rather than substituting a related benchmark.
 
 This order prioritizes exact M4 replays and deterministic M0–M3 checks before reconstructing costly temporary profiling work. Multi-seed and multi-workload robustness remains M5-05 and is outside this inventory task.
+
+## Later update (2026-10-22)
+
+The work-order labels above record the plan at the time of M5-01. The current M5 contract reorders the stages: M5-03 is the analysis toolchain, M5-04 is M4 regeneration, and M5-05 is M0-M3 regeneration and re-measurement. The M5-03 claim-extraction and tidy-ledger work is recorded in the frozen M5-02 stage plan.

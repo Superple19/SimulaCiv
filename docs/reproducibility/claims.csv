@@ -1,5 +1,5 @@
 claim_id,report,section anchor,claim text (short),value,unit,class,source harness,raw data,status,M5 stage,notes
-1,M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md,#3-benchmark-methodology,L43: - B — fixed group size: approximately ,200,agents,timing,crates/sim-model/benches/m0_baseline_bench.rs,none,missing-data,M5-04,uncertain report-level harness mapping
+1,M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md,#3-benchmark-methodology,L43: - B — fixed group size: approximately ,200,agents,timing,crates/sim-model/benches/m0_baseline_bench.rs,none,missing-data,M5-05,uncertain report-level harness mapping
 2-9,,,"L44: - Population: 100, 250, 500, 1,000, 2,",100;250;500;1000;2500;5000;10000;20000,,,,,,,
 10-14,,#4-m2-30-scaling-result,L60: ; Fixed settlements (2) ; 1.961 ; 1.06,2;1.961;1.065;1.803;1.044,,deterministic;derived;derived;derived;derived,,,reproducible-now;missing-data;missing-data;missing-data;missing-data,,
 15-19,,,L61: ; Fixed group size (~200) ; 1.852 ; 1.,200;1.852;1.046;1.662;1.116,,,,,,,
@@ -2892,7 +2892,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 27726-27728,,,L90: ; environment.healthdecayrate ; 0.05 ;,0.05;0.05;0.05,,,,,,,
 27729-27731,,,L91: ; economy.baseworkyield ; 2.0 ; 2.0 ; ,2.0;2.0;2.0,,,,,,,
 27732-27733,,#host-and-runtime,"L121: - Search and N=100,000 verification wa",100000;94.436,;s,timing,,,,,none
-27734,M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md,#milestone-questions,L19: ; M2 ; Can runtime speed improve while,100,k,,none,,missing-source,M5-04,
+27734,M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md,#milestone-questions,L19: ; M2 ; Can runtime speed improve while,100,k,,none,,missing-source,M5-05,
 27735-27738,,,L20: ; M3 ; When does interaction complexit,1;5.23;100;1.49,M;x;k;x,deterministic,,,unrecoverable,,
 27739-27741,,#how-m3-answered-its-question,L24: 1. Static world: the scale search comp,1;100;250,;k;k,,,,,,
 27742-27743,,,L25: 2. Small parallel work and search savi,2;0.967,;×,derived,,,missing-source,,
@@ -3865,7 +3865,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 37367-37372,,,"L68: ; 100,000 ; 90 ; 31.226 s ; 320.66 ms ",100000;90;31.226;320.66;4.418;1.041,,,,,,,
 37373-37377,,#gpu-suitability-assessment,L74: Measured facts: branch and subset eval,4.25;5.11;4.30;1.03;100000,;×;×;×;,derived,,,,,
 37378-37383,,,L76: Inference from the current data layout,46;8;44;64;100000;9,;;bytes;;;MB,deterministic,,,,,
-37384,M4_FINAL_AUDIT_AND_GRADUATION.md,#m4-final-audit-and-graduation,L3: Status: M4-GRADUATE — v0.5.0-m4. Hoste,5,,,none,none,unrecoverable,M5-03,
+37384,M4_FINAL_AUDIT_AND_GRADUATION.md,#m4-final-audit-and-graduation,L3: Status: M4-GRADUATE — v0.5.0-m4. Hoste,5,,,none,none,unrecoverable,M5-04,
 37385-37387,,#research-question-and-answer,L11: ; Record ; In the M3P sustained worklo,99;365;365,%;days;,,,,,,
 37388-37394,,,"L12: ; Aggregate ; At H=365, M4-04's CRN ef",365;1.5;80;-3320.8;-3278.25;100;100,;×;×;;;;,derived,,,,,
 37395-37402,,,L13: ; Cause ; Minimal causes existed for t,15;0;1;3;2000;90;10;0.1,,deterministic,,,,,
@@ -3875,15 +3875,15 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 37406-37409,,,L37: 3. M4-03 showed record-level divergenc,3;99;99;365,;%;%;,deterministic,,,,,
 37410-37416,,,L38: 4. M4-04 showed that CRN retained aggr,4;365;1.5;80;0.01;-3278.25;-3320.8,;;;×;;;,derived,,,,,
 37417-37418,,,"L39: 5. M4-05 found minimal causes, but not",5;15,,deterministic,,,,,
-37419-37420,,,L40: 6. M4-06 added settlement migration wi,6;1896,,derived,,,,M5-05,
-37421-37425,,,L41: 7. M4-07 made independent branch work ,7;4.3;5.1;1.03;3.12,;;×;;%,timing,,,,M5-03,
+37419-37420,,,L40: 6. M4-06 added settlement migration wi,6;1896,,derived,,,,M5-07,
+37421-37425,,,L41: 7. M4-07 made independent branch work ,7;4.3;5.1;1.03;3.12,;;×;;%,timing,,,,M5-04,
 37426,,#m4-02-a-5-gate-history,"L52: ; A-2 ; Used median + 2×MAD, which mea",2,,,,,,,
-37427-37429,,#debts-and-limits,L67: - Registry extensibility is incomplete,2775;2070;1896,,derived,,,,M5-05,
+37427-37429,,#debts-and-limits,L67: - Registry extensibility is incomplete,2775;2070;1896,,derived,,,,M5-07,
 37430-37439,,,L69: - Migration parameters remain uncalibr,0.25;0;113644;365;311;3;0.02;0.2;10;30,;;;days;;%;;;;,,,,,,
-37440-37443,,,L70: - The M4-05 predicate sat on its repli,10;0.1;-1.0;-1,,deterministic,,,,M5-03,
+37440-37443,,,L70: - The M4-05 predicate sat on its repli,10;0.1;-1.0;-1,,deterministic,,,,M5-04,
 37444-37445,,,L72: - Newborn CRN alignment can be lost at,33.02;365,,,,,,,
 37446-37447,,,L73: - Harness and raw-data recovery is inc,04;05,,timing,,docs/data/m4/INVENTORY.md,,,
-37448-37450,M1_CONTRACT_FREEZE.md,#m1-contract-freeze-specification-contracts-c01c10,L6: - Validation Status: Complete (521/521,521;521;500,,deterministic,none,none,unrecoverable,M5-04,uncertain: use linked report provenance
+37448-37450,M1_CONTRACT_FREEZE.md,#m1-contract-freeze-specification-contracts-c01c10,L6: - Validation Status: Complete (521/521,521;521;500,,deterministic,none,none,unrecoverable,M5-05,uncertain: use linked report provenance
 37451,,#2-m0-empirical-validation-evidence-summary,L37: ; sim-core unit tests ; 0 ; In-crate u,0,,,,,,,
 37452,,,L38: ; goldenprngtests ; 7 ; Exact Mix13 ma,7,,,,,,,
 37453,,,L39: ; sim-model unit tests ; 1 ; In-crate ,1,,,,,,,
@@ -3935,7 +3935,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 37556,,#143-csr-hash-options,L875: Repository-state note: the task contex,4,,,,,,,
 37557,,#148-frozen-decision-register,L899: ; OQ-3 ; Sampling index lifecycle ; FR,3,,,,,,,
 37558,,#169-frozen-decision-register,L1024: ; RQ-10 ; Implementation order ; FROZE,10,,,,,,,
-37559,M4_COUNTERFACTUAL_CONTRACT.md,#7-open-questions,L102: ; OQ-8 ; Which expensive CI matrices c,8,,timing,,,,M5-03,
+37559,M4_COUNTERFACTUAL_CONTRACT.md,#7-open-questions,L102: ; OQ-8 ; Which expensive CI matrices c,8,,timing,,,,M5-04,
 37560,,#8-decision-register,L112: ; OQ-2 ; FROZEN ; Find the first diffe,2,,deterministic,,,,,
 37561,,,L118: ; OQ-8 ; OPEN — NON-BLOCKING ; Per-tar,8,,timing,,,,,
 37562,,#101-current-state-and-oq-8-test-time-measurement,L149: ; sim-model/m3ppropagationtests ; 169.,169.42,s,,,,,,
@@ -3950,11 +3950,11 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 37574-37578,,#106-success-criteria,L232: - Whole-tick performance gate: compare,10000;100000;100000;11;0.02,,derived,,,,,
 37579-37580,,#138-decision-register,L648: ; D-4 ; If observed paired variance is,4;0,,,,,,,
 37581-37583,,,L652: ; D-8 ; Keep AgentId-based newborn RNG,8;365;3.13,;;%,deterministic,,,,,
-37584-37585,,#155-configuration-and-validation,L792: ; migrationprobability ; f32 ; finite ,0;1,,derived,,,,M5-05,
+37584-37585,,#155-configuration-and-validation,L792: ; migrationprobability ; f32 ; finite ,0;1,,derived,,,,M5-07,
 37586,,,L793: ; migrationthreshold ; f32 ; finite an,0,,,,,,,
 37587,,,L794: ; migrationcost ; Money ; >= 0 ;,0,,,,,,,
 37588-37591,,#1510-frozen-decision-register,L862: ; RQ-11 validation and measurement ; N,11;10;100;5,;k;k;%,,,,,,
-37592,,#166-gates-and-measurements,L914: - Copy-on-write: report the restore/cl,20,%,deterministic,,,,M5-03,
+37592,,#166-gates-and-measurements,L914: - Copy-on-write: report the restore/cl,20,%,deterministic,,,,M5-04,
 37593,,,L916: - Any change to a default execution pa,5,,derived,,,,,
 37594-37596,M5_REPRODUCIBILITY_CONTRACT.md,#3-current-reproducibility-state-measured-2026-10-21,"L25: ; m4 ; 37 ; 2,029,282 ; 1.94 MiB ;",37;2029282;1.94,;Bytes;MiB,deterministic,,,reproducible-now,none,none
 37597-37599,,,"L26: ; m406 ; 14 ; 28,770,278 ; 27.44 MiB ;",14;28770278;27.44,,,,,,,

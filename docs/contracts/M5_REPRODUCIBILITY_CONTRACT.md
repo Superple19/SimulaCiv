@@ -1,6 +1,6 @@
 # M5 Reproducibility and Research Hardening Contract
 
-**Status: M5-00 FROZEN; M5-01 inventory PLANNED**
+**Status: M5-00 and M5-02 FROZEN; M5-01 COMPLETE**
 **Baseline: `v0.5.0-m4`**
 
 ## 1. Research question
@@ -57,16 +57,20 @@ The manifest is committed even when its referenced large asset is not. Any table
 
 ## 5. M5 stage plan (PLANNED — each stage needs its own DRAFT → review → FROZEN contract)
 
+The order is structure → tooling → verification → new experiments → cleanup → publication.
+
 | Stage | Planned scope |
 |---|---|
 | **M5-00 — Contract and data policy** | **COMPLETE.** Freeze reproducibility definitions, the selected data-size policy, provenance requirements, and acceptance gates. |
-| **M5-01 — Reproducibility inventory** | Inventory every numeric claim in M0–M4 reports; map each to its harness, raw data, status, and classification as deterministic or timing/noisy. Mark unrecoverable evidence explicitly. |
-| **M5-02 — Python experiment interface** | Add PyO3 bindings and a Python experiment runner with commit hash, configuration hash, and host provenance. Freeze Python package/version policy first. |
-| **M5-03 — Restore and regenerate M4 evidence** | Re-run the restored M4 harnesses and frozen experiment specifications; compare bit-exact outputs where deterministic and rename the restored `*_temp` examples without deleting them. |
-| **M5-04 — M0–M3 tables** | Regenerate or re-measure the key M0–M3 tables, preserving old values as history and labeling re-measurements with their protocol and tolerance. |
-| **M5-05 — Robustness experiments** | Run multi-seed and multi-workload, effect-size-first experiments, including migration calibration and a redesigned M4-05 predicate. Select the matrix before execution. |
-| **M5-06 — Documentation and generated figures** | Align naming, make reports summary-first, split contracts by stage, create a newcomer README, and generate figures from committed data. |
-| **M5-07 — Literature and technical report** | Review related work, position SimulaCiv, and draft a technical report from reproducible evidence. |
+| **M5-01 — Reproducibility inventory** | **COMPLETE.** Inventory every numeric claim in M0–M4 reports and measured contract statements; map claim values to harnesses, raw data, status, class, and next stage. |
+| **M5-02 — Repository layout** | **FROZEN; implementation in progress.** Organize contracts, reports, data, reproducibility outputs, and analysis tools under the frozen layout in §10. |
+| **M5-03 — Analysis toolchain** | Add a pinned `uv` project, `pandas`, `matplotlib`, Quarto, `just`, `pytest`, report generation (`data → generated tables/figures → .qmd → rendered .md`), a link checker, and a proposed analysis-check CI job (CI changes require explicit approval at this stage's freeze). Commit the M5-01 claim-extraction script; regenerate claims as a tidy one-row-per-claim file (gzip is allowed), exclude configuration/input values, add key/supporting tiers, and recheck the 29 M1 claims currently labeled unrecoverable. |
+| **M5-04 — M4 regeneration** | Re-run existing Rust harnesses against committed M4 data, verify deterministic outputs bit-exactly, and produce a Quarto report. |
+| **M5-05 — M0–M3 regeneration and re-measurement** | Regenerate or re-measure key M0–M3 tables, preserving old values as history and applying the frozen timing comparison rule. |
+| **M5-06 — Python bindings** | Add PyO3/maturin bindings and an experiment runner with commit, configuration, and host provenance. |
+| **M5-07 — Robustness experiments** | Run multi-seed and multi-workload, effect-size-first experiments, including migration calibration and a redesigned M4-05 predicate. Select the matrix from a pilot before execution. |
+| **M5-08 — Documentation content** | Align naming, make reports summary-first, split contracts by stage, create a newcomer README, and generate figures from committed data. |
+| **M5-09 — Literature and technical report** | Review related work, position SimulaCiv, and draft a Quarto technical report rendered to PDF. |
 | **M5 audit** | Assess which M0–M4 findings reproduce across code, data, seeds, workloads, and timing tolerances; classify unresolved evidence. |
 
 ## 6. Known inputs
@@ -88,13 +92,62 @@ The manifest is committed even when its referenced large asset is not. Any table
 | D-2 | Timing claims | Judge conclusions using the A-5 protocol on the reference host: the current Windows desktop with AMD Ryzen 5 9600X. Record new/old ratio for every absolute timing; flag `abs(ratio - 1) > 20%`. Gate PASS, ordering, and crossover-range conclusions are assessed on that host. Other hosts are supplementary evidence. |
 | D-3 | Deterministic claims | Require bit-exact reproduction. If source, inputs, or data do not permit it, label the claim **unrecoverable**; do not fabricate or approximate a deterministic result. |
 | D-4 | Python interface | Create a new `sim-py` crate using maturin and PyO3, supporting Python >=3.11. The experiment-runner core uses only the Python standard library; numpy, pandas, and matplotlib are optional analysis extras. The Rust core dependency set stays unchanged. |
-| D-5 | Python CI boundary | The planned smoke matrix is Python 3.12 on Linux, Windows, and macOS, building the package and running a smoke test. Changing CI requires explicit approval in the M5-02 freeze. |
-| D-6 | Robustness matrix starting point | M5-05 begins from at least 10 seeds × 3 workloads: M3P sustained, M3 equilibrium, and calibrated migration. A pilot effect-size run at M5-05 freezes the actual matrix before the full run. |
+| D-5 | Python CI boundary | The planned smoke matrix is Python 3.12 on Linux, Windows, and macOS, building the package and running a smoke test. Changing Python CI requires explicit approval in the M5-06 freeze; the analysis-check CI proposal requires separate explicit approval in the M5-03 freeze. |
+| D-6 | Robustness matrix starting point | M5-07 begins from at least 10 seeds × 3 workloads: M3P sustained, M3 equilibrium, and calibrated migration. A pilot effect-size run at M5-07 freezes the actual matrix before the full run. |
 | D-7 | Publication direction | Draft an arXiv technical report first; consider JOSS after M5. |
 | D-8 | M5 acceptance | Classify every numeric claim. Deterministic claims must be bit-exact or explicitly unrecoverable. Timing conclusions must hold under D-2 or the change must be documented as a changed finding. |
 
-The exact M5-05 seed/workload selection remains a blocking decision for that stage and is made from the pilot. Python CI changes remain unauthorized until explicitly approved in the M5-02 freeze.
+The exact M5-07 seed/workload selection remains a blocking decision for that stage and is made from the pilot. Python CI changes remain unauthorized until explicitly approved in the M5-06 freeze. The proposed analysis-check CI job requires separate explicit approval in the M5-03 freeze.
 
 ## 9. M5-00 freeze record
 
 This freeze selects the data policy, evidence-manifest requirements, reference-host timing comparison, deterministic-claim rule, Python interface plan, Python CI approval boundary, robustness-matrix starting point, publication direction, and M5 acceptance conditions. It authorizes M5-01 inventory work; it does not authorize implementation of Python bindings or changes to CI.
+
+## 10. M5-02 repository layout (FROZEN)
+
+M5-02 freezes repository organization only. It does not change simulation semantics, code behavior, tests, goldens, snapshots, or CI.
+
+### 10.1 Target layout
+
+```text
+contracts/                machine-readable manifest used by tests; stays at the repository root
+crates/                   Rust code
+docs/
+├─ README.md               documentation map
+├─ design/                 design specification
+├─ contracts/              M1–M5 contracts and index
+├─ reports/                milestone reports and index
+├─ data/<stage>/           flat per-stage data, each with a README and superseded/ where needed
+└─ reproducibility/        M5 inventory outputs
+analysis/                  analysis tools; initially check_links.py and, if needed, legacy/
+viewer/                    static viewer
+```
+
+### 10.2 Organization rules
+
+- Keep `contracts/m1_contract.toml` at the repository root because tests consume that path.
+- Use no global `legacy/` folder. Organize legacy files by milestone and stage.
+- Keep superseded data, runs, and reports inside their stage folder under `superseded/`, with a README line identifying what superseded them.
+- Every report begins with exactly one status line: `Status: current`, `Status: superseded by <link>`, or `Status: historical (<milestone>)`.
+- Use `analysis/legacy/` only for tools that no longer run or are no longer maintained. Keep `scripts/profile_m0_baseline.py` in `analysis/` if it still runs; otherwise place it in `analysis/legacy/` with a note.
+- Delete a file only if no report, test, document, or build references it. Never delete a cited harness or data file.
+- Name numbered reports `M<m>_<nn>_<SLUG>.md`; use `M<m>_X_<SLUG>.md` for unnumbered analyses, diagnoses, and workloads, and `M<m>_AUDIT_<SLUG>.md` for interim/final audits. For M2 analyses, use the stage number in the report's own milestone line when present.
+
+### 10.3 Decision register (FROZEN)
+
+| ID | Decision | Frozen rule |
+|---|---|---|
+| D-1 | Repository roots | Keep `contracts/m1_contract.toml` at root; use the target tree in §10.1 for all other listed content. |
+| D-2 | Report organization | Move reports to `docs/reports/`, use stage-based names, and give each report exactly one approved status header. Preserve historical body text except mechanical path/name updates and dated Later update notes. |
+| D-3 | Data organization | Store data in flat `docs/data/<stage>/` folders, add a README to each, and put superseded items in that stage's `superseded/` folder with a README note. Follow the frozen M5-00 size policy. |
+| D-4 | Analysis tools | Use `analysis/` for the link checker and maintained analysis tools. Reserve `analysis/legacy/` for tools that no longer run or are no longer maintained. The analysis toolchain itself is M5-03. |
+| D-5 | Preservation | Keep cited harnesses/data and historical report wording. Remove no unreferenced item unless its references have been checked; record any deletion and reason in `docs/reports/RENAMES.md`. |
+| D-6 | M5-03 claim work | Commit the extraction script, make a tidy claim ledger with configuration/input values excluded, and add key/supporting classification in M5-03. Recheck the M1 unrecoverable set there. |
+
+### 10.4 Freeze record
+
+This freeze authorizes the M5-02 repository moves, status headers, link repairs, and navigation indexes. It does not authorize Python bindings, an analysis CI change, simulation changes, or new experiments.
+
+### 10.5 Validation record
+
+Pending the M5-02 validation step.
