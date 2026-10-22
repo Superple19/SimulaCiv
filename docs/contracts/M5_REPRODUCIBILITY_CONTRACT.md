@@ -1,6 +1,6 @@
 # M5 Reproducibility and Research Hardening Contract
 
-**Status: DRAFT - NOT FROZEN**
+**Status: M5-00 FROZEN; M5-01 inventory PLANNED**
 **Baseline: `v0.5.0-m4`**
 
 ## 1. Research question
@@ -49,23 +49,17 @@ Several M2/M3 reports rely on temporary timing or allocation probes that were re
 
 The repository has one tracked `AGENTS.md` at its root and no nested agent-rule files. The only workflow in `.github/workflows/` is `ci.yml`, which runs `cargo fmt --check`, workspace Clippy, and workspace tests on Linux, Windows, and macOS; it has no Python or benchmark step. There is one tracked Python script, [`scripts/profile_m0_baseline.py`](../../scripts/profile_m0_baseline.py). The temporary analysis scripts under `target/` are not tracked project tooling.
 
-## 4. Data-size policy — blocking decision
+## 4. Data-size policy (FROZEN)
 
-Choose and freeze a data policy in M5-00 before adding substantial new raw output. Options:
+M5 selects Option A: every committed data file is at most **1 MiB**. Gzip-compressed files (for example, `.json.gz`) count by their committed compressed size. Larger raw outputs are published as GitHub release assets; the repository keeps a `docs/data/<stage>/MANIFEST.json` record with each asset's file name, byte count, SHA-256, producing harness path, exact command, and intended release tag. Agents prepare asset files and the manifest under `target/release-assets/<tag>/`; the user uploads the assets. Do not create a release or upload assets on the user's behalf. Already-pushed files stay in Git history; do not rewrite history.
 
-| Option | Policy | Costs and trade-offs |
-|---|---|---|
-| **A. Compressed cap plus external full data** | Commit summaries and per-file compressed raw data up to a declared cap (for example, 1 MiB); publish larger full outputs as GitHub release assets with checksums. | Keeps normal repository fetches smaller and retains access to full measurements, but requires asset/checksum maintenance and an approved release-asset workflow. |
-| **B. Git LFS** | Keep large outputs as versioned LFS objects. | Preserves file-oriented workflows, but adds LFS setup, bandwidth/storage quotas, CI configuration, and clone behavior that contributors must understand. Existing Git history is not rewritten. |
-| **C. Regenerate on demand** | Commit experiment specifications and checksums, then regenerate data when needed. | Avoids storing most raw output, but timing results are not bit-exact; it cannot recover missing historical inputs or probes, and an unavailable result remains unrecoverable. |
-
-**Recommendation (proposal, not frozen): Option A.** It preserves full measurement artifacts while bounding repository growth. Its main cost is a dependable release-asset and checksum process; M5-00 must decide whether that process is acceptable. Keep already-pushed large files and their history unchanged under every option.
+The manifest is committed even when its referenced large asset is not. Any table using an external asset must cite both the harness and the manifest entry. Missing or unavailable assets are marked unrecoverable, not synthesized.
 
 ## 5. M5 stage plan (PLANNED — each stage needs its own DRAFT → review → FROZEN contract)
 
 | Stage | Planned scope |
 |---|---|
-| **M5-00 — Contract and data policy** | Freeze reproducibility definitions, the selected data-size policy, provenance requirements, and acceptance gates. |
+| **M5-00 — Contract and data policy** | **COMPLETE.** Freeze reproducibility definitions, the selected data-size policy, provenance requirements, and acceptance gates. |
 | **M5-01 — Reproducibility inventory** | Inventory every numeric claim in M0–M4 reports; map each to its harness, raw data, status, and classification as deterministic or timing/noisy. Mark unrecoverable evidence explicitly. |
 | **M5-02 — Python experiment interface** | Add PyO3 bindings and a Python experiment runner with commit hash, configuration hash, and host provenance. Freeze Python package/version policy first. |
 | **M5-03 — Restore and regenerate M4 evidence** | Re-run the restored M4 harnesses and frozen experiment specifications; compare bit-exact outputs where deterministic and rename the restored `*_temp` examples without deleting them. |
@@ -86,12 +80,21 @@ Choose and freeze a data policy in M5-00 before adding substantial new raw outpu
 - No semantic changes to existing profiles and no new simulation features as part of M5 reproducibility work.
 - Inverse inference, distributed determinism, and learning agents remain later candidates.
 
-## 8. Open questions
+## 8. M5-00 decision register (FROZEN)
 
-These are blocking for the corresponding freeze or gate; this DRAFT does not decide them:
+| ID | Decision | Frozen rule |
+|---|---|---|
+| D-1 | Data size and provenance | Select Option A in §4: committed data files are at most 1 MiB; larger outputs use manifest-backed release assets prepared under `target/release-assets/<tag>/` for user upload. Keep already-pushed files and history unchanged. |
+| D-2 | Timing claims | Judge conclusions using the A-5 protocol on the reference host: the current Windows desktop with AMD Ryzen 5 9600X. Record new/old ratio for every absolute timing; flag `abs(ratio - 1) > 20%`. Gate PASS, ordering, and crossover-range conclusions are assessed on that host. Other hosts are supplementary evidence. |
+| D-3 | Deterministic claims | Require bit-exact reproduction. If source, inputs, or data do not permit it, label the claim **unrecoverable**; do not fabricate or approximate a deterministic result. |
+| D-4 | Python interface | Create a new `sim-py` crate using maturin and PyO3, supporting Python >=3.11. The experiment-runner core uses only the Python standard library; numpy, pandas, and matplotlib are optional analysis extras. The Rust core dependency set stays unchanged. |
+| D-5 | Python CI boundary | The planned smoke matrix is Python 3.12 on Linux, Windows, and macOS, building the package and running a smoke test. Changing CI requires explicit approval in the M5-02 freeze. |
+| D-6 | Robustness matrix starting point | M5-05 begins from at least 10 seeds × 3 workloads: M3P sustained, M3 equilibrium, and calibrated migration. A pilot effect-size run at M5-05 freezes the actual matrix before the full run. |
+| D-7 | Publication direction | Draft an arXiv technical report first; consider JOSS after M5. |
+| D-8 | M5 acceptance | Classify every numeric claim. Deterministic claims must be bit-exact or explicitly unrecoverable. Timing conclusions must hold under D-2 or the change must be documented as a changed finding. |
 
-- **Python packaging and version policy:** package layout, supported Python versions, and compatibility window (blocking for M5-02).
-- **Python CI scope:** which bindings and experiment-runner checks are required on all three operating systems (blocking for M5-02 freeze).
-- **Timing tolerance:** comparison statistic, host matching, and threshold for re-measured claims (blocking for M5-00/M5-01).
-- **Seed/workload matrix size:** number and selection method for seed and workload variation in M5-05 (blocking for M5-05).
-- **Publication target:** JOSS, an arXiv technical report, or artifact evaluation (non-blocking for M5-00; decide before M5-07).
+The exact M5-05 seed/workload selection remains a blocking decision for that stage and is made from the pilot. Python CI changes remain unauthorized until explicitly approved in the M5-02 freeze.
+
+## 9. M5-00 freeze record
+
+This freeze selects the data policy, evidence-manifest requirements, reference-host timing comparison, deterministic-claim rule, Python interface plan, Python CI approval boundary, robustness-matrix starting point, publication direction, and M5 acceptance conditions. It authorizes M5-01 inventory work; it does not authorize implementation of Python bindings or changes to CI.
