@@ -1,6 +1,6 @@
 # M5 Reproducibility and Research Hardening Contract
 
-**Status: M5-00 and M5-02 FROZEN; M5-01 COMPLETE**
+**Status: M5-00, M5-02, and M5-03 FROZEN; M5-01 COMPLETE**
 **Baseline: `v0.5.0-m4`**
 
 ## 1. Research question
@@ -64,7 +64,7 @@ The order is structure → tooling → verification → new experiments → clea
 | **M5-00 — Contract and data policy** | **COMPLETE.** Freeze reproducibility definitions, the selected data-size policy, provenance requirements, and acceptance gates. |
 | **M5-01 — Reproducibility inventory** | **COMPLETE.** Inventory every numeric claim in M0–M4 reports and measured contract statements; map claim values to harnesses, raw data, status, class, and next stage. |
 | **M5-02 — Repository layout** | **FROZEN; implementation in progress.** Organize contracts, reports, data, reproducibility outputs, and analysis tools under the frozen layout in §10. |
-| **M5-03 — Analysis toolchain** | Add a pinned `uv` project, `pandas`, `matplotlib`, Quarto, `just`, `pytest`, report generation (`data → generated tables/figures → .qmd → rendered .md`), a link checker, and a proposed analysis-check CI job (CI changes require explicit approval at this stage's freeze). Commit the M5-01 claim-extraction script; regenerate claims as a tidy one-row-per-claim file (gzip is allowed), exclude configuration/input values, add key/supporting tiers, and recheck the 29 M1 claims currently labeled unrecoverable. |
+| **M5-03 — Analysis toolchain** | **FROZEN.** Add the pinned `uv` project, `pandas`, `matplotlib`, Quarto, `just`, `pytest`, deterministic report generation, link checking, and the approved Ubuntu analysis CI job. Regenerate M5-01 as a tidy one-row-per-claim gzip ledger, exclude configuration/input values, add key/supporting tiers, and recheck the 29 M1 claims currently labeled unrecoverable. |
 | **M5-04 — M4 regeneration** | Re-run existing Rust harnesses against committed M4 data, verify deterministic outputs bit-exactly, and produce a Quarto report. |
 | **M5-05 — M0–M3 regeneration and re-measurement** | Regenerate or re-measure key M0–M3 tables, preserving old values as history and applying the frozen timing comparison rule. |
 | **M5-06 — Python bindings** | Add PyO3/maturin bindings and an experiment runner with commit, configuration, and host provenance. |
@@ -157,3 +157,57 @@ M5-02 validation completed:
 - `cargo test --workspace` — passed.
 - `python analysis/check_links.py` — the Windows `python.exe` app-execution alias returned exit code 1 without starting Python. The same check passed with `py -3 analysis/check_links.py`: 719 relative Markdown links checked, 0 broken.
 - `git diff --check` — passed.
+
+## 11. M5-03 analysis toolchain (FROZEN)
+
+M5-03 freezes the analysis environment, deterministic report-generation rules, command surface, and the analysis CI job. It does not change the Rust core dependency set or simulation behavior.
+
+### 11.1 Version pins selected on 2026-10-23
+
+At setup, the latest stable release was selected from each project's official release page or registry. The Python requirement remains `>=3.11` per §8 D-4; development and CI use the latest stable Python pinned below. Quarto prereleases are excluded.
+
+| Tool | Exact pin or action major | Latest stable release checked | Release date | Official source |
+|---|---|---|---|---|
+| Python | `3.15.1` in `.python-version` | `3.15.1` | 2026-10-21 | [Python.org](https://www.python.org/downloads/release/python-3151/) |
+| uv | `0.13.5` in `uv.toml` | `0.13.5` | 2026-10-21 | [uv releases](https://github.com/astral-sh/uv/releases/tag/0.13.5) |
+| pandas | `3.0.6` in `uv.lock` | `3.0.6` | 2026-09-17 | [PyPI](https://pypi.org/project/pandas/3.0.6/) |
+| matplotlib | `3.11.2` in `uv.lock` | `3.11.2` | 2026-09-11 | [PyPI](https://pypi.org/project/matplotlib/3.11.2/) |
+| pytest | `9.1.1` in `uv.lock` | `9.1.1` | 2026-06-19 | [PyPI](https://pypi.org/project/pytest/9.1.1/) |
+| Quarto CLI | `1.10.19` | `1.10.19` stable; `1.11.6` is prerelease | 2026-10-06 | [Quarto CLI releases](https://github.com/quarto-dev/quarto-cli/releases/tag/v1.10.19) |
+| `actions/checkout` | `@v7` | `v7.0.1` | 2026-07-20 | [checkout releases](https://github.com/actions/checkout/releases/tag/v7.0.1) |
+| `astral-sh/setup-uv` | `@v10` | `v10.3.2` | 2026-10-22 | [setup-uv releases](https://github.com/astral-sh/setup-uv/releases) |
+| `quarto-dev/quarto-actions/setup` | `@v2` | `v2.2.0` | 2025-11-25 | [Quarto Actions releases](https://github.com/quarto-dev/quarto-actions/releases/tag/v2.2.0) |
+| `extractions/setup-just` | `@v4` | `v4` / `4.0.0` | 2026-04-05 | [setup-just releases](https://github.com/extractions/setup-just/releases) |
+| just CLI | `1.58.0` | `1.58.0` | 2026-08-03 | [just releases](https://github.com/casey/just/releases/tag/1.58.0) |
+
+All selected versions are latest stable as checked on the date above; no compatibility downgrade was needed. Later upgrades require a separate pin-update commit and a successful `just check`.
+
+### 11.2 Frozen toolchain and commands
+
+- `analysis/` is a uv project with committed `pyproject.toml` and `uv.lock`; `requires-python = ">=3.11"`; direct dependencies are limited to pandas, matplotlib, and pytest. Additional direct dependencies require a recorded reason in the change that adds them.
+- `.python-version` pins development and CI to Python `3.15.1`. `uv.lock` pins Python libraries and their transitive dependencies. The Quarto CLI is pinned to `1.10.19` and documented in `analysis/README.md` and CI.
+- The repository-root `justfile` provides `analysis-sync`, `analysis-test`, `links`, `claims`, `report-m5-01`, and `check`. `check` performs all analysis checks without rewriting committed outputs: it checks links and claim/report regeneration, runs pytest, and renders report sources to a temporary directory before byte-comparing generated files with the committed `.qmd`/`.md` outputs.
+- Quarto renders `.qmd` as GitHub-flavored Markdown. Both source and rendered Markdown are committed. Reports contain no render timestamps. Matplotlib uses a fixed style and the Agg backend; SVG output sets `svg.hashsalt` and omits Date metadata. Repeated renders of the same figure must be byte-identical.
+- The approved analysis CI job runs on `ubuntu-latest`, installs the pinned uv and Quarto versions plus just, then runs `just check`. The existing Rust job remains unchanged. CI actions are pinned by major version as listed in §11.1.
+
+### 11.3 Frozen claim and report workflow
+
+- `analysis/simciv_analysis/claims.py` is the committed M5-01 extraction source. It scans report documents and contracts and emits a tidy one-row-per-claim `docs/reproducibility/claims.csv.gz`; the old packed ledger is retained under `docs/reproducibility/superseded/`.
+- Input/configuration values (including population lists, seeds, and parameter settings) are excluded by the extractor and documented in its generated report. Claims carry a `key` or `supporting` tier. Old status/harness metadata is carried only on exact `(report, line, value)` matches; unmatched claims are `unmapped` and are not guessed.
+- The M1 set of 29 claims formerly labeled unrecoverable is rechecked against the frozen M1 contract, tests, and goldens. The report records the reason for each classification.
+- `docs/reproducibility/M5_01_INVENTORY.qmd` and its rendered `.md` are generated from the tidy ledger. Their counts, comparisons, key-claim list, M1 recheck table, and gap list are computed from the ledger, not hand-entered.
+
+### 11.4 M5-03 decision register (FROZEN)
+
+| ID | Decision | Frozen rule |
+|---|---|---|
+| D-1 | Version policy | Use the latest stable versions listed in §11.1, pin Python via `.python-version`, libraries via `uv.lock`, Quarto exactly, and GitHub Actions by major. Record upgrades in a separate commit and rerun `just check`. |
+| D-2 | Python project | Use `analysis/` as a uv project, `requires-python >=3.11`, and only pandas, matplotlib, and pytest as direct dependencies. |
+| D-3 | Deterministic reports | Commit `.qmd` and rendered GFM `.md`; suppress timestamps and stabilize Matplotlib SVG metadata/style/hash salt. `check` rerenders to temporary storage and fails on byte differences without rewriting tracked files. |
+| D-4 | Task interface | Provide the six named just targets. `check` covers sync/lock validation, tests, link checks, claim regeneration checks, and report-render comparisons without modifying committed artifacts. |
+| D-5 | Analysis CI | Add a separate `analysis` job on `ubuntu-latest` using uv, pinned Quarto, and `just check`; leave the Rust job unchanged. |
+| D-6 | Claim ledger | Generate a tidy gzip ledger; exclude input/config values; add tiers; transfer old metadata only by exact report/line/value match; classify all nonmatches as `unmapped`. Recheck the 29 M1 unrecoverable claims with explicit reasons. |
+
+### 11.5 Freeze record
+
+This freeze authorizes the M5-03 analysis environment, report generator, claim-ledger regeneration, and the separate Ubuntu analysis CI job described above. It does not authorize simulation runs, Python bindings, or changes to simulation semantics.
