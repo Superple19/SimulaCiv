@@ -83,7 +83,7 @@ The commands below were checked against the current source tree and report comma
 | Command | Source harness | Existing raw data | Claims to revisit |
 |---|---|---|---|
 | `cargo bench --bench m0_baseline_bench` | [`m0_baseline_bench.rs`](../../crates/sim-model/benches/m0_baseline_bench.rs) | none | M2 full-tick and workload-family tables; cannot regenerate removed profile hooks by itself. |
-| `python analysis/profile_m0_baseline.py` | [`profile_m0_baseline.py`](../../analysis/profile_m0_baseline.py) | none | M2 baseline profile values, subject to the script's current inputs and the report's original measurement protocol. |
+| `python analysis/profile_m0_baseline.py` | [`profile_m0_baseline.py`](../../analysis/simciv_analysis/profile_m0_baseline.py) | none | M2 baseline profile values, subject to the script's current inputs and the report's original measurement protocol. |
 | `cargo bench --bench m3_01_serial_baseline_bench` | [`m3_01_serial_baseline_bench.rs`](../../crates/sim-model/benches/m3_01_serial_baseline_bench.rs) | none | M3-01 full-tick, one-time-cost, volume, and release-differential sections. The temporary per-phase mode is not in the current harness. |
 | `cargo bench --bench m3_02_parallel_phase6b_bench` | [`m3_02_parallel_phase6b_bench.rs`](../../crates/sim-model/benches/m3_02_parallel_phase6b_bench.rs) | none | M3-02 full matrix and interaction follow-up; the report's per-day raw records are missing. |
 | `cargo bench -p sim-model --bench m3_02b_search_reduction_bench` | [`m3_02b_search_reduction_bench.rs`](../../crates/sim-model/benches/m3_02b_search_reduction_bench.rs) | none | M3-03 search-reduction measurements. |
@@ -107,6 +107,8 @@ The commands below were checked against the current source tree and report comma
 5. **M5-04, missing-probe reconstruction last:** only rebuild the removed drivers needed for M2-31/37/40 and M3-01/08/09 claims that remain decision-relevant. Keep each new driver committed; label old probe values unrecoverable when the original source/data cannot be recovered rather than substituting a related benchmark.
 
 This order prioritizes exact M4 replays and deterministic M0–M3 checks before reconstructing costly temporary profiling work. Multi-seed and multi-workload robustness remains M5-05 and is outside this inventory task.
+
+Later update (2026-10-23): the M0 profiler source moved to [`analysis/simciv_analysis/profile_m0_baseline.py`](../../analysis/simciv_analysis/profile_m0_baseline.py); the original command above records the path at inventory time.
 
 ## Later update (2026-10-22)
 

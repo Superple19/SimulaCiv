@@ -91,6 +91,7 @@ This index records 87 path moves made for M5-02. Content-only edits are not path
 | `docs/performance/M4_07_MANY_BRANCH.md` | `docs/reports/M4_07_MANY_BRANCH.md` |
 | `docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md` | `docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md` |
 | `scripts/profile_m0_baseline.py` | `analysis/profile_m0_baseline.py` |
+| `analysis/profile_m0_baseline.py` | `analysis/simciv_analysis/profile_m0_baseline.py` |
 
 ## Deletions
 

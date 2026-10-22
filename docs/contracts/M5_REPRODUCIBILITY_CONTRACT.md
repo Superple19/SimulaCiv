@@ -47,7 +47,9 @@ The `_temp` names identify historical M4-03 drivers. The artifact inventory also
 
 Several M2/M3 reports rely on temporary timing or allocation probes that were removed after measurement: [M2-31](../reports/M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md), [M2-37](../reports/M2_37_POST_P5_P6B_REPROFILING.md), [M2-40](../reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md), [M3-01](../reports/M3_01_SERIAL_BASELINE.md), [M3-08](../reports/M3_08_POPULATION_DYNAMICS.md), and [M3-09](../reports/M3_09_INCREMENTAL_TOPOLOGY.md). The reports preserve their summarized results and identify probe limitations; some raw measurements and original instrumentation cannot be regenerated exactly.
 
-The repository has one tracked `AGENTS.md` at its root and no nested agent-rule files. The only workflow in `.github/workflows/` is `ci.yml`, which runs `cargo fmt --check`, workspace Clippy, and workspace tests on Linux, Windows, and macOS; it has no Python or benchmark step. There is one tracked Python script, [`analysis/profile_m0_baseline.py`](../../analysis/profile_m0_baseline.py). The temporary analysis scripts under `target/` are not tracked project tooling.
+The repository has one tracked `AGENTS.md` at its root and no nested agent-rule files. The only workflow in `.github/workflows/` is `ci.yml`, which runs `cargo fmt --check`, workspace Clippy, and workspace tests on Linux, Windows, and macOS; it has no Python or benchmark step. There is one tracked Python script, [`analysis/profile_m0_baseline.py`](../../analysis/simciv_analysis/profile_m0_baseline.py). The temporary analysis scripts under `target/` are not tracked project tooling.
+
+Later update (2026-10-23): the profiler was moved into `analysis/simciv_analysis/profile_m0_baseline.py`; its import path was checked without running the benchmark.
 
 ## 4. Data-size policy (FROZEN)
 

@@ -229,3 +229,5 @@ With allocation hotspots in Phases 5, 8, 10, and 11 addressed, the roadmap shift
   - `CanonicalMetricsHash`: `ffbadbfda9bba1f799d4e72eac222e4e58deca4905ee8447a44ece8cec3baa3b`
   - `CanonicalEventHash`: `2a40e01a7cd0b981eba037a14cf2f40c748ae0ff9e0df290ed802ba8b0c51cac`
 - Workspace test suite: **546 passed; 0 failed**.
+
+Later update (2026-10-23): the helper was moved to [`analysis/simciv_analysis/profile_m0_baseline.py`](../../analysis/simciv_analysis/profile_m0_baseline.py). Importing it does not start the benchmark; reproduce it with `uv run --project analysis --directory analysis python -m simciv_analysis.profile_m0_baseline`.
