@@ -181,3 +181,7 @@ For whole ticks, non-interleaved incremental medians were 9.9% higher than paire
 The M3-09 test matrix still covers all 36 configurations, all 300-day per-day comparisons, goldens, snapshot/compaction resume, shuffled slots, unlimited births, and the 1,000-day sustained gate. It now computes each day's reference State digest once and uses a fixed four-thread Rayon pool only to run independent matrix cells concurrently; each simulated trajectory remains on its serial M3P path. The integration target completed in 68.22 seconds under the normal Rust test schedule (a forced single test thread took 129.04 seconds). No cases or assertions were removed. The separate day-1 exhausted-ID regression for the new non-compaction append path passed in 0.01 seconds.
 
 **Inference:** the dominant avoidable Phase 9b cost was its redundant full-state materialization and graph validation, not newborn graph construction. Candidate-index construction is now the largest normal-day Phase 9b substage at 100k. Whole-tick timing still includes per-call context validation, so using a long multi-day runner call can have different cost from this one-day-call benchmark. Measurements are from one host and the substage profile is hook-timed.
+
+## Later update (2026-10-22)
+
+The report cites a temporary m3p_09_measure example that is not present in this repository; its source and raw timing output were not recovered. See the [M5-01 reproducibility inventory](../reproducibility/M5_01_INVENTORY.md).

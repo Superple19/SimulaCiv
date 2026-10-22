@@ -49,10 +49,15 @@ crates/
    ├─ src/                events, metrics, canonical hashing, snapshots
    └─ examples/           committed trace exporters and research harnesses
 
+analysis/                 standard-library documentation link checker and analysis tools
+
 docs/
-├─ contracts/             M1–M4 semantic and runtime contracts
-├─ performance/           M2–M4 profiling, audits, and graduation evidence
-└─ data/                  committed benchmark, experiment, and viewer data
+├─ README.md               documentation map
+├─ design/                 design specification
+├─ contracts/              M1–M5 contracts and index
+├─ reports/                M2–M4 performance reports and audits
+├─ data/                   committed experiment data and per-stage indexes
+└─ reproducibility/        M5 claims ledger and evidence inventory
 
 viewer/                   static local viewer for M3 traces and M4 branches
 ```
@@ -113,6 +118,12 @@ Open the [read-only viewer](viewer/index.html) for local M3 trace exploration an
 
 ## Further reading
 
+- [Documentation map](docs/README.md)
+- [Contract index](docs/contracts/README.md)
+- [Performance report index](docs/reports/README.md)
+- [Research data index](docs/data/README.md)
+- [M5 reproducibility contract](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md)
+- [M5-01 claim inventory](docs/reproducibility/M5_01_INVENTORY.md)
 - [System design specification](docs/design/SIMULACIV_DESIGN_SPECIFICATION.md)
 - [M1 contract freeze](docs/contracts/M1_CONTRACT_FREEZE.md)
 - [M2 optimization contract](docs/contracts/M2_OPTIMIZATION_CONTRACT.md)
