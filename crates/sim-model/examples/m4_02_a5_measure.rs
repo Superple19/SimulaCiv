@@ -23,7 +23,7 @@ use sim_model::{
 };
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::time::Instant;
 
 const DAYS: u32 = 30;
@@ -411,6 +411,80 @@ fn run_cell(cell: &Cell, fixed_r: Option<usize>, sample_file: &mut File) -> usiz
     r
 }
 
+fn run_stream(label: &str, cell_id: &str) {
+    let cell = match cell_id {
+        "m3p-incremental-10k" => make_cell(cell_id, Runner::M3pIncremental, 10_000, false),
+        "m3p-incremental-100k" => make_cell(cell_id, Runner::M3pIncremental, 100_000, false),
+        _ => panic!("unknown streamed cell {cell_id}"),
+    };
+    if !matches!(cell.runner, Runner::M3pIncremental) {
+        panic!("stream mode accepts only incremental M3P cells");
+    }
+    let elapsed = timed(&cell, Path::DirectPair) + timed(&cell, Path::BranchDisabled);
+    let suggested_r = usize::try_from(TARGET_SAMPLE_NS.div_ceil(elapsed.max(1)))
+        .unwrap()
+        .max(1);
+    println!("READY\t{label}\t{cell_id}\t{suggested_r}");
+    std::io::stdout().flush().unwrap();
+
+    let mut r = None;
+    let (mut direct, mut candidate, mut deltas) = (Vec::new(), Vec::new(), Vec::new());
+    for command in std::io::stdin().lock().lines() {
+        let command = command.unwrap();
+        let fields = command.split('\t').collect::<Vec<_>>();
+        match fields.as_slice() {
+            ["SET_R", value] => {
+                let fixed = value.parse::<usize>().unwrap();
+                r = Some(fixed);
+                run_batch(&cell, fixed, true);
+                run_batch(&cell, fixed, false);
+                println!("ARMED\t{label}\t{cell_id}\t{fixed}");
+                std::io::stdout().flush().unwrap();
+            }
+            ["SAMPLE", sample, start_direct] => {
+                let fixed = r.expect("SET_R must precede samples");
+                let start_direct = *start_direct == "1";
+                let (direct_ms, candidate_ms) = run_batch(&cell, fixed, start_direct);
+                let delta_ms = candidate_ms - direct_ms;
+                direct.push(direct_ms);
+                candidate.push(candidate_ms);
+                deltas.push(delta_ms);
+                println!(
+                    "SAMPLE\t{label}\t{cell_id}\t{sample}\t{fixed}\t{direct_ms:.9}\t{candidate_ms:.9}\t{delta_ms:.9}"
+                );
+                std::io::stdout().flush().unwrap();
+            }
+            ["FINISH"] => {
+                let direct_median = median(&direct);
+                let candidate_median = median(&candidate);
+                let delta_median = median(&deltas);
+                let delta_mad = mad(&deltas);
+                let upper = bootstrap_u(&deltas);
+                let threshold = 0.05 * direct_median;
+                let direct_spread = 100.0 * mad(&direct) / direct_median.abs();
+                let candidate_spread = 100.0 * mad(&candidate) / candidate_median.abs();
+                let status = if direct_spread > 5.0 || candidate_spread > 5.0 {
+                    "INVALID"
+                } else if upper <= threshold {
+                    "PASS"
+                } else if delta_median > threshold {
+                    "FAIL"
+                } else {
+                    "INCONCLUSIVE"
+                };
+                println!(
+                    "SUMMARY\t{label}\t{cell_id}\t{}\t{direct_median:.6}\t{candidate_median:.6}\t{delta_median:.6}\t{delta_mad:.6}\t{upper:.6}\t{threshold:.6}\t{direct_spread:.3}\t{candidate_spread:.3}\t{status}",
+                    r.unwrap_or_default()
+                );
+                std::io::stdout().flush().unwrap();
+                break;
+            }
+            ["QUIT"] => break,
+            _ => panic!("invalid stream command: {command}"),
+        }
+    }
+}
+
 fn cells() -> Vec<Cell> {
     vec![
         make_cell("m3-10k", Runner::M3, 10_000, false),
@@ -446,6 +520,12 @@ fn parse_rmap(value: Option<String>) -> HashMap<String, usize> {
 fn main() {
     let mut args = std::env::args().skip(1);
     let selected = args.next().unwrap_or_else(|| "all".to_string());
+    if selected == "--stream" {
+        let label = args.next().expect("stream mode requires a build label");
+        let cell_id = args.next().expect("stream mode requires a cell id");
+        run_stream(&label, &cell_id);
+        return;
+    }
     let rmap = parse_rmap(args.next());
     let selected = selected.split(',').collect::<Vec<_>>();
     let mut output = File::create("target/m4_02_a5_samples.tsv").unwrap();
