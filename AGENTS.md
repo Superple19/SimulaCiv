@@ -158,3 +158,13 @@ Wait for explicit user instruction before proceeding.
 - Commit raw outputs under `docs/data/<stage>/` and follow the data-size policy frozen by M5-00. Cite both the harness and its data file for every report table.
 - Choose thresholds and parameters from a measured effect distribution; record the choices before running the experiment.
 - Preserve historical documents, including frozen contracts and past audits. Add a dated **Later update** note instead of rewriting their historical wording.
+
+## 13. Documentation rules
+
+- Generate report numbers, tables, and figures from committed code and data. Do not hand-type measured or computed values into prose; cite the generated table or figure.
+- Keep experiment conditions in spec files and link to them from documentation instead of restating them.
+- Record decisions in contract decision registers, one row per decision.
+- Put process history (attempts, reruns, and rule changes) in commit messages, not report bodies. Reports show the current result and link to superseded material.
+- Use this template for new reports: Status; Question; Method (links); Results (generated); Findings (at most five bullets, each citing a generated item); Limits (at most five bullets). Target one page of prose.
+- Do not duplicate content across the README, audits, and contracts; link to the single source.
+- Preserve existing historical reports. M5-08 may add summary-first headers.
