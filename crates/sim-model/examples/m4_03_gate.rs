@@ -1,4 +1,4 @@
-// restored from session history; not re-run
+// re-run in M5-04: A-5 cells completed with High priority and affinity 0x555
 use sim_model::config::{SimulationConfig, SimulationSystems};
 use sim_model::counterfactual::{
     BranchExecutionOption, BranchIntervention, BranchRequest, ConfigParameter, ConfigValue,
