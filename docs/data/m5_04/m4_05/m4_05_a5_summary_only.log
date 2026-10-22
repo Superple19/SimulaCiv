@@ -1,0 +1,6 @@
+TIMING RUN START UTC 2026-10-22T18:24:45.3877809Z
+priority=High; affinity=0x555
+GATE|status=PASS|r=2|samples=41|warmups=2|min_sample_s=2.140493|median_sample_s=2.152635|direct_median_us=537699.000|direct_mad_us=1084.700|batch_median_us=538337.350|batch_mad_us=1416.650|delta_median_us=503.500|delta_mad_us=1924.300|U_us=1096.100|T_us=26884.950|direct_spread=0.002017|batch_spread=0.002632
+
+exit_code=0
+TIMING RUN END UTC 2026-10-22T18:26:16.0487779Z
