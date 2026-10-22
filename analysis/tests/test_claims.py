@@ -2,7 +2,7 @@ import csv
 import gzip
 from pathlib import Path
 
-from simciv_analysis.claims import _tier, extract_claims, ledger_bytes
+from simciv_analysis.claims import _tier, extract_claims, ledger_bytes, scan_documents
 
 
 def test_claims_exclude_inputs_match_exact_metadata_and_pack_one_row_each(tmp_path):
@@ -120,3 +120,29 @@ def test_m1_aggregate_run_is_historical_log_not_gap(tmp_path):
     claim = extract_claims(tmp_path, old)[0]
     assert claim["status"] == "historical-log"
     assert "not a regeneration target" in claim["notes"]
+
+
+def test_contract_tables_outside_measured_sections_are_not_claims(tmp_path):
+    contract = tmp_path / "docs" / "contracts" / "sample.md"
+    contract.parent.mkdir(parents=True)
+    contract.write_text(
+        "# Contract\n\n## Decision register\n\n| ID | Rule |\n|---|---|\n| D-1 | schema version 2 |\n\n"
+        "## Current reproducibility state\n\n| Artifact | Bytes |\n|---|---:|\n| sample | 42 |\n",
+        encoding="utf-8",
+    )
+    old = tmp_path / "old.csv"
+    old.write_text(
+        "claim_id,report,section anchor,claim text (short),value,unit,class,source harness,raw data,status,M5 stage,notes\n",
+        encoding="utf-8",
+    )
+    claims = extract_claims(tmp_path, old)
+    assert [claim["value"] for claim in claims] == ["42"]
+    assert claims[0]["section anchor"] == "current-reproducibility-state"
+
+
+def test_contract_validation_status_is_measured_evidence(tmp_path):
+    contract = tmp_path / "docs" / "contracts" / "sample.md"
+    contract.parent.mkdir(parents=True)
+    contract.write_text("# Contract\n\nValidation Status: Complete (42 tests passed).\n", encoding="utf-8")
+    claims = scan_documents(tmp_path)
+    assert [claim["value"] for claim in claims] == ["42"]

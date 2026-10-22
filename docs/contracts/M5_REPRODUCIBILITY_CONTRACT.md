@@ -1,6 +1,6 @@
 # M5 Reproducibility and Research Hardening Contract
 
-**Status: M5-00, M5-02, and M5-03 FROZEN; M5-01 COMPLETE; M5-03 implementation COMPLETE**
+**Status: M5-00, M5-02, M5-03, and M5-04 FROZEN; M5-01 COMPLETE; M5-03 implementation COMPLETE**
 **Baseline: `v0.5.0-m4`**
 
 ## 1. Research question
@@ -67,7 +67,7 @@ The order is structure → tooling → verification → new experiments → clea
 | **M5-01 — Reproducibility inventory** | **COMPLETE.** Inventory every numeric claim in M0–M4 reports and measured contract statements; map claim values to harnesses, raw data, status, class, and next stage. |
 | **M5-02 — Repository layout** | **FROZEN; implementation in progress.** Organize contracts, reports, data, reproducibility outputs, and analysis tools under the frozen layout in §10. |
 | **M5-03 — Analysis toolchain** | **FROZEN; implementation COMPLETE.** Add the pinned `uv` project, `pandas`, `matplotlib`, Quarto, `just`, `pytest`, deterministic report generation, link checking, and the approved Ubuntu analysis CI job. Regenerate M5-01 as a tidy one-row-per-claim gzip ledger, exclude configuration/input values, add key/supporting tiers, and recheck the 29 M1 claims currently labeled unrecoverable. |
-| **M5-04 — M4 regeneration** | Re-run existing Rust harnesses against committed M4 data, verify deterministic outputs bit-exactly, and produce a Quarto report. |
+| **M5-04 — M4 regeneration** | **FROZEN; implementation in progress.** Re-run existing Rust harnesses against committed M4 data, verify deterministic outputs bit-exactly, remeasure conclusion-bearing M4 timings, and produce a generated Quarto report. |
 | **M5-05 — M0–M3 regeneration and re-measurement** | Regenerate or re-measure key M0–M3 tables, preserving old values as history and applying the frozen timing comparison rule. |
 | **M5-06 — Python bindings** | Add PyO3/maturin bindings and an experiment runner with commit, configuration, and host provenance. |
 | **M5-07 — Robustness experiments** | Run multi-seed and multi-workload, effect-size-first experiments, including migration calibration and a redesigned M4-05 predicate. Select the matrix from a pilot before execution. |
@@ -224,3 +224,49 @@ M5-03 implementation completed with the pins in §11.1. The M5-01 inventory is g
 - `cargo test --workspace` — passed.
 - `git diff --check` — passed.
 - No benchmark or experiment harness was run.
+
+Later update (2026-10-23): the M5-01 carry-over now maps renamed report basenames through `docs/reports/RENAMES.md`, matches normalized source text and value with line number only as a tie-breaker, adds a `headline` tier, and classifies the 29 M1 aggregate run records as `historical-log`. See the [M5-01 inventory](../reproducibility/M5_01_INVENTORY.md). The M5-03 rules above record the original freeze-era implementation.
+
+## 12. M5-04 M4 regeneration (FROZEN)
+
+M5-04 reproduces the committed M4 evidence without changing simulation semantics, existing tests, goldens, snapshots, or CI. A mismatch is recorded as a finding and is never patched to match historical output.
+
+### 12.1 Deterministic outputs
+
+- Re-run the committed or restored M4 harnesses against the same declared inputs and compare deterministic outputs byte-for-byte. Where the artifact mixes deterministic and timing fields, compare deterministic fields exactly and exclude only the explicitly noisy timing fields.
+- Run in this order: M4-06 and M4-07 harness/data pairs; M4-03, M4-04, and M4-05 harnesses against their committed raw records; the M4-02, M4-05, and M4-06 A-5 timing gates; then the viewer exporter sample, compared bit-exactly as JSONL.
+- The bit-identical M4-07 parallel mode may be used to shorten deterministic reruns. Each result records whether serial or parallel execution was used.
+- A mismatch, missing source, or missing historical raw artifact is reported with a focused diff and classified; no expected value is re-blessed.
+
+### 12.2 Timing claims
+
+- Re-measure only the final A-5 gates and conclusion-bearing M4 timings on the M5-00 reference host: the Windows desktop with AMD Ryzen 5 9600X. A-1 through A-4 remain historical and are not rerun.
+- Re-run the nine-cell M4-02 A-5 gate with fresh samples, plus the M4-05 and M4-06 A-5 gates. Follow the frozen A-5 protocol and record the exact command, execution mode, host conditions, and raw samples.
+- For every absolute timing, report the new/old ratio and flag `abs(ratio - 1) > 20%`. Judge the claim by whether its stated conclusion still holds; report any changed conclusion instead of silently retaining the old wording.
+- Emit `TIMING RUN START` and `TIMING RUN END` markers in the run log. Keep the reference PC idle between timing runs.
+
+### 12.3 Provenance and output handling
+
+- After a successful rerun, replace that harness's `restored from session history; not re-run` header with `re-run in M5-04: <result>`. Failed, partial, or not-yet-run harnesses keep their historical label.
+- Store new outputs under `docs/data/m5_04/<stage>/`. Follow M5-00 §4: committed files are at most 1 MiB; for larger outputs, prepare the asset under `target/release-assets/m5-04/` and commit a manifest entry with the filename, bytes, SHA-256, harness, command, and intended release tag. Do not upload assets.
+- Commit each stage's regenerated data before starting the next stage run.
+- The generated report is `docs/reproducibility/M5_04_M4_REGENERATION.qmd` and its rendered GFM `.md`. `analysis/simciv_analysis/report_m5_04.py` computes the claim-result table, timing ratios, mismatch diffs, figures, and total compute time from the ledger, prior reports, harness outputs, and committed data. Hand-entered measured values are not allowed.
+
+### 12.4 Acceptance gate
+
+Every M4 headline claim is classified as one of: **bit-exact**, **conclusion holds**, **mismatch**, or **unrecoverable**. Deterministic claims require exact equality or an explicit mismatch/unrecoverable finding. Timing claims require a conclusion-holds or documented changed-conclusion result under the reference-host A-5 protocol. The report links every result to its harness and raw data or manifest.
+
+### 12.5 M5-04 decision register (FROZEN)
+
+| ID | Decision | Frozen rule |
+|---|---|---|
+| D-1 | Deterministic reruns | Compare bytes or deterministic fields exactly; any mismatch is reported, never patched to match. |
+| D-2 | Timing reruns | Re-measure only final A-5 gates and conclusion-bearing timings on the reference host; report new/old ratios and flag deviations over 20%; A-1 through A-4 stay historical. |
+| D-3 | Execution mode | M4-07 parallel execution is allowed only for deterministic reruns already proven bit-identical; record the mode used. |
+| D-4 | Harness provenance | Change the restored/not-rerun header only after a successful rerun and record its result. |
+| D-5 | Data and report | Keep outputs under `docs/data/m5_04/`; apply the 1 MiB policy and manifest-backed release-asset process; generate the report from committed harnesses and data. |
+| D-6 | Acceptance | Classify every M4 headline claim as bit-exact, conclusion holds, mismatch, or unrecoverable. |
+
+### 12.6 Freeze record
+
+This freeze authorizes M5-04 reruns of the committed M4 harnesses, fresh A-5 timing samples, data/manifest commits, harness-header updates after successful reruns, and the generated M5-04 report. It authorizes no simulation semantic changes, edits to existing tests or expected outputs, or CI changes.

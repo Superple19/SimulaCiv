@@ -194,7 +194,7 @@ def _eligible_text(line: str, section: str, *, contract: bool) -> bool:
         return bool(line.strip())
     if re.match(r"^\s*[-*+]\s+", line) and "finding" in section.lower():
         return True
-    if contract and any(term in section.lower() for term in ("empirical", "measured", "validation", "benchmark", "performance")):
+    if contract and any(term in section.lower() for term in ("empirical", "measured", "validation", "benchmark", "performance", "current reproducibility state")):
         return bool(line.strip())
     return False
 
@@ -208,6 +208,13 @@ def _line_claims(
     headers: list[str] | None,
     contract: bool,
 ) -> list[dict[str, object]]:
+    measured_contract_section = any(
+        term in section.lower()
+        for term in ("empirical", "measured", "validation", "benchmark", "performance", "current reproducibility state")
+    )
+    contract_status = bool(re.search(r"\b(?:validation\s+)?status(?:\*\*)?\s*:", line, re.IGNORECASE))
+    if contract and not (measured_contract_section or contract_status):
+        return []
     context = f"{section} {line}"
     base = {
         "report": path.name,

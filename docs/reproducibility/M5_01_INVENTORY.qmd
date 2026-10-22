@@ -11,13 +11,13 @@ Which numeric statements in the existing M0–M4 performance reports and contrac
 
 ## Method
 
-The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree. Its tidy output [claims.csv.gz](claims.csv.gz) contains **33,089** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **37,612** expanded scalar values. Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, replicates, horizons/days, thread/chunk settings, and simulation parameter values. Free-text numbers are only extracted from tables, report Summary/Findings/Status sections, selected audit/graduation tables, and measured contract sections. The machine-readable contracts/m1_contract.toml is a configuration/contract input and is not scanned as a measured report.
+The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree. Its tidy output [claims.csv.gz](claims.csv.gz) contains **32,481** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **37,612** expanded scalar values. Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, replicates, horizons/days, thread/chunk settings, and simulation parameter values. Free-text numbers are only extracted from tables, report Summary/Findings/Status sections, selected audit/graduation tables, and measured contract sections. The machine-readable contracts/m1_contract.toml is a configuration/contract input and is not scanned as a measured report.
 
 ## Results
 
 Every table below is generated from [claims.csv.gz](claims.csv.gz) by the report generator [report_m5_01.py](../../analysis/simciv_analysis/report_m5_01.py). Old-ledger comparisons additionally read the retained packed ledger.
 
-The tidy ledger contains **787** headline claims, **951** key claims, and **31,351** supporting claims.
+The tidy ledger contains **787** headline claims, **899** key claims, and **30,795** supporting claims.
 
 ### Headline counts by milestone
 
@@ -35,11 +35,9 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 | --------- | ------------- | ------------------ | ---------- | ------ |
 | M0        | —             | —                  | —          | 0      |
 | M1        | derived       | historical-log     | supporting | 9      |
-| M1        | derived       | unmapped           | key        | 3      |
-| M1        | derived       | unmapped           | supporting | 106    |
+| M1        | derived       | unmapped           | supporting | 5      |
 | M1        | deterministic | historical-log     | key        | 3      |
 | M1        | deterministic | historical-log     | supporting | 17     |
-| M1        | deterministic | unmapped           | supporting | 9      |
 | M2        | derived       | missing-data       | headline   | 4      |
 | M2        | derived       | missing-data       | key        | 3      |
 | M2        | derived       | missing-data       | supporting | 169    |
@@ -64,78 +62,74 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 | M3        | derived       | missing-data       | key        | 2      |
 | M3        | derived       | missing-data       | supporting | 113    |
 | M3        | derived       | unmapped           | headline   | 275    |
-| M3        | derived       | unmapped           | key        | 40     |
-| M3        | derived       | unmapped           | supporting | 11,574 |
+| M3        | derived       | unmapped           | key        | 14     |
+| M3        | derived       | unmapped           | supporting | 11,426 |
 | M3        | derived       | unrecoverable      | headline   | 11     |
-| M3        | derived       | unrecoverable      | supporting | 11     |
+| M3        | derived       | unrecoverable      | supporting | 10     |
 | M3        | deterministic | reproducible-now   | headline   | 14     |
 | M3        | deterministic | reproducible-now   | key        | 2      |
 | M3        | deterministic | reproducible-now   | supporting | 1,689  |
 | M3        | deterministic | unmapped           | headline   | 5      |
-| M3        | deterministic | unmapped           | supporting | 166    |
+| M3        | deterministic | unmapped           | supporting | 127    |
 | M3        | deterministic | unrecoverable      | headline   | 2      |
-| M3        | deterministic | unrecoverable      | supporting | 93     |
+| M3        | deterministic | unrecoverable      | supporting | 91     |
 | M3        | timing        | missing-data       | headline   | 1      |
 | M3        | timing        | missing-data       | key        | 2      |
 | M3        | timing        | missing-data       | supporting | 393    |
 | M3        | timing        | unmapped           | headline   | 67     |
 | M3        | timing        | unmapped           | key        | 5      |
-| M3        | timing        | unmapped           | supporting | 9,009  |
+| M3        | timing        | unmapped           | supporting | 9,002  |
 | M3        | timing        | unrecoverable      | headline   | 19     |
-| M3        | timing        | unrecoverable      | key        | 1      |
-| M3        | timing        | unrecoverable      | supporting | 12     |
+| M3        | timing        | unrecoverable      | supporting | 8      |
 | M4        | derived       | reproducible-now   | key        | 2      |
 | M4        | derived       | reproducible-now   | supporting | 43     |
 | M4        | derived       | restored-not-rerun | headline   | 12     |
 | M4        | derived       | restored-not-rerun | key        | 21     |
 | M4        | derived       | unmapped           | headline   | 44     |
-| M4        | derived       | unmapped           | key        | 333    |
-| M4        | derived       | unmapped           | supporting | 3,195  |
-| M4        | derived       | unrecoverable      | supporting | 4      |
+| M4        | derived       | unmapped           | key        | 320    |
+| M4        | derived       | unmapped           | supporting | 3,041  |
+| M4        | derived       | unrecoverable      | supporting | 2      |
 | M4        | deterministic | reproducible-now   | headline   | 1      |
 | M4        | deterministic | reproducible-now   | key        | 1      |
 | M4        | deterministic | reproducible-now   | supporting | 3      |
 | M4        | deterministic | restored-not-rerun | headline   | 18     |
 | M4        | deterministic | restored-not-rerun | key        | 49     |
 | M4        | deterministic | restored-not-rerun | supporting | 178    |
-| M4        | deterministic | unmapped           | key        | 25     |
-| M4        | deterministic | unmapped           | supporting | 37     |
-| M4        | deterministic | unrecoverable      | supporting | 4      |
+| M4        | deterministic | unmapped           | key        | 22     |
+| M4        | deterministic | unmapped           | supporting | 19     |
+| M4        | deterministic | unrecoverable      | supporting | 3      |
 | M4        | timing        | reproducible-now   | key        | 4      |
 | M4        | timing        | reproducible-now   | supporting | 9      |
 | M4        | timing        | restored-not-rerun | key        | 13     |
 | M4        | timing        | restored-not-rerun | supporting | 23     |
 | M4        | timing        | unmapped           | headline   | 12     |
 | M4        | timing        | unmapped           | key        | 384    |
-| M4        | timing        | unmapped           | supporting | 174    |
+| M4        | timing        | unmapped           | supporting | 158    |
 | M4        | timing        | unrecoverable      | key        | 15     |
-| M4        | timing        | unrecoverable      | supporting | 1      |
 | M5        | derived       | unmapped           | key        | 6      |
-| M5        | derived       | unmapped           | supporting | 62     |
+| M5        | derived       | unmapped           | supporting | 13     |
 | M5        | deterministic | reproducible-now   | supporting | 8      |
-| M5        | deterministic | unmapped           | supporting | 4      |
 | M5        | deterministic | unrecoverable      | supporting | 1      |
-| M5        | timing        | unmapped           | key        | 6      |
 
 ### Old and tidy ledger comparison
 
 | Ledger view        | rows   | mapped before (exact name/line/value) | mapped after (renamed report/source/value) | unmapped after | reason                                                                             | mapped from old metadata |
 | ------------------ | ------ | ------------------------------------- | ------------------------------------------ | -------------- | ---------------------------------------------------------------------------------- | ------------------------ |
-| old packed records | 37,612 | 678                                   | 1,996                                      | 35,616         | RENAMES.md report mapping; normalized source text and value; line only breaks ties |                          |
-| new tidy records   | 33,089 |                                       |                                            | 29,382         | unmatched and ambiguous provenance stays unmapped                                  | 3,707                    |
+| old packed records | 37,612 | 653                                   | 1,988                                      | 35,624         | RENAMES.md report mapping; normalized source text and value; line only breaks ties |                          |
+| new tidy records   | 32,481 |                                       |                                            | 28,786         | unmatched and ambiguous provenance stays unmapped                                  | 3,695                    |
 
 #### Match and unmapped reasons
 
 | old record disposition                    | records | rule                                                                                  |
 | ----------------------------------------- | ------- | ------------------------------------------------------------------------------------- |
-| old rows transferred                      | 1,996   | RENAMES.md plus normalized source/value; line breaks ties                             |
-| old rows still unmapped                   | 35,616  | includes excluded inputs, changed/unselected text, and ambiguous old matches          |
+| old rows transferred                      | 1,988   | RENAMES.md plus normalized source/value; line breaks ties                             |
+| old rows still unmapped                   | 35,624  | includes excluded inputs, changed/unselected text, and ambiguous old matches          |
 | new rows ambiguous                        | 731     | current claims with conflicting metadata or tied candidates; these are new-row counts |
 | historical-log subset of transferred rows | 29      | M1 aggregate runs are not regeneration gaps                                           |
-| previous exact-name/line/value baseline   | 678     | old rows matched before the correction; diagnostic baseline                           |
+| previous exact-name/line/value baseline   | 653     | old rows matched before the correction; diagnostic baseline                           |
 | old report basenames in RENAMES.md        | 29,669  | diagnostic count; this may overlap transferred and unmapped rows                      |
 
-The regenerated ledger has **3,707** rows with transferred prior status/provenance and **29,382** rows marked unmapped. Mapping uses the report name after `RENAMES.md`, normalized source-text prefix, and value; the old line is only a tie-breaker. Ambiguous matches remain unmapped.
+The regenerated ledger has **3,695** rows with transferred prior status/provenance and **28,786** rows marked unmapped. Mapping uses the report name after `RENAMES.md`, normalized source-text prefix, and value; the old line is only a tie-breaker. Ambiguous matches remain unmapped.
 
 ### M1 unrecoverable-claim recheck
 
