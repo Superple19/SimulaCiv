@@ -61,13 +61,13 @@ The measured evidence does not show that the serial execution model is the bindi
 The following options are alternatives for a later decision, not an implementation plan. The stage-plan contract requires a stage-specific draft and freeze before implementation. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
 
 - **Search/bookkeeping reduction with bit-identical results:** test whether candidate scans and resolver setup can be reduced without changing any outputs. A search skip based on a provable no-target condition needs an explicit contract amendment for the skip condition and its parity gate. [M3-02 §Search and setup vs applied interaction cost](M3_02_PARALLEL_PHASE6B.md#search-and-setup-vs-applied-interaction-cost)
-  M3-02b completed the explicit serial global-eligibility skip; the paired measurements and rejected candidates are recorded in [M3-02b Search and Bookkeeping Reduction](M3_02B_SEARCH_REDUCTION.md).
+  M3-02b completed the explicit serial global-eligibility skip; the paired measurements and rejected candidates are recorded in [M3-02b Search and Bookkeeping Reduction](M3_03_SEARCH_REDUCTION.md).
 - **Sustained-interaction workload configuration:** determine whether the cost balance and parallel result persist when eligible targets remain available. A benchmark-only workload can be measured without changing current contracts; adopting it as a frozen acceptance workload requires a contract amendment. [M3-02 §Interaction workload decay](M3_02_PARALLEL_PHASE6B.md#interaction-workload-decay)
-  [Sustained-workload benchmark report](M3_SUSTAINED_WORKLOAD.md) records the supply-only configuration search and measurements.
+  [Sustained-workload benchmark report](M3_04_SUSTAINED_WORKLOAD.md) records the supply-only configuration search and measurements.
 - **M3-03 migration:** measure how changing membership and daily partitions affect graph lookup, interaction ordering, and scaling. This needs its own contract amendment before implementation. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
 - **M3-04 dynamic topology:** measure edge creation/removal and define graph persistence in snapshots. This needs its own contract amendment before implementation. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
 - **Stop M3 here:** decide whether the current evidence is a sufficient answer and proceed to the graduation review. This needs a graduation decision, not a behavioral contract amendment. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
 
 This audit records the evidence available after M3-02 and deliberately does not choose among these candidates. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
 
-The M3-E and M3-S measurement reports are [M3 Equilibrium Workload](M3_EQUILIBRIUM_WORKLOAD.md) and [M3 Scale Limit Search](M3_SCALE_LIMIT.md).
+The M3-E and M3-S measurement reports are [M3 Equilibrium Workload](M3_04_EQUILIBRIUM_WORKLOAD.md) and [M3 Scale Limit Search](M3_05_SCALE_LIMIT.md).

@@ -3,7 +3,7 @@
 Status: current
 
 
-This is a measurement-only diagnosis of the superlinear intervals recorded in [M3 Scale Limit](M3_SCALE_LIMIT.md). It separates population `N` from settlement count `K`, counts the settlement-keyed scans reached by the M3 serial storage path, decomposes Phase 3, and remeasures the N=1,000,000 / k=16 parallel Phase 6B case. No semantic optimization was implemented.
+This is a measurement-only diagnosis of the superlinear intervals recorded in [M3 Scale Limit](M3_05_SCALE_LIMIT.md). It separates population `N` from settlement count `K`, counts the settlement-keyed scans reached by the M3 serial storage path, decomposes Phase 3, and remeasures the N=1,000,000 / k=16 parallel Phase 6B case. No semantic optimization was implemented.
 
 ## Host and method
 

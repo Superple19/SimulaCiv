@@ -617,7 +617,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 3941-3945,,,L489: ; No material superlinear hot spot thr,0.960;1.102;1;100;1.058,;;k;k;,derived,,,missing-data,,
 3946-3948,,,L490: ; N=100k practical runtime measured ; ,100;16.997;21.632,k;;ms,timing,,,,,
 3949-3950,,,L491: ; Remaining work primarily constant-fa,0.2;200,%;k,deterministic,,,reproducible-now,,
-3951,M2_ALLOCATION_ANALYSIS.md,#already-optimized-phases-excluded-from-re-modification,L21: - Phase 11 (Event Staging & Flush): Pr,692,,,,,,,
+3951,M2_07_ALLOCATION_ANALYSIS.md,#already-optimized-phases-excluded-from-re-modification,L21: - Phase 11 (Event Staging & Flush): Pr,692,,,,,,,
 3952,,#2-allocation-hotspot-inventory-across-cratessim-modelsrc,L29: ; Subsystem / Phase ; Source Location ,10,,,,,,,
 3953-3954,,,L31: ; Phase 1: Environment Regrowth ; phas,0;1,,,,,,,
 3955-3956,,,L32: ; Phase 2: Biological Degradation ; ph,0;1,,,,,,,
@@ -642,7 +642,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 3980,,#key-rationale,"L146: - CanonicalStateHash, CanonicalMetrics",100,%,derived,,,missing-data,,
 3981,,,L151: - 30 existing tests in tests/phase9mor,30,,,,,,,
 3982,,#6-proposed-validation-strategy-for-subsequent-milestone,L165: - All 30 tests in phase9mortalitytests,30,,deterministic,,,reproducible-now,,
-3983,M2_BASELINE_REPORT.md,#m2-performance-baseline-optimization-report,L9: - M2-05 — Phase 11 Event Staging & Flu,692,,,,,,,
+3983,M2_06_BASELINE_REPORT.md,#m2-performance-baseline-optimization-report,L9: - M2-05 — Phase 11 Event Staging & Flu,692,,,,,,,
 3984-3988,,#key-rebaseline-highlights-m2-01-vs-m2-06,L24: - Telemetry Disabled Runtime: Reduced ,0.74;1.49;0.49;0.98;-33.8,ms;µs;ms;µs;%,timing,,,missing-data,,
 3989-3991,,,L25: - Telemetry Disabled Throughput: Incre,671140;1020408;+52.0,days;days;%,,,,,,
 3992-3996,,,L26: - Full Telemetry Runtime: Reduced from,1.13;2.26;0.81;1.62;-28.3,ms;µs;ms;µs;%,,,,,,
@@ -700,7 +700,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 4242-4248,,,L212: ; P3 ; Parallel Partition Scheduling (,5;6;6;7;8;6;12,;;;;;cores;threads,,,,,,
 4249,,,L213: ; P4 ; In-Place Radix Event Flush ; Ph,128,,,,,,,
 4250,,,L214: ; P5 ; DenseSlot Active Entity Compact,9,,derived,,,missing-data,,
-4251,M2_HOT_PATH_SOA_EXPANSION_ANALYSIS.md,#1-executive-summary-objective,L8: 1. Phase 2: Biological Degradation ($O,1,,deterministic,,,reproducible-now,,
+4251,M2_17_HOT_PATH_SOA_EXPANSION_ANALYSIS.md,#1-executive-summary-objective,L8: 1. Phase 2: Biological Degradation ($O,1,,deterministic,,,reproducible-now,,
 4252,,,L9: 2. Phase 3: Observation & Normalized F,2,,derived,,,missing-data,,
 4253-4256,,#key-finding,L15: ; Execution Mode ; N=100 ; N=250 ; N=5,100;250;500;1000,,,,,,,
 4257-4262,,,L17: ; Combined Phase 2+3 AoS Baseline ; 0.,+3;0.37;0.95;1.91;3.95;1.00,;µs;µs;µs;µs;x,deterministic;timing;timing;timing;timing;deterministic,,,reproducible-now;missing-data;missing-data;missing-data;missing-data;reproducible-now,,
@@ -750,7 +750,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 4392-4393,,,L198: - Oracle Tests: cargo test -p sim-mode,66;66,,,,,,,
 4394,,,L199: - Linter: cargo clippy --workspace --a,0,,,,,,,
 4395,,,L200: - Formatting: cargo fmt --check (100% ,100,%,,,,,,
-4396-4397,M2_PHASE11_EVENT_SORT_ANALYSIS.md,#1-executive-summary,L17: 1. Radix Sort (LSD/MSD multi-pass bit ,1;136,,,,,,,
+4396-4397,M2_13_PHASE11_EVENT_SORT_ANALYSIS.md,#1-executive-summary,L17: 1. Radix Sort (LSD/MSD multi-pass bit ,1;136,,,,,,,
 4398,,,L18: 2. In-Place Comparison Sort (slice::so,2,,,,,,,
 4399,,,L19: 3. Parallel Sorting (Rayon parsort).,3,,,,,,,
 4400-4408,,#primary-conclusion,L22: - Radix Sort is an anti-pattern for Si,20;50;32;1500;1000;136;17;4352;128,,derived,,,missing-data,,
@@ -799,7 +799,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 4567,,#74-correctness-invariant-validation,L279: - CanonicalStateHash: 5b396f23a8195fd7,100,%,deterministic,,,reproducible-now,,
 4568,,,L280: - CanonicalMetricsHash: ffbadbfda9bba1,100,,,,,,,
 4569,,,L281: - CanonicalEventHash: 2a40e01a7cd0b981,100,,,,,,,
-4570,M2_PHASE34_ALLOCATION_ANALYSIS.md,#m2-08-phase-3-phase-4-scratch-buffer-allocation-optimization-analysis,L3: - Milestone: M2-08 — Phase 3/4 Scratch,4,,,,,,,
+4570,M2_08_PHASE34_ALLOCATION_ANALYSIS.md,#m2-08-phase-3-phase-4-scratch-buffer-allocation-optimization-analysis,L3: - Milestone: M2-08 — Phase 3/4 Scratch,4,,,,,,,
 4571,,#1-executive-summary-scope-boundary,L13: 1. Phase 3: Observation & Normalized F,1,,,,,,,
 4572,,,L14: 2. Phase 4: Primary Action Decision Se,2,,,,,,,
 4573,,,L15: 3. Phase 4: Intent Formulation & Targe,3,,,,,,,
@@ -829,7 +829,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 4604-4607,,,L192: - By applying the proven pattern from ,32;32;500;10,,,,,,,
 4608,,,L194: - phase4intenttests.rs (50 unit tests),50,,,,,,,
 4609,,#8-proposed-validation-plan-for-subsequent-implementation-milestone,L206: - cargo test --test phase4intenttests ,50,,deterministic,,,reproducible-now,,
-4610,M2_PHASE34_SCRATCH_BUFFER_ANALYSIS.md,#m2-09-phase-3-phase-4-scratch-buffer-optimization-feasibility-analysis,L3: - Milestone: M2-09 — Phase 3/4 Scratch,4,,,,,,,
+4610,M2_09_PHASE34_SCRATCH_BUFFER_ANALYSIS.md,#m2-09-phase-3-phase-4-scratch-buffer-optimization-feasibility-analysis,L3: - Milestone: M2-09 — Phase 3/4 Scratch,4,,,,,,,
 4611,,#1-executive-summary-objective,L13: 1. Phase 3 Feature Extraction: produce,1,,,,,,,
 4612,,,L14: 2. Phase 4 Action Decision: consumes &,2,,,,,,,
 4613,,,L15: 3. Phase 4 Intent Formulation: consume,3,,,,,,,
@@ -872,7 +872,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 4684-4685,,,L210: - Eliminates 500 heap allocations per ,500;500,,,,,,,
 4686,,#8-proposed-validation-plan-for-subsequent-implementation-milestone,L221: - tests/phase3featurestests.rs (12 tes,12,,,,,,,
 4687-4688,,,L222: 2. Contract Hash Invariance (100% Bit-,2;100,;%,derived,,,missing-data,,
-4689-4690,M2_PHASE4_INTENT_SCRATCH_BUFFER_ANALYSIS.md,#1-executive-summary-objective,L18: 1. Zero Public API Breakage: 100% back,1;100,,,,,,,
+4689-4690,M2_12_PHASE4_INTENT_SCRATCH_BUFFER_ANALYSIS.md,#1-executive-summary-objective,L18: 1. Zero Public API Breakage: 100% back,1;100,,,,,,,
 4691,,,L19: 2. Zero Semantic Divergence: Bit-exact,2,,deterministic,,,reproducible-now,,
 4692,,,L20: 3. Canonical Hash Preservation: Bit-ex,3,,,,,,,
 4693-4696,,#21-creation-point-return-type,L44: - Size: 32 bytes per element (8-byte A,32;8;8;16,bytes;;;,,,,,,
@@ -899,7 +899,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 4739,,,"L202: 5. In runm0days, allocate intentsscrat",5,,,,,,,
 4740-4741,,#61-rejected-candidate-1-breaking-signature-modification-of-generateintents,L210: - Rationale: Replacing generateintents,20;7,,derived,,,missing-data,,
 4742,,#7-implementation-plan-for-next-step-m2-13,L239: - cargo bench --bench m0baselinebench ,100,%,deterministic,,,reproducible-now,,none
-4743-4745,M2_REBASELINE_REPORT.md,#key-audit-highlights-m2-01-baseline-vs-m2-12-current,L18: - Phase 9 (Mortality Status Commitment,0.133;0.027;-79.7,ms;ms;%,timing,,,missing-data,,uncertain report-level harness mapping
+4743-4745,M2_X_REBASELINE_REPORT.md,#key-audit-highlights-m2-01-baseline-vs-m2-12-current,L18: - Phase 9 (Mortality Status Commitment,0.133;0.027;-79.7,ms;ms;%,timing,,,missing-data,,uncertain report-level harness mapping
 4746-4748,,,L19: - Phase 8 (Welfare Distribution): Runt,0.252;0.131;-48.0,,,,,,,
 4749-4751,,,L20: - Phase 10 (Macroscopic Metrics): Runt,0.196;0.118;-39.8,,,,,,,
 4752-4754,,,L21: - Phase 4 (Decision & Intent Generatio,0.079;0.061;-22.8,,derived,,,,,
@@ -967,7 +967,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 5044-5050,,#p4-in-place-radix-sort-for-event-flush,L170: - Rationale: Event sorting currently t,0.185;20.5;128;32;8;16;64,ms;%;;;;;,derived,,,missing-data,,
 5051-5052,,,L172: - Expected Impact: $2\times$–$3\times$,2;3,,,,,,,
 5053,,#9-audit-sign-off-verification,L183: - All M1 determinism graduation hashes,100,%,deterministic,,,reproducible-now,,
-5054,M2_SEGMENTED_SOA_STORAGE_POC.md,#1-executive-summary-objective,L8: - Existing AgentState struct contracts,1,,,,,,,
+5054,M2_18_SEGMENTED_SOA_STORAGE_POC.md,#1-executive-summary-objective,L8: - Existing AgentState struct contracts,1,,,,,,,
 5055-5060,,#key-finding,L16: ; 100 ; 0.12 µs ; 0.37 µs ; 0.11 µs ; ,100;0.12;0.37;0.11;1.13;3.36,;µs;µs;µs;x;x,deterministic;timing;timing;timing;derived;deterministic,,,reproducible-now;missing-data;missing-data;missing-data;missing-data;reproducible-now,,
 5061-5066,,,L17: ; 250 ; 0.31 µs ; 0.99 µs ; 0.30 µs ; ,250;0.31;0.99;0.30;1.02;3.26,,,,,,,
 5067-5072,,,L18: ; 500 ; 0.53 µs ; 1.61 µs ; 0.50 µs ; ,500;0.53;1.61;0.50;1.06;3.23,,,,,,,
@@ -985,7 +985,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 5101,,,L201: - Formatting: cargo fmt --check (100% ,100,%,,,,,,
 5102,,,L202: - Linter: cargo clippy --workspace --a,0,,,,,,,
 5103-5104,,,L203: - Benchmark: cargo bench --bench m0bas,1;2,,timing,,,missing-data,,none
-5105,M2_SOA_ABLATION_ANALYSIS.md,#1-executive-summary-experimental-objectives,L17: 1. The SoA Memory Layout Effect: Cache,1,,deterministic,,,reproducible-now,,uncertain report-level harness mapping
+5105,M2_16_1_SOA_ABLATION_ANALYSIS.md,#1-executive-summary-experimental-objectives,L17: 1. The SoA Memory Layout Effect: Cache,1,,deterministic,,,reproducible-now,,uncertain report-level harness mapping
 5106,,,L18: 2. The Scratch Buffer Reuse Effect: El,2,,timing,,,missing-data,,
 5107,,,L19: 3. The Compound Effect: Evaluating whe,3,,deterministic,,,reproducible-now,,
 5108-5110,,#empirical-verdict,L22: - Small-to-Medium Populations ($N \le ,500;70;85,;%;%,derived,,,missing-data,,
@@ -1022,7 +1022,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 5219,,,L129: - Phase 2 Biological Degradation: Phas,8,,,,,,,
 5220,,,L132: - All SoA sorting operations must cont,100,%,derived,,,missing-data,,
 5221,,,L133: 4. Permanent State SoA Migration (Mile,4,,,,,,,
-5222-5223,M2_SOA_FEASIBILITY_ANALYSIS.md,#1-executive-summary,L17: - $N = 100$: 457.1 ns / agent-day,100;457.1,;ns,deterministic;timing,,,reproducible-now;missing-data,,
+5222-5223,M2_14_SOA_FEASIBILITY_ANALYSIS.md,#1-executive-summary,L17: - $N = 100$: 457.1 ns / agent-day,100;457.1,;ns,deterministic;timing,,,reproducible-now;missing-data,,
 5224-5226,,,"L18: - $N = 1,000$: 1,290.0 ns / agent-day ",1000;1290.0;2.82,;ns;,deterministic;timing;deterministic,,,reproducible-now;missing-data;reproducible-now,,
 5227-5231,,#key-recommendations,L24: 2. Estimated Gain: A 35% to 50% reduct,2;35;50;500;512,;%;%;;,timing,,,missing-data,,
 5232,,,L25: 3. Safest First Target: Segregating dy,3,,deterministic,,,reproducible-now,,
@@ -1086,7 +1086,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 5434,,,L330: 3. Recommended First Step:,3,,deterministic,,,reproducible-now,,
 5435,,,L332: 4. Where AoS Storage Remains Superior:,4,,,,,,,
 5436,,,L335: - Low-agent exploratory runs ($N \le 3,32,,,,,,,
-5437,M2_STORAGE_AUTHORITY_ANALYSIS.md,#key-evaluation-matrix,L18: ; Hot Phase Latency ; High (conversion,2,,timing,,,missing-data,,
+5437,M2_18_1_STORAGE_AUTHORITY_ANALYSIS.md,#key-evaluation-matrix,L18: ; Hot Phase Latency ; High (conversion,2,,timing,,,missing-data,,
 5438,,,L19: ; Adapter Overhead ; Persistent per-da,1.32,µs,,,,,,
 5439,,,L22: ; Canonical Hash Impact ; Direct from ,0,,deterministic,,,reproducible-now,,
 5440,,,L23: ; Snapshot Compatibility ; Direct from,0.01,µs,timing,,,missing-data,,
@@ -1814,7 +1814,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 18286-18295,,,"L1258: ; 100,000 ; 0.50 ; 2208.333 ± 151.467 ",100000;0.50;2208.333;151.467;64.393;13.102;1938.000;314.833;42.851;5.668,,,,,,,
 18296-18305,,,"L1259: ; 100,000 ; 1.00 ; 2332.467 ± 169.833 ",100000;1.00;2332.467;169.833;68.802;6.774;2010.200;213.400;41.717;10.279,,,,,,,
 18306-18307,,,L1263: Inference: most measured interaction c,8;10,;×,derived,,,,,
-18308-18310,M3_02B_SEARCH_REDUCTION.md,#host-and-method,L26: - Workloads: M2-40 at day 0; the M3 su,0;0.48;150,,,crates/sim-model/benches/m3_02b_search_reduction_bench.rs,,,,uncertain report-level harness mapping
+18308-18310,M3_03_SEARCH_REDUCTION.md,#host-and-method,L26: - Workloads: M2-40 at day 0; the M3 su,0;0.48;150,,,crates/sim-model/benches/m3_02b_search_reduction_bench.rs,,,,uncertain report-level harness mapping
 18311-18317,,,"L27: - Cells: N ∈ {10,000, 100,000}, K=N/20",10000;100000;200;8;0;0.5;1,,deterministic,,,reproducible-now,,
 18318,,,L28: - Seed / replicate: 81985529216486895 ,7,,,,,,,
 18319-18320,,,"L29: - Whole-tick method: 2 warmups, 11 tim",2;11,,,,,,,
@@ -2828,7 +2828,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 27073-27089,,,"L822: ; 100,000 ; 16 ; 6 ; 287,826.0 ± 48,71",100000;16;6;287826.0;48713.7;209636.7;30206.0;251544.7;62606.5;1.144;245740.1;10231.0;171336.2;11059.1;216678.6;10123.4;1.134,,,,,,,
 27090-27126,,,L824: Measured facts: for the M3P sustained ,10;4;196;10;16;852;4;5424.8;475.8;6734.7;465.5;100;4;1289;2;21103.1;682.1;22610.0;1726.3;100;16;8124;6;38602.2;1466.7;86331.4;5511.2;100;4;4;1.115;1.359;2;0.865;1.069;100;10,k;;;k;;;;;µs;;µs;k;;;;;µs;;µs;k;;;;;µs;;µs;k;;;×;×;;×;×;k;k,timing,,,,,
 27127-27129,,,L826: Inference: parallel spread beat serial,8;0.5;0.2,,,,,,,
-27130-27131,M3_EQUILIBRIUM_WORKLOAD.md,#acceptance-rule-and-method,L12: - deaths on every day are at most 0.1%,0.1;1,%,deterministic,crates/sim-model/benches/m3_equilibrium_bench.rs,,reproducible-now,,uncertain report-level harness mapping
+27130-27131,M3_04_EQUILIBRIUM_WORKLOAD.md,#acceptance-rule-and-method,L12: - deaths on every day are at most 0.1%,0.1;1,%,deterministic,crates/sim-model/benches/m3_equilibrium_bench.rs,,reproducible-now,,uncertain report-level harness mapping
 27132-27135,,,L13: - absolute mean-alive-food drift from ,50;300;5;50,;;%;,,,,,,
 27136,,,L14: - keyed Phase 6B entries are nonzero e,10,%,,,,,,
 27137-27138,,#full-deterministic-grid,L23: ; Candidate ; Relative change ; Minimu,50;300,,,,,,,
@@ -2892,7 +2892,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 27726-27728,,,L90: ; environment.healthdecayrate ; 0.05 ;,0.05;0.05;0.05,,,,,,,
 27729-27731,,,L91: ; economy.baseworkyield ; 2.0 ; 2.0 ; ,2.0;2.0;2.0,,,,,,,
 27732-27733,,#host-and-runtime,"L121: - Search and N=100,000 verification wa",100000;94.436,;s,timing,,,,,none
-27734,M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md,#milestone-questions,L19: ; M2 ; Can runtime speed improve while,100,k,,none,,missing-source,M5-05,
+27734,M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md,#milestone-questions,L19: ; M2 ; Can runtime speed improve while,100,k,,none,,missing-source,M5-05,
 27735-27738,,,L20: ; M3 ; When does interaction complexit,1;5.23;100;1.49,M;x;k;x,deterministic,,,unrecoverable,,
 27739-27741,,#how-m3-answered-its-question,L24: 1. Static world: the scale search comp,1;100;250,;k;k,,,,,,
 27742-27743,,,L25: 2. Small parallel work and search savi,2;0.967,;×,derived,,,missing-source,,
@@ -2903,7 +2903,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 27754-27756,,,L30: 7. Propagation parallelism: among the ,7;3.2;2.26,;×;×,,,,,,
 27757,,#correctness-and-compatibility-record,L54: - M3-01 records its complete 100-day C,100,,deterministic,,,unrecoverable,,
 27758-27770,,#m3-11-answer-propagation-and-parallel-spread,L66: Measured facts: the fixed-topology M3 ,728;2;4;852;6;16;0.2;29753;208.693;65.283;6;2.262;2.294,;;;;;;;;ms;ms;;×;×,derived,,,missing-source,,
-27771-27773,M3_INTERIM_AUDIT.md,#correctness-record,L20: - M3 goldens and serial differential: ,60;100;10000,,,,,,,
+27771-27773,M3_AUDIT_INTERIM_AUDIT.md,#correctness-record,L20: - M3 goldens and serial differential: ,60;100;10000,,,,,,,
 27774-27775,,,L21: - Parallel extended parity: the M3-02 ,300;60,,,,,,,
 27776-27779,,#measured-facts,L30: - Cost of global Phase 6B: at 100k age,100;24;30;21.632,k;;ms;ms,timing,,,,,
 27780-27786,,,L31: - Locality and endpoint conflict: M3-0,0.528892;0.541324;100;24584;0;1;0.54,;;k;;;;,derived,,,,,
@@ -2916,7 +2916,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 27819-27822,,#limitations,L52: - Timing hooks: the M3-02 timing hook ,64;114;40;43,%,derived,,,missing-source,,
 27823-27824,,,L53: - Short active window: the detailed se,71;76,,deterministic,,,unrecoverable,,
 27825-27827,,,L55: - Amdahl bound: Phase 6B accounts for ,15;100;1.17,%;k;×,derived,,,,,
-27828-27831,M3_SCALE_DIAGNOSIS.md,#host-and-method,L9: - Workload: the M3 equilibrium preset ,0.3129;7;0.5;0,,deterministic,crates/sim-model/benches/m3_scale_limit_bench.rs,,reproducible-now,none,uncertain report-level harness mapping
+27828-27831,M3_05_SCALE_DIAGNOSIS.md,#host-and-method,L9: - Workload: the M3 equilibrium preset ,0.3129;7;0.5;0,,deterministic,crates/sim-model/benches/m3_scale_limit_bench.rs,,reproducible-now,none,uncertain report-level harness mapping
 27832,,,L10: - Sampling: same as the M3 scale bench,21,,timing,,,missing-data,,
 27833-27838,,,"L11: - Fixed-K sweep: K=500, k=8, N ∈ {100,",500;8;100000;250000;500000;1000000,,deterministic,,,reproducible-now,,
 27839-27856,,,"L12: - Fixed-N sweep: N=250,000, k=8, K ∈ {",250000;8;250;500;1250;2500;5000;1000;500;200;100;50;999;499;199;99;49;8,,,,,,,
@@ -2973,7 +2973,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 28142,,#inferences-and-smallest-fix-candidates,"L117: ; P6A, P6B, and P7 ; Repeated per-part",7,,,,,,,
 28143,,,L121: ; P4/P5/P8/P9 at high K ; Their fixed-,2500,,,,,,,
 28144,,,L122: ; Prior parallel 0.81× result ; It did,0.81,×,,,,,,
-28145-28151,M3_SCALE_LIMIT.md,#executive-summary,L8: - The full matrix completed through N=,1000000;200;8;16;0.5;0;50,,,,,,,uncertain report-level harness mapping
+28145-28151,M3_05_SCALE_LIMIT.md,#executive-summary,L8: - The full matrix completed through N=,1000000;200;8;16;0.5;0;50,,,,,,,uncertain report-level harness mapping
 28152,,,L9: - All 16 serial/parallel paired cells ,16,,,,,,,
 28153-28164,,,L10: - First-break criteria triggered. The ,0;100000;16;10.9230;1.15;100;250;25;250000;500000;16;50,;;;×;;k;k;%;;;;,derived,,,missing-data,,
 28165-28169,,,L11: - Memory did not approach the 50%-of-R,50;872611840;1000000;16;102663720960,%;;;;,deterministic,,,reproducible-now,,
@@ -3157,7 +3157,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 29767-29769,,,"L252: ; 1,000,000 ; 16 ; 3 ; 197ba1e5461cffc",1000000;16;3,,,,,,,
 29770-29772,,,"L253: ; 1,000,000 ; 16 ; 53 ; 6a918fc81bfe0f",1000000;16;53,,,,,,,
 29773-29784,,#interpretation-and-limitations,L257: Measured facts: the full-tick and phas,100;250;500;1;1;2.07479;2.16563;500;1;1.49187;1;16,k;k;k;M;M;;;k;M;;M;,derived,,,missing-data,,
-29785-29789,M3_SETTLEMENT_INDEX.md,#host-and-method,L9: - Workload: M2-40 equilibrium preset w,0.3129;7;0.5;8;0,,deterministic,,,reproducible-now,,uncertain report-level harness mapping
+29785-29789,M3_06_SETTLEMENT_INDEX.md,#host-and-method,L9: - Workload: M2-40 equilibrium preset w,0.3129;7;0.5;8;0,,deterministic,,,reproducible-now,,uncertain report-level harness mapping
 29790,,,"L10: - Sampling: two warmups, seven samples",21,,timing,,,missing-data,,
 29791-29795,,,"L11: - Fixed-K series: K=500, N ∈ {100,000,",500;100000;250000;500000;1000000,,deterministic,,,reproducible-now,,
 29796-29801,,,"L12: - Fixed-N series: N=250,000, K ∈ {250,",250000;250;500;1250;2500;5000,,,,,,,
@@ -3228,7 +3228,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 30247-30254,,,"L133: ; Dependency-level build ; 0 ± 0 ; 4,4",0;0;4446.400;499.300;0;0;4518.200;110.900,,,,,,,
 30255-30262,,,"L134: ; Evaluation, writeback, output ; 29,6",29634.400;4158.800;16986.900;2924.300;30222.200;1611.900;17191.800;2540.600,,,,,,,
 30263,,#validation-and-limits,L143: - cargo bench -p sim-model --bench m3s,200,,,,,,,
-30264-30274,M3_SUSTAINED_WORKLOAD.md,#food-supply-grid,"L12: ; Candidate ; Minimum alive, days 1–20",1;200;200;100;200;100;200;100;200;100;200,,,crates/sim-model/benches/m3_sustained_workload_bench.rs,,,,uncertain report-level harness mapping
+30264-30274,M3_04_SUSTAINED_WORKLOAD.md,#food-supply-grid,"L12: ; Candidate ; Minimum alive, days 1–20",1;200;200;100;200;100;200;100;200;100;200,,,crates/sim-model/benches/m3_sustained_workload_bench.rs,,,,uncertain report-level harness mapping
 30275-30281,,,L14: ; M2-40 unchanged ; 0 ; 0 ; 0.00 ; 0.0,0;0;0.00;0.00;101;73;0,,,,,,,
 30282-30289,,,L15: ; basemetaboliccost=0.75 ; 0 ; 0 ; 0.9,0.75;0;0;0.95;26.82;92;108;9,,,,,,,
 30290-30296,,,"L16: ; basemetaboliccost=0.5 ; 1,029 ; 1,02",0.5;1029;1029;3724.12;8438.94;0;101,,,,,,,
@@ -3480,7 +3480,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 32794-32800,,,"L69: ; M3 + propagation, N=100,000 ; 74,828",100000;74828.77;789.53;74741.10;1671.07;87.67;1671.07,,,,,,,
 32801-32803,,#known-debt,"L89: - Production wiring grew from about 2,",2070;2775;2070,,deterministic,,,,,
 32804,,,L93: Gate outcome: M4-01 COMPLETE. All nume,2775,,,,,,,
-32805-32815,M4_02_BRANCHING.md,#host-and-method,L8: - Noise controls: benchmark process pr,0;0;2;4;6;8;10;25.1;13.9;60432472;61467436,x;;;;;;;%;%;;,timing,crates/sim-model/examples/m4_02_a5_measure.rs,docs/data/m4/m4_02/m4_02_followup.csv,restored-not-rerun,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
+32805-32815,M4_02_BRANCHING.md,#host-and-method,L8: - Noise controls: benchmark process pr,0;0;2;4;6;8;10;25.1;13.9;60432472;61467436,x;;;;;;;%;%;;,timing,crates/sim-model/examples/m4_02_a5_measure.rs,docs/data/m4_02/m4_02_followup.csv,restored-not-rerun,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
 32816-32822,,,L10: - Each cell used two warmups and 21 pa,21;30;10000;100000;200;8;0.5,;days;;;;;,deterministic,,,,,
 32823,,,L11: - The paired timed paths both restored,60,,,,,,,
 32824-32827,,,"L12: - The complete measurement took 1,283.",1283.8;21;23.8;74.6,;m;s;%,deterministic;deterministic;timing;deterministic,,,,,
@@ -3532,7 +3532,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 33197-33207,,#recorder-gate,"L172: ; M3P serial ; 10,000 ; 54.339 ± 3.779",10000;54.339;3.779;53.018;3.627;1.106;1.894;2.111;0.465;3.779;171,;;;;;;ms;ms;ms;ms;%,deterministic;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing,,,,,
 33208-33218,,,"L173: ; M3P serial ; 100,000 ; 877.184 ± 147",100000;877.184;147.298;893.782;144.911;-1.693;27.008;35.798;5.865;147.298;1595,,,,,,,
 33219,,#orchestration-gate,L195: ; Profile / execution ; N ; Direct pai,2,,derived,,none,,,uncertain report-level harness mapping; restored source not rerun
-33220-33228,,,"L197: ; M3 serial ; 10,000 ; 115.454 ± 2.224",10000;115.454;2.224;115.703;1.330;0.292;1.300;5.773;2.892,,,,docs/data/m4/m4_02/m4_02_followup.csv,,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
+33220-33228,,,"L197: ; M3 serial ; 10,000 ; 115.454 ± 2.224",10000;115.454;2.224;115.703;1.330;0.292;1.300;5.773;2.892,,,,docs/data/m4_02/m4_02_followup.csv,,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
 33229-33237,,,"L198: ; M3P serial ; 10,000 ; 499.322 ± 8.37",10000;499.322;8.376;499.269;3.140;1.628;5.663;24.966;12.955,,,,,,,
 33238-33246,,,"L199: ; M3P incremental topology ; 10,000 ; ",10000;162.838;1.180;164.154;3.226;-0.205;3.195;8.142;6.185,,,,,,,
 33247-33255,,,"L200: ; M3 serial ; 100,000 ; 1,349.032 ± 9.",100000;1349.032;9.687;1363.160;7.647;24.422;13.460;67.452;51.342,,,,,,,
@@ -3540,10 +3540,10 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 33265-33273,,,"L202: ; M3 + propagation serial ; 100,000 ; ",100000;3352.237;16.377;3368.788;13.536;11.721;21.730;167.612;55.180,,,,,,,
 33274-33282,,,"L203: ; M3P incremental topology ; 100,000 ;",100000;2071.618;23.366;2054.807;22.512;-27.507;22.102;103.581;16.697,,,,,,,
 33283,,#recorder-gate,L209: ; Profile ; N ; Full locator API ms ; ,2,,timing,,none,,,uncertain report-level harness mapping; restored source not rerun
-33284-33294,,,"L211: ; M3P serial ; 10,000 ; 48.354 ± 0.741",10000;48.354;0.741;47.517;0.566;0.900;0.999;2.376;2.898;2.009;0.013,,deterministic,,docs/data/m4/m4_02/m4_02_followup.csv,,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
+33284-33294,,,"L211: ; M3P serial ; 10,000 ; 48.354 ± 0.741",10000;48.354;0.741;47.517;0.566;0.900;0.999;2.376;2.898;2.009;0.013,,deterministic,,docs/data/m4_02/m4_02_followup.csv,,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
 33295-33305,,,"L212: ; M3P serial ; 100,000 ; 699.842 ± 5.2",100000;699.842;5.280;698.001;9.530;6.587;7.458;34.900;21.504;26.061;0.281,,,,,,,
 33306,,#per-cell-cpu-load-trace-and-disposition,"L218: ; Cell ; Pass 1 load range %, over/tot",1,,,,none,,,uncertain report-level harness mapping; restored source not rerun
-33307-33315,,,"L220: ; M3 serial, 10k ; 28.68–31.49, 2/2 ; ",10;28.68;31.49;2;2;28.50;28.87;2;2,k;;;;;;;;,,,docs/data/m4/m4_02/m4_02_followup.csv,,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
+33307-33315,,,"L220: ; M3 serial, 10k ; 28.68–31.49, 2/2 ; ",10;28.68;31.49;2;2;28.50;28.87;2;2,k;;;;;;;;,,,docs/data/m4_02/m4_02_followup.csv,,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
 33316-33324,,,"L221: ; M3P serial, 10k ; 30.77–30.81, 2/2 ;",10;30.77;30.81;2;2;27.02;35.99;2;2,,,,,,,
 33325-33333,,,"L222: ; M3P incremental, 10k ; 30.03–35.61, ",10;30.03;35.61;3;3;28.25;28.71;3;3,,,,,,,
 33334-33342,,,"L223: ; M3 serial, 100k ; 28.20–32.09, 4/4 ;",100;28.20;32.09;4;4;27.59;37.54;4;4,,,,,,,
@@ -3588,30 +3588,30 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 33636-33647,,,"L312: ; M3P incremental, 100k ; 1 ; 2,238.91",100;1;2238.917;32.590;2212.616;40.915;-28.361;47.199;4.001;111.946;1.456;1.849,,,,,,,
 33648-33659,,,"L313: ; Recorder M3P serial, 10k ; 9 ; 52.95",10;9;52.955;2.618;53.067;1.622;0.329;1.577;0.769;2.648;4.943;3.057,,,,,,,
 33660-33671,,,"L314: ; Recorder M3P serial, 100k ; 1 ; 782.",100;1;782.712;26.892;787.447;34.256;0.249;49.008;24.837;39.136;3.436;4.350,,,,,,,
-33672-33677,,#recorder-comparison-timer,"L322: ; 10,000 ; 0.465 ; 0.0833 ± 0.0037 ; 5",10000;0.465;0.0833;0.0037;5.58;82.1,;ms;ms;ms;×;%,deterministic;timing;timing;timing;deterministic;deterministic,,docs/data/m4/m4_02/m4_02_followup.csv,,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
+33672-33677,,#recorder-comparison-timer,"L322: ; 10,000 ; 0.465 ; 0.0833 ± 0.0037 ; 5",10000;0.465;0.0833;0.0037;5.58;82.1,;ms;ms;ms;×;%,deterministic;timing;timing;timing;deterministic;deterministic,,docs/data/m4_02/m4_02_followup.csv,,,uncertain report-level harness mapping; uncertain report-level data mapping; restored source not rerun
 33678-33683,,,"L323: ; 100,000 ; 5.865 ; 0.8922 ± 0.1014 ; ",100000;5.865;0.8922;0.1014;6.57;84.8,,,,,,,
-33684,M4_03_DIVERGENCE.md,#m4-03-divergence-measurement,"L3: Status: M4-03 implementation, the §12.",0,x,deterministic,crates/sim-model/examples/m4_03_gate_temp.rs,docs/data/m4/m4_03/m4_03_gate_rerun.csv,,,
+33684,M4_03_DIVERGENCE.md,#m4-03-divergence-measurement,"L3: Status: M4-03 implementation, the §12.",0,x,deterministic,crates/sim-model/examples/m4_03_gate.rs,docs/data/m4_03/m4_03_gate_rerun.csv,,,
 33685-33696,,#original-performance-gate-protocol-deviation-superseded,"L15: ; M3P serial, N=10,000 ; 1 ; 623,848.6",10000;1;623848.6;23172.5;628807.8;25365.4;11927.7;23071.7;25522.1;31192.4;3.714;4.034,;;;;;;;;;;%;%,,,,,,
 33697-33708,,,"L16: ; M3P serial, N=100,000 ; 1 ; 9,153,25",100000;1;9153254.6;109429.2;9180285.3;84082.5;38610.5;127941.0;78466.9;457662.7;1.196;0.916,,,,,,,
 33709-33720,,,"L17: ; M3 + propagation serial, N=100,000 ;",100000;1;4537758.9;26111.4;4550553.6;26240.7;4463.6;47880.5;11250.6;226887.9;0.575;0.577,,,,,,,
 33721-33732,,#confirmatory-performance-gate-high-priority-and-affinity,"L29: ; M3P serial, N=10,000 ; 2 ; 606,857.9",10000;2;606857.950;15908.450;613662.300;9359.650;8479.100;16267.500;17450.100;30342.897;2.621;1.525,,,,,,,
 33733-33744,,,"L30: ; M3P serial, N=100,000 ; 1 ; 8,970,32",100000;1;8970325.600;106223.500;8992494.800;84147.600;48004.400;126632.600;99662.800;448516.280;1.184;0.936,,,,,,,
 33745-33756,,,"L31: ; M3 + propagation serial, N=100,000 ;",100000;1;5008457.000;35650.100;5026765.000;38417.000;12759.800;56103.200;24353.500;250422.850;0.712;0.764,,,,,,,
-33757-33783,,#first-divergence-experiments-historical-superseded-for-a-1-statistics,L43: ; Set target food to 0 ; 0 / Intervent,0;0;5;5;5;1;12;5;1;12;4.17;2.70;4.73;526;495;892;0.0521;0.0491;0.0884;88;80;89;5;5;0;5;5,;day;day;day;;;;;;;days;days;days;;;;;;;;;;;;Days;Days;Days,timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;derived;derived;timing;timing;timing,crates/sim-model/examples/m4_03_experiment_temp.rs,docs/data/m4/m4_03/m4_03_a1_experiments.csv,,,
+33757-33783,,#first-divergence-experiments-historical-superseded-for-a-1-statistics,L43: ; Set target food to 0 ; 0 / Intervent,0;0;5;5;5;1;12;5;1;12;4.17;2.70;4.73;526;495;892;0.0521;0.0491;0.0884;88;80;89;5;5;0;5;5,;day;day;day;;;;;;;days;days;days;;;;;;;;;;;;Days;Days;Days,timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;timing;derived;derived;timing;timing;timing,crates/sim-model/examples/m4_03_experiment.rs,docs/data/m4_03/m4_03_a1_experiments.csv,,,
 33784-33810,,,L44: ; Set target health to 0.01 ; 0 / Inte,0.01;0;5;5;9;3;10;9;3;10;4.15;4.11;5.56;819;428;891;0.0812;0.0424;0.0883;89;5;5;5;5;0;5;5,,,,,,,
 33811-33837,,,L45: ; Force target Idle on day 0 ; 0 / Cor,0;0;3;5;2;5;1;5;7;7;4;5;4.74;1;0;286;0.000100;0;0.02834;3;5;0;0;89;0;5;5,;day;day;day;day;day;;;;;;;days;;;;;;;;;;;;Days;Days;Days,timing,,,,,
 33838-33855,,,L46: ; Increase BaseMetabolicCost by 1% ; 0,1;0;5;5;5;5;10093;10086;10096;1.00030;1.00000;1.00040;88;88;89;0;5;5,%;day;day;day;;;;;;;;;;;;Days;Days;Days,,,,,,
-33856-33858,,#component-flags-and-alive-population,L58: ; Food = 0 ; days 0–89 ; none ; none ;,0;0;89,,deterministic,,docs/data/m4/m4_03/m4_03_divergence_experiments.csv,,,
+33856-33858,,#component-flags-and-alive-population,L58: ; Food = 0 ; days 0–89 ; none ; none ;,0;0;89,,deterministic,,docs/data/m4_03/m4_03_divergence_experiments.csv,,,
 33859-33861,,,L59: ; Health = 0.01 ; days 0–89 ; none ; n,0.01;0;89,,,,,,,
 33862-33864,,,L60: ; Forced Idle ; union of days 0–89 acr,0;89;3,,,,,,,
 33865-33869,,,L61: ; BaseMetabolicCost +1% ; days 0–89 ; ,+1;0;89;13;89,%;;;;,,,,,,
 33870,,#findings,L68: - Fact: none of the target agents died,90,,,,,,,
 33871,,,L69: - Fact: the global configuration chang,1.0,,derived,,,,,
-33872-33895,,#a-1-corrected-experiment-rerun,L85: ; Food = 0 ; 0 / InterventionBoundary ,0;0;5;5;5;5;5;1;12;5;1;12;526;495;892;0.0521;0.0491;0.0883;88;80;89;5;5;0,;;;;;;days;days;days;days;days;days;;;;;;;;;;;;Days,deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;derived;derived;deterministic,,docs/data/m4/m4_03/m4_03_a1_experiments.csv,,,
+33872-33895,,#a-1-corrected-experiment-rerun,L85: ; Food = 0 ; 0 / InterventionBoundary ,0;0;5;5;5;5;5;1;12;5;1;12;526;495;892;0.0521;0.0491;0.0883;88;80;89;5;5;0,;;;;;;days;days;days;days;days;days;;;;;;;;;;;;Days,deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;derived;derived;deterministic,,docs/data/m4_03/m4_03_a1_experiments.csv,,,
 33896-33919,,,L86: ; Health = 0.01 ; 0 / InterventionBoun,0.01;0;5;5;5;5;9;3;10;9;3;10;819;428;891;0.0811;0.0424;0.0883;89;89;89;5;5;0,,,,,,,
 33920-33949,,,L87: ; Force Idle on day 0 ; 0 / Core(Phase,0;0;3;5;2;5;1;5;2;5;2;5;7;7;7;7;7;7;1;0;286;0.0001;0.0000;0.0283;0;0;89;5;5;0,;;;;;;;;;;;;days;days;days;days;days;days;;;;;;;;;;;;Days,deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;derived;derived;deterministic,,,,,
 33950-33967,,,L88: ; BaseMetabolicCost +1% ; 0 / Core(Pha,+1;0;5;5;5;5;10093;10086;10096;0.9998;0.9994;0.9999;88;88;89;5;5;0,%;;;;;;;;;;;;;;;;;Days,deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;derived;derived;deterministic,,,,,
-33968-33984,,#daily-settlement-spread-in-the-90-day-runs,L98: ; 0 ; 1.0 (1.0–3.0) ; 0.0 (0.0–2.0) ; ,0;1.0;1.0;3.0;0.0;0.0;2.0;1;3;1.0;1.0;1.0;0.0;0.0;0.0;1;1,Day;day;day;day;day;day;day;day;day;day;day;day;day;day;day;day;day,deterministic,,docs/data/m4/m4_03/m4_03_divergence_experiments.csv,,,
+33968-33984,,#daily-settlement-spread-in-the-90-day-runs,L98: ; 0 ; 1.0 (1.0–3.0) ; 0.0 (0.0–2.0) ; ,0;1.0;1.0;3.0;0.0;0.0;2.0;1;3;1.0;1.0;1.0;0.0;0.0;0.0;1;1,Day;day;day;day;day;day;day;day;day;day;day;day;day;day;day;day;day,deterministic,,docs/data/m4_03/m4_03_divergence_experiments.csv,,,
 33985-34001,,,L99: ; 1 ; 1.0 (1.0–26.0) ; 1.0 (0.0–2.0) ;,1;1.0;1.0;26.0;1.0;0.0;2.0;1;3;1.0;1.0;1.0;0.0;0.0;0.0;1;1,,,,,,,
 34002-34018,,,L100: ; 2 ; 3.0 (1.0–49.0) ; 1.0 (0.0–2.0) ;,2;3.0;1.0;49.0;1.0;0.0;2.0;1;3;1.0;1.0;1.0;0.0;0.0;0.0;1;1,,,,,,,
 34019-34035,,,L101: ; 3 ; 3.0 (1.0–49.0) ; 1.0 (0.0–2.0) ;,3;3.0;1.0;49.0;1.0;0.0;2.0;1;3;1.0;1.0;26.0;0.0;0.0;0.0;1;1,,,,,,,
@@ -3701,7 +3701,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 35447-35463,,,L185: ; 87 ; 176.0 (170.0–188.0) ; 349.0 (31,87;176.0;170.0;188.0;349.0;316.0;698.0;3;6;180.0;172.0;182.0;617.0;227.0;644.0;4;9,,,,,,,
 35464-35480,,,L186: ; 88 ; 177.0 (171.0–188.0) ; 355.0 (31,88;177.0;171.0;188.0;355.0;314.0;704.0;3;6;180.0;173.0;182.0;631.0;239.0;677.0;4;9,,,,,,,
 35481-35497,,,L187: ; 89 ; 176.0 (172.0–189.0) ; 354.0 (31,89;176.0;172.0;189.0;354.0;313.0;703.0;3;6;180.0;176.0;182.0;639.0;252.0;709.0;4;9,,,,,,,
-35498,,#h365-extension,L191: ### H=365 extension,365,,,,docs/data/m4/m4_03/m4_03_a1_experiments.csv,,,
+35498,,#h365-extension,L191: ### H=365 extension,365,,,,docs/data/m4_03/m4_03_a1_experiments.csv,,,
 35499-35501,,,L195: ; Intervention ; Seed ; Peak day index,365;365;30,,derived,,,,,
 35502-35510,,,L197: ; Food = 0 ; 0 ; 364 ; 10150 ; 0.9852 ,0;0;364;10150;0.9852;10150;0.9852;2.57;50,,deterministic,,,,,
 35511-35519,,,L198: ; Food = 0 ; 1 ; 361 ; 10164 ; 0.9866 ,0;1;361;10164;0.9866;10159;0.9858;1.77;50,,,,,,,
@@ -3718,7 +3718,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 35604,,,L214: - Inference: by day 365 both cases are,365,,,,,,,
 35605,,,L215: - Inference: divergence is not confine,365,,deterministic,,,,,
 35606-35608,,,L216: - Fact: in four health=0.01 H=365 runs,0.01;365;90,,,,,,,
-35609-35610,M4_04_CRN_EFFICIENCY.md,#food0,L22: ; H ; Outcome ; Paired effect [95% CI],95;95,%,derived,crates/sim-model/examples/m4_04_crn_experiment.rs,docs/data/m4/m4_04/m4_04_crn_food_0.csv,,,uncertain report-level data mapping; restored source not rerun
+35609-35610,M4_04_CRN_EFFICIENCY.md,#food0,L22: ; H ; Outcome ; Paired effect [95% CI],95;95,%,derived,crates/sim-model/examples/m4_04_crn_experiment.rs,docs/data/m4_04/m4_04_crn_food_0.csv,,,uncertain report-level data mapping; restored source not rerun
 35611-35625,,,L24: ; 7 ; alivepopulation ; 0.000000000000,7;0;0;0;0;0;2;-1;4;5;1;-1;0;74.800000;0.000000,,,,,,,
 35626-35638,,,L25: ; 7 ; totalwealth ; 0.000000000000e0 [,7;0;0;0;0;0;0;0;0;0;0;74.800000;0.000000,,,,,,,
 35639-35662,,,L26: ; 7 ; meanhealthalive ; -2.01917462248,7;-2;-5;-2;-5;-1;-5;3;-12;3;-14;-2;-5;2;-9;2;-9;4;-11;1;3;2;74.800000;0.000000,,deterministic,,,,,
@@ -3739,7 +3739,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 35898-35921,,,L41: ; 365 ; meanhealthalive ; -6.057929049,365;-6;-6;-4;-5;3;-5;3;-8;3;-10;-2;-5;1;-7;1;-7;2;-9;7;5;1;10146.590000;1.340000,,,,,,,
 35922-35943,,,L42: ; 365 ; targetsettlementalivepopulatio,365;-1;-1;-1;-1;-3;-2;1;-1;1;-3;6;-1;4;6;1;-1;7;4;1;10146.590000;1.340000,,,,,,,
 35944-35958,,,L43: ; 365 ; targetsettlementwealth ; -8.18,365;-8;-2;3;3;3;-4;1;1;2;6;4;1;10146.590000;1.340000,,,,,,,
-35959-35960,,#health001,L47: ; H ; Outcome ; Paired effect [95% CI],95;95,%,derived,,docs/data/m4/m4_04/m4_04_crn_health_0_01.csv,,,
+35959-35960,,#health001,L47: ; H ; Outcome ; Paired effect [95% CI],95;95,%,derived,,docs/data/m4_04/m4_04_crn_health_0_01.csv,,,
 35961-35975,,,L49: ; 7 ; alivepopulation ; 0.000000000000,7;0;0;0;0;0;2;-1;4;5;1;-1;0;18.310000;0.000000,,,,,,,
 35976-35988,,,L50: ; 7 ; totalwealth ; 0.000000000000e0 [,7;0;0;0;0;0;0;0;0;0;0;18.310000;0.000000,,,,,,,
 35989-36012,,,L51: ; 7 ; meanhealthalive ; -9.89341147702,7;-9;-5;-9;-5;-9;-5;4;-16;4;-18;-1;-4;2;-9;2;-9;4;-11;8;6;1;18.310000;0.000000,,deterministic,,,,,
@@ -3760,33 +3760,33 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 36267-36290,,,L66: ; 365 ; meanhealthalive ; -1.386433110,365;-1;-5;-5;-5;2;-5;4;-8;4;-10;-4;-5;1;-7;1;-7;2;-9;7;5;1;10179.190000;1.430000,,,,,,,
 36291-36309,,,L67: ; 365 ; targetsettlementalivepopulatio,365;-1;-1;-1;2;-1;2;-3;-3;-1;4;6;1;-1;4;3;9;10179.190000;1.430000,,,,,,,
 36310-36324,,,L68: ; 365 ; targetsettlementwealth ; -3.27,365;-3;-3;-2;7;7;-3;1;1;1;1;1;2;10179.190000;1.430000,,,,,,,
-36325-36326,,#basemetaboliccostplus1pct,L72: ; H ; Outcome ; Paired effect [95% CI],95;95,%,derived,,docs/data/m4/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
+36325-36326,,#basemetaboliccostplus1pct,L72: ; H ; Outcome ; Paired effect [95% CI],95;95,%,derived,,docs/data/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
 36327-36341,,,L74: ; 7 ; alivepopulation ; 0.000000000000,7;0;0;0;0;0;2;-1;4;5;1;-1;0;10005.810000;0.000000,,,,,,,
 36342-36354,,,L75: ; 7 ; totalwealth ; 0.000000000000e0 [,7;0;0;0;0;0;0;0;0;0;0;10005.810000;0.000000,,,,,,,
-36355-36378,,,L76: ; 7 ; meanhealthalive ; -1.93866101824,7;-1;-6;-2;-6;-1;-6;1;-12;1;-14;-1;-5;2;-9;2;-9;4;-11;3;3;4;10005.810000;0.000000,,deterministic,,docs/data/m4/m4_04/m4_04_crn_health_0_01.csv,,,
-36379-36394,,,L77: ; 7 ; targetsettlementalivepopulation ,7;0;0;0;0;0;0;1;-1;1;-1;2;-3;0;10005.810000;0.000000,,derived,,docs/data/m4/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
+36355-36378,,,L76: ; 7 ; meanhealthalive ; -1.93866101824,7;-1;-6;-2;-6;-1;-6;1;-12;1;-14;-1;-5;2;-9;2;-9;4;-11;3;3;4;10005.810000;0.000000,,deterministic,,docs/data/m4_04/m4_04_crn_health_0_01.csv,,,
+36379-36394,,,L77: ; 7 ; targetsettlementalivepopulation ,7;0;0;0;0;0;0;1;-1;1;-1;2;-3;0;10005.810000;0.000000,,derived,,docs/data/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
 36395-36407,,,L78: ; 7 ; targetsettlementwealth ; 0.00000,7;0;0;0;0;0;0;0;0;0;0;10005.810000;0.000000,,,,,,,
 36408-36429,,,L79: ; 30 ; alivepopulation ; -7.0000000000,30;-7;-2;-1;-1;-1;-2;1;-1;1;-3;2;-2;2;2;4;-1;4;2;9;10028.040000;0.000000,,deterministic,,,,,
 36430-36442,,,L80: ; 30 ; totalwealth ; 0.000000000000e0 ,30;0;0;0;0;0;0;0;0;0;0;10028.040000;0.000000,,derived,,,,,
-36443-36466,,,L81: ; 30 ; meanhealthalive ; -1.2961946919,30;-1;-5;-1;-5;-7;-6;7;-10;7;-12;-2;-5;1;-8;1;-8;3;-10;3;2;7;10028.040000;0.000000,,deterministic,,docs/data/m4/m4_04/m4_04_crn_health_0_01.csv,,,
-36467-36483,,,L82: ; 30 ; targetsettlementalivepopulation,30;0;0;0;0;0;-9;-3;5;-1;5;-1;1;-2;0;10028.040000;0.000000,,derived,,docs/data/m4/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
+36443-36466,,,L81: ; 30 ; meanhealthalive ; -1.2961946919,30;-1;-5;-1;-5;-7;-6;7;-10;7;-12;-2;-5;1;-8;1;-8;3;-10;3;2;7;10028.040000;0.000000,,deterministic,,docs/data/m4_04/m4_04_crn_health_0_01.csv,,,
+36467-36483,,,L82: ; 30 ; targetsettlementalivepopulation,30;0;0;0;0;0;-9;-3;5;-1;5;-1;1;-2;0;10028.040000;0.000000,,derived,,docs/data/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
 36484-36496,,,L83: ; 30 ; targetsettlementwealth ; 0.0000,30;0;0;0;0;0;0;0;0;0;0;10028.040000;0.000000,,,,,,,
 36497-36513,,,L84: ; 90 ; alivepopulation ; -1.0700000000,90;-1;-1;-8;-1;2;2;-2;-1;7;6;1;6;4;1;10083.400000;1.330000,,deterministic,,,,,
 36514-36528,,,L85: ; 90 ; totalwealth ; -1.597700000000e2,90;-1;-2;-3;3;3;-2;1;1;2;6;4;9;10083.400000;1.330000,,,,,,,
-36529-36552,,,L86: ; 90 ; meanhealthalive ; -6.6486741102,90;-6;-6;-2;-5;1;-5;9;-9;9;-11;-3;-5;3;-8;3;-8;7;-10;8;5;1;10083.400000;1.330000,,,,docs/data/m4/m4_04/m4_04_crn_health_0_01.csv,,,
-36553-36573,,,L87: ; 90 ; targetsettlementalivepopulation,90;0;-4;-2;4;-2;4;-2;4;-4;6;-2;1;2;3;-2;8;4;3;10083.400000;1.330000,,,,docs/data/m4/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
+36529-36552,,,L86: ; 90 ; meanhealthalive ; -6.6486741102,90;-6;-6;-2;-5;1;-5;9;-9;9;-11;-3;-5;3;-8;3;-8;7;-10;8;5;1;10083.400000;1.330000,,,,docs/data/m4_04/m4_04_crn_health_0_01.csv,,,
+36553-36573,,,L87: ; 90 ; targetsettlementalivepopulation,90;0;-4;-2;4;-2;4;-2;4;-4;6;-2;1;2;3;-2;8;4;3;10083.400000;1.330000,,,,docs/data/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
 36574-36589,,,L88: ; 90 ; targetsettlementwealth ; -1.250,90;-1;-4;3;1;1;-2;2;4;6;3;8;-1;1;10083.400000;1.330000,,,,,,,
 36590-36605,,,L89: ; 365 ; alivepopulation ; -1.181000000,365;-1;-1;-1;2;2;-1;-1;3;2;6;2;1;3;10303.220000;33.020000,,,,,,,
 36606-36620,,,L90: ; 365 ; totalwealth ; -1.191445000000e,365;-1;-1;-1;4;4;-1;5;6;1;2;1;3;10303.220000;33.020000,,,,,,,
-36621-36644,,,L91: ; 365 ; meanhealthalive ; -8.133126997,365;-8;-4;-8;-4;-7;-4;8;-8;8;-10;-8;-4;1;-7;1;-7;2;-9;3;2;4;10303.220000;33.020000,,,,docs/data/m4/m4_04/m4_04_crn_health_0_01.csv,,,
-36645-36666,,,L92: ; 365 ; targetsettlementalivepopulatio,365;-2;-1;-4;-1;-9;-2;7;-1;7;-3;3;-1;4;5;1;-1;1;8;2;10303.220000;33.020000,,,,docs/data/m4/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
+36621-36644,,,L91: ; 365 ; meanhealthalive ; -8.133126997,365;-8;-4;-8;-4;-7;-4;8;-8;8;-10;-8;-4;1;-7;1;-7;2;-9;3;2;4;10303.220000;33.020000,,,,docs/data/m4_04/m4_04_crn_health_0_01.csv,,,
+36645-36666,,,L92: ; 365 ; targetsettlementalivepopulatio,365;-2;-1;-4;-1;-9;-2;7;-1;7;-3;3;-1;4;5;1;-1;1;8;2;10303.220000;33.020000,,,,docs/data/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
 36667-36681,,,L93: ; 365 ; targetsettlementwealth ; -3.20,365;-3;-5;-1;9;9;-3;1;1;2;3;2;4;10303.220000;33.020000,,,,,,,
-36682-36699,,#horizon-and-divergence,"L99: Measured facts: At H=7, H=30, and H=90",7;30;90;8.54;10;6;7;7.21;365;18.31;10179.19;469.7;30;22.37;365;10028.04;10303.22;0,;;;×;;;;;;;;;;;;;;,derived,,docs/data/m4/m4_04/m4_04_crn_food_0.csv,,,
-36700,,,L101: Inference: For outcomes that become af,365,,,,docs/data/m4/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
-36701-36722,,#local-versus-global-intervention-effects,L105: Measured facts: Based on whether the p,95;0;4;20;0.01;11;20;+1;10;20;365;0;0.10;0.18;0.03;0.01;10000;74.8;18.31;7;10000;365,%;;;;;;;%;;;;;;;;;;;;;;,deterministic,,docs/data/m4/m4_04/m4_04_crn_food_0.csv,,,
-36723,,#follow-ups,L119: - Outcome variance: totalwealth has ze,30,,derived,,docs/data/m4/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
-36724-36730,,,"L120: - Signal versus noise: at H=365, ;DH; ",365;99;0.01;3320;3278;0.93;1.10,;%;;;;;,deterministic,,docs/data/m4/m4_04/m4_04_crn_health_0_01.csv,,,
-36731-36733,,,L121: - Newborn identity: newborn CRN loss r,33;365;4,,,,docs/data/m4/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
+36682-36699,,#horizon-and-divergence,"L99: Measured facts: At H=7, H=30, and H=90",7;30;90;8.54;10;6;7;7.21;365;18.31;10179.19;469.7;30;22.37;365;10028.04;10303.22;0,;;;×;;;;;;;;;;;;;;,derived,,docs/data/m4_04/m4_04_crn_food_0.csv,,,
+36700,,,L101: Inference: For outcomes that become af,365,,,,docs/data/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
+36701-36722,,#local-versus-global-intervention-effects,L105: Measured facts: Based on whether the p,95;0;4;20;0.01;11;20;+1;10;20;365;0;0.10;0.18;0.03;0.01;10000;74.8;18.31;7;10000;365,%;;;;;;;%;;;;;;;;;;;;;;,deterministic,,docs/data/m4_04/m4_04_crn_food_0.csv,,,
+36723,,#follow-ups,L119: - Outcome variance: totalwealth has ze,30,,derived,,docs/data/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
+36724-36730,,,"L120: - Signal versus noise: at H=365, ;DH; ",365;99;0.01;3320;3278;0.93;1.10,;%;;;;;,deterministic,,docs/data/m4_04/m4_04_crn_health_0_01.csv,,,
+36731-36733,,,L121: - Newborn identity: newborn CRN loss r,33;365;4,,,,docs/data/m4_04/m4_04_crn_base_metabolic_cost_plus_1pct.csv,,,
 36734,M4_05_MINIMAL_CAUSE.md,#m4-05-minimal-cause-search,L3: Status: M4-05 COMPLETE. The implementa,2000,,,crates/sim-model/examples/m4_05_a5_gate.rs,none,,,uncertain report-level harness mapping; restored source not rerun
 36735-36738,,#a-5-batch-of-one-performance-gate,L7: Result: PASS. The measured operation w,0;0;29;7,,derived,,,,,
 36739-36755,,,"L11: ; M3P serial, N=10,000, K=50, k=8, plo",10000;50;8;0.5;30;2;41;2.419;2.568;645218.700;14521.150;640705.050;15288.150;-3340.050;19248.100;5659.400;32260.935,;;;;days;;;;s;;µs;;µs;;µs;µs;µs,deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;deterministic;timing;timing;timing;timing;timing;timing;timing;timing;derived;timing,,,,,
@@ -3865,7 +3865,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 37367-37372,,,"L68: ; 100,000 ; 90 ; 31.226 s ; 320.66 ms ",100000;90;31.226;320.66;4.418;1.041,,,,,,,
 37373-37377,,#gpu-suitability-assessment,L74: Measured facts: branch and subset eval,4.25;5.11;4.30;1.03;100000,;×;×;×;,derived,,,,,
 37378-37383,,,L76: Inference from the current data layout,46;8;44;64;100000;9,;;bytes;;;MB,deterministic,,,,,
-37384,M4_FINAL_AUDIT_AND_GRADUATION.md,#m4-final-audit-and-graduation,L3: Status: M4-GRADUATE — v0.5.0-m4. Hoste,5,,,none,none,unrecoverable,M5-04,
+37384,M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md,#m4-final-audit-and-graduation,L3: Status: M4-GRADUATE — v0.5.0-m4. Hoste,5,,,none,none,unrecoverable,M5-04,
 37385-37387,,#research-question-and-answer,L11: ; Record ; In the M3P sustained worklo,99;365;365,%;days;,,,,,,
 37388-37394,,,"L12: ; Aggregate ; At H=365, M4-04's CRN ef",365;1.5;80;-3320.8;-3278.25;100;100,;×;×;;;;,derived,,,,,
 37395-37402,,,L13: ; Cause ; Minimal causes existed for t,15;0;1;3;2000;90;10;0.1,,deterministic,,,,,
@@ -3882,7 +3882,7 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 37430-37439,,,L69: - Migration parameters remain uncalibr,0.25;0;113644;365;311;3;0.02;0.2;10;30,;;;days;;%;;;;,,,,,,
 37440-37443,,,L70: - The M4-05 predicate sat on its repli,10;0.1;-1.0;-1,,deterministic,,,,M5-04,
 37444-37445,,,L72: - Newborn CRN alignment can be lost at,33.02;365,,,,,,,
-37446-37447,,,L73: - Harness and raw-data recovery is inc,04;05,,timing,,docs/data/m4/INVENTORY.md,,,
+37446-37447,,,L73: - Harness and raw-data recovery is inc,04;05,,timing,,docs/data/m4_inventory/README.md,,,
 37448-37450,M1_CONTRACT_FREEZE.md,#m1-contract-freeze-specification-contracts-c01c10,L6: - Validation Status: Complete (521/521,521;521;500,,deterministic,none,none,unrecoverable,M5-05,uncertain: use linked report provenance
 37451,,#2-m0-empirical-validation-evidence-summary,L37: ; sim-core unit tests ; 0 ; In-crate u,0,,,,,,,
 37452,,,L38: ; goldenprngtests ; 7 ; Exact Mix13 ma,7,,,,,,,
@@ -3962,4 +3962,4 @@ claim_id,report,section anchor,claim text (short),value,unit,class,source harnes
 37603-37605,,,"L28: ; m4viewer ; 1 ; 130,570 ; 127.5 KiB ;",1;130570;127.5,,,,,,,
 37606-37608,,,"L29: ; Total ; 62 ; 31,131,453 ; 29.69 MiB ",62;31131453;29.69,;Bytes;MiB,,,,,,
 37609,,,L31: The measured .git directory size was 1,12877787,bytes,,,,unrecoverable,,historical point-in-time size; later commits/GC prevent exact recovery
-37610-37612,,,L33: Three M4-06 JSON files are individuall,11297013;8706720;8675386,,,,docs/data/m4_06/experiment.json|docs/data/m4_06/branch_experiment.json|docs/data/m4_06/experiment_superseded_seed_set.json,reproducible-now,,none
+37610-37612,,,L33: Three M4-06 JSON files are individuall,11297013;8706720;8675386,,,,docs/data/m4_06/experiment.json|docs/data/m4_06/branch_experiment.json|docs/data/m4_06/superseded/experiment_seed_set.json,reproducible-now,,none

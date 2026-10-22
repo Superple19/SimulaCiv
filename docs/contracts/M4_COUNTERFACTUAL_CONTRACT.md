@@ -4,7 +4,7 @@
 
 **Scope:** M4-00 freezes the counterfactual framework; §§10–14 freeze M4-01 through M4-05; §15 freezes M4-06 settlement migration; §16 freezes M4-07 many-branch performance. Later stages still require their own DRAFT → review → FROZEN contract.
 
-**Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
+**Baseline:** M3 graduated at `v0.4.0-m3`; see the [M3 Final Runtime Profile and Graduation Gate](../reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
 ## 1. Research question
 
@@ -12,7 +12,7 @@
 
 Counterfactual runs can begin from the same canonical snapshot, apply different interventions at explicit phase boundaries, and compare their later logical states. The M1 contract freezes a stateless PRNG addressed by `(master_seed, replicate_id, day, phase, subsystem_id, AgentId, draw_index)`; `RngCoordinate` and `coordinate_prng_u64` / `coordinate_prng_f32` implement that coordinate mapping. For each coordinate evaluated by both runs, the same run identity yields the same random value regardless of evaluation order. This supports common random numbers for paired branches, while a branch-dependent change in which coordinates are evaluated can still change which draws affect outcomes ([M1 Contract Freeze, C04](M1_CONTRACT_FREEZE.md); [`prng.rs`](../../crates/sim-core/src/prng.rs)).
 
-The runtime also has canonical SHA-256 encodings for state, metrics, and events (`canonical_state_hash`, `canonical_metrics_hash`, `canonical_event_hash` and profile-specific variants), plus canonical snapshot encode/restore functions. These provide exact comparison and resume boundaries; the M3 contract and graduation report record the separate M2/M3/M3P/propagation profiles and their parity gates ([`hashing.rs`](../../crates/sim-model/src/hashing.rs); [`snapshot.rs`](../../crates/sim-model/src/snapshot.rs); [M3 Interaction Contract](M3_INTERACTION_CONTRACT.md); [M3 graduation report](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)).
+The runtime also has canonical SHA-256 encodings for state, metrics, and events (`canonical_state_hash`, `canonical_metrics_hash`, `canonical_event_hash` and profile-specific variants), plus canonical snapshot encode/restore functions. These provide exact comparison and resume boundaries; the M3 contract and graduation report record the separate M2/M3/M3P/propagation profiles and their parity gates ([`hashing.rs`](../../crates/sim-model/src/hashing.rs); [`snapshot.rs`](../../crates/sim-model/src/snapshot.rs); [M3 Interaction Contract](M3_INTERACTION_CONTRACT.md); [M3 graduation report](../reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)).
 
 This combination makes paired causal experiments plausible. M4-00 now freezes the framework-level intervention classes, divergence search, branch restore model, and entity matching in §8; §7 contains only details assigned to later stage freezes.
 
@@ -41,15 +41,15 @@ Each stage gets its own contract section and follows **DRAFT → review → FROZ
 | Stage | Planned scope |
 |---|---|
 | **M4-00 — Counterfactual contract** | Freeze the research question, framework terminology, inherited invariants, housekeeping options, and stage boundaries. This document is frozen; later sections freeze their own details. |
-| **M4-01 — System registration architecture** | **COMPLETE.** Static registry and generic WorldState/SegmentedAgentStorage loops preserve profile behavior; see the [M4-01 report](../performance/M4_01_SYSTEM_REGISTRY.md). |
-| **M4-02 — Branching primitive and divergence-point detection** | **COMPLETE.** Snapshot-backed branches and exact first-divergence reporting pass the A-5 gate; see the [M4-02 report](../performance/M4_02_BRANCHING.md) and [§11](#11-m4-02-branching-and-divergence-detection). |
-| **M4-03 — Divergence measurement** | **COMPLETE.** The frozen series, daily component partition, cascade metrics, and target-death analysis pass the §12.6 A-5 gate; see the [M4-03 report](../performance/M4_03_DIVERGENCE.md) and [§12](#12-m4-03-divergence-measurement). |
-| **M4-04 — CRN efficiency** | **COMPLETE.** Frozen paired/independent estimators and bootstrap reporting; 100-replicate M3P sustained experiment recorded in the [M4-04 report](../performance/M4_04_CRN_EFFICIENCY.md). |
-| **M4-05 — Minimal-cause search** | **COMPLETE.** Deterministic intervention batches, cached paired evaluation, exhaustive minimum/ddmin search, JSONL replay, the N=2,000 golden, and the M3P N=10,000 A-5 gate pass; see the [M4-05 report](../performance/M4_05_MINIMAL_CAUSE.md) and [§14](#14-m4-05-minimal-cause-search). |
-| **M4-06 — Settlement migration system** | **COMPLETE.** Registered serial migration, v4 snapshots, all four profile combinations, migration-off A-5 gate, and five-seed H=365 experiment are recorded in the [M4-06 report](../performance/M4_06_MIGRATION.md); see [§15](#15-m4-06-settlement-migration-system). |
-| **M4-07 — Many-branch performance** | **COMPLETE.** Opt-in cross-branch parallel evaluation and direct-column day scans pass exact parity; independent intervention runs omit the discarded base day path; restore/clone stayed below the 20% threshold, so copy-on-write was not needed. See the [M4-07 report](../performance/M4_07_MANY_BRANCH.md) and [§16](#16-m4-07-many-branch-performance). |
+| **M4-01 — System registration architecture** | **COMPLETE.** Static registry and generic WorldState/SegmentedAgentStorage loops preserve profile behavior; see the [M4-01 report](../reports/M4_01_SYSTEM_REGISTRY.md). |
+| **M4-02 — Branching primitive and divergence-point detection** | **COMPLETE.** Snapshot-backed branches and exact first-divergence reporting pass the A-5 gate; see the [M4-02 report](../reports/M4_02_BRANCHING.md) and [§11](#11-m4-02-branching-and-divergence-detection). |
+| **M4-03 — Divergence measurement** | **COMPLETE.** The frozen series, daily component partition, cascade metrics, and target-death analysis pass the §12.6 A-5 gate; see the [M4-03 report](../reports/M4_03_DIVERGENCE.md) and [§12](#12-m4-03-divergence-measurement). |
+| **M4-04 — CRN efficiency** | **COMPLETE.** Frozen paired/independent estimators and bootstrap reporting; 100-replicate M3P sustained experiment recorded in the [M4-04 report](../reports/M4_04_CRN_EFFICIENCY.md). |
+| **M4-05 — Minimal-cause search** | **COMPLETE.** Deterministic intervention batches, cached paired evaluation, exhaustive minimum/ddmin search, JSONL replay, the N=2,000 golden, and the M3P N=10,000 A-5 gate pass; see the [M4-05 report](../reports/M4_05_MINIMAL_CAUSE.md) and [§14](#14-m4-05-minimal-cause-search). |
+| **M4-06 — Settlement migration system** | **COMPLETE.** Registered serial migration, v4 snapshots, all four profile combinations, migration-off A-5 gate, and five-seed H=365 experiment are recorded in the [M4-06 report](../reports/M4_06_MIGRATION.md); see [§15](#15-m4-06-settlement-migration-system). |
+| **M4-07 — Many-branch performance** | **COMPLETE.** Opt-in cross-branch parallel evaluation and direct-column day scans pass exact parity; independent intervention runs omit the discarded base day path; restore/clone stayed below the 20% threshold, so copy-on-write was not needed. See the [M4-07 report](../reports/M4_07_MANY_BRANCH.md) and [§16](#16-m4-07-many-branch-performance). |
 | **Viewer follow-up after M4-02** | **COMPLETE.** The read-only viewer has an M4 branch-comparison view, a committed M4-03 sample, and a local exporter; see the [viewer instructions](../../viewer/README.md#m4-branch-comparison). |
-| **M4 audit** | **COMPLETE — M4-GRADUATE (`v0.5.0-m4`). Hosted Linux, Windows, and macOS CI passed on commit `5a4972c`.** The [final audit](../performance/M4_FINAL_AUDIT_AND_GRADUATION.md) answers the research question, records stage evidence and known debt, and specifies the M5 direction. |
+| **M4 audit** | **COMPLETE — M4-GRADUATE (`v0.5.0-m4`). Hosted Linux, Windows, and macOS CI passed on commit `5a4972c`.** The [final audit](../reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md) answers the research question, records stage evidence and known debt, and specifies the M5 direction. |
 
 M4-00 through M4-07, the branch viewer, and the M4 audit are complete. M4 graduated as `v0.5.0-m4`; hosted Linux, Windows, and macOS CI passed on commit `5a4972c`.
 
@@ -74,7 +74,7 @@ The task baseline reports that the full workspace suite takes about five minutes
 
 ### 5.2 Sustained population drift
 
-The M3-08 report records the selected M3P sustained configuration at `N=10,000` with 10,089–10,758 alive agents over days 100–1,000 and 10,755 alive on day 1,000. The run stayed within its stated ±10% band but trends upward over that horizon ([M3-08 Population Dynamics, sustained gate](../performance/M3_08_POPULATION_DYNAMICS.md#sustained-gate)).
+The M3-08 report records the selected M3P sustained configuration at `N=10,000` with 10,089–10,758 alive agents over days 100–1,000 and 10,755 alive on day 1,000. The run stayed within its stated ±10% band but trends upward over that horizon ([M3-08 Population Dynamics, sustained gate](../reports/M3_08_POPULATION_DYNAMICS.md#sustained-gate)).
 
 Options are to keep that profile as a bounded benchmark workload; design density-dependent birth/death feedback before long-horizon counterfactual experiments; or maintain separate workload presets for bounded and regulated populations. Any new population regulation changes behavior and therefore belongs in a new profile with its own contract and goldens, not as a silent change to M3P.
 
@@ -434,7 +434,7 @@ If a cell has `MAD / median > 5%`, rerun it with 41 samples. If it remains above
 
 ### Freeze record
 
-This user-approved amendment freezes the measurement method for the M4-02 follow-up. Measurement switches are internal and doc-hidden; normal API defaults remain unchanged. The amendment does not mark M4-02 complete or alter any simulation profile, digest, snapshot, event, RNG, or gate result. The supporting historical and follow-up measurements are recorded in the [M4-02 report](../performance/M4_02_BRANCHING.md).
+This user-approved amendment freezes the measurement method for the M4-02 follow-up. Measurement switches are internal and doc-hidden; normal API defaults remain unchanged. The amendment does not mark M4-02 complete or alter any simulation profile, digest, snapshot, event, RNG, or gate result. The supporting historical and follow-up measurements are recorded in the [M4-02 report](../reports/M4_02_BRANCHING.md).
 
 ## §11.7 A-2 — Decision rule amendment (FROZEN)
 
@@ -611,13 +611,13 @@ If the observed paired variance itself is exactly zero, use the frozen M4-00 out
 
 ### 13.4 Newborn identity and CRN loss
 
-Report M4-03 `newborn_crn_loss` alongside each paired outcome comparison. This is the number of lineage-matched births whose AgentIds differ, not a claim that all other random coordinates were shared ([`DivergenceDayRecord`, `DivergenceSummary`](../../crates/sim-model/src/counterfactual.rs); [`M3pReferenceState::next_agent_id`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs)). In the corrected M4-03 report-only experiments, loss remained zero for the 20 H=90 cases and the ten H=365 food/health runs ([A-1 experiment results](../performance/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun)).
+Report M4-03 `newborn_crn_loss` alongside each paired outcome comparison. This is the number of lineage-matched births whose AgentIds differ, not a claim that all other random coordinates were shared ([`DivergenceDayRecord`, `DivergenceSummary`](../../crates/sim-model/src/counterfactual.rs); [`M3pReferenceState::next_agent_id`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs)). In the corrected M4-03 report-only experiments, loss remained zero for the 20 H=90 cases and the ten H=365 food/health runs ([A-1 experiment results](../reports/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun)).
 
 Keep OQ-4 option A, AgentId-based RNG identity; newborn CRN loss was zero in all 20 H=90 and ten H=365 report-only runs. Report any nonzero loss and interpret the CRN ratio in light of the unmatched newborn coordinates. A lineage-keyed RNG identity would be a new profile decision; it must not alter M3P ([`RngCoordinate`](../../crates/sim-core/src/prng.rs); [`apply_phase9b_storage`, `plan_phase9b_from_view`](../../crates/sim-model/src/m3p.rs)).
 
 ### 13.5 Population-regulation question
 
-Keep M3P unchanged; a separate population-regulated profile is not required for this stage. Across the ten H=365 corrected runs, alive population stayed between 10,000 and 10,313, within 3.13% of the initial population ([M4-03 H=365 results](../performance/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun)). Report population with each outcome. Reconsider regulation for substantially longer horizons or a different workload; any density-dependent rule requires a new profile and its own contract.
+Keep M3P unchanged; a separate population-regulated profile is not required for this stage. Across the ten H=365 corrected runs, alive population stayed between 10,000 and 10,313, within 3.13% of the initial population ([M4-03 H=365 results](../reports/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun)). Report population with each outcome. Reconsider regulation for substantially longer horizons or a different workload; any density-dependent rule requires a new profile and its own contract.
 
 ### 13.6 Gates and test list
 
@@ -689,7 +689,7 @@ Cache the base outcome for every run identity before evaluating candidate subset
 
 At day `H`, compute the scalar effect `Δ_r = Y(branch,r,H) − Y(base,r,H)` using M4-04's canonical outcome extraction. Supported outcomes are world or one-GroupId scoped alive population, total wealth, mean health of living agents, target-settlement alive population, and target-settlement wealth, with M4-04's checked wealth and undefined-health rules. The default paired predicate is evaluated on the arithmetic mean of replicate effects in ascending replicate-ID order; it compares against a declared threshold using exactly one of `<`, `<=`, `>`, or `>=`, with no epsilon. Equality comparison is not supported. Exploratory mode applies the predicate to its one effect. The predicate is part of the request identity ([`CrnOutcome`, `extract_outcomes`](../../crates/sim-model/src/crn_efficiency.rs); [M4-04 §13.1–13.3](#13-m4-04-crn-efficiency)).
 
-Do not support arbitrary per-record health/food/wealth predicates in this stage. `D_H` membership would require snapshot-level record comparison because current `DivergenceDayRecord` stores counts rather than a set of AgentIds; M4-03 also showed 98.4–99.1% record divergence at H=365 while M4-04 found a much smaller health-intervention total-wealth effect concentrated in the target settlement ([`DivergenceDayRecord`](../../crates/sim-model/src/counterfactual.rs); [M4-03 H=365 results](../performance/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun); [M4-04 results](../performance/M4_04_CRN_EFFICIENCY.md#health_0_01)).
+Do not support arbitrary per-record health/food/wealth predicates in this stage. `D_H` membership would require snapshot-level record comparison because current `DivergenceDayRecord` stores counts rather than a set of AgentIds; M4-03 also showed 98.4–99.1% record divergence at H=365 while M4-04 found a much smaller health-intervention total-wealth effect concentrated in the target settlement ([`DivergenceDayRecord`](../../crates/sim-model/src/counterfactual.rs); [M4-03 H=365 results](../reports/M4_03_DIVERGENCE.md#a-1-corrected-experiment-rerun); [M4-04 results](../reports/M4_04_CRN_EFFICIENCY.md#health_0_01)).
 
 ### 14.5 Search guarantees
 
@@ -749,7 +749,7 @@ No simulation transition, intervention, RNG coordinate, digest, snapshot, event,
 
 ### 15.1 Motivation and current runtime boundary
 
-The M3-08 report measured a 100k-agent M3P tick at `165.1 ms` versus `31.6 ms` for M3 at equal live population (`5.23×`); its Phase 9b graph and projection rebuilds dominated much of the difference ([M3-08 equal-live comparison](../performance/M3_08_POPULATION_DYNAMICS.md#equal-live-population-tick-comparison)). M3-09 incremental topology reduced the reported M3P/M3 ratio to `1.49×` by removing those per-day rebuilds ([M3-09 report](../performance/M3_09_INCREMENTAL_TOPOLOGY.md)). Migration tests whether a changing settlement assignment can be added through the registered-system boundary without rebuilding the execution architecture.
+The M3-08 report measured a 100k-agent M3P tick at `165.1 ms` versus `31.6 ms` for M3 at equal live population (`5.23×`); its Phase 9b graph and projection rebuilds dominated much of the difference ([M3-08 equal-live comparison](../reports/M3_08_POPULATION_DYNAMICS.md#equal-live-population-tick-comparison)). M3-09 incremental topology reduced the reported M3P/M3 ratio to `1.49×` by removing those per-day rebuilds ([M3-09 report](../reports/M3_09_INCREMENTAL_TOPOLOGY.md)). Migration tests whether a changing settlement assignment can be added through the registered-system boundary without rebuilding the execution architecture.
 
 `AgentState` stores `group_id`, and `SegmentedAgentStorage` stores it in the `economy.group_id` column with a mutable slice accessor. Initialization currently assigns groups round-robin; the existing Phase 9b population system also assigns each newborn its parent's group. No current production phase migrates an existing agent ([`AgentState`](../../crates/sim-model/src/state.rs); [`initialize_world`](../../crates/sim-model/src/initialization.rs); [`SegmentedAgentStorage::group_ids_mut`, `SegmentedAgentStorage::push`](../../crates/sim-model/src/storage.rs); [`apply_phase9b`, `apply_phase9b_storage_incremental`](../../crates/sim-model/src/m3p.rs)).
 

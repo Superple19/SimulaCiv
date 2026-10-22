@@ -26,7 +26,7 @@ This document performs an exhaustive safety, lifecycle, and architectural analys
 ## 2. Current Allocation Flow Analysis
 
 ### 2.1 Creation Point & Return Type
-- **Source Location:** [`crates/sim-model/src/intents.rs:173-185`](file:///c:/AI/SimulaCiv/crates/sim-model/src/intents.rs#L173-L185)
+- **Source Location:** [`crates/sim-model/src/intents.rs:173-185`](../../crates/sim-model/src/intents.rs#L173-L185)
 - **Signature:**
   ```rust
   pub fn generate_intents(
@@ -48,16 +48,16 @@ This document performs an exhaustive safety, lifecycle, and architectural analys
 
 ### 2.2 Daily Lifecycle & Drop Timing
 1. **Allocation & Formulation:**
-   - In [`runner.rs:280`](file:///c:/AI/SimulaCiv/crates/sim-model/src/runner.rs#L280), `run_m0_day_with_scratch` calls:
+   - In [`runner.rs:280`](../../crates/sim-model/src/runner.rs#L280), `run_m0_day_with_scratch` calls:
      ```rust
      let intents = phase4_generate_intents(world, &effective_config, choices_scratch)?;
      ```
 2. **Downstream Consumption (Phase 5):**
-   - In [`runner.rs:283`](file:///c:/AI/SimulaCiv/crates/sim-model/src/runner.rs#L283), `intents` is passed by immutable borrowed reference:
+   - In [`runner.rs:283`](../../crates/sim-model/src/runner.rs#L283), `intents` is passed by immutable borrowed reference:
      ```rust
      let partitions = phase5_partition_intents(&intents)?;
      ```
-   - [`phase5_partition_intents`](file:///c:/AI/SimulaCiv/crates/sim-model/src/partitioning.rs#L46) accepts `&[Intent]`. It validates uniqueness, clones/collects intents into partitioned groups by `GroupId`, and does **not** take ownership of `intents`.
+   - [`phase5_partition_intents`](../../crates/sim-model/src/partitioning.rs#L46) accepts `&[Intent]`. It validates uniqueness, clones/collects intents into partitioned groups by `GroupId`, and does **not** take ownership of `intents`.
 3. **Subsequent Phases (Phases 6A–11):**
    - Downstream resolvers consume `&partitions` (`SettlementIntentPartition`).
    - The original `intents` vector is never referenced again after line 283.

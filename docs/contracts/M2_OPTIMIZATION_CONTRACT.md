@@ -1,8 +1,8 @@
 # M2 Optimization & Differential Validation Contract
 
 - **Target Milestone:** M2 — Optimized Runtime
-- **Semantic Authority:** [`docs/contracts/M1_CONTRACT_FREEZE.md`](file:///c:/AI/SimulaCiv/docs/contracts/M1_CONTRACT_FREEZE.md)
-- **Machine-Readable Manifest:** [`contracts/m1_contract.toml`](file:///c:/AI/SimulaCiv/contracts/m1_contract.toml)
+- **Semantic Authority:** [`docs/contracts/M1_CONTRACT_FREEZE.md`](M1_CONTRACT_FREEZE.md)
+- **Machine-Readable Manifest:** [`contracts/m1_contract.toml`](../../contracts/m1_contract.toml)
 - **Reference Oracle:** M0 Executable Reference Model (`sim-core`, `sim-model`)
 - **Status:** Binding Operational Contract for M2 Development
 

@@ -11,8 +11,8 @@ Allocation Optimization Baseline Established & Frozen for M2 Structural Phase
   - M2-04 — Phase 10 Metrics Observation Allocation Optimization (`bc9aab1`)
   - M2-05 — Phase 11 Event Staging & Flush Allocation Optimization (`692ccb4`)
 - **Target Runtime:** M0 Reference Model (`sim-core`, `sim-model`)
-- **Semantic Specification:** [`docs/contracts/M1_CONTRACT_FREEZE.md`](file:///c:/AI/SimulaCiv/docs/contracts/M1_CONTRACT_FREEZE.md)
-- **Manifest:** [`contracts/m1_contract.toml`](file:///c:/AI/SimulaCiv/contracts/m1_contract.toml)
+- **Semantic Specification:** [`docs/contracts/M1_CONTRACT_FREEZE.md`](../contracts/M1_CONTRACT_FREEZE.md)
+- **Manifest:** [`contracts/m1_contract.toml`](../../contracts/m1_contract.toml)
 
 ---
 
@@ -222,7 +222,7 @@ With allocation hotspots in Phases 5, 8, 10, and 11 addressed, the roadmap shift
 - Baseline measurements completed and reproducible via:
   ```bash
   cargo bench --bench m0_baseline_bench
-  python scripts/profile_m0_baseline.py
+  python analysis/profile_m0_baseline.py
   ```
 - All M1 contracts and M0 reference behavior remain intact:
   - `CanonicalStateHash`: `5b396f23a8195fd7155a7b9577b0eaca265e59768a81f0cafd8ab68c0d9d67b9`

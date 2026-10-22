@@ -1,6 +1,6 @@
 # M4-04 recovered data
 
-Report: [M4-04 CRN Efficiency](../../../performance/M4_04_CRN_EFFICIENCY.md).
+Report: [M4-04 CRN Efficiency](../../reports/M4_04_CRN_EFFICIENCY.md).
 
 | Report table / section | Recovered data | Harness source |
 |---|---|---|

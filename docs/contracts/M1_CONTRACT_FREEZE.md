@@ -269,7 +269,7 @@ $$\text{CanonicalEventHash}(\text{M2}) = \text{CanonicalEventHash}(\text{M0})$$
 4. **Observer Independence**: Equivalence of state and determinism hashes regardless of whether macroscopic metrics collection and telemetry event logging are enabled or disabled.
 5. **Storage Layout & DenseSlot Permutation**: Invariance of all canonical hashes and outputs under arbitrary permutations of internal dense slots, memory addresses, or allocation orders.
 
-Detailed technical guidelines and test harness specifications for M2 are set forth in [`docs/contracts/M2_OPTIMIZATION_CONTRACT.md`](file:///c:/AI/SimulaCiv/docs/contracts/M2_OPTIMIZATION_CONTRACT.md).
+Detailed technical guidelines and test harness specifications for M2 are set forth in [`docs/contracts/M2_OPTIMIZATION_CONTRACT.md`](M2_OPTIMIZATION_CONTRACT.md).
 
 ---
 
@@ -302,7 +302,7 @@ After this M1 freeze, any change that modifies:
 
 ### Mandatory Amendment Workflow:
 1. **Identification**: Formally document the architectural rationale and exact scope of the proposed amendment.
-2. **Specification Update**: Amend the relevant contract sections in `docs/contracts/` and update `SIMULACIV_DESIGN_SPECIFICATION.md`.
+2. **Specification Update**: Amend the relevant contract sections in `docs/contracts/` and update `docs/design/SIMULACIV_DESIGN_SPECIFICATION.md`.
 3. **M0 Oracle Update**: Implement and validate the modified semantics in the M0 reference model first.
 4. **Vector Regeneration**: Update canonical golden hashes and acceptance tests to reflect the new accepted behavior.
 5. **M2 Alignment**: Implement the amended contract in M2 and verify differential equivalence against updated M0.
@@ -313,7 +313,7 @@ No semantic amendment may be introduced as an "optimization" during M2 developme
 
 ## 9. Machine-Readable Manifest Projection
 
-The machine-readable manifest at [`contracts/m1_contract.toml`](file:///c:/AI/SimulaCiv/contracts/m1_contract.toml) projects mechanically verifiable frozen contract constants, tags, fixed vectors, and oracle fixtures for automated CI and differential verification.
+The machine-readable manifest at [`contracts/m1_contract.toml`](../../contracts/m1_contract.toml) projects mechanically verifiable frozen contract constants, tags, fixed vectors, and oracle fixtures for automated CI and differential verification.
 
 - The TOML manifest does **not** supersede this document.
 - This document remains the authoritative semantic contract.

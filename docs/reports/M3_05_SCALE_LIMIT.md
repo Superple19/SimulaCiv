@@ -3,7 +3,7 @@
 Status: current
 
 
-This report records the requested static-world scale search on the equilibrium preset. It is a benchmark-only study; it changes no simulation semantics or production behavior. The subsequent M3-K settlement-index before/after measurements are recorded in [M3 Settlement Index](M3_SETTLEMENT_INDEX.md); the measurements below are unchanged.
+This report records the requested static-world scale search on the equilibrium preset. It is a benchmark-only study; it changes no simulation semantics or production behavior. The subsequent M3-K settlement-index before/after measurements are recorded in [M3 Settlement Index](M3_06_SETTLEMENT_INDEX.md); the measurements below are unchanged.
 
 ## Executive summary
 

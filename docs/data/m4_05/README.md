@@ -1,6 +1,6 @@
 # M4-05 recovered data
 
-Report: [M4-05 Minimal-Cause Search](../../../performance/M4_05_MINIMAL_CAUSE.md).
+Report: [M4-05 Minimal-Cause Search](../../reports/M4_05_MINIMAL_CAUSE.md).
 
 | Report table / section | Recovered data | Harness source |
 |---|---|---|

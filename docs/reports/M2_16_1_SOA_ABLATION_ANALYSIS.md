@@ -13,7 +13,7 @@ Status: historical (M2)
 
 ## 1. Executive Summary & Experimental Objectives
 
-In milestone **M2-16**, introducing the [`AgentDynamicSoAScratch`](file:///c:/AI/SimulaCiv/crates/sim-model/src/state.rs#L122-L194) view reduced cumulative Phase 10 Macroscopic Metrics latency from **0.133 ms down to 0.050 ms (-62.4% reduction, $2.66\times$ speedup)** on the 500-day canonical trajectory.
+In milestone **M2-16**, introducing the [`AgentDynamicSoAScratch`](../../crates/sim-model/src/state.rs#L122-L194) view reduced cumulative Phase 10 Macroscopic Metrics latency from **0.133 ms down to 0.050 ms (-62.4% reduction, $2.66\times$ speedup)** on the 500-day canonical trajectory.
 
 The purpose of this ablation study (**M2-16.1**) is to formally decouple and quantify two intertwined optimization mechanisms:
 1. **The SoA Memory Layout Effect**: Cache-density gains from contiguous streaming over segregated parallel slices (`food: &[f32]`, `wealth: &[Money]`, `alive: &[bool]`).
@@ -33,7 +33,7 @@ To cleanly isolate the variables, three strictly controlled execution variants w
 
 | Dimension | Variant A: Compact AoS Baseline (M2-15) | Variant B: SoA Scratch Reuse (M2-16) | Variant C: SoA Fresh Allocation (Ablation Probe) |
 | :--- | :--- | :--- | :--- |
-| **Primary Structure** | `Vec<AgentDynamicState>` | [`AgentDynamicSoAScratch`](file:///c:/AI/SimulaCiv/crates/sim-model/src/state.rs#L122-L194) | [`AgentDynamicSoAScratch`](file:///c:/AI/SimulaCiv/crates/sim-model/src/state.rs#L122-L194) |
+| **Primary Structure** | `Vec<AgentDynamicState>` | [`AgentDynamicSoAScratch`](../../crates/sim-model/src/state.rs#L122-L194) | [`AgentDynamicSoAScratch`](../../crates/sim-model/src/state.rs#L122-L194) |
 | **Memory Layout** | AoS: 20-byte dynamic struct per agent | SoA: 5 parallel contiguous vectors | SoA: 5 parallel contiguous vectors |
 | **Buffer Allocation** | Fresh `Vec` + `HashSet` allocated per call | Allocated **once** in runner, persistent reuse | Freshly allocated on **every single call** |
 | **Gini Sorting** | In-place struct sort (`AgentDynamicState`) | In-place index sort (`scratch.indices`) | In-place index sort (`scratch.indices`) |

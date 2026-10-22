@@ -35,7 +35,7 @@ No existing test, fixture, golden, snapshot, canonical expected value, productio
 - **Bench-reported wall time:** `90.160 s` (Cargo compilation is outside that measurement)
 - **Per-day JSONL:** `target/m3_02b_search_reduction.jsonl` (generated, not committed)
 
-The full-tick primary measurement uses the compiled library. The Phase 4 and Phase 6B stage profiles are secondary; the Phase 4 probe is compiled inside the benchmark to access the crate-private helper, so its code generation may differ from the library-linked whole-tick path. Phase 1–3, Phase 5, and Phase 6A values in JSON are one direct observation per checkpoint; Phase 7–11 are `null`. The existing [M3 sustained workload profile](M3_SUSTAINED_WORKLOAD.md#serial-per-phase-profile) contains the broader unchanged phase profile.
+The full-tick primary measurement uses the compiled library. The Phase 4 and Phase 6B stage profiles are secondary; the Phase 4 probe is compiled inside the benchmark to access the crate-private helper, so its code generation may differ from the library-linked whole-tick path. Phase 1–3, Phase 5, and Phase 6A values in JSON are one direct observation per checkpoint; Phase 7–11 are `null`. The existing [M3 sustained workload profile](M3_04_SUSTAINED_WORKLOAD.md#serial-per-phase-profile) contains the broader unchanged phase profile.
 
 ## Paired whole-tick results
 

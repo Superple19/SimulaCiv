@@ -3,7 +3,7 @@
 Status: current
 
 
-This report records the fixed-N, fixed-K, and `K=N/200` reruns after M3-K. The change replaces repeated storage-path GroupId scans with one transient source-order-preserving index per phase call. The original [M3 scale diagnosis](M3_SCALE_DIAGNOSIS.md) and [M3 scale-limit measurements](M3_SCALE_LIMIT.md) remain unchanged and provide the before values.
+This report records the fixed-N, fixed-K, and `K=N/200` reruns after M3-K. The change replaces repeated storage-path GroupId scans with one transient source-order-preserving index per phase call. The original [M3 scale diagnosis](M3_05_SCALE_DIAGNOSIS.md) and [M3 scale-limit measurements](M3_05_SCALE_LIMIT.md) remain unchanged and provide the before values.
 
 ## Host and method
 
@@ -20,7 +20,7 @@ This report records the fixed-N, fixed-K, and `K=N/200` reruns after M3-K. The c
 
 ## Settlement lookup work before and after
 
-The before counts are from the prior call-site analysis in [M3 Scale Diagnosis](M3_SCALE_DIAGNOSIS.md). The after counts are the source-level operations reached by the M3 storage path for the same day-0 workload. Initialization assigns dense GroupIds `0..K`, so these cells use the direct-index representation. Index construction is per phase call; event output continues to use the existing first-seen vector order.
+The before counts are from the prior call-site analysis in [M3 Scale Diagnosis](M3_05_SCALE_DIAGNOSIS.md). The after counts are the source-level operations reached by the M3 storage path for the same day-0 workload. Initialization assigns dense GroupIds `0..K`, so these cells use the direct-index representation. Index construction is per phase call; event output continues to use the existing first-seen vector order.
 
 | Phase / operation | Before at K=500 | After at K=500 | Before at K=5,000 | After at K=5,000 |
 |---|---:|---|---:|---|
@@ -44,11 +44,11 @@ Values are median ± MAD µs/call from the timing wrapper. The wrapper asserts e
 | 1,000,000 | 5,000 | Before | 4.800 ± 0.100 | 22,843.800 ± 1,492.500 | 384.800 ± 14.900 | 23,248.300 ± 1,493.600 |
 | 1,000,000 | 5,000 | After | 13.900 ± 1.300 | 3,213.600 ± 7.600 | 365.600 ± 22.800 | 3,591.500 ± 27.200 |
 
-Before values are from the Phase 3-only rerun in [M3 Scale Diagnosis](M3_SCALE_DIAGNOSIS.md). Scratch preparation now builds the direct index, while the per-agent lookup loop fell from 22.844 ms to 3.214 ms at N=1M. The output was already sorted before the final sort; the sort remains in place to preserve the existing canonical fallback.
+Before values are from the Phase 3-only rerun in [M3 Scale Diagnosis](M3_05_SCALE_DIAGNOSIS.md). Scratch preparation now builds the direct index, while the per-agent lookup loop fell from 22.844 ms to 3.214 ms at N=1M. The output was already sorted before the final sort; the sort remains in place to preserve the existing canonical fallback.
 
 ## Fixed-K scaling alpha
 
-`alpha = log(T₂/T₁) / log(N₂/N₁)`. “Before” is the M3-K baseline recorded in [M3 Scale Diagnosis](M3_SCALE_DIAGNOSIS.md); “after” is this rerun. K is fixed at 500. These are measured medians, not fitted asymptotic estimates.
+`alpha = log(T₂/T₁) / log(N₂/N₁)`. “Before” is the M3-K baseline recorded in [M3 Scale Diagnosis](M3_05_SCALE_DIAGNOSIS.md); “after” is this rerun. K is fixed at 500. These are measured medians, not fitted asymptotic estimates.
 
 | Phase | 100k→250k before → after | 250k→500k before → after | 500k→1M before → after |
 |---|---:|---:|---:|
@@ -70,7 +70,7 @@ The P3 alpha is near 1 for all three post-change intervals, while its lookup wor
 
 ## Fixed-N Phase times versus K
 
-N is 250,000. Entries are new median ± MAD µs/day. The prior measurements are in the fixed-N table in [M3 Scale Diagnosis](M3_SCALE_DIAGNOSIS.md).
+N is 250,000. Entries are new median ± MAD µs/day. The prior measurements are in the fixed-N table in [M3 Scale Diagnosis](M3_05_SCALE_DIAGNOSIS.md).
 
 | Phase | K=250 | K=500 | K=1,250 | K=2,500 | K=5,000 |
 |---|---:|---:|---:|---:|---:|
@@ -92,7 +92,7 @@ Selected old-to-new median comparisons show the K-sensitive scans falling at K=5
 
 ## `K=N/200` alpha before and after
 
-The before values are the `k=8`, day-0 serial phase alphas in [M3 Scale Limit](M3_SCALE_LIMIT.md). The after values use the same fixed profile and workload family in this run. Each value is the alpha between adjacent N medians.
+The before values are the `k=8`, day-0 serial phase alphas in [M3 Scale Limit](M3_05_SCALE_LIMIT.md). The after values use the same fixed profile and workload family in this run. Each value is the alpha between adjacent N medians.
 
 | Phase | 100k→250k before → after | 250k→500k before → after | 500k→1M before → after |
 |---|---:|---:|---:|
@@ -125,7 +125,7 @@ The new serial median is 1.215× faster than the prior median (17.7% less time).
 
 ## Parallel Phase 6B stage profile at N=1,000,000, k=16
 
-Six threads and chunk 256. Values are median ± MAD µs/day. The prior stage profile is from [M3 Scale Diagnosis](M3_SCALE_DIAGNOSIS.md); the new profile uses the same opt-in resolver timing wrapper and exact paired digest checks.
+Six threads and chunk 256. Values are median ± MAD µs/day. The prior stage profile is from [M3 Scale Diagnosis](M3_05_SCALE_DIAGNOSIS.md); the new profile uses the same opt-in resolver timing wrapper and exact paired digest checks.
 
 | Phase 6B stage | Serial before | Parallel before | Serial after | Parallel after |
 |---|---:|---:|---:|---:|
@@ -135,7 +135,7 @@ Six threads and chunk 256. Values are median ± MAD µs/day. The prior stage pro
 | Dependency-level build | 0 ± 0 | 4,446.400 ± 499.300 | 0 ± 0 | 4,518.200 ± 110.900 |
 | Evaluation, writeback, output | 29,634.400 ± 4,158.800 | 16,986.900 ± 2,924.300 | 30,222.200 ± 1,611.900 | 17,191.800 ± 2,540.600 |
 
-The current paired full-tick result was 448,951.867 ± 877.067 µs serial and 428,817.233 ± 1,205.467 µs parallel (1.047×), with exact State, Metrics, and Events parity. The earlier 0.8297× / 0.8132× results in [M3 Scale Limit](M3_SCALE_LIMIT.md) were not reproduced in M3 Scale Diagnosis (1.0273×) or this rerun (1.0470×). The stage table shows no new per-stage regression attributable to the settlement index.
+The current paired full-tick result was 448,951.867 ± 877.067 µs serial and 428,817.233 ± 1,205.467 µs parallel (1.047×), with exact State, Metrics, and Events parity. The earlier 0.8297× / 0.8132× results in [M3 Scale Limit](M3_05_SCALE_LIMIT.md) were not reproduced in M3 Scale Diagnosis (1.0273×) or this rerun (1.0470×). The stage table shows no new per-stage regression attributable to the settlement index.
 
 ## Validation and limits
 

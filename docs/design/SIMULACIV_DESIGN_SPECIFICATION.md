@@ -682,7 +682,7 @@ graph TD
 
 ## 10. Core Contract Specifications (C01 – C10)
 
-These ten specifications represent **Frozen Contracts under M1**. Validated against the completed M0 reference model (521 passing tests, 500-day pause/resume equivalence verified), these contracts are formally frozen as the authoritative semantic specification for the M2 High-Performance Runtime. Full contract clause reconciliations, evidence matrices, and amendment procedures are defined in the authoritative freeze document: [docs/contracts/M1_CONTRACT_FREEZE.md](file:///c:/AI/SimulaCiv/docs/contracts/M1_CONTRACT_FREEZE.md).
+These ten specifications represent **Frozen Contracts under M1**. Validated against the completed M0 reference model (521 passing tests, 500-day pause/resume equivalence verified), these contracts are formally frozen as the authoritative semantic specification for the M2 High-Performance Runtime. Full contract clause reconciliations, evidence matrices, and amendment procedures are defined in the authoritative freeze document: [docs/contracts/M1_CONTRACT_FREEZE.md](../contracts/M1_CONTRACT_FREEZE.md).
 
 ### C01: Agent Identity Contract
 - **Responsibility**: Guarantees distinct, permanent identity for every agent throughout the entire simulation lifecycle.

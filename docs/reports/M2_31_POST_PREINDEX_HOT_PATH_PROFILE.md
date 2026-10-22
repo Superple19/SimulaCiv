@@ -237,7 +237,7 @@ These are ideal Amdahl bounds, not measured speedups. At N=20,000 in workload B,
 
 Sampled SoA Vec pointers had varying mod64 residues; not all columns were 64-byte aligned, and the residue changed across allocations. The element types retain their natural alignment, but ordinary `Vec<T>` does not guarantee 64-byte alignment. Unaligned AVX2/AVX-512 loads are valid; no isolated timing proved that alignment is a current bottleneck.
 
-The design specification says M2 must use 64-byte-aligned arrays, while the optimization contract lists cache-line alignment among permitted layout freedoms. Treat this as storage/performance conformance debt, not a logical correctness failure. See [M2 optimization contract](../contracts/M2_OPTIMIZATION_CONTRACT.md#21-internal-memory-architecture) and [design specification §14.2](../../SIMULACIV_DESIGN_SPECIFICATION.md#142-m2-specific-physical-storage-requirements).
+The design specification says M2 must use 64-byte-aligned arrays, while the optimization contract lists cache-line alignment among permitted layout freedoms. Treat this as storage/performance conformance debt, not a logical correctness failure. See [M2 optimization contract](../contracts/M2_OPTIMIZATION_CONTRACT.md#21-internal-memory-architecture) and [design specification §14.2](../design/SIMULACIV_DESIGN_SPECIFICATION.md#142-m2-specific-physical-storage-requirements).
 
 Source-path allocation audit, without global allocator instrumentation:
 

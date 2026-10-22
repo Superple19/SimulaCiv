@@ -10,7 +10,7 @@ The research question is: **How much interaction complexity can a deterministic 
 
 ## 1. Baseline and terminology
 
-The frozen behavior is documented in [M1 Contract Freeze](M1_CONTRACT_FREEZE.md) and its machine-readable projection, [`contracts/m1_contract.toml`](../../contracts/m1_contract.toml). Relevant implementation references are [`intents.rs`](../../crates/sim-model/src/intents.rs) and [`resolution.rs`](../../crates/sim-model/src/resolution.rs). The corresponding design references are [§11](../../SIMULACIV_DESIGN_SPECIFICATION.md#11-command-intent-and-localized-conflict-resolution-architecture), [§15](../../SIMULACIV_DESIGN_SPECIFICATION.md#15-relationship--interaction-topologies-on2-avoidance), and [§17](../../SIMULACIV_DESIGN_SPECIFICATION.md#17-rng-logical-addressing--determinism-specification) of the design specification.
+The frozen behavior is documented in [M1 Contract Freeze](M1_CONTRACT_FREEZE.md) and its machine-readable projection, [`contracts/m1_contract.toml`](../../contracts/m1_contract.toml). Relevant implementation references are [`intents.rs`](../../crates/sim-model/src/intents.rs) and [`resolution.rs`](../../crates/sim-model/src/resolution.rs). The corresponding design references are [§11](../design/SIMULACIV_DESIGN_SPECIFICATION.md#11-command-intent-and-localized-conflict-resolution-architecture), [§15](../design/SIMULACIV_DESIGN_SPECIFICATION.md#15-relationship--interaction-topologies-on2-avoidance), and [§17](../design/SIMULACIV_DESIGN_SPECIFICATION.md#17-rng-logical-addressing--determinism-specification) of the design specification.
 
 Here, `N` is the initialized population, `K` is the number of non-empty settlements, `n_g` is the population of settlement `g`, and an edge is a directed relationship from one source agent to one neighbor. `AgentId` is the logical graph key; `DenseSlot` is never a graph identity. Settlement membership is static in M3-00 because migration is out of scope.
 
@@ -262,11 +262,11 @@ Single-threaded reference with the relationship graph, neighbor targeting, globa
 
 ### M3-01 — Optimized path and serial baseline — COMPLETE
 
-Port M3 to the Segmented SoA path with index-based neighbor and target lookup, serially. The golden, §9.7 differential, snapshot-resume, shuffled-slot, and release-differential gates passed. The serial baseline and conflict-density results are recorded in [M3-01 Serial Baseline](../performance/M3_01_SERIAL_BASELINE.md).
+Port M3 to the Segmented SoA path with index-based neighbor and target lookup, serially. The golden, §9.7 differential, snapshot-resume, shuffled-slot, and release-differential gates passed. The serial baseline and conflict-density results are recorded in [M3-01 Serial Baseline](../reports/M3_01_SERIAL_BASELINE.md).
 
 ### M3-02 — Deterministic parallel Phase 6B — COMPLETE
 
-The frozen primary method, dependency-level scheduling, passed exact State, Metrics, and Events parity against M3-01 serial. Round-based Deterministic Reservations remains a comparison-only schedule. No settlement-partition fast path was added; M3-01 measured a conflict fraction of about `0.54` even at `p_local = 1`. Serial remains the default and parallel execution remains an explicit opt-in. The release benchmark, extended parity results, per-stage timings, level structure, and contention measurements are recorded in [M3-02 Parallel Phase 6B](../performance/M3_02_PARALLEL_PHASE6B.md).
+The frozen primary method, dependency-level scheduling, passed exact State, Metrics, and Events parity against M3-01 serial. Round-based Deterministic Reservations remains a comparison-only schedule. No settlement-partition fast path was added; M3-01 measured a conflict fraction of about `0.54` even at `p_local = 1`. Serial remains the default and parallel execution remains an explicit opt-in. The release benchmark, extended parity results, per-stage timings, level structure, and contention measurements are recorded in [M3-02 Parallel Phase 6B](../reports/M3_02_PARALLEL_PHASE6B.md).
 
 ### Optional stage after M3-02 — Contention dial
 
@@ -274,35 +274,35 @@ An optional hub-biased or otherwise contention-controlled graph mode may test sc
 
 ### M3-03 (formerly M3-02b) — Search and bookkeeping reduction — COMPLETE
 
-The explicit serial search-reduction path is opt-in; `run_m3_storage_days` remains the oracle. The frozen parity gates passed. The global Phase 4 eligibility skip was retained after stage measurement; bitsets, slot-sidecar reuse, and radix sorting were rejected by the measurement-first gate, and output-vector de-duplication remained out of scope. Results and limitations are recorded in [M3-02b Search and Bookkeeping Reduction](../performance/M3_02B_SEARCH_REDUCTION.md).
+The explicit serial search-reduction path is opt-in; `run_m3_storage_days` remains the oracle. The frozen parity gates passed. The global Phase 4 eligibility skip was retained after stage measurement; bitsets, slot-sidecar reuse, and radix sorting were rejected by the measurement-first gate, and output-vector de-duplication remained out of scope. Results and limitations are recorded in [M3-02b Search and Bookkeeping Reduction](../reports/M3_03_SEARCH_REDUCTION.md).
 
-The post-M3-02 evidence is preserved in the historical [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md). The final M3 decision and evidence are recorded in the [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
+The post-M3-02 evidence is preserved in the historical [M3 Interim Audit](../reports/M3_AUDIT_INTERIM_AUDIT.md). The final M3 decision and evidence are recorded in the [M3 Final Runtime Profile and Graduation Gate](../reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md).
 
 ### M3-04 (formerly M3-E) — Equilibrium workload — COMPLETE (benchmark-only)
 
-Search for and measure a food-supply configuration that sustains interactions. This is a benchmark workload and does not change simulation semantics; results are recorded in [M3-04 Equilibrium Workload](../performance/M3_EQUILIBRIUM_WORKLOAD.md) and [M3-04 Sustained Workload](../performance/M3_SUSTAINED_WORKLOAD.md).
+Search for and measure a food-supply configuration that sustains interactions. This is a benchmark workload and does not change simulation semantics; results are recorded in [M3-04 Equilibrium Workload](../reports/M3_04_EQUILIBRIUM_WORKLOAD.md) and [M3-04 Sustained Workload](../reports/M3_04_SUSTAINED_WORKLOAD.md).
 
 ### M3-05 (formerly M3-S) — Scale limit search — COMPLETE (measurement-only)
 
-Measure the static-world workload's scale limits using the equilibrium configuration. This stage adds measurement only; results are recorded in [M3-05 Scale Limit](../performance/M3_SCALE_LIMIT.md).
+Measure the static-world workload's scale limits using the equilibrium configuration. This stage adds measurement only; results are recorded in [M3-05 Scale Limit](../reports/M3_05_SCALE_LIMIT.md).
 
 ### M3-06 (formerly M3-K) — Settlement lookup indexing — COMPLETE
 
-Index repeated GroupId lookups on the shared M2/M3 storage path without changing output or error semantics. The implementation contract is in [§12](#12-m3-k-settlement-lookup-indexing); before/after work counts, scaling, and whole-tick measurements are recorded in [M3 Settlement Index](../performance/M3_SETTLEMENT_INDEX.md).
+Index repeated GroupId lookups on the shared M2/M3 storage path without changing output or error semantics. The implementation contract is in [§12](#12-m3-k-settlement-lookup-indexing); before/after work counts, scaling, and whole-tick measurements are recorded in [M3 Settlement Index](../reports/M3_06_SETTLEMENT_INDEX.md).
 
 ### M3-07 — Residual scaling diagnosis — COMPLETE (measurement-only)
 
-Determine whether post-M3-06 superlinear scaling is measurement noise, memory-hierarchy effects, or remaining algorithmic cost. Findings are recorded in [M3-07 Scale Residual](../performance/M3_07_SCALE_RESIDUAL.md).
+Determine whether post-M3-06 superlinear scaling is measurement noise, memory-hierarchy effects, or remaining algorithmic cost. Findings are recorded in [M3-07 Scale Residual](../reports/M3_07_SCALE_RESIDUAL.md).
 
 ### M3-08 (formerly M3-P) — Population dynamics — COMPLETE
 
-The frozen M3-08 contract in [§13](#13-m3-08-formerly-m3-p-population-dynamics) is implemented on the reference and serial storage paths. The sustained configuration, 1,000-day CI gate, and performance measurements are recorded in [M3-08 Population Dynamics](../performance/M3_08_POPULATION_DYNAMICS.md).
+The frozen M3-08 contract in [§13](#13-m3-08-formerly-m3-p-population-dynamics) is implemented on the reference and serial storage paths. The sustained configuration, 1,000-day CI gate, and performance measurements are recorded in [M3-08 Population Dynamics](../reports/M3_08_POPULATION_DYNAMICS.md).
 
 Spatial migration, previously listed as M3-03, remains a deferred follow-up and is not part of M3-08's planned scope.
 
 ### M3-09 — Incremental topology maintenance — COMPLETE
 
-The frozen [§14](#14-m3-09-incremental-topology-maintenance) incremental storage path appends newborn CSR and Phase 4 projection rows on non-compaction days while preserving exact M3P parity. The full-tick and Phase 9b before/after results are in [M3-09 Incremental Topology](../performance/M3_09_INCREMENTAL_TOPOLOGY.md).
+The frozen [§14](#14-m3-09-incremental-topology-maintenance) incremental storage path appends newborn CSR and Phase 4 projection rows on non-compaction days while preserving exact M3P parity. The full-tick and Phase 9b before/after results are in [M3-09 Incremental Topology](../reports/M3_09_INCREMENTAL_TOPOLOGY.md).
 
 ### M3-10 — Feature switches — COMPLETE
 
@@ -310,15 +310,15 @@ Feature-switch behavior is frozen in [§15](#15-m3-10-feature-switches) and impl
 
 ### M3-11 (formerly M3-05) — Propagation — COMPLETE
 
-The synchronous multi-hop overlay semantics are frozen in [§16](#16-m3-11-propagation). Reference, storage, M3P, snapshot-v3, and explicit parallel paths passed their recorded parity gates. Fixed-topology and sustained M3P measurements are in [M3-11 Propagation](../performance/M3_11_PROPAGATION.md).
+The synchronous multi-hop overlay semantics are frozen in [§16](#16-m3-11-propagation). Reference, storage, M3P, snapshot-v3, and explicit parallel paths passed their recorded parity gates. Fixed-topology and sustained M3P measurements are in [M3-11 Propagation](../reports/M3_11_PROPAGATION.md).
 
 ### M3 audit and graduation — M3-GRADUATE (`v0.4.0-m3`)
 
-**Decision: M3-GRADUATE.** The [M3 Final Runtime Profile and Graduation Gate](../performance/M3_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md) records hosted CI passing on Linux, Windows, and macOS for the graduation commit, along with completed stages, correctness evidence, runtime findings, and limitations. The measured results do not require a new architecture (M4). Spatial migration remains deferred.
+**Decision: M3-GRADUATE.** The [M3 Final Runtime Profile and Graduation Gate](../reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md) records hosted CI passing on Linux, Windows, and macOS for the graduation commit, along with completed stages, correctness evidence, runtime findings, and limitations. The measured results do not require a new architecture (M4). Spatial migration remains deferred.
 
 M3-04 and M3-05 extend the measured answer for sustained workloads and scale limits. M3-08 through M3-11 deepen the research question with population dynamics, incremental topology maintenance, feature switches, and propagation; M3-07 diagnoses residual scaling after indexed settlement lookups.
 
-Later update (2026-10-21): spatial migration was delivered as a registered system in M4-06; see [M4-06 report](../performance/M4_06_MIGRATION.md). The text above records the status at the time of this document.
+Later update (2026-10-21): spatial migration was delivered as a registered system in M4-06; see [M4-06 report](../reports/M4_06_MIGRATION.md). The text above records the status at the time of this document.
 
 ## 9. M3-01 Optimized path and serial baseline
 
@@ -389,7 +389,7 @@ Record host CPU, physical/logical core counts, OS, and Rust toolchain. Use the M
 
 Follow the M2-40 sampling method: initialize outside the timed run; run two warmups and seven timed samples per cell; reuse runner scratch over three consecutive days per sample; keep metrics and events enabled and snapshots disabled. Report median ± MAD per day/tick and per-phase time for Phases 1–11; split Phase 4 into action selection and intent/projection work, and Phase 6B into validation/slot lookup, global key/sort, and sequential commit. Time graph generation and the initial slot-projection build separately so their one-time cost is visible. For each measured cell, record the mean daily count of keyed Phase 6B entries and cross-partition interactions over the three days of each timed sample. `p_local = 1` is the baseline for the global stream's cost. M2 Serial timings at the same `N` are context only, not a like-for-like comparison, because M2 uses same-settlement targeting and settlement-local Phase 6B ordering.
 
-Report path: [`docs/performance/M3_01_SERIAL_BASELINE.md`](../performance/M3_01_SERIAL_BASELINE.md).
+Report path: [`docs/reports/M3_01_SERIAL_BASELINE.md`](../reports/M3_01_SERIAL_BASELINE.md).
 
 ### 9.9 Conflict-density measurement
 
@@ -487,7 +487,7 @@ The primary results are per-Phase-6B stage times: structural validation/slot loo
 
 The M3-01 profile measured Phase 6B at about 15% of a 100k tick for representative `k=8` cells. Amdahl's model therefore bounds whole-tick speedup near `1 / (1 - 0.15) ≈ 1.17×` even if Phase 6B became infinitely fast; this is a model/upper bound, not a measured result or target. M3-01 combined sequential commit with output assembly. For its 100k, `k=8` cells, that combined stage is not smaller than validation at `p_local=0`; M3-02 must report its finer stage measurements rather than assume commit is always the smallest Phase 6B component.
 
-Report path: [`docs/performance/M3_02_PARALLEL_PHASE6B.md`](../performance/M3_02_PARALLEL_PHASE6B.md).
+Report path: [`docs/reports/M3_02_PARALLEL_PHASE6B.md`](../reports/M3_02_PARALLEL_PHASE6B.md).
 
 ### 10.8 Research framing
 
@@ -525,7 +525,7 @@ Do not change simulation semantics, Phase 4 RNG coordinates or target-index form
 
 The current path is implemented by [`phase4_primary_action_selection_storage_into`](../../crates/sim-model/src/decision.rs), `generate_intents_m3_storage_into`, `generate_intents_storage_impl`, `Phase4CandidateSource::target_agent`, and `phase4_select_candidate` in [`intents.rs`](../../crates/sim-model/src/intents.rs); `run_m3_storage_day_with_phase6b` in [`runner.rs`](../../crates/sim-model/src/runner.rs) orders the phases. Phase 6B validation, `slot_of` lookups, key staging, sorting, sequential commits, and output assembly are in `phase6b_targeted_resolution_storage_m3_serial_impl` in [`resolution.rs`](../../crates/sim-model/src/resolution.rs). `SettlementTargetedResolution` currently exposes three owned vectors: `zero_target`, `keyed_stream`, and `resolutions`.
 
-This work is motivated by measured search/setup cost and the difference between the short-lived and sustained workloads. See [M3-01 Serial Baseline](../performance/M3_01_SERIAL_BASELINE.md), especially its per-phase profile; [M3-02 Parallel Phase 6B](../performance/M3_02_PARALLEL_PHASE6B.md), especially “Search and setup vs applied interaction cost,” “Outcome counts over days 1–3,” and “Timing-hook overhead”; [M3 Sustained Workload](../performance/M3_SUSTAINED_WORKLOAD.md), especially its workload and search/setup tables; and [M3 Interim Audit](../performance/M3_INTERIM_AUDIT.md), especially “Evidence against the central research question” and “Candidate next stages.” The existing reports show that search/setup was substantially larger than Applied-positive work, that GiveFood produced no targets in the initial M2-40 window, and that the selected food-supply configuration retains active interactions later in the run. These observations motivate measurement; they do not authorize semantic shortcuts.
+This work is motivated by measured search/setup cost and the difference between the short-lived and sustained workloads. See [M3-01 Serial Baseline](../reports/M3_01_SERIAL_BASELINE.md), especially its per-phase profile; [M3-02 Parallel Phase 6B](../reports/M3_02_PARALLEL_PHASE6B.md), especially “Search and setup vs applied interaction cost,” “Outcome counts over days 1–3,” and “Timing-hook overhead”; [M3 Sustained Workload](../reports/M3_04_SUSTAINED_WORKLOAD.md), especially its workload and search/setup tables; and [M3 Interim Audit](../reports/M3_AUDIT_INTERIM_AUDIT.md), especially “Evidence against the central research question” and “Candidate next stages.” The existing reports show that search/setup was substantially larger than Applied-positive work, that GiveFood produced no targets in the initial M2-40 window, and that the selected food-supply configuration retains active interactions later in the run. These observations motivate measurement; they do not authorize semantic shortcuts.
 
 ### 11.2 Candidate optimizations
 
@@ -601,7 +601,7 @@ The new benchmark writes per-day JSON records under `target/` only; do not commi
 
 ### 11.7 Report
 
-Record methods, retained and rejected candidates, per-stage and whole-tick medians ± MAD, search/setup versus Applied-positive work, workload counts, hook overhead, parity results, and actual added CI wall time in [`docs/performance/M3_02B_SEARCH_REDUCTION.md`](../performance/M3_02B_SEARCH_REDUCTION.md). Label estimates and inferences separately from measured facts.
+Record methods, retained and rejected candidates, per-stage and whole-tick medians ± MAD, search/setup versus Applied-positive work, workload counts, hook overhead, parity results, and actual added CI wall time in [`docs/reports/M3_03_SEARCH_REDUCTION.md`](../reports/M3_03_SEARCH_REDUCTION.md). Label estimates and inferences separately from measured facts.
 
 ### 11.8 Remaining open questions
 
@@ -632,7 +632,7 @@ This freeze resolves the sustained CI configuration, runtime target, private Pha
 
 Replace repeated GroupId-keyed scans on the shared M2/M3 storage path with a transient per-call settlement index. Preserve State, Metrics, and Events digests, intents, resolutions, error values and precedence, and all canonical ordering. Public function signatures and public types remain unchanged. The AoS reference implementations remain available as semantic oracles; this optimization applies only to storage execution.
 
-[M3 Scale Diagnosis](../performance/M3_SCALE_DIAGNOSIS.md) records these day-0 M3 storage counts at `N=1,000,000`:
+[M3 Scale Diagnosis](../reports/M3_05_SCALE_DIAGNOSIS.md) records these day-0 M3 storage counts at `N=1,000,000`:
 
 | Call site | K=500 | K=5,000 |
 |---|---:|---:|
@@ -689,7 +689,7 @@ Rerun the M3 Scale Diagnosis sampling method on the same host and equilibrium co
 - fixed `K=500` and `K=N/200` for `N ∈ {100,000, 250,000, 500,000, 1,000,000}`;
 - `k=8`, `p_local=0.5`, day 0, serial, two warmups, seven samples, three consecutive days with scratch reuse.
 
-Report per-phase median ± MAD, per-phase alpha vs N for the fixed-K and `K=N/200` series, per-phase time vs K for the fixed-N series, lookup work before/after, and a paired whole-tick comparison. Report results in [`docs/performance/M3_SETTLEMENT_INDEX.md`](../performance/M3_SETTLEMENT_INDEX.md). Keep the original M3 scale-limit and diagnosis measurements unchanged.
+Report per-phase median ± MAD, per-phase alpha vs N for the fixed-K and `K=N/200` series, per-phase time vs K for the fixed-N series, lookup work before/after, and a paired whole-tick comparison. Report results in [`docs/reports/M3_06_SETTLEMENT_INDEX.md`](../reports/M3_06_SETTLEMENT_INDEX.md). Keep the original M3 scale-limit and diagnosis measurements unchanged.
 
 ### 12.6 Frozen decision register
 
@@ -699,7 +699,7 @@ Report per-phase median ± MAD, per-phase alpha vs N for the fixed-K and `K=N/20
 | Q2 | Phase coverage and public surface | **FROZEN** | Apply the index to P3 scarcity, P6A, every M2/M3 storage P6B resolver, P7, P10 duplicate validation, and M2/M3 storage P11 event grouping as listed in §12.2. Keep all public signatures and types unchanged. Do not change M0 or M3-00 AoS reference paths. |
 | Q3 | Error and output parity | **FROZEN** | Index construction raises no semantic error. Perform each lookup at the existing validation point and keep source traversal, first-match behavior, error values/precedence, event sequence, resolution order, and f32 calculation order unchanged. P10 checks duplicate markers within its existing source-order loop. |
 | Q4 | Correctness gates | **FROZEN** | Run the unchanged full workspace suite and add randomized tests comparing indexed lookups and public phase errors with the old linear oracle across dense, sparse, shuffled, duplicate, and missing IDs. Preserve M2/M3 goldens, snapshots, and all existing differential gates. |
-| Q5 | Measurement gate | **FROZEN** | Rerun the fixed-N, fixed-K, and `K=N/200` series in §12.5, reporting per-phase median ± MAD, alpha vs N, lookup work, and paired whole-tick timing in `docs/performance/M3_SETTLEMENT_INDEX.md`. |
+| Q5 | Measurement gate | **FROZEN** | Rerun the fixed-N, fixed-K, and `K=N/200` series in §12.5, reporting per-phase median ± MAD, alpha vs N, lookup work, and paired whole-tick timing in `docs/reports/M3_06_SETTLEMENT_INDEX.md`. |
 
 ### 12.7 Freeze record
 
@@ -774,7 +774,7 @@ Compaction runs inside Phase 9b after births on each day `D` for which `D % comp
 
 Rebuild storage in ascending `AgentId` order, then rebuild the `AgentId -> slot` map and Phase 4 graph projection. Physical slot order remains non-semantic. Monotonic IDs, appending children in ascending parent/child ID order, and AgentId-order compaction keep storage AgentId-sorted. This preserves the sequential cursor lookup path in `phase4_primary_action_selection_storage_into` (`crates/sim-model/src/decision.rs`) when Phase 4 inputs are AgentId-sorted.
 
-**M3-07 locality evidence:** `docs/performance/M3_07_SCALE_RESIDUAL.md`, “Normal versus reversed slot layout,” reports a P4 action-selection reversed-slot slowdown of `2.3734x` at `N=1M` (reliable under its MAD rule) and a P4 intent/projection point estimate of `3.6011x` (unreliable under the MAD rule). Its “Observed point changes and working-set landmarks” section attributes gather/translation pressure only as an inference. The chosen append/compaction order preserves sorted slots; measured M3-07 results motivate this choice but do not guarantee a particular speedup for m3p.
+**M3-07 locality evidence:** `docs/reports/M3_07_SCALE_RESIDUAL.md`, “Normal versus reversed slot layout,” reports a P4 action-selection reversed-slot slowdown of `2.3734x` at `N=1M` (reliable under its MAD rule) and a P4 intent/projection point estimate of `3.6011x` (unreliable under the MAD rule). Its “Observed point changes and working-set landmarks” section attributes gather/translation pressure only as an inference. The chosen append/compaction order preserves sorted slots; measured M3-07 results motivate this choice but do not guarantee a particular speedup for m3p.
 
 ### 13.8 Snapshot and restore
 
@@ -838,7 +838,7 @@ Add the separate explicit opt-in storage entry point `run_m3p_storage_days_incre
 
 ### 14.2 Structures and incremental candidates
 
-The current storage Phase 9b path materializes `storage.to_agents()`, clones the relationship graph, and calls the same `plan_phase9b` used by the reference path. `plan_phase9b` constructs a new fixed candidate pool and `M3pCandidateIndex`, plans births and graph rows, then calls `RelationshipGraph::from_canonical_rows` whenever births or compaction changed the graph. On birth days, `M3pStorageRunContext::refresh_after_phase9b` then calls `M3Phase4SlotProjection::rebuild`. The M3-08 measurements report a 165 ms M3P tick versus 31.6 ms for M3 at equal live population (103,241 agents; 5.23×). They report about 96 ms for normal-day Phase 9b at 100k live agents, including roughly 37 ms for CSR reconstruction, 17.5 ms for projection reconstruction, 9.8 ms for graph attachment, and 7.5 ms for birth planning for about ten births per day ([M3-08 Population Dynamics](../performance/M3_08_POPULATION_DYNAMICS.md), “Equal-live-population tick comparison” and “Phase 9b breakdown”). These measurements motivate the proposal and are not performance guarantees.
+The current storage Phase 9b path materializes `storage.to_agents()`, clones the relationship graph, and calls the same `plan_phase9b` used by the reference path. `plan_phase9b` constructs a new fixed candidate pool and `M3pCandidateIndex`, plans births and graph rows, then calls `RelationshipGraph::from_canonical_rows` whenever births or compaction changed the graph. On birth days, `M3pStorageRunContext::refresh_after_phase9b` then calls `M3Phase4SlotProjection::rebuild`. The M3-08 measurements report a 165 ms M3P tick versus 31.6 ms for M3 at equal live population (103,241 agents; 5.23×). They report about 96 ms for normal-day Phase 9b at 100k live agents, including roughly 37 ms for CSR reconstruction, 17.5 ms for projection reconstruction, 9.8 ms for graph attachment, and 7.5 ms for birth planning for about ten births per day ([M3-08 Population Dynamics](../reports/M3_08_POPULATION_DYNAMICS.md), “Equal-live-population tick comparison” and “Phase 9b breakdown”). These measurements motivate the proposal and are not performance guarantees.
 
 #### a. Canonical CSR
 
@@ -884,7 +884,7 @@ The opt-in path must pass per-day differential equality against both current M3P
 
 ### 14.6 Measurement protocol
 
-Use the accepted sustained configuration in [M3-08 Population Dynamics](../performance/M3_08_POPULATION_DYNAMICS.md), `N ∈ {10,000, 100,000}`, compaction interval 50, and days 100–400. The primary result is uninstrumented whole-tick time with the same warmup, sampling, and scratch-reuse method as that report. Per-phase and Phase 9b substage times are secondary and must report instrumentation overhead. Repeat the equal-live-population M3P-versus-M3 storage comparison from the day-400 checkpoint. Report, but do not gate, normal-day Phase 9b time and the M3P/M3 whole-tick ratio. Record compaction-day results separately.
+Use the accepted sustained configuration in [M3-08 Population Dynamics](../reports/M3_08_POPULATION_DYNAMICS.md), `N ∈ {10,000, 100,000}`, compaction interval 50, and days 100–400. The primary result is uninstrumented whole-tick time with the same warmup, sampling, and scratch-reuse method as that report. Per-phase and Phase 9b substage times are secondary and must report instrumentation overhead. Repeat the equal-live-population M3P-versus-M3 storage comparison from the day-400 checkpoint. Report, but do not gate, normal-day Phase 9b time and the M3P/M3 whole-tick ratio. Record compaction-day results separately.
 
 ### 14.7 Non-goals
 
@@ -1002,7 +1002,7 @@ The reference golden uses `N = 300`, `K = 3`, `k = 8`, `p_local = 0.5`, master s
 
 The storage and parallel gates compare per-day records with the WorldState reference for the golden and for `N = 300`, `K ∈ {3,10}`, `k ∈ {4,8,16}`, `max_hops ∈ {1,4,16}`, 200 days, and two seeds. Parallel pools `{1,2,4}` and chunks `{64,256}` must match serial. Also require schema-v3 pause/resume, propagation-off equality with all existing M2/M3/M3P goldens and snapshot bytes, and M3P incremental-topology parity.
 
-The measurement report is `docs/performance/M3_11_PROPAGATION.md`. On the sustained M3P configuration with propagation enabled, measure `N ∈ {10,000,100,000}`, `k ∈ {8,16}`, `max_hops ∈ {1,2,4,8,16}`, and transmit probability `{0.05,0.2}`. Record Phase 9c time, frontier sizes by level, levels used, and whole-tick time. Compare serial with explicit pools `{1,2,4,6}` using paired, interleaved runs, at least 11 samples, and state the frontier size at which parallel spread wins if any. Separate measured facts from inference.
+The measurement report is `docs/reports/M3_11_PROPAGATION.md`. On the sustained M3P configuration with propagation enabled, measure `N ∈ {10,000,100,000}`, `k ∈ {8,16}`, `max_hops ∈ {1,2,4,8,16}`, and transmit probability `{0.05,0.2}`. Record Phase 9c time, frontier sizes by level, levels used, and whole-tick time. Compare serial with explicit pools `{1,2,4,6}` using paired, interleaved runs, at least 11 samples, and state the frontier size at which parallel spread wins if any. Separate measured facts from inference.
 
 ### 16.8 Non-goals
 

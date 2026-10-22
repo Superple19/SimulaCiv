@@ -1,6 +1,6 @@
 # M4-02 recovered data
 
-Report: [M4-02 Branching and Divergence Detection](../../../performance/M4_02_BRANCHING.md).
+Report: [M4-02 Branching and Divergence Detection](../../reports/M4_02_BRANCHING.md).
 
 | Report table / section | Recovered data | Harness source |
 |---|---|---|

@@ -5,8 +5,8 @@ Complete Rebaseline Established. Allocation/Scratch Phase Frozen.
 
 - **Current Milestone:** M2 Rebaseline Audit (Following M2-02 ~ M2-12)
 - **Target Runtime:** M0 Reference Model (`sim-core`, `sim-model`)
-- **Semantic Contract Specification:** [`docs/contracts/M1_CONTRACT_FREEZE.md`](file:///c:/AI/SimulaCiv/docs/contracts/M1_CONTRACT_FREEZE.md)
-- **Manifest:** [`contracts/m1_contract.toml`](file:///c:/AI/SimulaCiv/contracts/m1_contract.toml)
+- **Semantic Contract Specification:** [`docs/contracts/M1_CONTRACT_FREEZE.md`](../contracts/M1_CONTRACT_FREEZE.md)
+- **Manifest:** [`contracts/m1_contract.toml`](../../contracts/m1_contract.toml)
 
 ---
 

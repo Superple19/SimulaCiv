@@ -26,7 +26,7 @@ This document analyzes the technical feasibility, architectural constraints, and
 ## 2. Investigation of Current Allocation Lifecycles & Dependencies
 
 ### 2.1 Phase 3: `phase3_observation_and_features`
-- **Source Location:** [`crates/sim-model/src/features.rs:92`](file:///c:/AI/SimulaCiv/crates/sim-model/src/features.rs#L92)
+- **Source Location:** [`crates/sim-model/src/features.rs:92`](../../crates/sim-model/src/features.rs#L92)
 - **Signature:**
   ```rust
   pub fn phase3_observation_and_features(
@@ -39,7 +39,7 @@ This document analyzes the technical feasibility, architectural constraints, and
   - Element size: 24 bytes (`AgentId` 4 bytes + `[f32; 5]` 20 bytes).
   - Populated via sequential scan over `world.agents` for behaviorally eligible agents (`alive && health > 0.0`).
   - Sorted at line 133: `features_list.sort_by_key(|af| af.agent_id)`.
-  - Returned to [`runner.rs:247`](file:///c:/AI/SimulaCiv/crates/sim-model/src/runner.rs#L247) as `features`.
+  - Returned to [`runner.rs:247`](../../crates/sim-model/src/runner.rs#L247) as `features`.
   - Passed as `&features` to `phase4_primary_action_selection` at line 250.
   - **Dropped at line 251** immediately after `choices` is generated.
   - **Active Lifetime:** ~15–25 µs per day.
@@ -50,7 +50,7 @@ This document analyzes the technical feasibility, architectural constraints, and
   - **Critical Finding:** Mutating the existing public function signature would break at least 21 distinct test cases across 6 test files, violating AGENTS.md Rule 7.
 
 ### 2.2 Phase 4: `phase4_primary_action_selection`
-- **Source Location:** [`crates/sim-model/src/decision.rs:236`](file:///c:/AI/SimulaCiv/crates/sim-model/src/decision.rs#L236)
+- **Source Location:** [`crates/sim-model/src/decision.rs:236`](../../crates/sim-model/src/decision.rs#L236)
 - **Signature:**
   ```rust
   pub fn phase4_primary_action_selection(
@@ -72,7 +72,7 @@ This document analyzes the technical feasibility, architectural constraints, and
   - Invoked across `phase4_decision_tests.rs` (10 test calls) and downstream phase tests (7 test calls).
 
 ### 2.3 Phase 4: `generate_intents`
-- **Source Location:** [`crates/sim-model/src/intents.rs:173`](file:///c:/AI/SimulaCiv/crates/sim-model/src/intents.rs#L173)
+- **Source Location:** [`crates/sim-model/src/intents.rs:173`](../../crates/sim-model/src/intents.rs#L173)
 - **Signature:**
   ```rust
   pub fn generate_intents(
@@ -200,7 +200,7 @@ The recommended companion pattern was evaluated against all simulation invariant
 ## 7. Selected Candidate: Phase 3 Observation Buffer Reuse
 
 ### **Selected Candidate:** Phase 3 Feature Extraction Scratch Buffer (`phase3_observation_into`)
-- **Primary Target:** [`crates/sim-model/src/features.rs`](file:///c:/AI/SimulaCiv/crates/sim-model/src/features.rs) & [`crates/sim-model/src/runner.rs`](file:///c:/AI/SimulaCiv/crates/sim-model/src/runner.rs)
+- **Primary Target:** [`crates/sim-model/src/features.rs`](../../crates/sim-model/src/features.rs) & [`crates/sim-model/src/runner.rs`](../../crates/sim-model/src/runner.rs)
 - **Mechanism:**
   1. In `features.rs`, introduce `pub fn phase3_observation_and_features_into(world: &WorldState, config: &SimConfig, out: &mut Vec<AgentFeatures>) -> Result<(), Phase3Error>`.
      - Clears `out` buffer (`out.clear()`).

@@ -300,7 +300,7 @@ flowchart LR
 
 ### Phase 1: M2-14 — Feasibility Analysis (Current Deliverable)
 - Complete comprehensive memory layout audit, cache modeling, and contract impact analysis.
-- Produce formal specification document (`docs/performance/M2_SOA_FEASIBILITY_ANALYSIS.md`).
+- Produce formal specification document (`docs/reports/M2_14_SOA_FEASIBILITY_ANALYSIS.md`).
 - Zero code modifications.
 
 ### Phase 2: M2-15 — Hot-Field Segregation Prototype

@@ -28,26 +28,26 @@ The following sizes are current on-disk file sizes, measured from the checked-ou
 | `m4_viewer` | 1 | 130,570 | 127.5 KiB |
 | **Total** | **62** | **31,131,453** | **29.69 MiB** |
 
-The measured `.git` directory size was **12,877,787 bytes**. This is a point-in-time size; commits, packs, and garbage collection change it. The inventory and stage files are listed in [`docs/data/m4/INVENTORY.md`](../data/m4/INVENTORY.md) and [`docs/data/m4_06/README.md`](../data/m4_06/README.md).
+The measured `.git` directory size was **12,877,787 bytes**. This is a point-in-time size; commits, packs, and garbage collection change it. The inventory and stage files are listed in [`docs/data/m4_inventory/README.md`](../data/m4_inventory/README.md) and [`docs/data/m4_06/README.md`](../data/m4_06/README.md).
 
-Three M4-06 JSON files are individually large: `experiment.json` (11,297,013 bytes), `branch_experiment.json` (8,706,720 bytes), and `experiment_superseded_seed_set.json` (8,675,386 bytes). The last is superseded history, not a current report input. Other smaller superseded A-5 runs are also explicitly identified in the M4-06 data README. Already-pushed data stays in history; do not rewrite history to shrink it.
+Three M4-06 JSON files are individually large: `experiment.json` (11,297,013 bytes), `branch_experiment.json` (8,706,720 bytes), and `superseded/experiment_seed_set.json` (8,675,386 bytes). The last is superseded history, not a current report input. Other smaller superseded A-5 runs are also explicitly identified in the M4-06 data README. Already-pushed data stays in history; do not rewrite history to shrink it.
 
 ### Restored measurement sources
 
 The following examples carry the header `restored from session history; not re-run`; their source compiles, but their results were not regenerated from those files:
 
 - M4-02: `m4_02_a2_measure.rs`, `m4_02_a3_measure.rs`, `m4_02_a4_measure.rs`, `m4_02_a5_measure.rs`.
-- M4-03: `m4_03_experiment_temp.rs`, `m4_03_gate_temp.rs`.
+- M4-03: `m4_03_experiment.rs`, `m4_03_gate.rs`.
 - M4-04: `m4_04_crn_experiment.rs`.
 - M4-05: `m4_05_a5_gate.rs`, `m4_05_experiment.rs`.
 
-The `_temp` names identify historical M4-03 drivers. The artifact inventory also records sources that were only partially recovered or not recovered, including M4-02 initial/A-1 and follow-up helpers and the M4-05 follow-up helper. A compiled binary is not a substitute for its source. See the [M4 artifact inventory](../data/m4/INVENTORY.md).
+The `_temp` names identify historical M4-03 drivers. The artifact inventory also records sources that were only partially recovered or not recovered, including M4-02 initial/A-1 and follow-up helpers and the M4-05 follow-up helper. A compiled binary is not a substitute for its source. See the [M4 artifact inventory](../data/m4_inventory/README.md).
 
 ### Removed probes and automation coverage
 
-Several M2/M3 reports rely on temporary timing or allocation probes that were removed after measurement: [M2-31](../performance/M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md), [M2-37](../performance/M2_37_POST_P5_P6B_REPROFILING.md), [M2-40](../performance/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md), [M3-01](../performance/M3_01_SERIAL_BASELINE.md), [M3-08](../performance/M3_08_POPULATION_DYNAMICS.md), and [M3-09](../performance/M3_09_INCREMENTAL_TOPOLOGY.md). The reports preserve their summarized results and identify probe limitations; some raw measurements and original instrumentation cannot be regenerated exactly.
+Several M2/M3 reports rely on temporary timing or allocation probes that were removed after measurement: [M2-31](../reports/M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md), [M2-37](../reports/M2_37_POST_P5_P6B_REPROFILING.md), [M2-40](../reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md), [M3-01](../reports/M3_01_SERIAL_BASELINE.md), [M3-08](../reports/M3_08_POPULATION_DYNAMICS.md), and [M3-09](../reports/M3_09_INCREMENTAL_TOPOLOGY.md). The reports preserve their summarized results and identify probe limitations; some raw measurements and original instrumentation cannot be regenerated exactly.
 
-The repository has one tracked `AGENTS.md` at its root and no nested agent-rule files. The only workflow in `.github/workflows/` is `ci.yml`, which runs `cargo fmt --check`, workspace Clippy, and workspace tests on Linux, Windows, and macOS; it has no Python or benchmark step. There is one tracked Python script, [`scripts/profile_m0_baseline.py`](../../scripts/profile_m0_baseline.py). The temporary analysis scripts under `target/` are not tracked project tooling.
+The repository has one tracked `AGENTS.md` at its root and no nested agent-rule files. The only workflow in `.github/workflows/` is `ci.yml`, which runs `cargo fmt --check`, workspace Clippy, and workspace tests on Linux, Windows, and macOS; it has no Python or benchmark step. There is one tracked Python script, [`analysis/profile_m0_baseline.py`](../../analysis/profile_m0_baseline.py). The temporary analysis scripts under `target/` are not tracked project tooling.
 
 ## 4. Data-size policy (FROZEN)
 
@@ -75,8 +75,8 @@ The order is structure → tooling → verification → new experiments → clea
 
 ## 6. Known inputs
 
-- [`docs/data/m4/INVENTORY.md`](../data/m4/INVENTORY.md) records recovered and missing M4 harness/data pairs.
-- The [M4 final audit](../performance/M4_FINAL_AUDIT_AND_GRADUATION.md) records wiring debt, uncalibrated migration settings, the M4-05 boundary predicate, compaction money loss, newborn CRN loss, and single-host/workload limits.
+- [`docs/data/m4_inventory/README.md`](../data/m4_inventory/README.md) records recovered and missing M4 harness/data pairs.
+- The [M4 final audit](../reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md) records wiring debt, uncalibrated migration settings, the M4-05 boundary predicate, compaction money loss, newborn CRN loss, and single-host/workload limits.
 - The M5-01 inventory must extend these inputs to every numeric claim in M0–M4 rather than treating this draft as a complete claim list.
 
 ## 7. Non-goals
@@ -129,7 +129,7 @@ viewer/                    static viewer
 - Use no global `legacy/` folder. Organize legacy files by milestone and stage.
 - Keep superseded data, runs, and reports inside their stage folder under `superseded/`, with a README line identifying what superseded them.
 - Every report begins with exactly one status line: `Status: current`, `Status: superseded by <link>`, or `Status: historical (<milestone>)`.
-- Use `analysis/legacy/` only for tools that no longer run or are no longer maintained. Keep `scripts/profile_m0_baseline.py` in `analysis/` if it still runs; otherwise place it in `analysis/legacy/` with a note.
+- Use `analysis/legacy/` only for tools that no longer run or are no longer maintained. Keep `analysis/profile_m0_baseline.py` in `analysis/` if it still runs; otherwise place it in `analysis/legacy/` with a note.
 - Delete a file only if no report, test, document, or build references it. Never delete a cited harness or data file.
 - Name numbered reports `M<m>_<nn>_<SLUG>.md`; use `M<m>_X_<SLUG>.md` for unnumbered analyses, diagnoses, and workloads, and `M<m>_AUDIT_<SLUG>.md` for interim/final audits. For M2 analyses, use the stage number in the report's own milestone line when present.
 
