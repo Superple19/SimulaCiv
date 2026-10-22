@@ -1,4 +1,4 @@
-// restored from session history; not re-run
+// re-run in M5-04: nine-cell A-5 samples are stored under docs/data/m5_04/m4_02/
 use sim_core::AgentId;
 use sim_model::config::{SimulationConfig, SimulationProfile, SimulationSystems};
 use sim_model::counterfactual::{
