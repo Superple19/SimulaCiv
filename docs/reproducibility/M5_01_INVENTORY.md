@@ -8,7 +8,7 @@ The inventory covers all **40** files under `docs/performance/`, measured eviden
 
 The largest gap is M3 per-day/parallel measurement evidence: M3-02 alone has 10,089 claim values classified `missing-data`. M4-02 through M4-05 raw records mostly survive, but their restored harnesses are explicitly `restored-not-rerun`. M2/M3 reports that depended on temporary probes remain the main unrecoverable source gaps.
 
-**Inventory table source:** [`claims.csv`](claims.csv). This is a read-only document scan; it has no simulation harness. The claim-level harness and raw-data mappings are recorded in the CSV; uncertain report-level mappings are marked in `notes`.
+**Inventory table source:** [`superseded/claims.csv`](superseded/claims.csv). This is a read-only document scan; it has no simulation harness. The claim-level harness and raw-data mappings are recorded in the CSV; uncertain report-level mappings are marked in `notes`.
 
 ## CSV encoding and status rules
 
@@ -22,7 +22,7 @@ Milestone counts are grouped by report family, not by every milestone name menti
 
 ## Claim counts by milestone, class, and status
 
-**Source:** [`claims.csv`](claims.csv). Counts are scalar claim IDs after expanding the packed value lists.
+**Source:** [`superseded/claims.csv`](superseded/claims.csv). Counts are scalar claim IDs after expanding the packed value lists.
 
 | Milestone | Class | Status | Claims |
 |---|---|---|---:|
@@ -59,7 +59,7 @@ Milestone counts are grouped by report family, not by every milestone name menti
 
 ## Top 10 evidence gaps
 
-**Source:** [`claims.csv`](claims.csv); the counts below include only non-`reproducible-now` claim values.
+**Source:** [`superseded/claims.csv`](superseded/claims.csv); the counts below include only non-`reproducible-now` claim values.
 
 | Rank | Report / status | Claims | Gap |
 |---:|---|---:|---|
