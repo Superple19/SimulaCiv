@@ -17,11 +17,11 @@ $builds = @(
 )
 
 function Get-HostSample {
-    $cpu = (Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples[0].CookedValue
+    $samples = Get-Counter -Counter '\Processor(_Total)\% Processor Time' -SampleInterval 2 -MaxSamples 5
     $os = Get-CimInstance Win32_OperatingSystem
     [pscustomobject]@{
         utc = [DateTime]::UtcNow.ToString('o')
-        total_cpu_percent = [Math]::Round($cpu, 2)
+        total_cpu_samples_percent = @($samples.CounterSamples | ForEach-Object { [Math]::Round($_.CookedValue, 2) })
         free_ram_bytes = [int64]$os.FreePhysicalMemory * 1024
     }
 }
