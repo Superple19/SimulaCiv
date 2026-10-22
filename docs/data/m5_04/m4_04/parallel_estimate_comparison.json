@@ -1,0 +1,106 @@
+{
+  "compared_fields": 840,
+  "exact_fields": 836,
+  "harness": "crates/sim-model/examples/m4_07_many_branch.rs (--only=crn-parallel)",
+  "m4_03_curve_changed_records_exact": true,
+  "m4_05_deterministic_differences": [
+    {
+      "difference": "deterministic JSON field differs",
+      "field": "record/0/schema",
+      "file": "m4_05_a_health8.jsonl",
+      "new": 2,
+      "old": 1
+    },
+    {
+      "difference": "deterministic JSON field differs",
+      "field": "record/106/result/guarantee",
+      "file": "m4_05_a_health8.jsonl",
+      "new": "minimum",
+      "old": "Minimum"
+    },
+    {
+      "difference": "deterministic JSON field differs",
+      "field": "record/0/schema",
+      "file": "m4_05_a_health8_full_probe.jsonl",
+      "new": 2,
+      "old": 1
+    },
+    {
+      "difference": "deterministic JSON field differs",
+      "field": "record/12/result/guarantee",
+      "file": "m4_05_a_health8_full_probe.jsonl",
+      "new": "incomplete",
+      "old": "None"
+    },
+    {
+      "difference": "deterministic JSON field differs",
+      "field": "record/0/schema",
+      "file": "m4_05_b_health16.jsonl",
+      "new": 2,
+      "old": 1
+    },
+    {
+      "difference": "deterministic JSON field differs",
+      "field": "record/26/result/guarantee",
+      "file": "m4_05_b_health16.jsonl",
+      "new": "one_minimal",
+      "old": "OneMinimal"
+    },
+    {
+      "difference": "deterministic JSON field differs",
+      "field": "record/0/schema",
+      "file": "m4_05_c_config6.jsonl",
+      "new": 2,
+      "old": 1
+    },
+    {
+      "difference": "deterministic JSON field differs",
+      "field": "record/75/result/guarantee",
+      "file": "m4_05_c_config6.jsonl",
+      "new": "exhausted_no_cause",
+      "old": "None"
+    }
+  ],
+  "method": "M4-07 six-thread parallel-only CRN rerun; estimates compared to M4-04 serial CSV",
+  "mismatch_count": 4,
+  "mismatches": [
+    {
+      "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf",
+      "field": "ratio_ci95_high",
+      "horizon": 90,
+      "intervention": "food_0",
+      "new": "",
+      "old": "inf",
+      "outcome": "alive_population"
+    },
+    {
+      "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf",
+      "field": "ratio_ci95_high",
+      "horizon": 90,
+      "intervention": "food_0",
+      "new": "",
+      "old": "inf",
+      "outcome": "target_settlement_alive_population"
+    },
+    {
+      "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf",
+      "field": "ratio_ci95_high",
+      "horizon": 30,
+      "intervention": "health_0_01",
+      "new": "",
+      "old": "inf",
+      "outcome": "alive_population"
+    },
+    {
+      "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf",
+      "field": "ratio_ci95_high",
+      "horizon": 30,
+      "intervention": "health_0_01",
+      "new": "",
+      "old": "inf",
+      "outcome": "target_settlement_alive_population"
+    }
+  ],
+  "new_data": "docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz",
+  "reference_data": "docs/data/m4_04/m4_04_crn_efficiency.csv"
+}

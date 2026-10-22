@@ -6,6 +6,7 @@ import argparse
 import csv
 import gzip
 import io
+import json
 import re
 import sys
 from collections.abc import Iterator
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "docs" / "reproducibility" / "claims.csv.gz"
 OLD_LEDGER = ROOT / "docs" / "reproducibility" / "superseded" / "claims.csv"
 RENAMES = ROOT / "docs" / "reports" / "RENAMES.md"
+M5_04_OVERRIDES = Path("docs") / "data" / "m5_04" / "claim_statuses.json"
 FIELDS = [
     "claim_id",
     "report",
@@ -42,6 +44,7 @@ HASH = re.compile(r"(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])")
 DATE = re.compile(r"\b\d{4}-\d{1,2}-\d{1,2}\b")
 VERSION = re.compile(r"\bv\d+\.\d+(?:\.\d+)?(?:-[A-Za-z0-9.-]+)?\b", re.IGNORECASE)
 MILESTONE = re.compile(r"\bM\d{1,2}(?:-\d{1,2}[A-Za-z]?)?\b", re.IGNORECASE)
+GATE_ID = re.compile(r"\bA-\d{1,2}\b", re.IGNORECASE)
 HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")
 # Configuration/input fields are filtered at the column or label boundary; measured outcomes remain claims.
 INPUT_ASSIGNMENT = re.compile(
@@ -135,6 +138,7 @@ def _tokens(text: str) -> Iterator[tuple[str, str]]:
     masked = DATE.sub(" ", text)
     masked = VERSION.sub(" ", masked)
     masked = MILESTONE.sub(" ", masked)
+    masked = GATE_ID.sub(" ", masked)
     spans: list[tuple[int, int]] = []
     for match in HASH.finditer(masked):
         spans.append(match.span())
@@ -434,7 +438,29 @@ def expand_old_ledger(path: Path = OLD_LEDGER) -> list[dict[str, str | int]]:
     return expanded
 
 
-def extract_claims(root: Path = ROOT, old_ledger: Path = OLD_LEDGER) -> list[dict[str, object]]:
+def apply_m5_04_overrides(
+    claims: list[dict[str, object]], root: Path = ROOT, overrides: dict[str, object] | None = None
+) -> list[dict[str, object]]:
+    if overrides is None:
+        path = root / M5_04_OVERRIDES
+        if not path.exists():
+            return claims
+        overrides = json.loads(path.read_text(encoding="utf-8"))
+    records = overrides.get("claims", {})
+    for claim in claims:
+        override = records.get(str(claim["claim_id"]))
+        if override is None:
+            continue
+        claim["status"] = str(override.get("ledger_status", override["result"]))
+        claim["notes"] = "; ".join(
+            filter(None, [str(claim["notes"]), f"M5-04: {override['note']}"])
+        )
+    return claims
+
+
+def extract_claims(
+    root: Path = ROOT, old_ledger: Path = OLD_LEDGER, *, apply_m5_04: bool = True
+) -> list[dict[str, object]]:
     current = scan_documents(root)
     old_claims = expand_old_ledger(old_ledger)
     metadata, ambiguous_claims = match_old_claims(old_claims, current, root)
@@ -481,7 +507,7 @@ def extract_claims(root: Path = ROOT, old_ledger: Path = OLD_LEDGER) -> list[dic
                 "notes": note,
             }
         )
-    return output
+    return apply_m5_04_overrides(output, root) if apply_m5_04 else output
 
 
 def ledger_bytes(claims: list[dict[str, object]]) -> bytes:

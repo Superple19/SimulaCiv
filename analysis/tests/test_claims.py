@@ -2,7 +2,7 @@ import csv
 import gzip
 from pathlib import Path
 
-from simciv_analysis.claims import _tier, extract_claims, ledger_bytes, scan_documents
+from simciv_analysis.claims import _tier, _tokens, apply_m5_04_overrides, extract_claims, ledger_bytes, scan_documents
 
 
 def test_claims_exclude_inputs_match_exact_metadata_and_pack_one_row_each(tmp_path):
@@ -146,3 +146,15 @@ def test_contract_validation_status_is_measured_evidence(tmp_path):
     contract.write_text("# Contract\n\nValidation Status: Complete (42 tests passed).\n", encoding="utf-8")
     claims = scan_documents(tmp_path)
     assert [claim["value"] for claim in claims] == ["42"]
+
+
+def test_m5_04_status_overrides_are_deterministic_and_preserve_prior_notes():
+    claims = [{"claim_id": 7, "status": "restored-not-rerun", "notes": "source retained"}]
+    overrides = {"claims": {"7": {"result": "bit-exact", "note": "compared against committed data"}}}
+    result = apply_m5_04_overrides(claims, overrides=overrides)
+    assert result[0]["status"] == "bit-exact"
+    assert result[0]["notes"] == "source retained; M5-04: compared against committed data"
+
+
+def test_gate_amendment_labels_are_not_numeric_claims():
+    assert list(_tokens("A-5 gate, 20% threshold")) == [("20", "%")]

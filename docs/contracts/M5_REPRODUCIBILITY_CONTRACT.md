@@ -1,6 +1,6 @@
 # M5 Reproducibility and Research Hardening Contract
 
-**Status: M5-00, M5-02, M5-03, and M5-04 FROZEN; M5-01 COMPLETE; M5-03 implementation COMPLETE**
+**Status: M5-00, M5-02, M5-03, and M5-04 FROZEN; M5-01 COMPLETE; M5-03 and M5-04 implementation COMPLETE**
 **Baseline: `v0.5.0-m4`**
 
 ## 1. Research question
@@ -67,7 +67,7 @@ The order is structure → tooling → verification → new experiments → clea
 | **M5-01 — Reproducibility inventory** | **COMPLETE.** Inventory every numeric claim in M0–M4 reports and measured contract statements; map claim values to harnesses, raw data, status, class, and next stage. |
 | **M5-02 — Repository layout** | **FROZEN; implementation in progress.** Organize contracts, reports, data, reproducibility outputs, and analysis tools under the frozen layout in §10. |
 | **M5-03 — Analysis toolchain** | **FROZEN; implementation COMPLETE.** Add the pinned `uv` project, `pandas`, `matplotlib`, Quarto, `just`, `pytest`, deterministic report generation, link checking, and the approved Ubuntu analysis CI job. Regenerate M5-01 as a tidy one-row-per-claim gzip ledger, exclude configuration/input values, add key/supporting tiers, and recheck the 29 M1 claims currently labeled unrecoverable. |
-| **M5-04 — M4 regeneration** | **FROZEN; implementation in progress.** Re-run existing Rust harnesses against committed M4 data, verify deterministic outputs bit-exactly, remeasure conclusion-bearing M4 timings, and produce a generated Quarto report. |
+| **M5-04 — M4 regeneration** | **FROZEN; implementation COMPLETE.** Re-run existing Rust harnesses against committed M4 data, verify deterministic outputs bit-exactly, remeasure conclusion-bearing M4 timings, and produce a generated Quarto report; see [M5-04 regeneration](../reproducibility/M5_04_M4_REGENERATION.md). |
 | **M5-05 — M0–M3 regeneration and re-measurement** | Regenerate or re-measure key M0–M3 tables, preserving old values as history and applying the frozen timing comparison rule. |
 | **M5-06 — Python bindings** | Add PyO3/maturin bindings and an experiment runner with commit, configuration, and host provenance. |
 | **M5-07 — Robustness experiments** | Run multi-seed and multi-workload, effect-size-first experiments, including migration calibration and a redesigned M4-05 predicate. Select the matrix from a pilot before execution. |
@@ -270,3 +270,10 @@ Every M4 headline claim is classified as one of: **bit-exact**, **conclusion hol
 ### 12.6 Freeze record
 
 This freeze authorizes M5-04 reruns of the committed M4 harnesses, fresh A-5 timing samples, data/manifest commits, harness-header updates after successful reruns, and the generated M5-04 report. It authorizes no simulation semantic changes, edits to existing tests or expected outputs, or CI changes.
+
+### 12.7 Implementation completion record
+
+M5-04 is **COMPLETE**. The generated [M4 headline result table](../reproducibility/M5_04_M4_REGENERATION.md#m4-headline-claims) classifies every extracted M4 headline claim. Deterministic mismatches and unrecoverable artifacts are recorded without changing historical outputs. The final A-5 rerun passed for M4-03, M4-05, and M4-06; M4-02 incremental M3P cells changed from PASS to FAIL and are documented. The committed M5-04 data satisfies the size policy, so no release assets or manifest were prepared.
+
+- `just report-m5-04` — generated the comparison data, M5-04 report, updated claim ledger, and regenerated M5-01 inventory.
+- `just check` — passed; see the final task record for the exact validation output.

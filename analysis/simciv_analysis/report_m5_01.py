@@ -114,7 +114,9 @@ def _report_parts() -> dict[str, str]:
     m1 = claims.loc[(claims["report"] == "M1_CONTRACT_FREEZE.md") & (claims["status"] == "historical-log")].copy()
     m1 = m1.sort_values(["line", "claim_id"], kind="stable")
     m1 = m1[["claim_id", "line", "value", "class", "status", "notes"]]
-    gaps = claims.loc[~claims["status"].isin(["reproducible-now", "historical-log"])].copy()
+    gaps = claims.loc[
+        ~claims["status"].isin(["reproducible-now", "historical-log", "bit-exact", "conclusion holds"])
+    ].copy()
     gaps["milestone"] = gaps["report"].map(_milestone)
     top_gaps = (
         gaps.groupby(["milestone", "report", "status"], dropna=False)
@@ -124,7 +126,7 @@ def _report_parts() -> dict[str, str]:
         .sort_values(["claims", "report", "status"], ascending=[False, True, True], kind="stable")
         .head(10)
     )
-    mapped = claims["status"] != "unmapped"
+    new_ledger = comparison.loc[comparison["Ledger view"] == "new tidy records"].iloc[0]
     input_rule = (
         "Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, "
         "replicates, horizons/days, thread/chunk settings, and simulation parameter values. Free-text numbers are only extracted from "
@@ -141,14 +143,12 @@ def _report_parts() -> dict[str, str]:
         "gaps": _markdown(top_gaps),
         "input_rule": input_rule,
         "total": f"{len(claims):,}",
-        "mapped": f"{int(mapped.sum()):,}",
-        "unmapped": f"{int((~mapped).sum()):,}",
         "m1_count": f"{len(m1):,}",
         "headline_count": f"{int((claims['tier'] == 'headline').sum()):,}",
         "key_count": f"{int((claims['tier'] == 'key').sum()):,}",
         "supporting_count": f"{int((claims['tier'] == 'supporting').sum()):,}",
-        "mapped_count": f"{int(mapped.sum()):,}",
-        "unmapped_count": f"{int((~mapped).sum()):,}",
+        "mapped_count": f"{int(new_ledger['mapped from old metadata']):,}",
+        "unmapped_count": f"{int(new_ledger['unmapped after']):,}",
         "old_count": f"{len(expand_old_ledger(OLD_LEDGER)):,}",
     }
 

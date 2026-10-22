@@ -11,13 +11,13 @@ Which numeric statements in the existing M0–M4 performance reports and contrac
 
 ## Method
 
-The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree. Its tidy output [claims.csv.gz](claims.csv.gz) contains **32,481** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **37,612** expanded scalar values. Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, replicates, horizons/days, thread/chunk settings, and simulation parameter values. Free-text numbers are only extracted from tables, report Summary/Findings/Status sections, selected audit/graduation tables, and measured contract sections. The machine-readable contracts/m1_contract.toml is a configuration/contract input and is not scanned as a measured report.
+The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree. Its tidy output [claims.csv.gz](claims.csv.gz) contains **32,465** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **37,612** expanded scalar values. Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, replicates, horizons/days, thread/chunk settings, and simulation parameter values. Free-text numbers are only extracted from tables, report Summary/Findings/Status sections, selected audit/graduation tables, and measured contract sections. The machine-readable contracts/m1_contract.toml is a configuration/contract input and is not scanned as a measured report.
 
 ## Results
 
 Every table below is generated from [claims.csv.gz](claims.csv.gz) by the report generator [report_m5_01.py](../../analysis/simciv_analysis/report_m5_01.py). Old-ledger comparisons additionally read the retained packed ledger.
 
-The tidy ledger contains **787** headline claims, **899** key claims, and **30,795** supporting claims.
+The tidy ledger contains **783** headline claims, **895** key claims, and **30,787** supporting claims.
 
 ### Headline counts by milestone
 
@@ -25,7 +25,7 @@ The tidy ledger contains **787** headline claims, **899** key claims, and **30,7
 | --------- | --------------- |
 | M2        | 288             |
 | M3        | 412             |
-| M4        | 87              |
+| M4        | 83              |
 
 Headline rows come from report Summary, Findings, and Status sections plus audit/graduation tables; full gate tables are excluded. Other gate verdicts remain in the `key` tier.
 
@@ -81,33 +81,36 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 | M3        | timing        | unmapped           | supporting | 9,002  |
 | M3        | timing        | unrecoverable      | headline   | 19     |
 | M3        | timing        | unrecoverable      | supporting | 8      |
+| M4        | derived       | bit-exact          | headline   | 13     |
+| M4        | derived       | mismatch           | headline   | 5      |
 | M4        | derived       | reproducible-now   | key        | 2      |
 | M4        | derived       | reproducible-now   | supporting | 43     |
-| M4        | derived       | restored-not-rerun | headline   | 12     |
 | M4        | derived       | restored-not-rerun | key        | 21     |
-| M4        | derived       | unmapped           | headline   | 44     |
-| M4        | derived       | unmapped           | key        | 320    |
-| M4        | derived       | unmapped           | supporting | 3,041  |
+| M4        | derived       | unmapped           | key        | 319    |
+| M4        | derived       | unmapped           | supporting | 3,037  |
+| M4        | derived       | unrecoverable      | headline   | 37     |
 | M4        | derived       | unrecoverable      | supporting | 2      |
-| M4        | deterministic | reproducible-now   | headline   | 1      |
+| M4        | deterministic | bit-exact          | headline   | 5      |
+| M4        | deterministic | conclusion holds   | headline   | 1      |
+| M4        | deterministic | mismatch           | headline   | 4      |
 | M4        | deterministic | reproducible-now   | key        | 1      |
 | M4        | deterministic | reproducible-now   | supporting | 3      |
-| M4        | deterministic | restored-not-rerun | headline   | 18     |
 | M4        | deterministic | restored-not-rerun | key        | 49     |
 | M4        | deterministic | restored-not-rerun | supporting | 178    |
 | M4        | deterministic | unmapped           | key        | 22     |
 | M4        | deterministic | unmapped           | supporting | 19     |
+| M4        | deterministic | unrecoverable      | headline   | 9      |
 | M4        | deterministic | unrecoverable      | supporting | 3      |
 | M4        | timing        | reproducible-now   | key        | 4      |
 | M4        | timing        | reproducible-now   | supporting | 9      |
 | M4        | timing        | restored-not-rerun | key        | 13     |
 | M4        | timing        | restored-not-rerun | supporting | 23     |
-| M4        | timing        | unmapped           | headline   | 12     |
-| M4        | timing        | unmapped           | key        | 384    |
-| M4        | timing        | unmapped           | supporting | 158    |
+| M4        | timing        | unmapped           | key        | 381    |
+| M4        | timing        | unmapped           | supporting | 155    |
+| M4        | timing        | unrecoverable      | headline   | 9      |
 | M4        | timing        | unrecoverable      | key        | 15     |
 | M5        | derived       | unmapped           | key        | 6      |
-| M5        | derived       | unmapped           | supporting | 13     |
+| M5        | derived       | unmapped           | supporting | 12     |
 | M5        | deterministic | reproducible-now   | supporting | 8      |
 | M5        | deterministic | unrecoverable      | supporting | 1      |
 
@@ -116,7 +119,7 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 | Ledger view        | rows   | mapped before (exact name/line/value) | mapped after (renamed report/source/value) | unmapped after | reason                                                                             | mapped from old metadata |
 | ------------------ | ------ | ------------------------------------- | ------------------------------------------ | -------------- | ---------------------------------------------------------------------------------- | ------------------------ |
 | old packed records | 37,612 | 653                                   | 1,988                                      | 35,624         | RENAMES.md report mapping; normalized source text and value; line only breaks ties |                          |
-| new tidy records   | 32,481 |                                       |                                            | 28,786         | unmatched and ambiguous provenance stays unmapped                                  | 3,695                    |
+| new tidy records   | 32,465 |                                       |                                            | 28,770         | unmatched and ambiguous provenance stays unmapped                                  | 3,695                    |
 
 #### Match and unmapped reasons
 
@@ -129,7 +132,7 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 | previous exact-name/line/value baseline   | 653     | old rows matched before the correction; diagnostic baseline                           |
 | old report basenames in RENAMES.md        | 29,669  | diagnostic count; this may overlap transferred and unmapped rows                      |
 
-The regenerated ledger has **3,695** rows with transferred prior status/provenance and **28,786** rows marked unmapped. Mapping uses the report name after `RENAMES.md`, normalized source-text prefix, and value; the old line is only a tie-breaker. Ambiguous matches remain unmapped.
+The regenerated ledger has **3,695** rows with transferred prior status/provenance and **28,770** rows marked unmapped. Mapping uses the report name after `RENAMES.md`, normalized source-text prefix, and value; the old line is only a tie-breaker. Ambiguous matches remain unmapped.
 
 ### M1 unrecoverable-claim recheck
 
@@ -137,35 +140,35 @@ The **29** M1 aggregate test-run records are classified as `historical-log`, not
 
 | claim_id | line | value | class         | status         | notes                                                                                                                                                                            |
 | -------- | ---- | ----- | ------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 32,305   | 6    | 521   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,306   | 6    | 521   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,307   | 6    | 500   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,309   | 37   | 0     | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,310   | 38   | 7     | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,311   | 39   | 1     | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,312   | 40   | 15    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,313   | 41   | 8     | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,314   | 42   | 12    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,317   | 43   | 10    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,318   | 44   | 12    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,319   | 45   | 13    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,320   | 46   | 12    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,321   | 47   | 11    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; M1 historical-log carried by report/value and nearest line because source matching was unavailable |
-| 32,323   | 48   | 27    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,325   | 49   | 36    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,326   | 50   | 37    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,327   | 51   | 30    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,328   | 52   | 41    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,329   | 53   | 50    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,330   | 54   | 47    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,331   | 55   | 66    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,332   | 55   | 256   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,333   | 56   | 50    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,334   | 56   | 1     | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,335   | 56   | 11    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,336   | 57   | 36    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,337   | 57   | 500   | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
-| 32,338   | 58   | 521   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,295   | 6    | 521   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,296   | 6    | 521   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,297   | 6    | 500   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,299   | 37   | 0     | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,300   | 38   | 7     | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,301   | 39   | 1     | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,302   | 40   | 15    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,303   | 41   | 8     | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,304   | 42   | 12    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,307   | 43   | 10    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,308   | 44   | 12    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,309   | 45   | 13    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,310   | 46   | 12    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,311   | 47   | 11    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; M1 historical-log carried by report/value and nearest line because source matching was unavailable |
+| 32,313   | 48   | 27    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,315   | 49   | 36    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,316   | 50   | 37    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,317   | 51   | 30    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,318   | 52   | 41    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,319   | 53   | 50    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,320   | 54   | 47    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,321   | 55   | 66    | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,322   | 55   | 256   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,323   | 56   | 50    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,324   | 56   | 1     | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,325   | 56   | 11    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,326   | 57   | 36    | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,327   | 57   | 500   | derived       | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
+| 32,328   | 58   | 521   | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker      |
 
 ### Top evidence gaps
 
@@ -174,12 +177,12 @@ The **29** M1 aggregate test-run records are classified as `historical-log`, not
 | M3        | M3_02_PARALLEL_PHASE6B.md                          | unmapped | 10,524 |
 | M3        | M3_11_PROPAGATION.md                               | unmapped | 3,738  |
 | M3        | M3_04_SUSTAINED_WORKLOAD.md                        | unmapped | 1,988  |
-| M4        | M4_03_DIVERGENCE.md                                | unmapped | 1,637  |
+| M4        | M4_03_DIVERGENCE.md                                | unmapped | 1,636  |
 | M2        | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | unmapped | 1,295  |
 | M3        | M3_05_SCALE_LIMIT.md                               | unmapped | 1,295  |
 | M4        | M4_04_CRN_EFFICIENCY.md                            | unmapped | 1,067  |
 | M3        | M3_01_SERIAL_BASELINE.md                           | unmapped | 819    |
-| M4        | M4_02_BRANCHING.md                                 | unmapped | 671    |
+| M4        | M4_02_BRANCHING.md                                 | unmapped | 622    |
 | M2        | M2_37_POST_P5_P6B_REPROFILING.md                   | unmapped | 549    |
 
 ## Findings
