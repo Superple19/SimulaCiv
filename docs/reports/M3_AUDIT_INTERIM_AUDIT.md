@@ -1,0 +1,73 @@
+# M3 Interim Audit After M3-02
+Status: superseded by [M3 final audit](M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)
+
+interim answer; not the M3 graduation gate
+
+- **Evidence boundary:** recorded results in the M3-01 serial baseline and M3-02 Phase 6B profile only
+- **Decision:** no next stage selected
+
+## Executive summary
+
+The measurements so far do not show that the current execution model or data architecture must fundamentally change. The M3 serial path measured about 24–30 ms per tick at 100k agents, while the historical M2-40 serial context was 21.632 ms; the M3 report explicitly cautions that this is not a like-for-like comparison, so it does not isolate the cost of the global stream by itself. [M3-01 §Full-tick results and scaling](M3_01_SERIAL_BASELINE.md#full-tick-results-and-scaling), [M3-01 §M2 serial context](M3_01_SERIAL_BASELINE.md#m2-serial-context)
+
+M3-02 measured no whole-tick benefit from parallel Phase 6B on its active workload, while candidate search and resolver setup substantially exceeded applied-transfer work. These findings point to search and bookkeeping as the measured costs at these scales; this remains an interim answer, limited by the single-host and decaying-workload evidence below. [M3-02 §Executive summary](M3_02_PARALLEL_PHASE6B.md#executive-summary), [M3-02 §Search and setup vs applied interaction cost](M3_02_PARALLEL_PHASE6B.md#search-and-setup-vs-applied-interaction-cost)
+
+## Scope and gate status
+
+M3-00, M3-01, and M3-02 are complete. M3-03 through M3-05 have not started; the contract keeps them as planned stages requiring their own contract review and freeze before implementation. This report is an interim answer after M3-02, not the M3 audit and graduation gate. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
+
+## Correctness record
+
+- **M2 behavior and goldens:** the M3-01 report records exact M3-00/M3-01 parity and states that no M2 expected values or snapshots were changed. [M3-01 §Executive summary](M3_01_SERIAL_BASELINE.md#executive-summary), [M3-01 §Release differential and parity](M3_01_SERIAL_BASELINE.md#release-differential-and-parity)
+- **M3 goldens and serial differential:** the committed M3 golden configuration matched the M3-00 reference; the M3-01 report also records a complete 60-cell, 100-day differential matrix, a 10,000-agent release differential, snapshot pause/resume, and reversed-slot parity. [M3-01 §Executive summary](M3_01_SERIAL_BASELINE.md#executive-summary), [M3-01 §Release differential and parity](M3_01_SERIAL_BASELINE.md#release-differential-and-parity)
+- **Parallel extended parity:** the M3-02 release check matched the serial State, Metrics, and Events traces in all 300 configurations formed from the 60-cell matrix and five chunk sizes; no combinations were skipped. [M3-02 §Extended release parity](M3_02_PARALLEL_PHASE6B.md#extended-release-parity)
+- **Cross-platform CI:** the README records canonical digest and snapshot verification on Linux, Windows, and macOS; the M3 stage status also records the M3-00 golden verification on these hosts. [README Status](../../README.md#status)
+
+## Evidence against the central research question
+
+The question remains: how much interaction complexity can the deterministic runtime support before its execution model or data architecture must fundamentally change? [M3 Interaction Contract §1](../contracts/M3_INTERACTION_CONTRACT.md#1-baseline-and-terminology)
+
+### Measured facts
+
+- **Cost of global Phase 6B:** at 100k agents, M3-01 full-tick medians span about 24–30 ms across the recorded `k` and `p_local` cells. The M2-40 serial context is 21.632 ms at the same population, but the M3-01 report says the comparison is not like-for-like because M2 uses same-settlement targets and settlement-local ordering. Treat the difference as context, not an isolated estimate of global-stream overhead. [M3-01 §Full-tick results and scaling](M3_01_SERIAL_BASELINE.md#full-tick-results-and-scaling), [M3-01 §M2 serial context](M3_01_SERIAL_BASELINE.md#m2-serial-context)
+- **Locality and endpoint conflict:** M3-02 records a conflict fraction from 0.528892 to 0.541324 across `p_local` values. At 100k, the keyed stream averages 24,584 entries per day at `p_local=0`; cross-partition interactions fall to zero at `p_local=1`, while conflict remains about 0.54. Settlement locality therefore did not determine endpoint contention in these measurements. [M3-02 §Workload, level structure, and contention](M3_02_PARALLEL_PHASE6B.md#workload-level-structure-and-contention)
+- **Dependency levels and available concurrency:** at the larger measured populations, the dependency schedule has about five to six nonempty levels per day. At 100k and `p_local=0.5`, the report records a mean maximum level size of about 17,219 against about 24,584 keyed entries per day. The report does not tabulate every ordinal level separately. [M3-02 §Workload, level structure, and contention](M3_02_PARALLEL_PHASE6B.md#workload-level-structure-and-contention)
+- **Parallel Phase 6B:** the median whole-tick speedup across active configurations was 0.967×, and the pooled one-thread result was 0.947×. Key generation and sort were faster in parallel, while validation/slot lookup and evaluation/writeback/output were slower in their aggregated medians. [M3-02 §Executive summary](M3_02_PARALLEL_PHASE6B.md#executive-summary), [M3-02 §Chunk and pool sensitivity](M3_02_PARALLEL_PHASE6B.md#chunk-and-pool-sensitivity), [M3-02 §Phase 6B stage timings](M3_02_PARALLEL_PHASE6B.md#phase-6b-stage-timings)
+- **Search/setup versus applied work:** for the M3-01 100k, `k=8`, `p_local=0.5` profile, grouping P4 intent+projection, Phase 6B validation/slot, and key+sort as setup gives `(3,814.4 + 1,384.1 + 1,709.1) / 1,066.6 ≈ 6.5×` the Phase 6B commit+output interval. The M3-02 hook-based search/setup-to-Applied ratio is about 8–10× and is approximate because its timing hooks materially perturb phase wall time. [M3-01 §Per-phase profile](M3_01_SERIAL_BASELINE.md#per-phase-profile), [M3-02 §Search/setup compared with applied work](M3_02_PARALLEL_PHASE6B.md#searchsetup-compared-with-applied-work), [M3-02 §Timing-hook overhead](M3_02_PARALLEL_PHASE6B.md#timing-hook-overhead)
+- **Interaction outcomes:** GiveFood found no target in days one through three: 0 Some / 6,585 None at 10,000 agents and 0 Some / 66,031 None at 100,000. Every keyed entry was StealFood; TheftFailed accounted for about 50% of keyed entries at both sizes. [M3-02 §Outcome counts over days 1–3](M3_02_PARALLEL_PHASE6B.md#outcome-counts-over-days-1–3)
+- **Workload decay:** keyed entries first reached zero between days 71 and 76, with only 0.21%–1.28% of agents alive. With a static `k=8` graph and no rewiring, the report attributes the loss of eligible targets to near-total population collapse combined with static topology. The M2-40 workload was designed for short benchmarks, not sustained interaction workloads. [M3-02 §Interaction workload decay](M3_02_PARALLEL_PHASE6B.md#interaction-workload-decay)
+
+### Inferences
+
+- The broad dependency level indicates that independent entries were available to schedule; the absence of whole-tick speedup points to small per-entry work and parallel bookkeeping, not a lack of potential concurrency. This is an inference from the recorded level structure and stage timings, not a direct hardware-utilization measurement. [M3-02 §Workload, level structure, and contention](M3_02_PARALLEL_PHASE6B.md#workload-level-structure-and-contention), [M3-02 §Phase 6B stage timings](M3_02_PARALLEL_PHASE6B.md#phase-6b-stage-timings), [M3-02 §Whole-tick results](M3_02_PARALLEL_PHASE6B.md#whole-tick-results)
+- **Inference:** the broad maximum level is consistent with most entries fitting in the first execution wave, so available concurrency was not the limit in the measured schedule. The report records maximum level sizes, not a separate per-ordinal count. [M3-02 §Workload, level structure, and contention](M3_02_PARALLEL_PHASE6B.md#workload-level-structure-and-contention)
+- The M3-01 stage profile and M3-02 hook-based profile both indicate that much of measured interaction cost is spent locating candidates or preparing/resolving entries rather than applying positive transfers. Since about half of keyed StealFood entries fail without changing state, the parallel commit loop does not appear to be the main cost center in these samples. [M3-01 §Per-phase profile](M3_01_SERIAL_BASELINE.md#per-phase-profile), [M3-02 §Search/setup compared with applied work](M3_02_PARALLEL_PHASE6B.md#searchsetup-compared-with-applied-work), [M3-02 §Outcome counts over days 1–3](M3_02_PARALLEL_PHASE6B.md#outcome-counts-over-days-1–3)
+- The decay evidence supports interpreting active days at the start of the run, rather than the later zero-interaction horizon, when judging interaction throughput. It does not establish performance under a sustained population or sustained eligible-target workload. [M3-02 §Interaction workload decay](M3_02_PARALLEL_PHASE6B.md#interaction-workload-decay)
+
+## Does the execution model or data architecture need to change?
+
+The measured evidence does not show that the serial execution model is the binding limit at the tested scale. Serial M3 runs complete the recorded 100k workload; parallel Phase 6B does not improve the whole tick, despite wide dependency levels. Candidate search and resolver bookkeeping dominate the available measured interaction work. **Inference:** the current execution model and data architecture do not yet need a fundamental redesign; reducing search and bookkeeping is the more directly supported direction. This conclusion is limited to the recorded host and short-lived M2-40 workload, not a claim about sustained interactions or larger unmeasured scales. [M3-01 §Full-tick results and scaling](M3_01_SERIAL_BASELINE.md#full-tick-results-and-scaling), [M3-02 §Whole-tick results](M3_02_PARALLEL_PHASE6B.md#whole-tick-results), [M3-02 §Workload, level structure, and contention](M3_02_PARALLEL_PHASE6B.md#workload-level-structure-and-contention), [M3-02 §Search and setup vs applied interaction cost](M3_02_PARALLEL_PHASE6B.md#search-and-setup-vs-applied-interaction-cost)
+
+## Limitations
+
+- **One host:** the M3-01 and M3-02 performance runs were recorded on a single Windows host. [M3-01 §Host and method](M3_01_SERIAL_BASELINE.md#host-and-method), [M3-02 §Host and method](M3_02_PARALLEL_PHASE6B.md#host-and-method)
+- **Timing hooks:** the M3-02 timing hook added 64%–114% to Phase 4 intent-generation wall time and 40%–43% to Phase 6B wall time; its per-entry splits are explicitly approximate. [M3-02 §Timing-hook overhead](M3_02_PARALLEL_PHASE6B.md#timing-hook-overhead)
+- **Short active window:** the detailed search/work comparison covers the first three days; the decay run later reached zero keyed entries between days 71 and 76. [M3-02 §Search and setup vs applied interaction cost](M3_02_PARALLEL_PHASE6B.md#search-and-setup-vs-applied-interaction-cost), [M3-02 §Interaction workload decay](M3_02_PARALLEL_PHASE6B.md#interaction-workload-decay)
+- **Workload design:** the unchanged M2-40 configuration was designed for short benchmarks, not sustained interaction. [M3-02 §Interaction workload decay](M3_02_PARALLEL_PHASE6B.md#interaction-workload-decay)
+- **Amdahl bound:** Phase 6B accounts for about 15% of a representative 100k tick in the M3-01 profile, so the M3-02 report uses an approximately 1.17× whole-tick Amdahl upper bound. This is a model bound, not a measured speedup. [M3-01 §Per-phase profile](M3_01_SERIAL_BASELINE.md#per-phase-profile), [M3-02 §Executive summary](M3_02_PARALLEL_PHASE6B.md#executive-summary)
+
+## Candidate next stages — no selection
+
+The following options are alternatives for a later decision, not an implementation plan. The stage-plan contract requires a stage-specific draft and freeze before implementation. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
+
+- **Search/bookkeeping reduction with bit-identical results:** test whether candidate scans and resolver setup can be reduced without changing any outputs. A search skip based on a provable no-target condition needs an explicit contract amendment for the skip condition and its parity gate. [M3-02 §Search and setup vs applied interaction cost](M3_02_PARALLEL_PHASE6B.md#search-and-setup-vs-applied-interaction-cost)
+  M3-02b completed the explicit serial global-eligibility skip; the paired measurements and rejected candidates are recorded in [M3-02b Search and Bookkeeping Reduction](M3_02B_SEARCH_REDUCTION.md).
+- **Sustained-interaction workload configuration:** determine whether the cost balance and parallel result persist when eligible targets remain available. A benchmark-only workload can be measured without changing current contracts; adopting it as a frozen acceptance workload requires a contract amendment. [M3-02 §Interaction workload decay](M3_02_PARALLEL_PHASE6B.md#interaction-workload-decay)
+  [Sustained-workload benchmark report](M3_SUSTAINED_WORKLOAD.md) records the supply-only configuration search and measurements.
+- **M3-03 migration:** measure how changing membership and daily partitions affect graph lookup, interaction ordering, and scaling. This needs its own contract amendment before implementation. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
+- **M3-04 dynamic topology:** measure edge creation/removal and define graph persistence in snapshots. This needs its own contract amendment before implementation. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
+- **Stop M3 here:** decide whether the current evidence is a sufficient answer and proceed to the graduation review. This needs a graduation decision, not a behavioral contract amendment. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
+
+This audit records the evidence available after M3-02 and deliberately does not choose among these candidates. [M3 Interaction Contract §8](../contracts/M3_INTERACTION_CONTRACT.md#8-m3-stage-plan-planned--not-frozen)
+
+The M3-E and M3-S measurement reports are [M3 Equilibrium Workload](M3_EQUILIBRIUM_WORKLOAD.md) and [M3 Scale Limit Search](M3_SCALE_LIMIT.md).

@@ -1,4 +1,5 @@
 // restored from session history; not re-run
+// Historical measurement protocol; the final A-5 harness is m4_02_a5_measure.rs.
 use std::hint::black_box;
 use std::time::Instant;
 
