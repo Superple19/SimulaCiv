@@ -1,4 +1,4 @@
-// restored from session history; not re-run
+// re-run in M5-04: A-5 raw samples are stored under docs/data/m5_04/m4_05/
 use sim_core::AgentId;
 use sim_model::m3p::{M3pReferenceState, encode_m3p_snapshot};
 use sim_model::runner::{DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION, M0RunContext};
@@ -150,6 +150,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         direct_mad / direct_median,
         batch_mad / batch_median,
     );
+    for (sample, ((direct, batch), delta)) in direct_samples
+        .iter()
+        .zip(&batch_samples)
+        .zip(&deltas)
+        .enumerate()
+    {
+        println!("SAMPLE,{sample},{r},{direct:.3},{batch:.3},{delta:.3}");
+    }
     Ok(())
 }
 
