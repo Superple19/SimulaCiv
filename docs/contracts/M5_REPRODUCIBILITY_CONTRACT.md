@@ -150,4 +150,10 @@ This freeze authorizes the M5-02 repository moves, status headers, link repairs,
 
 ### 10.5 Validation record
 
-Pending the M5-02 validation step.
+M5-02 validation completed:
+
+- `cargo fmt --check` — passed.
+- `cargo clippy --workspace --all-targets -- -D warnings` — passed.
+- `cargo test --workspace` — passed.
+- `python analysis/check_links.py` — the Windows `python.exe` app-execution alias returned exit code 1 without starting Python. The same check passed with `py -3 analysis/check_links.py`: 719 relative Markdown links checked, 0 broken.
+- `git diff --check` — passed.
