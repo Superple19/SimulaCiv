@@ -1,4 +1,4 @@
-// restored from session history; not re-run
+// re-run in M5-04: deterministic differences recorded under docs/data/m5_04/m4_05/
 use serde_json::Value;
 use sim_core::GroupId;
 use sim_model::m3p::{M3pReferenceState, encode_m3p_snapshot};
