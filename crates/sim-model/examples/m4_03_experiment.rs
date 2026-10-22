@@ -1,4 +1,4 @@
-// restored from session history; not re-run
+// re-run in M5-04: byte-exact against docs/data/m4_03/m4_03_a1_experiments.csv
 use sim_core::AgentId;
 use sim_model::counterfactual::{
     AgentField, AgentFieldValue, BranchExecutionOption, BranchIntervention, BranchRequest,
