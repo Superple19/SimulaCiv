@@ -21,7 +21,7 @@ The table reports medians from the committed [A-5 harness](../../crates/sim-mode
 | Free physical memory | 76,628,592 KiB | 76,652,208 KiB | informational only | [m4_06_a5_gate.rs](../../crates/sim-model/examples/m4_06_a5_gate.rs), [a5_host_final.json](../data/m4_06/a5_host_final.json) |
 | Benchmark process | Windows x86_64, 12 logical processors | High priority, affinity `0x555` (reported mask `0x555`) | applied and verified by the harness | [m4_06_a5_gate.rs](../../crates/sim-model/examples/m4_06_a5_gate.rs), [a5_gate_final.json](../data/m4_06/a5_gate_final.json) |
 
-The isolated final gate ran from 05:15:47 to 05:20:24 local time. The first run is retained in [a5_gate.json](../data/m4_06/a5_gate.json) as superseded history; it compared implicit and explicit off configurations through the same direct runner. The configured-dispatch hook-cost run and the run concurrent with the workspace suite are also retained as [a5_gate_configured_cost.json](../data/m4_06/superseded/a5_gate_configured_cost.json) and [a5_gate_concurrent_suite.json](../data/m4_06/a5_gate_concurrent_suite.json); neither is used for the final table.
+The isolated final gate ran from 05:15:47 to 05:20:24 local time. The first run is retained in [a5_gate.json](../data/m4_06/superseded/a5_gate.json) as superseded history; it compared implicit and explicit off configurations through the same direct runner. The configured-dispatch hook-cost run and the run concurrent with the workspace suite are also retained as [a5_gate_configured_cost.json](../data/m4_06/superseded/a5_gate_configured_cost.json) and [a5_gate_concurrent_suite.json](../data/m4_06/superseded/a5_gate_concurrent_suite.json); neither is used for the final table.
 
 ## Implementation and forward gate
 

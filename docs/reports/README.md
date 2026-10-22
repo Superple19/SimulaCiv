@@ -1,4 +1,4 @@
-# Performance report index
+# Report index
 
 Each finding is a verbatim excerpt from the linked report’s summary, findings, or result text; an ellipsis marks a shortened quote. Status values match the report header.
 

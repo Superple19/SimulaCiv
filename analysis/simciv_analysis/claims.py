@@ -231,6 +231,7 @@ def _line_claims(
 
 
 def scan_documents(root: Path = ROOT) -> list[dict[str, object]]:
+    # Scan report prose and contract documents; the TOML manifest is configuration, not measured prose.
     candidates = sorted((root / "docs" / "reports").glob("*.md")) + sorted((root / "docs" / "contracts").glob("*.md"))
     candidates = [path for path in candidates if path.name.lower() not in {"readme.md", "renames.md"}]
     found: list[dict[str, object]] = []

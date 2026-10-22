@@ -1,1 +1,3 @@
 crates/sim-model/tests/fixtures/*.txt text eol=lf
+docs/reproducibility/M5_01_INVENTORY.qmd text eol=lf
+docs/reproducibility/M5_01_INVENTORY.md text eol=lf
