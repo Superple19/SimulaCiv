@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from simciv_analysis.claims import OLD_LEDGER, ROOT, _old_metadata, expand_old_ledger
+from simciv_analysis.claims import OLD_LEDGER, ROOT, expand_old_ledger, match_old_claims
 from simciv_analysis.io import load_data
 from simciv_analysis.tables import dataframe_to_markdown
 
@@ -54,60 +54,47 @@ def _grouped_counts(claims: pd.DataFrame) -> pd.DataFrame:
 
 def _comparison(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     old = expand_old_ledger(OLD_LEDGER)
-    new_keys = Counter((str(row.report), int(row.line), str(row.value)) for row in claims.itertuples(index=False))
-    old_keys = Counter((str(row["report"]), int(row["line"]), str(row["value"])) for row in old)
-    old_metadata = _old_metadata(old)
-    exact_old_records = sum(count for key, count in old_keys.items() if key in new_keys)
-    exact_new_records = sum(int(row.status != "unmapped") for row in claims.itertuples(index=False))
-    ambiguous_new_records = sum("ambiguous duplicate" in str(note) for note in claims["notes"])
-    no_key_new_records = len(claims) - exact_new_records - ambiguous_new_records
-    ambiguous_old_records = sum(count for key, count in old_keys.items() if key in new_keys and old_metadata.get(key) is None)
-
-    documents = sorted((ROOT / "docs" / "reports").glob("*.md")) + sorted((ROOT / "docs" / "contracts").glob("*.md"))
-    by_name: dict[str, list[Path]] = {}
-    for path in documents:
-        by_name.setdefault(path.name, []).append(path)
-    old_unmatched = [row for row in old if (str(row["report"]), int(row["line"]), str(row["value"])) not in new_keys]
-    source_missing = source_changed = still_present_excluded = 0
-    for row in old_unmatched:
-        candidates = by_name.get(str(row["report"]), [])
-        matching_lines = []
-        for path in candidates:
-            lines = path.read_text(encoding="utf-8").splitlines()
-            line_number = int(row["line"])
-            if 1 <= line_number <= len(lines):
-                matching_lines.append(lines[line_number - 1])
-        if not matching_lines:
-            source_missing += 1
-        elif any(_contains_value(line, str(row["value"])) for line in matching_lines):
-            still_present_excluded += 1
-        else:
-            source_changed += 1
+    current = claims.to_dict(orient="records")
+    matches, ambiguous = match_old_claims(old, current, ROOT)
+    rename_path = ROOT / "docs" / "reports" / "RENAMES.md"
+    renames: dict[str, str] = {}
+    if rename_path.exists():
+        for line in rename_path.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|", line)
+            if match:
+                renames[Path(match.group(1)).name] = Path(match.group(2)).name
+    new_exact = Counter((str(row["report"]), int(row["line"]), str(row["value"])) for row in current)
+    old_exact = Counter((str(row["report"]), int(row["line"]), str(row["value"])) for row in old)
+    previous_exact = sum(count for key, count in old_exact.items() if key in new_exact)
+    mapped_old = len({int(row["old_claim_id"]) for row in matches.values()})
+    mapped_new = len(matches)
+    mapped_old_names = sum(str(row["report"]) in renames for row in old)
+    current_reports = {str(row["report"]) for row in current}
+    missing_report = sum(renames.get(str(row["report"]), str(row["report"])) not in current_reports for row in old)
+    historical_log = sum(
+        str(row["status"]) == "unrecoverable"
+        and renames.get(str(row["report"]), str(row["report"])) == "M1_CONTRACT_FREEZE.md"
+        for row in old
+    )
+    source_unmatched = len(old) - mapped_old - missing_report
 
     old_new_rows = pd.DataFrame(
         [
-            {"Ledger view": "old packed records", "rows": len(old), "exact tuple records": exact_old_records, "unmapped/excluded": len(old) - exact_old_records, "reason": "old one-row-or-range records expanded to scalar values"},
-            {"Ledger view": "new tidy records", "rows": len(claims), "exact tuple records": exact_new_records, "unmapped/excluded": no_key_new_records + ambiguous_new_records, "reason": "one row per selected numeric claim; no exact provenance is inferred"},
-            {"Ledger view": "new rows with conflicting old metadata", "rows": ambiguous_new_records, "exact tuple records": 0, "unmapped/excluded": ambiguous_new_records, "reason": "duplicate old report/line/value keys disagree, so provenance remains unmapped"},
+            {"Ledger view": "old packed records", "rows": len(old), "mapped before (exact name/line/value)": previous_exact, "mapped after (renamed report/source/value)": mapped_old, "unmapped after": len(old) - mapped_old, "reason": "RENAMES.md report mapping; normalized source text and value; line only breaks ties"},
+            {"Ledger view": "new tidy records", "rows": len(current), "mapped from old metadata": mapped_new, "unmapped after": len(current) - mapped_new, "reason": "unmatched and ambiguous provenance stays unmapped"},
         ]
     )
     reasons = pd.DataFrame(
         [
-            {"old record disposition": "exact tuple present", "records": exact_old_records - ambiguous_old_records, "rule": "report, source line, and value match; old metadata is unambiguous"},
-            {"old record disposition": "exact tuple has conflicting metadata", "records": ambiguous_old_records, "rule": "same report/line/value maps to conflicting old metadata; no transfer"},
-            {"old record disposition": "value remains on source line but is not selected", "records": still_present_excluded, "rule": "input/config value or outside the new claim-position rule"},
-            {"old record disposition": "source, line, or value no longer matches", "records": source_missing + source_changed, "rule": "no exact current source evidence; left unmapped"},
+            {"old record disposition": "old rows transferred", "records": mapped_old, "rule": "RENAMES.md plus normalized source/value; line breaks ties"},
+            {"old record disposition": "old rows still unmapped", "records": source_unmatched + missing_report, "rule": "includes excluded inputs, changed/unselected text, and ambiguous old matches"},
+            {"old record disposition": "new rows ambiguous", "records": len(ambiguous), "rule": "current claims with conflicting metadata or tied candidates; these are new-row counts"},
+            {"old record disposition": "historical-log subset of transferred rows", "records": historical_log, "rule": "M1 aggregate runs are not regeneration gaps"},
+            {"old record disposition": "previous exact-name/line/value baseline", "records": previous_exact, "rule": "old rows matched before the correction; diagnostic baseline"},
+            {"old record disposition": "old report basenames in RENAMES.md", "records": mapped_old_names, "rule": "diagnostic count; this may overlap transferred and unmapped rows"},
         ]
     )
     return old_new_rows, reasons
-
-
-def _contains_value(line: str, value: str) -> bool:
-    if value.lower() in line.lower():
-        return True
-    value = value.replace(",", "")
-    number = re.compile(r"(?<![\w.])[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
-    return any(match.group(0).replace(",", "") == value for match in number.finditer(line))
 
 
 def _report_parts() -> dict[str, str]:
@@ -116,14 +103,18 @@ def _report_parts() -> dict[str, str]:
         raise ValueError(f"unexpected claim columns: {list(claims.columns)}")
     counts = _grouped_counts(claims)
     comparison, comparison_reasons = _comparison(claims)
-    key_claims = claims.loc[claims["tier"] == "key"].copy()
-    key_claims["milestone"] = key_claims["report"].map(_milestone)
-    key_claims = key_claims.sort_values(["milestone", "report", "line", "claim_id"], kind="stable")
-    key_claims = key_claims[["milestone", "report", "line", "section anchor", "value", "unit", "class", "status"]]
-    m1 = claims.loc[(claims["report"] == "M1_CONTRACT_FREEZE.md") & (claims["status"] == "unrecoverable")].copy()
+    headline_counts = (
+        claims.loc[claims["tier"] == "headline"]
+        .assign(milestone=lambda frame: frame["report"].map(_milestone))
+        .groupby("milestone", dropna=False)
+        .size()
+        .rename("headline claims")
+        .reset_index()
+    )
+    m1 = claims.loc[(claims["report"] == "M1_CONTRACT_FREEZE.md") & (claims["status"] == "historical-log")].copy()
     m1 = m1.sort_values(["line", "claim_id"], kind="stable")
     m1 = m1[["claim_id", "line", "value", "class", "status", "notes"]]
-    gaps = claims.loc[claims["status"] != "reproducible-now"].copy()
+    gaps = claims.loc[~claims["status"].isin(["reproducible-now", "historical-log"])].copy()
     gaps["milestone"] = gaps["report"].map(_milestone)
     top_gaps = (
         gaps.groupby(["milestone", "report", "status"], dropna=False)
@@ -137,14 +128,15 @@ def _report_parts() -> dict[str, str]:
     input_rule = (
         "Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, "
         "replicates, horizons/days, thread/chunk settings, and simulation parameter values. Free-text numbers are only extracted from "
-        "tables, status/headline lines, findings bullets, and measured contract sections. The machine-readable contracts/m1_contract.toml "
+        "tables, report Summary/Findings/Status sections, selected audit/graduation tables, and measured contract sections. "
+        "The machine-readable contracts/m1_contract.toml "
         "is a configuration/contract input and is not scanned as a measured report."
     )
     return {
         "counts": _markdown(counts),
+        "headline_counts": _markdown(headline_counts),
         "comparison": _markdown(comparison),
         "comparison_reasons": _markdown(comparison_reasons),
-        "key_claims": _markdown(key_claims),
         "m1_recheck": _markdown(m1),
         "gaps": _markdown(top_gaps),
         "input_rule": input_rule,
@@ -152,8 +144,11 @@ def _report_parts() -> dict[str, str]:
         "mapped": f"{int(mapped.sum()):,}",
         "unmapped": f"{int((~mapped).sum()):,}",
         "m1_count": f"{len(m1):,}",
-        "key_count": f"{len(key_claims):,}",
-        "supporting_count": f"{len(claims) - len(key_claims):,}",
+        "headline_count": f"{int((claims['tier'] == 'headline').sum()):,}",
+        "key_count": f"{int((claims['tier'] == 'key').sum()):,}",
+        "supporting_count": f"{int((claims['tier'] == 'supporting').sum()):,}",
+        "mapped_count": f"{int(mapped.sum()):,}",
+        "unmapped_count": f"{int((~mapped).sum()):,}",
         "old_count": f"{len(expand_old_ledger(OLD_LEDGER)):,}",
     }
 
@@ -179,7 +174,13 @@ The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) re
 
 Every table below is generated from [claims.csv.gz](claims.csv.gz) by the report generator [report_m5_01.py](../../analysis/simciv_analysis/report_m5_01.py). Old-ledger comparisons additionally read the retained packed ledger.
 
-The tidy ledger contains **{parts['key_count']}** key claims and **{parts['supporting_count']}** supporting claims.
+The tidy ledger contains **{parts['headline_count']}** headline claims, **{parts['key_count']}** key claims, and **{parts['supporting_count']}** supporting claims.
+
+### Headline counts by milestone
+
+{parts['headline_counts']}
+
+Headline rows come from report Summary, Findings, and Status sections plus audit/graduation tables; full gate tables are excluded. Other gate verdicts remain in the `key` tier.
 
 ### Counts by milestone, class, status, and tier
 
@@ -189,21 +190,15 @@ The tidy ledger contains **{parts['key_count']}** key claims and **{parts['suppo
 
 {parts['comparison']}
 
-#### Exact-match and unmapped reasons
+#### Match and unmapped reasons
 
 {parts['comparison_reasons']}
 
-The tidy ledger has **{parts['mapped']}** rows with transferred prior status/provenance and **{parts['unmapped']}** rows marked unmapped. Exact transfers require an unambiguous (report, line, value) key; all others remain unguessed.
-
-### Key claims
-
-The following key-tier rows are selected by the frozen tier rule (summary, findings, gate verdict, and audit/graduation tables). Supporting claims remain in the ledger.
-
-{parts['key_claims']}
+The regenerated ledger has **{parts['mapped_count']}** rows with transferred prior status/provenance and **{parts['unmapped_count']}** rows marked unmapped. Mapping uses the report name after `RENAMES.md`, normalized source-text prefix, and value; the old line is only a tie-breaker. Ambiguous matches remain unmapped.
 
 ### M1 unrecoverable-claim recheck
 
-The **{parts['m1_count']}** M1 rows remain classified as unrecoverable for the historical aggregate test-run record. The inventory source is the [M1 contract freeze](../contracts/M1_CONTRACT_FREEZE.md); current source evidence includes [golden PRNG vectors](../../crates/sim-core/tests/golden_prng_tests.rs), [determinism oracles](../../crates/sim-model/tests/determinism_oracle_tests.rs), [M0 graduation gate](../../crates/sim-model/tests/m0_determinism_gate_tests.rs), [snapshot tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the [M1 manifest](../../contracts/m1_contract.toml). Those sources cover semantics and canonical values, not the aggregate test-run output. Each row carries this reason in its notes field.
+The **{parts['m1_count']}** M1 aggregate test-run records are classified as `historical-log`, not regeneration gaps. Current source evidence includes [golden PRNG vectors](../../crates/sim-core/tests/golden_prng_tests.rs), [determinism oracles](../../crates/sim-model/tests/determinism_oracle_tests.rs), [M0 graduation gate](../../crates/sim-model/tests/m0_determinism_gate_tests.rs), [snapshot tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the [M1 manifest](../../contracts/m1_contract.toml); these cover semantics and canonical values, not the historical aggregate run output.
 
 {parts['m1_recheck']}
 
@@ -214,7 +209,7 @@ The **{parts['m1_count']}** M1 rows remain classified as unrecoverable for the h
 ## Findings
 
 - The tidy ledger preserves one row per selected claim and leaves ambiguous or unmatched provenance unmapped; see the ledger comparison tables above.
-- The M1 recheck keeps historical test-count claims unrecoverable while identifying the present semantic tests and canonical goldens that cover their contract behavior.
+- The M1 aggregate run records are historical logs and are excluded from regeneration gap totals.
 - The largest gaps are grouped directly from the current status values in the tidy ledger; see Top evidence gaps.
 
 ## Limits

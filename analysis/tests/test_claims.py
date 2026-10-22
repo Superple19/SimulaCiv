@@ -26,7 +26,7 @@ def test_claims_exclude_inputs_match_exact_metadata_and_pack_one_row_each(tmp_pa
     assert len(claims) == 1
     assert claims[0]["value"] == "1234.5"
     assert claims[0]["source harness"] == "bench.rs"
-    assert claims[0]["tier"] == "key"
+    assert claims[0]["tier"] == "headline"
     first = ledger_bytes(claims)
     second = ledger_bytes(claims)
     assert first == second
@@ -68,10 +68,55 @@ def test_conflicting_old_metadata_is_unmapped(tmp_path):
     assert "ambiguous" in claim["notes"]
 
 
-def test_key_tier_does_not_promote_completed_stage_scope_lines():
-    assert _tier("M5 stage plan", "M5-03 implementation COMPLETE", audit=False) == "supporting"
-    assert _tier("Validation record", "8 analysis tests passed", audit=False) == "key"
-    assert _tier("Audit appendix", "population count 42", audit=True) == "supporting"
-    assert _tier("Audit appendix", "| final | 42 |", audit=True, table_row=True) == "key"
-    assert _tier("Results", "gate verdict: PASS", audit=False) == "key"
-    assert _tier("Status", "Status: complete (42)", audit=False) == "key"
+def test_headline_tier_excludes_stage_scope_and_full_gate_tables():
+    assert _tier("M5 stage plan", "M5-03 implementation COMPLETE") == "supporting"
+    assert _tier("Validation record", "8 analysis tests passed") == "key"
+    assert _tier("Audit appendix", "population count 42") == "supporting"
+    assert _tier("Audit appendix", "| final | 42 |", table_row=True) == "headline"
+    assert _tier("Gate matrix", "| case | PASS |", table_row=True) == "key"
+    assert _tier("Summary", "The speedup was 2.1x.") == "headline"
+    assert _tier("document", "Status: complete after 42 runs") == "headline"
+    assert _tier("Summary", "The metric was 42.", contract=True) == "supporting"
+    assert _tier("Results", "gate verdict: PASS") == "key"
+    assert _tier("Status", "Status: complete (42)") == "headline"
+
+
+def test_mapping_uses_renamed_report_and_source_when_line_moves(tmp_path):
+    report = tmp_path / "docs" / "reports" / "renamed.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        "# Report\n\nStatus: current\n\n## Findings\n\n| Workload | N | Median (µs) |\n|---|---:|---:|\n| baseline | 10,000 | 1,234.5 |\n",
+        encoding="utf-8",
+    )
+    (report.parent / "RENAMES.md").write_text(
+        "| Old path | New path |\n|---|---|\n| `docs/performance/old.md` | `docs/reports/renamed.md` |\n",
+        encoding="utf-8",
+    )
+    old = tmp_path / "old.csv"
+    with old.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream, lineterminator="\n")
+        writer.writerow([
+            "claim_id", "report", "section anchor", "claim text (short)", "value", "unit", "class",
+            "source harness", "raw data", "status", "M5 stage", "notes",
+        ])
+        writer.writerow(["1", "old.md", "#findings", "L7: | baseline | 10,000 | 1,234.5 |", "1234.5", "µs", "timing", "bench.rs", "data.csv", "reproducible-now", "M5-04", "exact"])
+
+    claim = next(item for item in extract_claims(tmp_path, old) if item["value"] == "1234.5")
+    assert claim["source harness"] == "bench.rs"
+    assert claim["status"] == "reproducible-now"
+    assert "line used only as a tie-breaker" in claim["notes"]
+
+
+def test_m1_aggregate_run_is_historical_log_not_gap(tmp_path):
+    report = tmp_path / "docs" / "reports" / "M1_CONTRACT_FREEZE.md"
+    report.parent.mkdir(parents=True)
+    report.write_text("# M1\n\n## Findings\n\n- Historical run recorded 42 passing tests.\n", encoding="utf-8")
+    old = tmp_path / "old.csv"
+    old.write_text(
+        "claim_id,report,section anchor,claim text (short),value,unit,class,source harness,raw data,status,M5 stage,notes\n"
+        '"1","M1_CONTRACT_FREEZE.md","#findings","L5: - Historical run recorded 42 passing tests.","42","tests","deterministic","none","none","unrecoverable","none","historic"\n',
+        encoding="utf-8",
+    )
+    claim = extract_claims(tmp_path, old)[0]
+    assert claim["status"] == "historical-log"
+    assert "not a regeneration target" in claim["notes"]
