@@ -24,6 +24,7 @@ fn request(n: u64, population: bool, seed: u64) -> BranchRequest {
     if population {
         config.profile = SimulationProfile::M3p;
         config.simulation = None;
+        config.propagation = None;
     } else {
         config.profile = SimulationProfile::M3;
         config.population = None;
