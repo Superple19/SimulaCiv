@@ -36,6 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find_map(|arg| arg.strip_prefix("--only=").map(str::to_owned));
     let output = PathBuf::from(match only.as_deref() {
         Some("crn") => "docs/data/m4_07/crn_parallel.jsonl",
+        Some("crn-parallel") => "docs/data/m4_07/crn_parallel_only.jsonl",
         Some("scan") => "docs/data/m4_07/day_scan.jsonl",
         Some("search") => "docs/data/m4_07/minimal_cause_final.jsonl",
         Some("cow") => "docs/data/m4_07/clone_share.jsonl",
@@ -50,7 +51,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     writer.flush()?;
 
     if selected(&only, "crn") {
-        measure_crn(&output)?;
+        measure_crn(&output, false)?;
+    }
+    if only.as_deref() == Some("crn-parallel") {
+        measure_crn(&output, true)?;
     }
     if selected(&only, "scan") {
         measure_day_scans(&output)?;
@@ -169,7 +173,7 @@ fn estimate_json(estimate: &sim_model::CrnOutcomeEstimate) -> Value {
     })
 }
 
-fn measure_crn(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn measure_crn(path: &Path, parallel_only: bool) -> Result<(), Box<dyn std::error::Error>> {
     let config = config_for(10_000, 50)?;
     let context = M0RunContext::new(SEED, REPLICATE);
     let snapshot = snapshot_for(&config, &context)?;
@@ -201,6 +205,28 @@ fn measure_crn(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             horizons: GOLDEN_HORIZONS.to_vec(),
             replicate_count: 100,
         };
+        if parallel_only {
+            let started = Instant::now();
+            let parallel =
+                run_crn_efficiency_parallel(&request, &pool, NonZeroUsize::new(1).unwrap())?;
+            let parallel_ns = started.elapsed().as_nanos();
+            eprintln!("M5-04 M4-07 parallel-only CRN {name}: {parallel_ns}ns");
+            write_record(
+                path,
+                json!({
+                    "kind": "crn_parallel_rerun",
+                    "execution_mode": "parallel",
+                    "intervention": name,
+                    "replicate_count": 100,
+                    "horizons": GOLDEN_HORIZONS,
+                    "pool_threads": 6,
+                    "chunk_size": 1,
+                    "parallel_ns": parallel_ns,
+                    "estimates": parallel.estimates.iter().map(estimate_json).collect::<Vec<_>>()
+                }),
+            )?;
+            continue;
+        }
         let first_parallel = index % 2 == 1;
         let (serial, serial_ns, parallel, parallel_ns) = if first_parallel {
             let started = Instant::now();
