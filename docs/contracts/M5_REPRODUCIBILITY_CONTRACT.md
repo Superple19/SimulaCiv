@@ -57,6 +57,8 @@ M5 selects Option A: every committed data file is at most **1 MiB**. Gzip-compre
 
 The manifest is committed even when its referenced large asset is not. Any table using an external asset must cite both the harness and the manifest entry. Missing or unavailable assets are marked unrecoverable, not synthesized.
 
+Later update (2026-10-23): M5-00 A-1 in §14 supersedes Option A for new experiment and measurement outputs. Existing committed data remains in Git; new raw outputs use DVC.
+
 ## 5. M5 stage plan (PLANNED — each stage needs its own DRAFT → review → FROZEN contract)
 
 The order is structure → tooling → verification → new experiments → cleanup → publication.
@@ -340,3 +342,44 @@ Because the estimate exceeds the six-hour limit in M5-00 §8, no M5-05 determini
 ### 13.7 Freeze record
 
 This freeze authorizes only the M5-05 headline regeneration described in §13.1–§13.5. The preregistered estimate exceeds six hours, so execution stops before tests or benchmarks; no M5-05 result is claimed. It does not authorize any simulation semantic change, expected-value update, CI change, or later M5 stage.
+
+Later update (2026-10-23): M5-05 A-1 in §15 supersedes the broad cell scope and six-hour stop for the prior plan with a preselected conclusion-level set executed in sessions of at most six hours. The earlier plan and estimate above remain as the record of the original freeze.
+
+## 14. M5-00 A-1/A-2 data and provenance amendment (FROZEN)
+
+This amendment supersedes M5-00 §4 only for new experiment and measurement outputs and adds content-hash provenance rules. It does not move or rewrite existing committed data.
+
+### 14.1 DVC data policy (A-1)
+
+- Track new full raw experiment and measurement outputs with DVC. The default DVC remote is the public-read DagsHub remote `https://dagshub.com/Superple19/SimulaCiv.dvc`.
+- Keep specs/configs, harnesses, reports, generated summaries/tables/figures, viewer samples, golden files, `dvc.yaml`, `dvc.lock`, and `*.dvc` pointers in Git. Full raw outputs are DVC data, not Git files.
+- Each run has a small committed summary at or below 1 MiB. Report generators read only these summaries and must not read DVC-tracked raw paths. Raw outputs and their small summaries are produced from the same run.
+- The tracked `.dvc/config` contains the URL only. Authentication is local-only in `.dvc/config.local`, which must remain ignored. Never commit tokens, usernames, or passwords.
+- Existing data already committed to Git remains there. Do not rewrite history or migrate old files to DVC as part of this amendment.
+- Deterministic stages may be reproduced normally. Timing stages are frozen in DVC so `dvc repro` does not silently repeat or replace measurements. Re-measurement requires an explicit `dvc unfreeze <stage>`, `dvc repro <stage>`, then `dvc freeze <stage>` sequence, followed by review of new raw outputs and summary.
+
+### 14.2 Content-hash provenance (A-2)
+
+Content digests are the only provenance authority in new run records and reports; do not write Git commit hashes into them. For a source set, normalize repository paths to forward-slash UTF-8 paths and sort by their UTF-8 bytes. For each path, append `path`, one NUL byte, the lowercase SHA-256 hex digest of the file bytes, and one LF byte. `source_digest` is SHA-256 over that concatenation for `crates/**/*.rs`, `crates/**/Cargo.toml`, root `Cargo.toml`, `Cargo.lock`, and `rust-toolchain.toml`. `spec_digest` and `harness_digest` use the same algorithm over their explicitly listed input paths.
+
+Each run records `source_digest`, `spec_digest`, `harness_digest`, `rustc -V`, and the output digests. Output provenance records the DVC md5 value from `dvc.lock` and a SHA-256 digest in the run metadata. Run metadata also records the exact command, spec/config paths and values, and host information. It contains no Git commit hash.
+
+### 14.3 DVC execution and validation boundary
+
+- Each `dvc.yaml` stage explicitly lists its harness, spec/config inputs including seeds, `crates/sim-model/src`, `crates/sim-core/src`, root and crate Cargo manifests, `Cargo.lock`, and `rust-toolchain.toml` as dependencies.
+- `just check` succeeds on a clean Git checkout without `dvc pull`; report generation consumes committed summaries only. An analysis test rejects report generators that read DVC-tracked raw paths.
+- `just provenance` prints and verifies the run's content digests against the current checkout. A mismatch makes the recorded run stale; it does not update the expected digest automatically.
+- Do not run `dvc push` or Git push as part of this task.
+
+### 14.4 M5-00 A-1/A-2 decision register (FROZEN)
+
+| ID | Decision | Frozen rule |
+|---|---|---|
+| A-1 | New-data storage | DVC tracks new raw outputs on the DagsHub remote; small summaries and source artifacts stay in Git. Existing Git data is retained unchanged. This supersedes the release-asset policy in §4 for new work. |
+| A-2 | Provenance | Source/spec/harness/output content digests and toolchain version are authoritative. No Git commit hash is recorded in run data or generated reports. |
+| A-3 | Timing stages | Timing DVC stages are frozen by default. Re-measurement explicitly unfreezes, runs, reviews, and re-freezes the stage. |
+| A-4 | Clean-checkout behavior | `just check` requires no DVC pull and report generators read committed summaries only; credentials are never committed. |
+
+### 14.5 Freeze record
+
+This amendment authorizes DVC setup, the public-read DagsHub remote URL in `.dvc/config`, local-only credentials, content-hash provenance tooling, and DVC-backed outputs for new work. It authorizes no DVC push, Git push, or migration of existing data.
