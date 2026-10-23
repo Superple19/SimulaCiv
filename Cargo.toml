@@ -4,3 +4,9 @@ members = [
     "crates/sim-core",
     "crates/sim-model",
 ]
+
+[profile.dev.package.sim-model]
+opt-level = 2
+
+[profile.dev.package.sim-core]
+opt-level = 2
