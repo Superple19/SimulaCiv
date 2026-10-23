@@ -196,6 +196,7 @@ def measure_candidate(args: argparse.Namespace) -> int:
 
 
 def run_bisect(args: argparse.Namespace) -> dict[str, Any]:
+    started = time.perf_counter()
     root = Path(args.repo).resolve()
     plan = tomllib.loads(repo_relative(root, args.plan).read_text(encoding="utf-8"))
     worker = repo_relative(root, args.worker).resolve()
@@ -235,14 +236,29 @@ def run_bisect(args: argparse.Namespace) -> dict[str, Any]:
     if not candidate_records or first_bad is None:
         raise RuntimeError("git bisect produced no valid measured change point")
     summary = {
+        "command": "dvc repro docs/data/m5_05/m3_09_diagnosis/dvc.yaml:m5_05_m3_09_diagnosis_bisect",
         "plan": {"path": Path(args.plan).as_posix(), "values": plan},
         "first_changed_commit": first_bad,
         "bisect_exit_code": return_code,
         "bisect_log": bisect_log,
         "tested_candidates": candidate_records,
         "candidate_count": len(candidate_records),
+        "total_wall_seconds": time.perf_counter() - started,
         "host": {"system": platform.system(), "release": platform.release(), "machine": platform.machine(), "processor": platform.processor()},
         "protocol": "A-5 bisect diagnostic; 2 warmups; 21 samples; r=3 fixed from Step 2; threshold from same-session M3-09 follow-up median",
+        "spec_files": [
+            "docs/reproducibility/m5_05_configs/m3_09_diagnosis.toml",
+            "docs/reproducibility/m5_05_configs/m3_09_diagnosis_bisect.toml",
+            "docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md",
+            "docs/data/m5_05/m3_09_incremental_equal_live/summary.json",
+        ],
+        "harness_files": [
+            "crates/sim-model/examples/m5_05_m3_09_bisect.py",
+            "crates/sim-model/examples/m5_05_m3_09_revision.rs",
+        ],
+        "raw_outputs": ["docs/data/m5_05/m3_09_diagnosis/bisect_raw"],
+        "stage": "m3_09_diagnosis_bisect",
+        "type": "diagnostic-timing",
     }
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
