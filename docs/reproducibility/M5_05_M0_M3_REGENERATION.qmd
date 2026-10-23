@@ -81,6 +81,11 @@ The frozen conclusion set is [`m5_05_conclusions.toml`](m5_05_conclusions.toml).
 | m3_11_frontier_crossover      | M3PROP-N10000-k8-hops8-pool4-transmit0.2                | 10,000    | 50    | 8  | 0.5     | —                                                                                                                                             | 4       | 8        | us/Phase9c          | 728          | 8      | 2,900.207407   | 7.766296   | 2,791.221481   | 18.962222    | 1.039046 | 101.083704     | 21.377778        | 270   |                  |
 | m3_11_frontier_crossover      | M3PROP-N10000-k8-hops16-pool6-transmit0.2               | 10,000    | 50    | 8  | 0.5     | —                                                                                                                                             | 6       | 16       | us/Phase9c          | 852          | 16     | 5,944.989855   | 8.661594   | 4,623.15       | 29.808696    | 1.285918 | 1,317.431159   | 30.704348        | 138   |                  |
 
+## M3-09 ratio diagnosis
+
+No cross-revision diagnosis has been recorded. The pre-registered plan is [m3_09_diagnosis.toml](m5_05_configs/m3_09_diagnosis.toml); its committed worker is [m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs).
+
+
 ### Deterministic confirmations
 
 | target                    | status | harness                                                                                   | summary                                                           |

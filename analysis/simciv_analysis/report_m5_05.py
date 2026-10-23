@@ -30,11 +30,42 @@ QMD_PATH = ROOT / "docs" / "reproducibility" / "M5_05_M0_M3_REGENERATION.qmd"
 MD_PATH = ROOT / "docs" / "reproducibility" / "M5_05_M0_M3_REGENERATION.md"
 FIGURE_PATH = ROOT / "docs" / "reproducibility" / "figures" / "m5_05_old_new_timing.svg"
 DETERMINISTIC_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "deterministic" / "summary.json"
+DIAGNOSIS_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "m3_09_diagnosis" / "summary.json"
 
 
 def _summary(entry_id: str) -> dict[str, Any] | None:
     path = ROOT / "docs" / "data" / "m5_05" / entry_id / "summary.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def _diagnosis() -> dict[str, Any] | None:
+    if not DIAGNOSIS_SUMMARY.is_file():
+        return None
+    return json.loads(DIAGNOSIS_SUMMARY.read_text(encoding="utf-8")).get("details", {})
+
+
+def _diagnosis_change_screen(details: dict[str, Any]) -> bool:
+    stats = details["revisions"]
+    order = [item["id"] for item in details["plan"]["values"]["revisions"]]
+    threshold = float(details["plan"]["values"]["change_screen_percent"]) / 100.0
+    scanned = []
+    for before_id, after_id in zip(order, order[1:]):
+        before, after = stats[before_id], stats[after_id]
+        changes = [
+            after["numerator_median_us_per_tick"] / before["numerator_median_us_per_tick"] - 1,
+            after["denominator_median_us_per_tick"] / before["denominator_median_us_per_tick"] - 1,
+            after["ratio"] / before["ratio"] - 1,
+        ]
+        valid = max(
+            before["numerator_mad_over_median"], before["denominator_mad_over_median"],
+            after["numerator_mad_over_median"], after["denominator_mad_over_median"],
+        ) <= 0.05
+        scanned.append({"before": before_id, "after": after_id, "step_change": valid and any(abs(value) > threshold for value in changes)})
+    expected = next((item for item in scanned if item["step_change"]), None)
+    recorded = details["first_step_change"]
+    recorded_pair = None if recorded is None else (recorded["before"], recorded["after"])
+    expected_pair = None if expected is None else (expected["before"], expected["after"])
+    return recorded_pair == expected_pair
 
 
 def _entry_cells(entry: dict[str, Any], summary: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -363,6 +394,7 @@ def _build() -> dict[str, Any]:
             if deterministic else "not recorded"
         ),
         "sessions_not_run": sessions_not_run,
+        "m3_09_diagnosis": _diagnosis(),
     }
     conclusion_by_id = {row["conclusion"]: row for row in rows}
     unrun_ids = {row["conclusion"] for row in results["planned"] if row["status"] == "not run"}
@@ -404,6 +436,26 @@ def _build() -> dict[str, Any]:
             "Every pre-registered timing stage has a recorded summary.",
             "finding_all_timing_stages_recorded",
             all(row["status"] == "recorded" for row in results["planned"]),
+        ))
+    diagnosis = results["m3_09_diagnosis"]
+    if diagnosis is not None:
+        findings.append(Finding(
+            "[exploratory]",
+            f"The M5-05 decomposition is {diagnosis['historical_decomposition']['dominant_component']} relative to the M3-09 follow-up paired result.",
+            "finding_m3_09_decomposition_matches_paths",
+            diagnosis["historical_decomposition"]["dominant_component"] in {"both, dominated by numerator", "numerator", "denominator", "neither"},
+        ))
+        findings.append(Finding(
+            "[exploratory]",
+            "The first revision step-change label matches the pre-registered adjacent-path screen.",
+            "finding_m3_09_revision_screen_matches_data",
+            _diagnosis_change_screen(diagnosis),
+        ))
+        findings.append(Finding(
+            "[exploratory]",
+            "The cross-revision timing cells used identical execution options and checkpoint digests.",
+            "finding_m3_09_revision_comparison_is_matched",
+            diagnosis["execution_options_identical"] and diagnosis["checkpoint_digest_parity"],
         ))
     findings_md, findings_checks_md = render_findings(findings)
     results["findings"] = findings_md
@@ -473,6 +525,77 @@ def _render_qmd(data: dict[str, Any]) -> str:
     completed = ", ".join(str(session) for session in data["sessions_complete"]) or "none"
     pending = ", ".join(str(session) for session in data["sessions_not_run"]) or "none"
     status = f"Status: sessions complete {completed}; sessions pending {pending}"
+    diagnosis = data.get("m3_09_diagnosis")
+    if diagnosis is None:
+        diagnosis_section = """## M3-09 ratio diagnosis
+
+No cross-revision diagnosis has been recorded. The pre-registered plan is [m3_09_diagnosis.toml](m5_05_configs/m3_09_diagnosis.toml); its committed worker is [m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs).
+"""
+    else:
+        historical = diagnosis["historical_decomposition"]
+        historical_table = _table(historical["rows"], [
+            "source", "numerator_m3p_incremental_us", "numerator_mad_us",
+            "denominator_m3_us", "denominator_mad_us", "ratio",
+        ])
+        revision_rows = []
+        for revision in diagnosis["plan"]["values"]["revisions"]:
+            stats = diagnosis["revisions"][revision["id"]]
+            worker = next(item for item in diagnosis["workers"] if item["revision_id"] == revision["id"])
+            revision_rows.append({
+                "revision": revision["id"], "commit": revision["commit"],
+                "live population": worker["live_population"],
+                "numerator median µs/tick": stats["numerator_median_us_per_tick"],
+                "numerator MAD µs/tick": stats["numerator_mad_us_per_tick"],
+                "numerator MAD/median": stats["numerator_mad_over_median"],
+                "denominator median µs/tick": stats["denominator_median_us_per_tick"],
+                "denominator MAD µs/tick": stats["denominator_mad_us_per_tick"],
+                "denominator MAD/median": stats["denominator_mad_over_median"],
+                "M3P/M3": stats["ratio"], "r": stats["repetitions_per_sample"],
+                "samples": stats["sample_count"],
+                "valid": diagnosis["validity"][revision["id"]],
+            })
+        change_rows = [
+            {"before": row["before"], "after": row["after"],
+             "numerator change": row["relative_changes"]["numerator"],
+             "denominator change": row["relative_changes"]["denominator"],
+             "ratio change": row["relative_changes"]["ratio"],
+             "step change": row["step_change"], "valid": row["valid"]}
+            for row in diagnosis["adjacent_changes"]
+        ]
+        step = diagnosis["first_step_change"]
+        step_text = "No valid adjacent transition exceeded the pre-registered change screen." if step is None else (
+            f"First screen-positive adjacent transition: `{step['before']}` → `{step['after']}`."
+        )
+        bisect = diagnosis.get("bisect")
+        bisect_text = "Bisect not run: no valid step change was detected." if step is None else (
+            f"Bisect result: {bisect if bisect is not None else 'pending'}"
+        )
+        phase = diagnosis.get("phase_attribution")
+        phase_text = "Phase attribution: not run." if phase is None else f"Phase attribution: {phase}"
+        diagnosis_section = f"""## M3-09 ratio diagnosis
+
+### Absolute numerator and denominator decomposition
+
+Values are µs/tick. Numerator is the M3P incremental-topology runner; denominator is M3 at the same live population. The historical and current absolute paths are extracted from [M3-09 report](../../docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md) and [M5-05 summary](../data/m5_05/m3_09_incremental_equal_live/summary.json).
+
+{historical_table}
+
+Against `{historical['comparison_reference']}`, numerator changed {historical['numerator_change_percent']:.1f}%, denominator changed {historical['denominator_change_percent']:.1f}%, and the ratio changed {historical['ratio_change_percent']:.1f}%. The decomposition attributes the ratio change to **{historical['dominant_component']}**.
+
+### Cross-revision A-5 results
+
+The paired execution options are `{diagnosis['workers'][0]['execution_options']}` for every revision. Checkpoint live population: {diagnosis['checkpoint_live_population']}. M3P and M3 digest parity across revisions: {diagnosis['checkpoint_digest_parity']}. The worker is [m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs); raw rounds and calibration probes are [samples.jsonl](../data/m5_05/m3_09_diagnosis/raw/samples.jsonl), DVC-managed.
+
+{_table(revision_rows, ["revision", "commit", "live population", "numerator median µs/tick", "numerator MAD µs/tick", "numerator MAD/median", "denominator median µs/tick", "denominator MAD µs/tick", "denominator MAD/median", "M3P/M3", "r", "samples", "valid"])}
+
+The screen was fixed at {diagnosis['plan']['values']['change_screen_percent']:.0f}% before timing. A transition is screen-positive if the numerator, denominator, or ratio changes by more than that amount from the previous valid revision.
+
+{_table(change_rows, ["before", "after", "numerator change", "denominator change", "ratio change", "step change", "valid"])}
+
+{step_text} {bisect_text} {phase_text}
+
+Build/checkpoint time is outside the timed samples. Repetitions per sample were fixed at {diagnosis['repetitions_per_sample']}; total timing window {diagnosis['timing_wall_seconds']:.1f} s; complete run {diagnosis['total_wall_seconds']:.1f} s. Protocol and revision order are in [m3_09_diagnosis.toml](m5_05_configs/m3_09_diagnosis.toml).
+"""
     return f'''---
 title: "M5-05 M0–M3 Conclusion Regeneration"
 format: gfm
@@ -502,6 +625,8 @@ The frozen conclusion set is [`m5_05_conclusions.toml`](m5_05_conclusions.toml).
 ### Selected cells
 
 {_table(cells, ["conclusion", "cell", "N", "K", "k", "p_local", "config overrides", "threads", "max hops", "time unit", "max frontier", "levels", "left median", "left MAD", "right median", "right MAD", "speedup", "paired delta", "paired delta MAD", "r", "minimum sample s"])}
+
+{diagnosis_section}
 
 ### Deterministic confirmations
 
