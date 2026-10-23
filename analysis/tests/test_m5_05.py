@@ -26,7 +26,7 @@ def test_conclusion_registry_and_sessions_are_complete():
 
 def test_dvc_has_deterministic_and_per_conclusion_stages():
     entries = validate_registry(ROOT)
-    pipeline = (ROOT / "dvc.yaml").read_text(encoding="utf-8")
+    pipeline = (ROOT / "docs" / "data" / "m5_05" / "dvc.yaml").read_text(encoding="utf-8")
     assert "m5_05_deterministic:" in pipeline
     for entry in entries:
         assert f"m5_05_{entry['id']}:" in pipeline
@@ -34,7 +34,7 @@ def test_dvc_has_deterministic_and_per_conclusion_stages():
 
 
 def test_report_generator_does_not_read_dvc_raw_paths():
-    pipeline = (ROOT / "dvc.yaml").read_text(encoding="utf-8")
+    pipeline = (ROOT / "docs" / "data" / "m5_05" / "dvc.yaml").read_text(encoding="utf-8")
     report = (ROOT / "analysis" / "simciv_analysis" / "report_m5_05.py").read_text(encoding="utf-8")
     outputs = [
         line.strip()[2:]
