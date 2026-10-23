@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -289,7 +290,7 @@ def run_timing(entry_id: str, raw_dir: Path, summary_path: Path, root: Path = RO
     entry = next((item for item in entries if item["id"] == entry_id), None)
     if entry is None:
         raise ValueError(f"unknown M5-05 entry {entry_id}")
-    if int(entry["session"]) != 1:
+    if not _timing_session_authorized(int(entry["session"])):
         raise ValueError(f"Session {entry['session']} timing is outside the currently authorized work")
     raw_dir.mkdir(parents=True, exist_ok=True)
     samples_path = raw_dir / "samples.jsonl"
@@ -349,6 +350,14 @@ def run_timing(entry_id: str, raw_dir: Path, summary_path: Path, root: Path = RO
     )
     _write_summary(summary_path, summary)
     return summary
+
+
+def _timing_session_authorized(session: int) -> bool:
+    raw = os.environ.get("SIMCIV_M5_05_AUTHORIZED_SESSIONS", "1")
+    entries = [value.strip() for value in raw.split(",")]
+    if not entries or any(not value.isdecimal() for value in entries):
+        raise ValueError("SIMCIV_M5_05_AUTHORIZED_SESSIONS must be a comma-separated list of session numbers")
+    return session in {int(value) for value in entries}
 
 
 def main(argv: list[str] | None = None) -> int:
