@@ -1,0 +1,95 @@
+schema: '2.0'
+stages:
+  m5_05_deterministic:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      deterministic --session 1 --raw-dir docs/data/m5_05/deterministic/raw
+      --summary docs/data/m5_05/deterministic/summary.json
+    deps:
+    - path: Cargo.lock
+      hash: md5
+      md5: d1fb4588d9336d06a02fd3d85c39fc6b
+      size: 8630
+    - path: Cargo.toml
+      hash: md5
+      md5: 24901e4cd5f8bbbe41a5cfa89f7a5d65
+      size: 88
+    - path: analysis/simciv_analysis/m5_05.py
+      hash: md5
+      md5: 42fade5ba0172eaf23636bacd6bd0618
+      size: 15347
+    - path: analysis/simciv_analysis/provenance.py
+      hash: md5
+      md5: 798709b8e204f9c6d9d050919e80b623
+      size: 6901
+    - path: crates/sim-core/Cargo.toml
+      hash: md5
+      md5: 9b512fbb43a72e2775faab5c3b9295dc
+      size: 134
+    - path: crates/sim-core/src
+      hash: md5
+      md5: 6a9075a8073d6b50097209057693c361.dir
+      size: 7155
+      nfiles: 3
+    - path: crates/sim-model/Cargo.toml
+      hash: md5
+      md5: 7e66efee2589a237359ffbebb5490030
+      size: 801
+    - path: crates/sim-model/examples/m5_05_conclusion_measure.rs
+      hash: md5
+      md5: c091fdb84bdc01f6f3d71fcc778adaec
+      size: 33102
+    - path: crates/sim-model/src
+      hash: md5
+      md5: 617cec2d208f9ed19f795b4486b8b6a8.dir
+      size: 1502730
+      nfiles: 31
+    - path: crates/sim-model/tests/determinism_oracle_tests.rs
+      hash: md5
+      md5: 7d459dec83aaae2ce59d12b0eb8de8be
+      size: 52067
+    - path: crates/sim-model/tests/m3_parallel_phase6b_tests.rs
+      hash: md5
+      md5: 24b342615e5fec41aee6ab5ddc049a80
+      size: 20420
+    - path: crates/sim-model/tests/m3_parallel_runner_tests.rs
+      hash: md5
+      md5: 8936bda09dea73c5b701e5c3840e585b
+      size: 18199
+    - path: crates/sim-model/tests/m3_reference_runner_tests.rs
+      hash: md5
+      md5: c7a2da1b889c7688170463a3801c6f61
+      size: 8349
+    - path: crates/sim-model/tests/m3_search_reduction_tests.rs
+      hash: md5
+      md5: d44257198b7cd3dd8e607e20d47b0afe
+      size: 19467
+    - path: crates/sim-model/tests/m3_storage_runner_tests.rs
+      hash: md5
+      md5: c1626f8d3e2c0231083b86f51fde037f
+      size: 13764
+    - path: crates/sim-model/tests/phase4_rayon_tests.rs
+      hash: md5
+      md5: 09f3f2e12c1b09aa0699dd58548a801c
+      size: 44547
+    - path: docs/reproducibility/m5_05_conclusions.toml
+      hash: md5
+      md5: df2728ae740c7bfc54c6bc1430fd0b04
+      size: 13214
+    - path: docs/reproducibility/m5_05_configs/m2_40.toml
+      hash: md5
+      md5: 93e8deec49ca09d1d01a8c77d3812528
+      size: 1227
+    - path: docs/reproducibility/m5_05_configs/m3_m2_40.toml
+      hash: md5
+      md5: 0dacf64e8c7bd73544d73e3407c59c08
+      size: 1192
+    - path: rust-toolchain.toml
+      hash: md5
+      md5: f36317fcd9148fcd1b4c7340b4c1e335
+      size: 31
+    outs:
+    - path: docs/data/m5_05/deterministic/raw
+      hash: md5
+      md5: 74b7efbb20294fab09f6c823f3e517ba.dir
+      size: 8554
+      nfiles: 1
