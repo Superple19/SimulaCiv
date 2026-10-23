@@ -378,7 +378,7 @@ fn server() {
             let (num, den, wall) = pair_once(&prepared, sample % 2 == 0);
             reply(
                 &mut writer,
-                &format!("PROBE|{sample}|{num:.6}|{den:.6}|{wall:.6}"),
+                &format!("PROBE|{sample}|{num:.6}|{den:.6}|{:.6}", wall / 1_000_000.0),
             );
             continue;
         }
