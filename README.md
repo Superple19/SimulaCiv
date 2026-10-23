@@ -10,9 +10,7 @@ The current reference workload is an agent-based synthetic society. The project 
 
 ## Status
 
-**M4 graduated — `v0.5.0-m4`.** M3 graduated at `v0.4.0-m3` ([M3 final audit](docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md)); settlement migration was delivered in [M4-06](docs/reports/M4_06_MIGRATION.md).
-
-Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
+See the generated milestone table below for current project and stage status.
 
 <!-- BEGIN GENERATED MILESTONE TABLE -->
 | Milestone | Stage | Status | Tag | Summary | Document |
@@ -61,7 +59,7 @@ crates/
    ├─ src/                events, metrics, canonical hashing, snapshots
    └─ examples/           committed trace exporters and research harnesses
 
-analysis/                 standard-library documentation link checker and analysis tools
+analysis/                 pinned Python analysis package, report tooling, and tests
 
 docs/
 ├─ README.md               documentation map

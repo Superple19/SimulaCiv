@@ -61,7 +61,7 @@ Semantics and contracts come before optimization.
 - **M2 — Optimized Runtime:** complete, `v0.3.0-m2`.
 - **M3 — Interaction Complexity:** complete, `v0.4.0-m3`.
 - **M4 — Counterfactual Research:** complete, `v0.5.0-m4`.
-- **M5 — Reproducibility and Research Hardening:** planned; contract draft is under review.
+- **M5 — Reproducibility and Research Hardening:** in progress; stage status is in [contracts/decisions.toml](contracts/decisions.toml).
 
 Rules:
 
@@ -172,13 +172,12 @@ Wait for explicit user instruction before proceeding.
 
 - Generate report numbers, tables, and figures from committed code and data. Do not hand-type measured or computed values into prose; cite the generated table or figure.
 - Keep experiment conditions in spec files and link to them from documentation instead of restating them.
-- Record decisions in contract decision registers, one row per decision.
+- Record new decisions in [contracts/decisions.toml](contracts/decisions.toml), one row per decision; preserve historical contract registers.
 - Put process history (attempts, reruns, and rule changes) in commit messages, not report bodies. Reports show the current result and link to superseded material.
 - Use this template for new reports: Status; Question; Method (links); Results (generated); Findings (at most five bullets, each citing a generated item); Limits (at most five bullets). Target one page of prose.
 - Do not duplicate content across the README, audits, and contracts; link to the single source.
 - Preserve existing historical reports. M5-08 may add summary-first headers.
 - All text files use UTF-8 with LF line endings except `.bat` and `.cmd` files, which use CRLF. Data files are byte-exact and are never normalized. Python analysis code writes text only through `simciv_analysis.io.write_text_lf`.
-- All text files use UTF-8 with LF line endings. Data files are byte-exact and are never normalized. Python analysis code writes text only through `simciv_analysis.io.write_text_lf`.
 
 ### Findings integrity
 
