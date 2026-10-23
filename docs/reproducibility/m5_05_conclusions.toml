@@ -60,16 +60,16 @@ milestone = "M3"
 report = "docs/reports/M3_01_SERIAL_BASELINE.md"
 section = "#full-tick-results-and-scaling"
 class = "timing"
-verbatim_conclusion = "The M3-01 storage runner matched the M3-00 reference on the committed golden, the complete 60-cell 100-day differential matrix, a 10,000-agent 100-day release differential, snapshot pause/resume, and reversed storage slots."
-comparison = "Confirm deterministic parity separately; time the serial M3 storage runner at fixed p_local and k over N=10k/50k/100k and recompute alpha."
+verbatim_conclusion = "The 50k-to-100k alpha ranged from 0.805 to 1.242 across k/p_local cells, so these samples do not support one universal scaling exponent."
+comparison = "Confirm deterministic parity separately; time the serial M3 storage runner at fixed p_local=0.5 and k=8 over N=10k/50k/100k and recompute alpha."
 cells = ["N=10k K=50 k=8 p_local=0.5", "N=50k K=250 k=8 p_local=0.5", "N=100k K=500 k=8 p_local=0.5"]
 config = "docs/reproducibility/m5_05_configs/m3_m2_40.toml; day 0; metrics/events on; snapshots off"
 harness = "crates/sim-model/benches/m3_01_serial_baseline_bench.rs"
 bench_args = ["M5-05 selector: N=10k/50k/100k, k=8, p_local=0.5, serial storage"]
-pass_criterion = "Report all new/old ratios and alpha; a mismatch is not repaired, and broader 45-cell conclusions remain inconclusive from these three samples."
+pass_criterion = "Report all new/old ratios and sample alpha; the full 45-cell range remains inconclusive from this fixed p_local/k series."
 estimate_minutes = 25
 session = 1
-tests = ["m3_golden_tests", "m3_storage_runner_tests"]
+tests = ["m3_reference_runner_tests", "m3_storage_runner_tests"]
 
 [[conclusion]]
 id = "m3_02_parallel_phase6b"
@@ -137,7 +137,7 @@ bench_args = ["M5-05 selector: N=1M, normal/reversed storage slots, per-phase pr
 pass_criterion = "Report P4-selection ratio and parity digests; a ratio within 20% of the old timing supports the historical magnitude, otherwise flag it."
 estimate_minutes = 35
 session = 2
-tests = ["m3_scale_residual_tests"]
+tests = ["m3_storage_runner_tests"]
 
 [[conclusion]]
 id = "m3_08_full_rebuild_equal_live"
@@ -188,7 +188,7 @@ bench_args = ["M5-05 selector: N=100k k=16 max_hops=16 transmit=0.2 serial vs po
 pass_criterion = "Report Phase 9c speedup and path medians; flag absolute timings over 20% and state whether the parallel-win conclusion holds."
 estimate_minutes = 45
 session = 3
-tests = ["m3_propagation_tests"]
+tests = ["m3_propagation_storage_tests", "m3p_propagation_tests"]
 
 [[conclusion]]
 id = "m3_11_whole_tick_speedup"
@@ -205,7 +205,7 @@ bench_args = ["M5-05 selector: N=100k k=16 max_hops=16 transmit=0.2, full tick s
 pass_criterion = "Report interleaved and non-interleaved ratios; the measured speedup conclusion holds only if both exceed 1.0."
 estimate_minutes = 40
 session = 3
-tests = ["m3_propagation_tests"]
+tests = ["m3_propagation_storage_tests", "m3p_propagation_tests"]
 
 [[conclusion]]
 id = "m3_11_frontier_crossover"
@@ -222,4 +222,4 @@ bench_args = ["M5-05 selector: N=10k k=8 max_hops=8/16 transmit=0.2; pools2/4/6"
 pass_criterion = "Report the first selected frontier meeting median improvement beyond both MADs; do not claim a universal threshold."
 estimate_minutes = 35
 session = 3
-tests = ["m3_propagation_tests"]
+tests = ["m3_propagation_storage_tests", "m3p_propagation_tests"]
