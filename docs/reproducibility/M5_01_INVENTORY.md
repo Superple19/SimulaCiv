@@ -86,8 +86,8 @@ verdicts remain in the `key` tier.
 | M3 | deterministic | missing-source | headline | 6 |
 | M3 | deterministic | missing-source | supporting | 131 |
 | M3 | deterministic | reproducible-now | supporting | 8 |
-| M3 | timing | conclusion holds | headline | 20 |
-| M3 | timing | inconclusive | headline | 14 |
+| M3 | timing | conclusion holds | headline | 22 |
+| M3 | timing | inconclusive | headline | 12 |
 | M3 | timing | missing-data | headline | 15 |
 | M3 | timing | missing-data | key | 8 |
 | M3 | timing | missing-data | supporting | 9,084 |

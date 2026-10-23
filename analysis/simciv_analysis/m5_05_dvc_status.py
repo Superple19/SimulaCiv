@@ -29,8 +29,7 @@ def _dvc_status() -> dict[str, list[dict[str, object]]]:
 
 
 def _cache_path(md5: str) -> Path:
-    digest = md5.removesuffix(".dir")
-    return CACHE / digest[:2] / digest[2:]
+    return CACHE / md5[:2] / md5[2:]
 
 
 def _cache_object_state(md5: str | None) -> str:
@@ -85,7 +84,7 @@ def _run_cache_outputs() -> dict[str, list[str]]:
     return outputs
 
 
-def _summary_info(stage: str) -> tuple[bool, str | None]:
+def _summary_info(stage: str) -> tuple[bool, str | None, list[str]]:
     summary = ROOT / "docs" / "data" / "m5_05" / stage / "summary.json"
     tracked = subprocess.run(
         ["git", "ls-files", "--error-unmatch", summary.relative_to(ROOT).as_posix()],
@@ -94,9 +93,14 @@ def _summary_info(stage: str) -> tuple[bool, str | None]:
         capture_output=True,
     ).returncode == 0
     if not tracked or not summary.is_file():
-        return False, None
+        return False, None, []
     payload = json.loads(summary.read_text(encoding="utf-8"))
-    return True, payload.get("source_digest")
+    outputs = [
+        str(record["dvc_md5"])
+        for record in payload.get("outputs", [])
+        if isinstance(record, dict) and record.get("dvc_md5")
+    ]
+    return True, payload.get("source_digest"), outputs
 
 
 def _status_parts(records: list[dict[str, object]]) -> tuple[str, str]:
@@ -114,31 +118,46 @@ def _status_parts(records: list[dict[str, object]]) -> tuple[str, str]:
 
 def build_status() -> str:
     registry = _registry()
-    entries = {f"m5_05_{entry['id']}": entry for entry in registry["conclusion"]}
     statuses = _dvc_status()
+    status_by_stage = {key.split(":")[-1]: records for key, records in statuses.items()}
     run_outputs = _run_cache_outputs()
     current_digest = source_digest()
     rows: list[list[str]] = []
-    for stage_key, records in sorted(statuses.items()):
-        stage = stage_key.split(":")[-1]
-        entry_id = stage.removeprefix("m5_05_")
-        entry = entries.get(stage)
-        if entry is None:
-            continue
+    session_entries = [entry for entry in registry["conclusion"] if int(entry["session"]) in {2, 3}]
+    changed_stage_count = 0
+    tracked_summary_count = 0
+    complete_cache_count = 0
+    for entry in session_entries:
+        entry_id = str(entry["id"])
+        stage = f"m5_05_{entry_id}"
+        records = status_by_stage.get(stage, [])
         dependencies, outputs = _status_parts(records)
-        summary_exists, recorded_digest = _summary_info(entry_id)
-        cache_md5s = run_outputs.get(entry_id, [])
+        if dependencies != "none" or outputs != "none":
+            changed_stage_count += 1
+        summary_exists, recorded_digest, summary_md5s = _summary_info(entry_id)
+        tracked_summary_count += int(summary_exists)
+        cache_md5s = summary_md5s or run_outputs.get(entry_id, [])
         cache_state = "; ".join(_cache_object_state(md5) for md5 in cache_md5s) or "no stage-specific run-cache record"
-        if int(entry["session"]) in {2, 3} and not summary_exists and not cache_md5s:
-            classification = f"(a) not run; planned for Session {entry['session']}"
+        cache_complete = bool(cache_md5s) and not any("missing" in _cache_object_state(md5) for md5 in cache_md5s)
+        complete_cache_count += int(cache_complete)
+        if summary_exists and dependencies != "none":
+            classification = "(b) run; dependencies changed afterwards"
+        elif summary_exists and not cache_complete:
+            classification = "(c) run; raw objects absent from local DVC cache"
+        elif summary_exists and recorded_digest != current_digest:
+            classification = "summary source digest differs from current sources"
+        elif summary_exists:
+            classification = "run and committed; DVC up to date"
         elif cache_md5s and dependencies != "none":
             classification = "(b) run; dependencies changed afterwards"
-        elif cache_md5s and any("missing" in _cache_object_state(md5) for md5 in cache_md5s):
+        elif cache_md5s and not cache_complete:
             classification = "(c) run; raw objects absent from local DVC cache"
+        elif cache_md5s:
+            classification = "raw cache exists; Git summary is missing"
         else:
-            classification = "unresolved from available local records"
+            classification = f"(a) not run; planned for Session {entry['session']}"
         digest_note = (
-            f"{recorded_digest or 'missing'} / {current_digest}"
+            f"{recorded_digest or 'missing'} / {current_digest} ({'match' if recorded_digest == current_digest else 'diff'})"
             if summary_exists else f"no Git summary / {current_digest}"
         )
         rows.append([
@@ -158,17 +177,29 @@ def build_status() -> str:
     ]
     table = "| " + " | ".join(headers) + " |\n|" + "|".join("---" for _ in headers) + "|\n"
     table += "\n".join("| " + " | ".join(value.replace("|", "\\|") for value in row) + " |" for row in rows)
+    stage_count = len(session_entries)
+    status_line = (
+        f"Status: {tracked_summary_count}/{stage_count} summaries tracked; "
+        f"{complete_cache_count}/{stage_count} raw caches complete; "
+        f"{changed_stage_count} DVC stages changed"
+    )
+    interpretation = (
+        f"All {stage_count} Session 2–3 summaries are tracked, their recorded source digests match current Rust sources, "
+        "their raw outputs are present in the local DVC cache, and DVC reports no stale stages."
+        if tracked_summary_count == stage_count and complete_cache_count == stage_count and changed_stage_count == 0
+        else "The table reports which summaries, source digests, DVC dependencies, and local cache objects need follow-up."
+    )
     return f"""# M5-05 DVC stage status
 
-Status: generated read-only inventory
+{status_line}
 
 ## Question
 
-Why do the seven M5-05 stages for Sessions 2–3 appear stale, and are their raw outputs available locally?
+Are the M5-05 Session 2–3 records committed, current, and backed by local DVC raw outputs?
 
 ## Method
 
-Generated by [`m5_05_dvc_status.py`](../../../analysis/simciv_analysis/m5_05_dvc_status.py) using `dvc status {DVC_PIPELINE} --json`, the committed M5-05 conclusion registry, Git tracking state, the current `source_digest()` function, and stage-specific records under `.dvc/cache/runs` and `.dvc/cache/files/md5`. No stage was reproduced. A missing summary has no recorded digest to compare; the table shows that explicitly alongside the current digest.
+Generated by [`m5_05_dvc_status.py`](../../../analysis/simciv_analysis/m5_05_dvc_status.py) using `dvc status {DVC_PIPELINE} --json`, the committed M5-05 conclusion registry, Git tracking state, the current `source_digest()` function, summary output hashes, and stage-specific records under `.dvc/cache/runs` and `.dvc/cache/files/md5`. This inventory is read-only; it does not run stages.
 
 ## Results
 
@@ -176,15 +207,13 @@ Generated by [`m5_05_dvc_status.py`](../../../analysis/simciv_analysis/m5_05_dvc
 
 ## Status interpretation
 
-The conclusion registry places these stages in Sessions 2–3. No Git summary or stage-specific DVC run-cache record exists for them, so the available evidence classifies them as not run.
-
-DVC reports the declared raw output paths as deleted and lists changed dependencies. This is the current local pipeline status; it does not establish that a completed run was lost.
+{interpretation}
 
 ## Limits
 
 - DVC run-cache inspection is local to the machine on which this report was generated.
-- Because no stage-specific output hash is recorded for these planned stages, unreferenced content-addressed cache objects cannot be attributed to them.
-- Without a summary or stage-specific run-cache record, there is no recorded source digest or output hash for these stages.
+- Raw DVC objects are local cache evidence; they are not Git-tracked or uploaded by this task.
+- DVC cache availability is specific to the machine on which this report was generated.
 """
 
 

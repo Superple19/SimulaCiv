@@ -57,7 +57,9 @@ def _entry_cells(entry: dict[str, Any], summary: dict[str, Any] | None) -> list[
         result = row.get("result", {})
         cell_id = str(row.get("cell", ""))
         n = int(row.get("N", 0))
-        old = old_by_cell.get(cell_id) or old_by_n.get(n)
+        old = old_by_cell.get(cell_id)
+        if old is None and (entry["id"] != "m3_11_frontier_crossover" or "pool2" in cell_id):
+            old = old_by_n.get(n)
         exact_old = old is not None and "not necessarily" not in str(old.get("source_match", ""))
         measurements: list[dict[str, Any]] = []
         if old and exact_old:
@@ -79,7 +81,8 @@ def _entry_cells(entry: dict[str, Any], summary: dict[str, Any] | None) -> list[
                     {"path": "search reduction", "old_us": old["search_reduction_median_us"], "new_us": result.get("right_median_us")},
                 ])
             elif "indexed_before_us" in old:
-                measurements.append({"path": "indexed M3 vs recorded pre-index baseline", "old_us": old["indexed_before_us"], "new_us": result.get("right_median_us")})
+                single = result.get("single_path", {})
+                measurements.append({"path": "indexed M3 vs recorded pre-index baseline", "old_us": old["indexed_before_us"], "new_us": single.get("median_us") if isinstance(single, dict) else result.get("right_median_us")})
             elif "reversed_over_normal" in old:
                 measurements.append({"path": "reversed/normal P4 selection slowdown", "old_us": old["reversed_over_normal"], "new_us": result.get("reverse_over_normal"), "unit": "×"})
             elif "old_ratio" in old:
@@ -261,6 +264,8 @@ def _build() -> dict[str, Any]:
     }
     for entry in registry["conclusion"]:
         summary = _summary(entry["id"])
+        config_overrides = summary.get("details", {}).get("config_overrides", []) if summary else []
+        config_override_text = "; ".join(str(item) for item in config_overrides) or "—"
         cells = _entry_cells(entry, summary)
         ratio_measurements.extend(
             measurement
@@ -281,7 +286,7 @@ def _build() -> dict[str, Any]:
             f"{item['cell']} {key} {value:.3f} {'agents' if 'frontier' in key else '×' if key.endswith('ratio') or key.endswith('_over_normal') or 'speedup' in key or 'slowdown' in key else 'µs'}"
             for cell in cells if (item := cell.get("historical"))
             for key, value in item.items()
-            if (key.endswith("_us") or key.endswith("ratio") or "slowdown" in key) and isinstance(value, (int, float))
+            if (key.endswith("_us") or key.endswith("ratio") or "slowdown" in key or "speedup" in key or key.endswith("_over_normal") or key.startswith("frontier_")) and isinstance(value, (int, float))
         ) or "not exactly mapped"
         rows.append({
             "milestone": entry["milestone"],
@@ -316,6 +321,7 @@ def _build() -> dict[str, Any]:
                 "K": cell["K"],
                 "k": cell["k"],
                 "p_local": cell["p_local"],
+                "config overrides": config_override_text,
                 "threads": cell["threads"],
                 "max hops": cell["max_hops"],
                 "time unit": result.get("time_unit", "µs/tick"),
@@ -495,7 +501,7 @@ The frozen conclusion set is [`m5_05_conclusions.toml`](m5_05_conclusions.toml).
 
 ### Selected cells
 
-{_table(cells, ["conclusion", "cell", "N", "K", "k", "p_local", "threads", "max hops", "time unit", "max frontier", "levels", "left median", "left MAD", "right median", "right MAD", "speedup", "paired delta", "paired delta MAD", "r", "minimum sample s"])}
+{_table(cells, ["conclusion", "cell", "N", "K", "k", "p_local", "config overrides", "threads", "max hops", "time unit", "max frontier", "levels", "left median", "left MAD", "right median", "right MAD", "speedup", "paired delta", "paired delta MAD", "r", "minimum sample s"])}
 
 ### Deterministic confirmations
 
