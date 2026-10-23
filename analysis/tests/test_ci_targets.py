@@ -72,6 +72,8 @@ def test_workflow_check_steps_are_single_just_targets():
 
     assert checks("checks") == [("Run Rust checks", "just ci-rust")]
     assert checks("analysis") == [("Run analysis checks", "just ci-analysis")]
+    assert "check: analysis-test action-refs-check commit-messages-check" in (ROOT / "justfile").read_text(encoding="utf-8")
+    assert "fetch-depth: 0" in "\n".join(_steps(workflow, "analysis")[0])
 
 
 def test_just_jobs_install_all_target_tools_before_running_them():

@@ -30,6 +30,9 @@ data-integrity-update: analysis-sync
 action-refs-check:
     uv run --directory analysis --project . python -m simciv_analysis.action_refs
 
+commit-messages-check: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.git_hooks --check-commit-range
+
 decisions: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.decisions --write
 
@@ -61,7 +64,7 @@ lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
     vale --config analysis/vale/.vale.ini docs/data/m5_05/STATUS.md docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
-check: analysis-test action-refs-check decisions-check check-autocrlf data-integrity-check links claims-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
+check: analysis-test action-refs-check commit-messages-check decisions-check check-autocrlf data-integrity-check links claims-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
 
 ci-analysis: check
     uv run --directory analysis --project . python -m simciv_analysis.ci_analysis

@@ -47,7 +47,7 @@ Unless explicitly requested:
 - Never amend, rebase, reset, or force-push a commit that exists on `origin`; correct mistakes with a new commit.
 - Track new experiment raw outputs through DVC stages; keep summaries, specs, harnesses, reports, generated figures, and DVC pointers in Git. Never commit DVC credentials.
 - Install the repository Git hooks with `just hooks-install` before committing; never bypass them with `--no-verify`.
-- Write multi-line commit messages with `-F <file>` or separate `-m` flags.
+- Write every commit message to a UTF-8/LF file with `write_text_lf` or an editor, then use `git commit -F <file>` only; never use `-m`.
 - When writing repository files from PowerShell, use PowerShell 7 or `-Encoding utf8NoBOM`; never rely on Windows PowerShell 5.1 `Out-File` or `Set-Content` defaults.
 - Normal delivery is `just ship`, which runs local checks and pushes to `ci-check`; successful CI runs are promoted to `main` automatically with fast-forward only. Never push directly to `main`.
 - One-time bootstrap commits for this workflow must be pushed directly to `main`, because GitHub runs the `workflow_run` promotion workflow from the version on the default branch.

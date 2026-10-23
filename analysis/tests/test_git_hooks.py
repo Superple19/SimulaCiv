@@ -1,6 +1,80 @@
 from pathlib import Path
 
-from simciv_analysis.git_hooks import dvc_output_paths, large_file_violations
+from simciv_analysis.git_hooks import commit_message_error, commit_range_violations, dvc_output_paths, large_file_violations
+
+
+def test_commit_message_accepts_known_ci_message_and_subject_only():
+    known = """ci: promote green ci-check commits to main
+
+- run CI on ci-check and fast-forward successful tested commits to main
+- dispatch CI on main after promotion and guard against non-descendant SHAs
+- validate action tags and promotion workflow behavior in analysis checks
+- add just ship and document normal delivery plus one-time bootstrap
+"""
+    assert commit_message_error(known) is None
+    assert commit_message_error("docs: short subject\n") is None
+    assert commit_message_error("docs: short subject\n# editor comment\n") is None
+
+
+def test_commit_message_rejects_everything_outside_the_allowlist():
+    bad_messages = [
+        "docs: generated registry tables\n\n- generate contract and README tables\n\n- add generated-table checks\n",
+        "fix: reject stray token\n\n- command used -m twice\n",
+        "docs: explain result\n\nThis is prose, not a bullet.\n",
+        "docs: wrapped bullet\n\n- first line\n  continuation\n",
+        "docs: indented bullet\n\n - not allowed\n",
+        "docs: star bullet\n\n* not allowed\n",
+        "docs: blank gap\n\n\n- not allowed\n",
+        "docs: trailing space\n\n- bad \n",
+        "feat: " + "x" * 68,
+        "docs: long body\n\n- " + "x" * 99,
+        "docs: trailing blank\n\n- bullet\n\n",
+    ]
+    for message in bad_messages:
+        assert commit_message_error(message) is not None, message
+
+
+def test_commit_range_checker_reads_exact_committed_messages(tmp_path):
+    import os
+    import subprocess
+
+    def git(*args, input_bytes=None):
+        return subprocess.check_output(["git", *args], cwd=tmp_path, input=input_bytes).decode().strip()
+
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    environment = os.environ | {
+        "GIT_AUTHOR_NAME": "Test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "Test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
+    tree = git("mktree", input_bytes=b"")
+    base = subprocess.check_output(
+        ["git", "commit-tree", tree], cwd=tmp_path, input=b"test: base\n", env=environment
+    ).decode().strip()
+    invalid = subprocess.check_output(
+        ["git", "commit-tree", tree, "-p", base],
+        cwd=tmp_path,
+        input=b"docs: bad body\n\n- one\n\n- two\n",
+        env=environment,
+    ).decode().strip()
+
+    assert commit_range_violations(tmp_path, base, invalid) == [
+        (invalid, "body line 4 must be a contiguous '- <bullet>' line")
+    ]
+
+
+def test_commit_range_comes_from_the_github_push_event(tmp_path):
+    import json
+
+    from simciv_analysis.git_hooks import _commit_range
+
+    event_path = tmp_path / "event.json"
+    event_path.write_bytes(json.dumps({"before": "base-sha", "after": "head-sha"}).encode())
+    environment = {"GITHUB_EVENT_NAME": "push", "GITHUB_EVENT_PATH": str(event_path)}
+
+    assert _commit_range(tmp_path, environment) == ("base-sha", "head-sha")
+    assert _commit_range(tmp_path, {"GITHUB_EVENT_NAME": "workflow_dispatch"}) is None
 
 
 def test_large_file_check_allows_dvc_output_and_ignores_unstaged(tmp_path):

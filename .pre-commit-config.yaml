@@ -6,11 +6,6 @@ default_stages:
   - pre-commit
 
 repos:
-  - repo: https://github.com/crate-ci/committed
-    rev: v1.1.11
-    hooks:
-      - id: committed
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
@@ -78,18 +73,10 @@ repos:
         files: '.*\.(md|qmd)$'
         stages: [pre-commit]
 
-      - id: reject-stray-message-m
-        name: reject stray -m tokens in commit messages
-        entry: '(?<!\S)-m(?!\S)'
-        language: pygrep
-        types: [text]
-        stages: [commit-msg]
-
-      - id: reject-message-trailing-whitespace
-        name: reject trailing whitespace in commit messages
-        entry: '[ \t]+\r?$'
-        language: pygrep
-        types: [text]
+      - id: allowlist-commit-message
+        name: enforce the commit message allowlist
+        entry: uv run --directory analysis --project . python -m simciv_analysis.git_hooks --check-commit-message
+        language: system
         stages: [commit-msg]
 
       - id: forbid-dvc-local-config
