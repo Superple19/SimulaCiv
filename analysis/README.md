@@ -1,16 +1,16 @@
 # SimulaCiv analysis
 
-The analysis environment is pinned to Python 3.15.1, uv 0.13.5, pandas 3.0.6, matplotlib 3.11.2, pytest 9.1.1, and Quarto CLI 1.10.19. The Python package requires Python >=3.11; the pinned version is for development and CI.
+The analysis environment is pinned to Python 3.15.1, uv 0.13.5, pandas 3.0.6, matplotlib 3.11.2, pytest 9.1.1, Quarto CLI 1.10.19, and Vale 3.25.1 (released 2026-10-22). The Python package requires Python >=3.11; the pinned version is for development and CI.
 
 ## Setup
 
-Install uv 0.13.5, Quarto CLI 1.10.19, and just 1.58.0 using their official installation instructions. From the repository root, run:
+Install uv 0.13.5, Quarto CLI 1.10.19, Vale 3.25.1, and just 1.58.0 using their official installation instructions. From the repository root, run:
 
 ```sh
 uv python install
 ```
 
-`just check` runs the analysis tests and verifies links, claims, and committed reports without rewriting them. To reproduce the M5-01 report from the committed ledger, run the single command:
+`just check` runs the analysis tests and verifies links, claims, committed reports, and the Vale prose rules without rewriting them. `just lint-prose` runs the pinned Vale style and its rule tests. To reproduce the M5-01 report from the committed ledger, run the single command:
 
 ```sh
 just report-m5-01

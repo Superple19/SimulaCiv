@@ -171,3 +171,10 @@ Wait for explicit user instruction before proceeding.
 - Use this template for new reports: Status; Question; Method (links); Results (generated); Findings (at most five bullets, each citing a generated item); Limits (at most five bullets). Target one page of prose.
 - Do not duplicate content across the README, audits, and contracts; link to the single source.
 - Preserve existing historical reports. M5-08 may add summary-first headers.
+
+### Findings integrity
+
+- Every Findings bullet in a generated report must be rendered together with a named predicate over its source data. The report generator must fail when any paired predicate is false and must render an appendix table listing every predicate and its value.
+- Numeric result values in finding prose must come from inline Quarto expressions, not hand-typed prose values.
+- Tag each finding `[pre-registered: <id>]` using an id from the stage conclusions/specification, or `[exploratory]` when it was not pre-registered.
+- Lint generated reports with Vale. Pin the latest stable Vale release; keep the project style under `analysis/vale/` and invoke Vale with `--config analysis/vale/.vale.ini`. Flag `prove`, `always`, `never`, `causes`, `in general`, `universally`, and `guarantees` unless the sentence has a `[pre-registered: <id>]` tag and the generator pairs it with a passing check. `just lint-prose` runs the lint, and `just check` includes it. The analysis CI job installs the pinned Vale release.

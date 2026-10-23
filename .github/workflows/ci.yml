@@ -61,5 +61,13 @@ jobs:
         with:
           just-version: "1.58.0"
 
+      - name: Install pinned Vale
+        run: |
+          curl -fsSL https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_64-bit.tar.gz -o /tmp/vale.tar.gz
+          echo "4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182  /tmp/vale.tar.gz" | sha256sum --check
+          tar -xzf /tmp/vale.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/vale /usr/local/bin/vale
+          vale --version
+
       - name: Check analysis tooling and reports
         run: just check

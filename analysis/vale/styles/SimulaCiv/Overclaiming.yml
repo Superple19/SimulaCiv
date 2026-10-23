@@ -1,0 +1,14 @@
+extends: existence
+message: "Overclaiming language requires a pre-registered tag and paired check, or a rewrite: '%s'."
+level: error
+scope: sentence
+tokens:
+  - '(?i)^(?!.*\[pre-registered:\s*[A-Za-z0-9_-]+\]).*\b(?:prove|always|never|causes|in general|universally|guarantees)\b'
+tests:
+  - name: flags untagged overclaim
+    input: "The result always differs."
+    want: |
+      1:1:SimulaCiv.Overclaiming:Overclaiming language requires a pre-registered tag and paired check, or a rewrite: 'The result always'.
+  - name: permits tagged finding for generator pairing
+    input: "[pre-registered: m5_05_gate] The result always differs."
+    want: ""
