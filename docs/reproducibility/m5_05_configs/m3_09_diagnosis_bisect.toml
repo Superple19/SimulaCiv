@@ -1,0 +1,29 @@
+stage = "M5-05 M3-09 first-step bisect"
+good_revision = "296ec384604aea935ccfee86f35c0664c5b4f67f"
+changed_revision = "35342d4db58a48e26f6b2530c47ba00e4bb444d4"
+baseline_numerator_us_per_tick = 74647.044444
+baseline_denominator_us_per_tick = 25113.522222
+baseline_ratio = 2.972384509991495
+change_screen_percent = 20.0
+initial_population = 100000
+settlement_count = 500
+relationship_degree_k = 8
+p_local = 0.5
+master_seed = 81985529216486895
+replicate_id = 7
+checkpoint_after_day = 400
+days_per_operation = 3
+metrics = true
+events = true
+snapshots = false
+pool_threads = 0
+chunk_size = 256
+propagation = false
+warmups = 2
+samples = 21
+repetitions_per_sample = 3
+minimum_pair_wall_seconds = 1.0
+max_path_mad_over_median = 0.05
+
+# Classify a revision as changed when any path or ratio moves by over 20%
+# from the same-session M3-09 follow-up measurement; good means unchanged.
