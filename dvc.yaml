@@ -47,6 +47,7 @@ stages:
     - rust-toolchain.toml
     outs:
     - docs/data/m5_05/m2_near_linear/raw
+    frozen: true
   m5_05_m2_final_tick:
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
       timing m2_final_tick --raw-dir docs/data/m5_05/m2_final_tick/raw --summary
