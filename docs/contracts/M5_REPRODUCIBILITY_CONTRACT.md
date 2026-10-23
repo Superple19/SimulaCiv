@@ -1,6 +1,6 @@
 # M5 Reproducibility and Research Hardening Contract
 
-**Status: M5-00, M5-02, M5-03, and M5-04 FROZEN; M5-01 COMPLETE; M5-03 and M5-04 implementation COMPLETE**
+**Status: M5-00, M5-02, M5-03, M5-04, and M5-05 FROZEN; M5-01 COMPLETE; M5-03 and M5-04 implementation COMPLETE**
 **Baseline: `v0.5.0-m4`**
 
 ## 1. Research question
@@ -68,7 +68,7 @@ The order is structure → tooling → verification → new experiments → clea
 | **M5-02 — Repository layout** | **FROZEN; implementation in progress.** Organize contracts, reports, data, reproducibility outputs, and analysis tools under the frozen layout in §10. |
 | **M5-03 — Analysis toolchain** | **FROZEN; implementation COMPLETE.** Add the pinned `uv` project, `pandas`, `matplotlib`, Quarto, `just`, `pytest`, deterministic report generation, link checking, and the approved Ubuntu analysis CI job. Regenerate M5-01 as a tidy one-row-per-claim gzip ledger, exclude configuration/input values, add key/supporting tiers, and recheck the 29 M1 claims currently labeled unrecoverable. |
 | **M5-04 — M4 regeneration** | **FROZEN; implementation COMPLETE.** Re-run existing Rust harnesses against committed M4 data, verify deterministic outputs bit-exactly, remeasure conclusion-bearing M4 timings, and produce a generated Quarto report; see [M5-04 regeneration](../reproducibility/M5_04_M4_REGENERATION.md). |
-| **M5-05 — M0–M3 regeneration and re-measurement** | Regenerate or re-measure key M0–M3 tables, preserving old values as history and applying the frozen timing comparison rule. |
+| **M5-05 — M0–M3 regeneration and re-measurement** | **FROZEN.** Regenerate deterministic M2/M3 headline claims and re-measure conclusion-bearing timings only; the cell plan and budget are in §13. |
 | **M5-06 — Python bindings** | Add PyO3/maturin bindings and an experiment runner with commit, configuration, and host provenance. |
 | **M5-07 — Robustness experiments** | Run multi-seed and multi-workload, effect-size-first experiments, including migration calibration and a redesigned M4-05 predicate. Select the matrix from a pilot before execution. |
 | **M5-08 — Documentation content** | Align naming, make reports summary-first, split contracts by stage, create a newcomer README, and generate figures from committed data. |
@@ -277,3 +277,66 @@ M5-04 is **COMPLETE**. The generated [M4 headline result table](../reproducibili
 
 - `just report-m5-04` — generated the comparison data, M5-04 report, updated claim ledger, and regenerated M5-01 inventory.
 - `just check` — passed; see the final task record for the exact validation output.
+
+## 13. M5-05 M0–M3 regeneration (FROZEN)
+
+M5-05 covers M2 and M3 headline claims in [`claims.csv.gz`](../reproducibility/claims.csv.gz). It does not make semantic changes or alter existing expected outputs. Supporting claims are re-measured only when the same selected run produces them without additional cells.
+
+### 13.1 Deterministic headline claims
+
+- Confirm exact State, Metrics, Events, intent, resolution, error, and snapshot claims through the integration tests and goldens named by the report/source map. Record the exact test target names and the result for each claim.
+- The source map currently names these CI integration targets for deterministic claims: `determinism_oracle_tests`, `m2_soa_gate_tests`, `phase3_features_tests`, `phase4_decision_tests`, `phase4_intent_tests`, `phase4_rayon_tests`, `phase5_partition_tests`, `phase6a_work_tests`, `phase6b_targeted_tests`, `m3_search_reduction_tests`, and `m3_settlement_index_tests`.
+- Use the committed report's golden or expected value unchanged. A mismatch is recorded as a finding; never update the expected value to match.
+- If a report does not name a runnable integration target or committed golden for a deterministic headline claim, classify it as **unrecoverable** rather than inferring a test.
+
+### 13.2 Timing headline claims
+
+- Re-run only cited benchmark cells that support M2/M3 headline timing claims. Supporting measurements are retained when naturally produced by those selected cells; no unrelated sweep rows are run.
+- Apply the M5-00 reference host and A-5 sampling protocol. Each paired comparison must start from the same checkpoint and assert matching workload, execution mode, pool size, chunk size, and all other options. The M4-02/M5-04 mode mismatch must not recur.
+- For each conclusion-bearing comparison, record the old and new values, new/old ratio for absolute timings, MADs, and whether the conclusion still holds. Flag every absolute timing with `|ratio - 1| > 20%`.
+- Preserve old values and reports as historical evidence. A changed conclusion is reported, never rewritten to agree with the earlier result.
+
+### 13.3 Planned cell set
+
+The exact cell identity includes the benchmark, complete workload/configuration key, checkpoint, runner or comparison paths, and parallel options. The M2 rows are deduplicated by that full key across reports. Before any run, commit a cell manifest containing the expanded M2 keys copied from the headline source rows; do not infer missing parameters. The planned cells are:
+
+| Report family | Planned headline cells |
+|---|---|
+| M2 baseline and optimization reports | `m0_baseline_bench.rs` rows tied to headline timing claims in M2-06, M2-08, M2-09, M2-12, M2-16.1, M2-18, M2-31, M2-34, M2-37, M2-38, M2-40, and M2-X; exact row keys are copied from those reports and deduplicated before execution. M2-07, M2-13, M2-14, M2-17, M2-18.1, and M2-39 are analysis-only and excluded. |
+| M3-01 serial baseline | 45 cells: `N ∈ {10k,50k,100k}`, `K=N/200`, `k ∈ {4,8,16}`, `p_local ∈ {0,0.25,0.5,0.75,1}`, day 0. |
+| M3-02 parallel Phase 6B | 180 active-workload cells behind the `0.967×` headline median: `N ∈ {10k,50k,100k}`, `K=N/200`, `k=8`, `p_local ∈ {0,0.5,1}`, day 0, pool sizes `{1,2,4,6}`, chunks `{64,128,256,512,1024}`. The day-100 cells are not run for the headline. |
+| M3-03 search reduction | 12 whole-tick pairs: `N ∈ {10k,100k}`, `K=N/200`, `k=8`, `p_local ∈ {0,0.5,1}`, checkpoints day 0 and day 150; compare serial M3 with the explicit search-reduction path. |
+| M3-04 sustained workload | 36 whole-tick pairs: the same `N`, `K`, and `p_local` values as M3-03, checkpoints day 0/day 150, and pool sizes `{1,4,6}` at chunk 256 against serial. Re-run the 52 N=10k equilibrium candidates plus the three N=100k locality checks because the selected equilibrium point is the report's headline result. |
+| M3-05 scale limit | 16 whole-tick pairs: `N ∈ {100k,250k,500k,1M}`, `K=N/200`, `k ∈ {8,16}`, `p_local=0.5`, checkpoints day 0/day 50; serial versus pool 6/chunk 256. |
+| M3-06 settlement index | 11 scaling cells: fixed `K=500`, `N ∈ {100k,250k,500k,1M}`; fixed `N=250k`, `K ∈ {250,500,1250,2500,5000}`; proportional `K=N/200`, `N ∈ {100k,250k,500k,1M}`, deduplicated by full key. Also include Phase 3 before/after subphase comparisons at `N ∈ {250k,1M}` and the reported N=1M whole-tick serial/parallel pair. |
+| M3-07 residual scaling | `N ∈ {25k,50k,100k,150k,200k,300k,400k,500k,750k,1M}`, `K=N/200`, `k=8`, `p_local=0.5`, day 0; plus normal/reversed slot pairs at N=100k and N=1M and the reported N=1M, k=16 Phase 6B comparison. |
+| M3-08 / M3-09 equal-live headline | Two 100k equal-live comparisons from the frozen M3P sustained configurations: full-rebuild M3P/M3 for M3-08, and incremental M3P/M3 for M3-09. New committed drivers measure only these headline ratios. |
+| M3-11 propagation | 20 crossover cells: `N=10k`, `K=50`, `k=8`, `p_local=0.2`, `max_hops ∈ {1,2,4,8,16}`, pools `{1,2,4,6}`, chunk 256; plus the large-frontier ratio cell `N=100k`, `K=500`, `k=16`, `p_local=0.2`, `max_hops=16`, pool 6/chunk 256 versus serial. |
+
+### 13.4 A-5 runtime estimate and stop rule
+
+The estimate uses the historical benchmark logs as a planning basis, then applies A-5's 41 samples and one-second minimum paired sample. M3-02 alone requires at least 2.05 hours for 180 active cells. Scaling the M3-05 25.5-minute seven-sample run to 41 samples gives about 2.5 hours; scaling the M3-06 11.55-minute seven-sample run gives about 1.1 hours. These are planning estimates, not new measurements. M3-01/03/04/07/11, the M2 headline cells, the two equal-live comparisons, warmups, and the 55 equilibrium candidates add further work. The total planned work is estimated at **8–10 hours** on the reference host, before any rerun caused by A-5 validity.
+
+Because the estimate exceeds the six-hour limit in M5-00 §8, no M5-05 deterministic or timing run is authorized in this execution. The cell plan remains frozen for a later split or explicit re-planning; do not start a partial run under this task.
+
+### 13.5 Provenance and generated report
+
+- Use the committed benches listed in `sources.toml`; the two M3-08/M3-09 headline replacements must be committed drivers under `crates/sim-model/examples/` before use.
+- Store run data under `docs/data/m5_05/<report>/`. Follow §4's 1 MiB policy and manifest-backed release assets for larger outputs. Commit each report group before starting the next run group.
+- Generate `docs/reproducibility/M5_05_M0_M3_REGENERATION.qmd` and its rendered GFM `.md` with `analysis/simciv_analysis/report_m5_05.py`. The report records headline results by milestone, new/old ratios and >20% flags, figures for conclusion-bearing comparisons, and historical-protocol/analysis-only exclusions. Hand-entered measured values are not allowed.
+- Update claim statuses in the analysis code from the comparison results. `just check` and the full Rust validation are required after the regeneration report is complete.
+
+### 13.6 M5-05 decision register (FROZEN)
+
+| ID | Decision | Frozen rule |
+|---|---|---|
+| D-1 | Scope | M2/M3 headline claims only; supporting claims are included only when produced by the same selected run. |
+| D-2 | Deterministic evidence | Use only cited tests and committed goldens; require bit-exact results or classify the claim as unrecoverable. Never re-bless expected outputs. |
+| D-3 | Timing evidence | Use A-5 on the reference host, same-mode paired paths, report new/old ratios and flag absolute timing changes over 20%; only prelisted headline cells are run. |
+| D-4 | M3-08/M3-09 drivers | Commit new drivers for only the 100k equal-live M3P/M3 ratios using the frozen configs; detailed historical tables remain historical-protocol. |
+| D-5 | Runtime budget | Commit the plan and estimate before runs. If the estimate exceeds six hours, stop without running. |
+| D-6 | Provenance | Commit outputs under `docs/data/m5_05/`, apply the M5-00 size policy, and cite harness plus data/manifest for every generated table. |
+
+### 13.7 Freeze record
+
+This freeze authorizes only the M5-05 headline regeneration described in §13.1–§13.5. The preregistered estimate exceeds six hours, so execution stops before tests or benchmarks; no M5-05 result is claimed. It does not authorize any simulation semantic change, expected-value update, CI change, or later M5 stage.
