@@ -38,7 +38,7 @@ report-m5-05-check: analysis-sync
 
 lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
-    vale --config analysis/vale/.vale.ini docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
+    vale --config analysis/vale/.vale.ini docs/data/m5_05/STATUS.md docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
 check: analysis-test links claims-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
 

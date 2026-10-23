@@ -15,6 +15,7 @@ from typing import Any
 import pandas as pd
 
 from .figures import configure, svg_bytes
+from .findings import Finding, render_findings
 from .m5_05 import _registry
 from .provenance import ROOT
 from .tables import dataframe_to_markdown
@@ -178,9 +179,16 @@ def _build() -> dict[str, Any]:
     deterministic = json.loads(DETERMINISTIC_SUMMARY.read_text(encoding="utf-8")) if DETERMINISTIC_SUMMARY.exists() else None
     rows = []
     measurement_rows = []
+    ratio_measurements = []
     for entry in registry["conclusion"]:
         summary = _summary(entry["id"])
         cells = _entry_cells(entry, summary)
+        ratio_measurements.extend(
+            measurement
+            for cell in cells
+            for measurement in cell["measurements"]
+            if measurement.get("ratio") is not None
+        )
         status, note = _status(entry["id"], cells)
         raw = f"../data/m5_05/{entry['id']}/summary.json" if summary else "not recorded"
         harness_path = str(entry.get("harness", ""))
@@ -261,6 +269,42 @@ def _build() -> dict[str, Any]:
         ),
         "sessions_not_run": [2, 3],
     }
+    conclusion_by_id = {row["conclusion"]: row for row in rows}
+    unrun_ids = {row["conclusion"] for row in results["planned"] if row["session"] in results["sessions_not_run"]}
+    findings_md, findings_checks_md = render_findings([
+        Finding(
+            "[exploratory]",
+            "Every listed conclusion has a generated `holds`, `does not hold`, or `inconclusive` status.",
+            "finding_all_conclusions_have_reported_status",
+            bool(rows) and all(row["status"] in {"holds", "does not hold", "inconclusive"} for row in rows),
+        ),
+        Finding(
+            "[exploratory]",
+            "Selected path ratios are flagged when the absolute deviation exceeds {{< meta ratio_flag_threshold_percent >}}%; the flag does not determine the conclusion status.",
+            "finding_ratio_flags_match_threshold",
+            bool(ratio_measurements)
+            and all(
+                measurement["flag_over_20_percent"] == (abs(float(measurement["ratio"]) - 1.0) > 0.20)
+                for measurement in ratio_measurements
+            ),
+        ),
+        Finding(
+            "[exploratory]",
+            "The deterministic test-result table records pass for every target; see [Deterministic confirmations](#deterministic-confirmations).",
+            "finding_deterministic_targets_passed",
+            bool(deterministic_results) and all(item["status"] == "pass" for item in deterministic_results),
+        ),
+        Finding(
+            "[exploratory]",
+            "Unrun session conclusions remain inconclusive and are not counted as reproduced.",
+            "finding_unrun_sessions_remain_inconclusive",
+            bool(unrun_ids)
+            and all(conclusion_by_id.get(identifier, {}).get("status") == "inconclusive" for identifier in unrun_ids)
+            and all(row["status"] == "not run" for row in results["planned"] if row["conclusion"] in unrun_ids),
+        ),
+    ])
+    results["findings"] = findings_md
+    results["findings_checks"] = findings_checks_md
     figure = _timing_figure(measurement_rows)
     qmd = _render_qmd(results)
     return {"results": results, "results_bytes": (json.dumps(results, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8"), "figure": figure, "qmd": qmd.encode("utf-8")}
@@ -324,6 +368,7 @@ def _render_qmd(data: dict[str, Any]) -> str:
     return f'''---
 title: "M5-05 M0–M3 Conclusion Regeneration"
 format: gfm
+ratio_flag_threshold_percent: 20
 ---
 
 Status: in progress — Session 1 complete; Sessions 2–3 not run
@@ -364,16 +409,17 @@ Session 2 and Session 3 are **not run** in this execution. Their conclusion rows
 
 ## Findings
 
-- Each conclusion status distinguishes direct representative-cell evidence from unsupported full-grid aggregates; see the generated status table.
-- Exact selected-cell path ratios are flagged when `|ratio - 1| > 20%`; the flag does not itself decide whether the conclusion holds.
-- Deterministic test targets ran without changing existing expected values; see the test result table.
-- Unrun sessions remain inconclusive and are not counted as reproduced.
+{data['findings']}
 
 ## Limits
 
 - Session 1 uses representative cells; M2-02 and other historical grid aggregates remain inconclusive from samples.
 - Timing is specific to the recorded reference host and A-5 sampling protocol.
 - No raw DVC object is needed to run `just check`; summaries are the only report inputs.
+
+## Appendix: paired findings checks
+
+{data['findings_checks']}
 '''
 
 

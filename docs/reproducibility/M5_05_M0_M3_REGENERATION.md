@@ -103,14 +103,16 @@ statistics.
 
 ## Findings
 
-- Each conclusion status distinguishes direct representative-cell
-  evidence from unsupported full-grid aggregates; see the generated
-  status table.
-- Exact selected-cell path ratios are flagged when `|ratio - 1| > 20%`;
-  the flag does not itself decide whether the conclusion holds.
-- Deterministic test targets ran without changing existing expected
-  values; see the test result table.
-- Unrun sessions remain inconclusive and are not counted as reproduced.
+- \[exploratory\] Every listed conclusion has a generated `holds`,
+  `does not hold`, or `inconclusive` status.
+- \[exploratory\] Selected path ratios are flagged when the absolute
+  deviation exceeds 20%; the flag does not determine the conclusion
+  status.
+- \[exploratory\] The deterministic test-result table records pass for
+  every target; see [Deterministic
+  confirmations](#deterministic-confirmations).
+- \[exploratory\] Unrun session conclusions remain inconclusive and are
+  not counted as reproduced.
 
 ## Limits
 
@@ -120,3 +122,12 @@ statistics.
   protocol.
 - No raw DVC object is needed to run `just check`; summaries are the
   only report inputs.
+
+## Appendix: paired findings checks
+
+| Finding tag     | Paired predicate                               | Value  |
+|-----------------|------------------------------------------------|--------|
+| \[exploratory\] | `finding_all_conclusions_have_reported_status` | `true` |
+| \[exploratory\] | `finding_ratio_flags_match_threshold`          | `true` |
+| \[exploratory\] | `finding_deterministic_targets_passed`         | `true` |
+| \[exploratory\] | `finding_unrun_sessions_remain_inconclusive`   | `true` |

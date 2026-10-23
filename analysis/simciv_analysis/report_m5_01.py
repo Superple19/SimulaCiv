@@ -13,6 +13,7 @@ from pathlib import Path
 import pandas as pd
 
 from simciv_analysis.claims import OLD_LEDGER, ROOT, expand_old_ledger, match_old_claims
+from simciv_analysis.findings import Finding, render_findings
 from simciv_analysis.io import load_data
 from simciv_analysis.tables import dataframe_to_markdown
 
@@ -140,6 +141,17 @@ def _report_parts() -> dict[str, str]:
         .sort_values(["claims", "report", "status"], ascending=[False, True, True], kind="stable")
         .head(10)
     )
+    m1_is_historical_log = not m1.empty and m1["status"].eq("historical-log").all()
+    historical_ids = set(claims.loc[claims["status"].isin(["historical-log", "historical-protocol"]), "claim_id"])
+    m2_analysis_only = claims.loc[
+        (claims["report"].map(_milestone) == "M2") & (claims["status"] == "analysis-only"), "claim_id"
+    ]
+    findings_md, findings_checks_md = render_findings([
+        Finding("[exploratory]", "The previously unrecoverable M1 aggregate rows carry the `historical-log` status.", "finding_m1_rows_are_historical_log", bool(m1_is_historical_log)),
+        Finding("[exploratory]", "Historical-log and historical-protocol rows are excluded from regeneration gap totals.", "finding_historical_rows_excluded_from_gaps", not bool(set(gaps["claim_id"]) & historical_ids)),
+        Finding("[exploratory]", "M2 analysis-only rows do not appear in the evidence-gap table.", "finding_m2_analysis_only_excluded_from_gaps", bool(not m2_analysis_only.empty and not (set(gaps["claim_id"]) & set(m2_analysis_only)))),
+        Finding("[exploratory]", "Top evidence-gap rows are ordered by claim count descending.", "finding_top_gaps_sorted_by_count", top_gaps.empty or top_gaps["claims"].is_monotonic_decreasing),
+    ])
     new_ledger = comparison.loc[comparison["Ledger view"] == "new tidy records"].iloc[0]
     input_rule = (
         "Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, "
@@ -155,6 +167,8 @@ def _report_parts() -> dict[str, str]:
         "comparison_reasons": _markdown(comparison_reasons),
         "m1_recheck": _markdown(m1),
         "gaps": _markdown(top_gaps),
+        "findings": findings_md,
+        "findings_checks": findings_checks_md,
         "input_rule": input_rule,
         "total": f"{len(claims):,}",
         "m1_count": f"{len(m1):,}",
@@ -224,16 +238,17 @@ The **{parts['m1_count']}** previously unrecoverable M1 aggregate claims were re
 
 ## Findings
 
-- The tidy ledger uses `sources.toml` for provenance; old-ledger matching is informational only; see the ledger comparison tables above.
-- The M1 aggregate run records are historical logs and are excluded from regeneration gap totals.
-- M2 design-analysis reports without measurement outputs are marked analysis-only and excluded from regeneration gap totals.
-- The largest gaps are grouped directly from the current status values in the tidy ledger; see Top evidence gaps.
+{parts['findings']}
 
 ## Limits
 
 - A `reproducible-now` status means a source and data mapping is present; this inventory did not run the harness.
 - Values excluded as input/configuration or outside the selected claim contexts are not assigned new provenance.
 - This report compares source evidence only and does not remeasure timings or run simulations.
+
+## Appendix: paired findings checks
+
+{parts['findings_checks']}
 '''
 
 

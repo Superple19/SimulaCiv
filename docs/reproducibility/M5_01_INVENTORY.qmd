@@ -173,13 +173,22 @@ The **29** previously unrecoverable M1 aggregate claims were rechecked against c
 
 ## Findings
 
-- The tidy ledger uses `sources.toml` for provenance; old-ledger matching is informational only; see the ledger comparison tables above.
-- The M1 aggregate run records are historical logs and are excluded from regeneration gap totals.
-- M2 design-analysis reports without measurement outputs are marked analysis-only and excluded from regeneration gap totals.
-- The largest gaps are grouped directly from the current status values in the tidy ledger; see Top evidence gaps.
+- [exploratory] The previously unrecoverable M1 aggregate rows carry the `historical-log` status.
+- [exploratory] Historical-log and historical-protocol rows are excluded from regeneration gap totals.
+- [exploratory] M2 analysis-only rows do not appear in the evidence-gap table.
+- [exploratory] Top evidence-gap rows are ordered by claim count descending.
 
 ## Limits
 
 - A `reproducible-now` status means a source and data mapping is present; this inventory did not run the harness.
 - Values excluded as input/configuration or outside the selected claim contexts are not assigned new provenance.
 - This report compares source evidence only and does not remeasure timings or run simulations.
+
+## Appendix: paired findings checks
+
+| Finding tag | Paired predicate | Value |
+|---|---|---|
+| [exploratory] | `finding_m1_rows_are_historical_log` | `true` |
+| [exploratory] | `finding_historical_rows_excluded_from_gaps` | `true` |
+| [exploratory] | `finding_m2_analysis_only_excluded_from_gaps` | `true` |
+| [exploratory] | `finding_top_gaps_sorted_by_count` | `true` |

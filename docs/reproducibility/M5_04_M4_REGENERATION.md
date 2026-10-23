@@ -350,19 +350,18 @@ time; the complete M5-04 wall time is therefore unavailable.
 
 ## Findings
 
-- The M4-03 A-1 daily CSV, M4-06 experiment outputs, M4-07 CRN estimate
-  arrays, and viewer sample regenerated exactly; see [Deterministic
+- \[exploratory\] Selected M4-03, M4-06, and M4-07 deterministic outputs
+  match their committed records; see [Deterministic
   reruns](#deterministic-reruns).
-- The corrected M4-02 incremental A-5 comparison agrees across the M4-02
-  PASS commit, tag, and pre-follow-up HEAD; see [M4-02 incremental
-  diagnosis](#m4-02-incremental-diagnosis). The previous failures came
-  from the harness path mismatch, not a runtime change.
-- M4-03, M4-05, and M4-06 A-5 gates pass; see [Gate
-  verdicts](#gate-verdicts) and their cited raw samples.
-- M4-04 and M4-05 representation differences are listed under
-  [documented
-  normalizations](#documented-representation-normalizations), separate
-  from unexplained mismatches.
+- \[exploratory\] The corrected incremental diagnosis reports the same
+  verdict for each cell across its recorded revisions; see [M4-02
+  incremental diagnosis](#m4-02-incremental-diagnosis).
+- \[exploratory\] The selected M4-03, M4-05, and M4-06 A-5 cells pass;
+  see [Gate verdicts](#gate-verdicts).
+- \[exploratory\] Documented representation normalizations have a rule
+  and source, and are listed separately from unexplained mismatches; see
+  [Documented representation
+  normalizations](#documented-representation-normalizations).
 
 ## Limits
 
@@ -380,3 +379,12 @@ time; the complete M5-04 wall time is therefore unavailable.
 Later update (2026-10-23): generated provenance tables use revision
 labels and content digests, not Git commit hashes. Historical M4-02 raw
 logs remain unchanged.
+
+## Appendix: paired findings checks
+
+| Finding tag | Paired predicate | Value |
+|----|----|----|
+| \[exploratory\] | `finding_selected_deterministic_outputs_match` | `true` |
+| \[exploratory\] | `finding_incremental_verdicts_match_across_revisions` | `true` |
+| \[exploratory\] | `finding_selected_a5_gates_pass` | `true` |
+| \[exploratory\] | `finding_normalizations_are_documented_and_separate` | `true` |
