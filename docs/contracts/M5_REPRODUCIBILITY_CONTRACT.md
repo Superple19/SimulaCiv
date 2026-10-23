@@ -186,6 +186,8 @@ At setup, the latest stable release was selected from each project's official re
 
 All selected versions are latest stable as checked on the date above; no compatibility downgrade was needed. Later upgrades require a separate pin-update commit and a successful `just check`.
 
+Later update (2026-10-23): `git ls-remote --tags --refs` verified the pinned CI action, tool, and pre-commit refs. The workflow's previous `astral-sh/setup-uv@v10` ref did not exist, although the latest release tag `v10.3.2` did; CI now pins that exact tag. The verified workflow refs are `actions/checkout@v7`, `Swatinem/rust-cache@v2`, `astral-sh/setup-uv@v10.3.2`, `quarto-dev/quarto-actions@v2`, and `extractions/setup-just@v4`. Verified tool tags are Python `v3.15.1`, uv `0.13.5`, Quarto `v1.10.19`, just `1.58.0`, Vale `v3.25.1`, and prek `v0.5.7`. Verified pre-commit refs are `crate-ci/committed@v1.1.11`, `pre-commit/pre-commit-hooks@v6.0.0`, and `gitleaks/gitleaks@v8.30.1`. `just check` now verifies that every remote `uses:` ref in `ci.yml` resolves to an exact upstream tag.
+
 ### 11.2 Frozen toolchain and commands
 
 - `analysis/` is a uv project with committed `pyproject.toml` and `uv.lock`; `requires-python = ">=3.11"`; direct dependencies are limited to pandas, matplotlib, and pytest. Additional direct dependencies require a recorded reason in the change that adds them.
