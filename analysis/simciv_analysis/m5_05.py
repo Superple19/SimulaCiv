@@ -459,11 +459,11 @@ def run_timing(entry_id: str, raw_dir: Path, summary_path: Path, root: Path = RO
     summary = _summary_template(
         stage=entry_id,
         specs=[str(REGISTRY), config, entry["report"]],
-        harnesses=[
+        harnesses=[str(path) for path in [
             str(root / "analysis" / "simciv_analysis" / "m5_05.py"),
             str(root / harness),
             str(root / entry["harness"]),
-        ],
+        ] if Path(path).is_file()],
         raw_output=raw_dir.relative_to(root).as_posix(),
         details={
             "entry": entry_id,
