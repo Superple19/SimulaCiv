@@ -34,6 +34,12 @@ just report-m5-01
 
 This regenerates the tidy claim ledger, `.qmd`, and rendered GitHub-flavored Markdown with the pinned tools. Use `just claims` alone when only the ledger needs regeneration.
 
+## Delivery
+
+Normal delivery is `just ship`: it runs local checks, then pushes the tested `HEAD` to `ci-check`. A successful CI run is promoted to `main` automatically by a fast-forward-only workflow; a promoted commit then gets its own CI run on `main`. Never push directly to `main`.
+
+One-time bootstrap only: push the initial CI branch-trigger and promotion-workflow commits directly to `main`, because GitHub runs the `workflow_run` promotion workflow from the version on the default branch.
+
 ## WSL (Linux) checks
 
 The default Ubuntu WSL distro runs Linux checks from `~/simciv-ci`. These user-home installs need no `sudo`; the distro must already have `build-essential`, `pkg-config`, `curl`, and `git`:

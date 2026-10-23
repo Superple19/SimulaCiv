@@ -9,7 +9,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+WORKFLOWS = (
+    ROOT / ".github" / "workflows" / "ci.yml",
+    ROOT / ".github" / "workflows" / "promote.yml",
+)
 USES = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)")
 
 
@@ -57,17 +60,21 @@ def missing_action_refs(workflow: str) -> list[str]:
 
 
 def main() -> int:
-    try:
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-    except OSError as error:
-        print(f"cannot read {WORKFLOW}: {error}", file=sys.stderr)
-        return 1
-    missing = missing_action_refs(workflow)
+    refs = 0
+    missing = []
+    for path in WORKFLOWS:
+        try:
+            workflow = path.read_text(encoding="utf-8")
+        except OSError as error:
+            print(f"cannot read {path}: {error}", file=sys.stderr)
+            return 1
+        refs += len(action_refs(workflow))
+        missing.extend((path.name, ref) for ref in missing_action_refs(workflow))
     if missing:
-        for ref in missing:
-            print(f"CI action tag does not resolve: {ref}", file=sys.stderr)
+        for workflow, ref in missing:
+            print(f"{workflow} action tag does not resolve: {ref}", file=sys.stderr)
         return 1
-    print(f"All {len(action_refs(workflow))} CI action refs resolve to Git tags.")
+    print(f"All {refs} action refs across {len(WORKFLOWS)} workflows resolve to Git tags.")
     return 0
 
 

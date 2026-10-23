@@ -49,6 +49,8 @@ Unless explicitly requested:
 - Install the repository Git hooks with `just hooks-install` before committing; never bypass them with `--no-verify`.
 - Write multi-line commit messages with `-F <file>` or separate `-m` flags.
 - When writing repository files from PowerShell, use PowerShell 7 or `-Encoding utf8NoBOM`; never rely on Windows PowerShell 5.1 `Out-File` or `Set-Content` defaults.
+- Normal delivery is `just ship`, which runs local checks and pushes to `ci-check`; successful CI runs are promoted to `main` automatically with fast-forward only. Never push directly to `main`.
+- One-time bootstrap commits for this workflow must be pushed directly to `main`, because GitHub runs the `workflow_run` promotion workflow from the version on the default branch.
 
 ## 5. SimulaCiv development stages
 

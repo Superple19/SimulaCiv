@@ -1,0 +1,53 @@
+name: Promote green ci-check to main
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [ci-check]
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  promote:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full history at tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Fast-forward main and dispatch its CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Refusing promotion: workflow run has an invalid head SHA" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          if ! tested_sha="$(git rev-parse --verify "${TESTED_SHA}^{commit}" 2>/dev/null)"; then
+            echo "::error::Refusing promotion: tested commit $TESTED_SHA is not available" >&2
+            exit 1
+          fi
+          main_sha="$(git rev-parse --verify refs/remotes/origin/main)"
+          if [[ "$main_sha" == "$tested_sha" ]]; then
+            echo "main already points to $tested_sha; no promotion needed"
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor "$main_sha" "$tested_sha"; then
+            echo "::error::Refusing promotion: $tested_sha is not a descendant of origin/main ($main_sha); main was not changed" >&2
+            exit 1
+          fi
+          git push origin "$tested_sha:refs/heads/main"
+          gh workflow run ci.yml --ref main

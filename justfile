@@ -100,3 +100,6 @@ ci:
     just ci-rust
     just clippy-cross
     just ci-analysis
+
+ship: ci
+    git push origin HEAD:ci-check
