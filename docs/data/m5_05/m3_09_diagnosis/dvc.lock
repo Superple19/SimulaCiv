@@ -40,3 +40,36 @@ stages:
       md5: 69b334badb36951dd46830ea9c35f7a4.dir
       size: 50392
       nfiles: 11
+  m5_05_m3_09_diagnosis_bisect:
+    cmd: uv run --project analysis python 
+      crates/sim-model/examples/m5_05_m3_09_bisect.py --run --repo . --plan 
+      docs/reproducibility/m5_05_configs/m3_09_diagnosis_bisect.toml --worker 
+      crates/sim-model/examples/m5_05_m3_09_revision.rs --config 
+      crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml --clone-dir
+      target/m5_05_m3_09_diagnosis/bisect-clone-run3 --build-dir 
+      target/m5_05_m3_09_diagnosis/bisect-build --output-dir 
+      docs/data/m5_05/m3_09_diagnosis/bisect_raw --summary 
+      docs/data/m5_05/m3_09_diagnosis/bisect_summary.json
+    deps:
+    - path: crates/sim-model/examples/m5_05_m3_09_bisect.py
+      hash: md5
+      md5: 587e290882e4c45fe95d858feaad411b
+      size: 14490
+    - path: crates/sim-model/examples/m5_05_m3_09_revision.rs
+      hash: md5
+      md5: 0a1f66b3619d47f765a1ab8cc830d9cc
+      size: 14524
+    - path: crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
+      hash: md5
+      md5: c858684e065fd5dcd6a05964146573a7
+      size: 1517
+    - path: docs/reproducibility/m5_05_configs/m3_09_diagnosis_bisect.toml
+      hash: md5
+      md5: a25b564f04e8d95e33f0f54b8b95436e
+      size: 876
+    outs:
+    - path: docs/data/m5_05/m3_09_diagnosis/bisect_raw
+      hash: md5
+      md5: 54808aa57e78ce4e3fe886d6f841c242.dir
+      size: 29390
+      nfiles: 4
