@@ -1,0 +1,42 @@
+schema: '2.0'
+stages:
+  m5_05_m3_09_diagnosis:
+    cmd: uv run --directory analysis --project . python -m 
+      simciv_analysis.m5_05_diagnosis --output-dir 
+      docs/data/m5_05/m3_09_diagnosis/raw --summary 
+      docs/data/m5_05/m3_09_diagnosis/summary.json
+    deps:
+    - path: analysis/simciv_analysis/m5_05_diagnosis.py
+      hash: md5
+      md5: 05432a66d604d0be9a4be849fb3b22bc
+      size: 21630
+    - path: analysis/simciv_analysis/provenance.py
+      hash: md5
+      md5: 7f6421325dd55c11e660106f2062d6ae
+      size: 7180
+    - path: crates/sim-model/examples/m5_05_m3_09_revision.rs
+      hash: md5
+      md5: 0a1f66b3619d47f765a1ab8cc830d9cc
+      size: 14524
+    - path: crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
+      hash: md5
+      md5: c858684e065fd5dcd6a05964146573a7
+      size: 1517
+    - path: docs/data/m5_05/m3_09_incremental_equal_live/summary.json
+      hash: md5
+      md5: bef3c7f6d9147d255599bcfa4d2685b8
+      size: 5176
+    - path: docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md
+      hash: md5
+      md5: a10b29df24fec77e312db2621c396533
+      size: 20240
+    - path: docs/reproducibility/m5_05_configs/m3_09_diagnosis.toml
+      hash: md5
+      md5: 8b23b94fec64ca77d7fee56d37508754
+      size: 1437
+    outs:
+    - path: docs/data/m5_05/m3_09_diagnosis/raw
+      hash: md5
+      md5: 69b334badb36951dd46830ea9c35f7a4.dir
+      size: 50392
+      nfiles: 11
