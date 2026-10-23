@@ -88,7 +88,11 @@ def _tracked_data_paths(root: Path) -> set[str]:
     paths = subprocess.check_output(
         ["git", "ls-files", "-z", "docs/data"], cwd=root
     ).split(b"\0")
-    return {path.decode("utf-8") for path in paths if path}
+    return {
+        path.decode("utf-8")
+        for path in paths
+        if path and Path(path.decode("utf-8")).name.casefold() != "readme.md"
+    }
 
 
 def autocrlf_warning(root: Path = ROOT) -> str | None:

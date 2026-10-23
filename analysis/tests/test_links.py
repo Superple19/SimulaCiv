@@ -19,3 +19,19 @@ def test_main_checks_only_supplied_qmd_files(tmp_path, monkeypatch, capsys):
 
     assert links.main(["note.qmd"]) == 1
     assert "note.qmd:1: missing relative target: missing.md" in capsys.readouterr().out
+
+
+def test_main_rejects_links_to_dvc_outputs_even_when_present(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "docs" / "reports" / "note.md"
+    target = tmp_path / "docs" / "data" / "stage" / "raw.json"
+    source.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    source.write_text("[raw output](../data/stage/raw.json)\n", encoding="utf-8")
+    target.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(links, "ROOT", tmp_path)
+    monkeypatch.setattr(links, "dvc_output_paths", lambda _root: {"docs/data/stage/raw.json"})
+
+    assert links.main(["docs/reports/note.md"]) == 1
+    output = capsys.readouterr().out
+    assert "DVC-tracked output is unavailable in a clean checkout" in output
+    assert "link to the stage dvc.yaml/README entry" in output

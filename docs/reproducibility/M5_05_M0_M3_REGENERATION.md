@@ -117,8 +117,7 @@ for every revision. Checkpoint live population: 103237. M3P and M3
 digest parity across revisions: True. The worker is
 [m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs);
 raw rounds and calibration probes are
-[samples.jsonl](../data/m5_05/m3_09_diagnosis/raw/samples.jsonl),
-DVC-managed.
+`docs/data/m5_05/m3_09_diagnosis/raw/samples.jsonl`, DVC-managed.
 
 | revision | commit | live population | numerator median µs/tick | numerator MAD µs/tick | numerator MAD/median | denominator median µs/tick | denominator MAD µs/tick | denominator MAD/median | M3P/M3 | r | samples | valid |
 |----|----|----|----|----|----|----|----|----|----|----|----|----|
@@ -156,10 +155,10 @@ subphase stopwatch.
 
 | commit | numerator median µs/tick | numerator MAD µs/tick | denominator median µs/tick | denominator MAD µs/tick | ratio | numerator MAD/median | denominator MAD/median | status | raw data |
 |----|----|----|----|----|----|----|----|----|----|
-| 4dd991914996178d1ad7dc554ac88db459619e57 | 58,578.888889 | 325.1 | 25,313.577778 | 212.577778 | 2.314129 | 0.00555 | 0.008398 | changed | [samples](../data/m5_05/m3_09_diagnosis/bisect_raw/4dd991914996.json) |
-| 71f23ab7306aa88a7b46498884f09d55b352c58e | 58,780.266667 | 604.688889 | 25,439.755556 | 249.411112 | 2.310567 | 0.010287 | 0.009804 | changed | [samples](../data/m5_05/m3_09_diagnosis/bisect_raw/71f23ab7306a.json) |
-| 78181e21aad0733189450b77eb07ee8bc4708377 | 58,658.933333 | 517.577777 | 25,044.966667 | 235.088889 | 2.342145 | 0.008824 | 0.009387 | changed | [samples](../data/m5_05/m3_09_diagnosis/bisect_raw/78181e21aad0.json) |
-| c33a76125fcc447c8c6735d831164c2082800c95 | 60,043.777778 | 429.333334 | 25,203.9 | 291.977778 | 2.382321 | 0.00715 | 0.011585 | unchanged | [samples](../data/m5_05/m3_09_diagnosis/bisect_raw/c33a76125fcc.json) |
+| 4dd991914996178d1ad7dc554ac88db459619e57 | 58,578.888889 | 325.1 | 25,313.577778 | 212.577778 | 2.314129 | 0.00555 | 0.008398 | changed | `docs/data/m5_05/m3_09_diagnosis/bisect_raw/4dd991914996.json` |
+| 71f23ab7306aa88a7b46498884f09d55b352c58e | 58,780.266667 | 604.688889 | 25,439.755556 | 249.411112 | 2.310567 | 0.010287 | 0.009804 | changed | `docs/data/m5_05/m3_09_diagnosis/bisect_raw/71f23ab7306a.json` |
+| 78181e21aad0733189450b77eb07ee8bc4708377 | 58,658.933333 | 517.577777 | 25,044.966667 | 235.088889 | 2.342145 | 0.008824 | 0.009387 | changed | `docs/data/m5_05/m3_09_diagnosis/bisect_raw/78181e21aad0.json` |
+| c33a76125fcc447c8c6735d831164c2082800c95 | 60,043.777778 | 429.333334 | 25,203.9 | 291.977778 | 2.382321 | 0.00715 | 0.011585 | unchanged | `docs/data/m5_05/m3_09_diagnosis/bisect_raw/c33a76125fcc.json` |
 
 Build/checkpoint time is outside the timed samples. Repetitions per
 sample were fixed at 3; total timing window 324.3 s; complete run 583.2

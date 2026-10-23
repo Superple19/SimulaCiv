@@ -606,7 +606,7 @@ No cross-revision diagnosis has been recorded. The pre-registered plan is [m3_09
                     "numerator MAD/median": candidate.get("spreads", {}).get("numerator_mad_over_median"),
                     "denominator MAD/median": candidate.get("spreads", {}).get("denominator_mad_over_median"),
                     "status": candidate.get("status"),
-                    "raw data": f"[samples](../data/m5_05/m3_09_diagnosis/bisect_raw/{candidate_commit[:12]}.json)",
+                    "raw data": f"`docs/data/m5_05/m3_09_diagnosis/bisect_raw/{candidate_commit[:12]}.json`",
                 })
         bisect_text = "Bisect not run: no valid step change was detected." if step is None else (
             f"A-5 `git bisect run` identified `{diagnosis.get('bisect')}` as the first changed commit."
@@ -627,7 +627,7 @@ Against `{historical['comparison_reference']}`, numerator changed {historical['n
 
 ### Cross-revision A-5 results
 
-The paired execution options are `{diagnosis['workers'][0]['execution_options']}` for every revision. Checkpoint live population: {diagnosis['checkpoint_live_population']}. M3P and M3 digest parity across revisions: {diagnosis['checkpoint_digest_parity']}. The worker is [m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs); raw rounds and calibration probes are [samples.jsonl](../data/m5_05/m3_09_diagnosis/raw/samples.jsonl), DVC-managed.
+The paired execution options are `{diagnosis['workers'][0]['execution_options']}` for every revision. Checkpoint live population: {diagnosis['checkpoint_live_population']}. M3P and M3 digest parity across revisions: {diagnosis['checkpoint_digest_parity']}. The worker is [m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs); raw rounds and calibration probes are `docs/data/m5_05/m3_09_diagnosis/raw/samples.jsonl`, DVC-managed.
 
 {_table(revision_rows, ["revision", "commit", "live population", "numerator median µs/tick", "numerator MAD µs/tick", "numerator MAD/median", "denominator median µs/tick", "denominator MAD µs/tick", "denominator MAD/median", "M3P/M3", "r", "samples", "valid"])}
 

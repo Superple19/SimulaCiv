@@ -53,3 +53,28 @@ def test_integrity_check_detects_changed_and_unregistered_files(tmp_path):
     assert any("unregistered data file" in error for error in check(tmp_path))
     write(tmp_path)
     assert check(tmp_path) == []
+
+
+def test_integrity_check_allows_documentation_readme_edits(tmp_path):
+    import subprocess
+
+    data = tmp_path / "docs/data/stage"
+    data.mkdir(parents=True)
+    (data / "README.md").write_text("source note\n", encoding="utf-8")
+    (data / "records.json").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "docs/data/SHA256SUMS").write_text("", encoding="utf-8")
+    write(tmp_path)
+
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "--local", "core.autocrlf", "false"], cwd=tmp_path, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True
+    )
+    subprocess.run(["git", "add", "docs/data"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "fixture"], cwd=tmp_path, check=True)
+
+    (data / "README.md").write_text("updated documentation\n", encoding="utf-8")
+    assert check(tmp_path) == []
