@@ -20,12 +20,12 @@ repos:
           - md
           - --markdown-linebreak-ext
           - qmd
-        exclude: '^(?:docs/data/(?!.*README\.md$)|docs/reports/(?!M5_).*|docs/contracts/(?:M1_CONTRACT_FREEZE|M2_OPTIMIZATION_CONTRACT|M3_INTERACTION_CONTRACT|M4_COUNTERFACTUAL_CONTRACT)\.md$|docs/design/|crates/sim-model/examples/m4_02_a[2-4]_measure\.rs$)'
+        exclude: '^(?:docs/data/|docs/reports/(?!M5_).*|docs/contracts/(?:M1_CONTRACT_FREEZE|M2_OPTIMIZATION_CONTRACT|M3_INTERACTION_CONTRACT|M4_COUNTERFACTUAL_CONTRACT)\.md$|docs/design/|crates/sim-model/examples/m4_02_a[2-4]_measure\.rs$)'
       - id: end-of-file-fixer
-        exclude: '^(?:docs/data/(?!.*README\.md$)|docs/reports/(?!M5_).*|docs/contracts/(?:M1_CONTRACT_FREEZE|M2_OPTIMIZATION_CONTRACT|M3_INTERACTION_CONTRACT|M4_COUNTERFACTUAL_CONTRACT)\.md$|docs/design/|crates/sim-model/examples/m4_02_a[2-4]_measure\.rs$)'
+        exclude: '^(?:docs/data/|docs/reports/(?!M5_).*|docs/contracts/(?:M1_CONTRACT_FREEZE|M2_OPTIMIZATION_CONTRACT|M3_INTERACTION_CONTRACT|M4_COUNTERFACTUAL_CONTRACT)\.md$|docs/design/|crates/sim-model/examples/m4_02_a[2-4]_measure\.rs$)'
       - id: mixed-line-ending
         args: [--fix=no]
-        exclude: '^(?:docs/data/(?!.*README\.md$)|docs/reports/(?!M5_).*|docs/contracts/(?:M1_CONTRACT_FREEZE|M2_OPTIMIZATION_CONTRACT|M3_INTERACTION_CONTRACT|M4_COUNTERFACTUAL_CONTRACT)\.md$|docs/design/|crates/sim-model/examples/m4_02_a[2-4]_measure\.rs$)'
+        exclude: '^(?:docs/data/|docs/reports/(?!M5_).*|docs/contracts/(?:M1_CONTRACT_FREEZE|M2_OPTIMIZATION_CONTRACT|M3_INTERACTION_CONTRACT|M4_COUNTERFACTUAL_CONTRACT)\.md$|docs/design/|crates/sim-model/examples/m4_02_a[2-4]_measure\.rs$)'
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
@@ -46,6 +46,14 @@ repos:
         name: block staged files over 1 MiB unless DVC-managed
         entry: uv run --directory analysis --project . python -m simciv_analysis.git_hooks
         language: system
+        stages: [pre-commit]
+
+      - id: data-integrity
+        name: verify docs/data checksums
+        entry: uv run --directory analysis --project . python -m simciv_analysis.data_integrity --check
+        language: system
+        pass_filenames: false
+        always_run: true
         stages: [pre-commit]
 
       - id: vale-changed-docs

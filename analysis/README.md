@@ -60,6 +60,8 @@ just provenance docs/data/m5_05/<entry>/summary.json
 
 `just check` works without DVC installed and without `dvc pull`; report generators consume committed summaries, never raw DVC outputs.
 
+After a harness creates a new file under `docs/data/`, run `just data-integrity-update` and commit the new checksum entry with the output. The command adds new paths but refuses to change or remove an existing data checksum; `just check` and the pre-commit hook verify the manifest.
+
 ## M5-05 focused regeneration
 
 Validate the frozen conclusion registry and run its deterministic Session 1 confirmations with `just m5-05-plan` and `just m5-05-deterministic`. A selected timing conclusion is run with `just m5-05-timing <conclusion-id>`; the command records A-5 raw samples and verifies the summary's content provenance. Session 2 and Session 3 timing entries are intentionally rejected until separately authorized.
