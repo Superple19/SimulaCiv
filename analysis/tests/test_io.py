@@ -4,7 +4,14 @@ import json
 import pandas as pd
 import pytest
 
-from simciv_analysis.io import load_data
+from simciv_analysis.io import load_data, write_text_lf
+
+
+def test_write_text_lf_creates_parents_and_normalizes_newlines(tmp_path):
+    target = tmp_path / "nested" / "output.txt"
+    write_text_lf(target, "한글\r\ntwo\rthree\n")
+
+    assert target.read_bytes() == "한글\ntwo\nthree\n".encode("utf-8")
 
 
 def test_loads_csv_json_jsonl_and_gzip(tmp_path):

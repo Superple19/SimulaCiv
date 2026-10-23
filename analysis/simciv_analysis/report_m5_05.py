@@ -18,6 +18,7 @@ from .figures import configure, svg_bytes
 from .findings import Finding, render_findings
 from .m5_05 import _registry
 from .provenance import ROOT
+from .io import write_text_lf
 from .tables import dataframe_to_markdown
 
 configure()
@@ -730,12 +731,13 @@ def render_outputs() -> None:
     outputs = _outputs()
     for path, contents in outputs.items():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(contents)
+        write_text_lf(path, contents.decode("utf-8"))
     with tempfile.TemporaryDirectory(prefix="simciv-m5-05-") as temp:
         temp_dir = Path(temp)
         qmd = temp_dir / QMD_PATH.name
-        qmd.write_bytes(outputs[QMD_PATH])
-        MD_PATH.write_bytes(_render_quarto(qmd, temp_dir).read_bytes())
+        write_text_lf(qmd, outputs[QMD_PATH].decode("utf-8"))
+        rendered = _render_quarto(qmd, temp_dir)
+        write_text_lf(MD_PATH, rendered.read_text(encoding="utf-8"))
     print(f"generated {QMD_PATH.relative_to(ROOT)} and {MD_PATH.relative_to(ROOT)}")
 
 
@@ -752,8 +754,11 @@ def check_outputs() -> bool:
     with tempfile.TemporaryDirectory(prefix="simciv-m5-05-check-") as temp:
         temp_dir = Path(temp)
         qmd = temp_dir / QMD_PATH.name
-        qmd.write_bytes(outputs[QMD_PATH])
-        if _render_quarto(qmd, temp_dir).read_bytes() != MD_PATH.read_bytes():
+        write_text_lf(qmd, outputs[QMD_PATH].decode("utf-8"))
+        rendered = _render_quarto(qmd, temp_dir)
+        normalized = temp_dir / "normalized.md"
+        write_text_lf(normalized, rendered.read_text(encoding="utf-8"))
+        if normalized.read_bytes() != MD_PATH.read_bytes():
             print(f"M5-05 Quarto output differs: {MD_PATH}", file=sys.stderr)
             return False
     print("M5-05 summaries, result table, figure, QMD, and Quarto GFM output match")

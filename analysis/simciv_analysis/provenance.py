@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .io import write_text_lf
+
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -142,7 +144,7 @@ def finalize_summary(summary_path: str | Path, root: Path = ROOT) -> dict[str, A
             },
         }
     )
-    resolved.write_text(json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
+    write_text_lf(resolved, json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n")
     return summary
 
 

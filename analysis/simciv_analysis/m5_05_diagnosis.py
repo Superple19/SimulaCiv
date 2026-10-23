@@ -17,6 +17,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from .io import write_text_lf
+
 from .provenance import ROOT
 
 
@@ -216,8 +218,8 @@ def _build_start_worker(root: Path, revision: dict[str, str], worktree_root: Pat
     started = time.perf_counter()
     command = ["cargo", "build", "--release", "-p", "sim-model", "--example", WORKER.stem]
     build = subprocess.run(command, cwd=worktree, env=env, text=True, capture_output=True)
-    (log_dir / f"{revision['id']}.stdout.txt").write_text(build.stdout, encoding="utf-8")
-    (log_dir / f"{revision['id']}.stderr.txt").write_text(build.stderr, encoding="utf-8")
+    write_text_lf(log_dir / f"{revision['id']}.stdout.txt", build.stdout)
+    write_text_lf(log_dir / f"{revision['id']}.stderr.txt", build.stderr)
     if build.returncode:
         raise RuntimeError(f"build failed at {revision['id']}: {build.stderr[-8000:]}")
     exe = target_dir / "release" / "examples" / f"{WORKER.stem}.exe"
@@ -390,9 +392,10 @@ def run_diagnosis(output_dir: Path, summary_path: Path, root: Path = ROOT) -> di
             "phase_attribution": None,
         }
         raw_records.insert(0, {"type": "header", "plan": plan, "protocol": details["protocol"], "host": details["host"]})
-        with sample_path.open("w", encoding="utf-8", newline="\n") as stream:
-            for item in raw_records:
-                stream.write(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n")
+        write_text_lf(
+            sample_path,
+            "".join(json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n" for item in raw_records),
+        )
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary = {
             "command": "dvc repro docs/data/m5_05/m3_09_diagnosis/dvc.yaml:m5_05_m3_09_diagnosis",
@@ -403,7 +406,7 @@ def run_diagnosis(output_dir: Path, summary_path: Path, root: Path = ROOT) -> di
             "stage": "m3_09_diagnosis",
             "type": "diagnostic-timing",
         }
-        summary_path.write_text(json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
+        write_text_lf(summary_path, json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n")
         if summary_path.stat().st_size > 1024 * 1024:
             raise ValueError("diagnosis summary exceeds the M5-00 1 MiB committed-file limit")
         return summary

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .provenance import ROOT
+from .io import write_text_lf
 
 
 SUMMARY = Path("docs/data/m5_05/m3_09_diagnosis/bisect_summary.json")
@@ -47,7 +48,7 @@ def annotate(path: Path = ROOT / SUMMARY, root: Path = ROOT) -> dict[str, Any]:
     summary["phase_attribution"] = f"{phase} (`{helper}`)" if helper in patch else phase
     summary["bisect_patch_has_phase9b_append"] = helper in patch
     summary["harness_files"] = sorted(set(summary.get("harness_files", [])) | {THIS_FILE})
-    path.write_text(json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
+    write_text_lf(path, json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n")
     return summary
 
 

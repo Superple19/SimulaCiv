@@ -1,8 +1,7 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
 crates/sim-model/tests/fixtures/*.txt text eol=lf
 docs/reproducibility/M5_01_INVENTORY.qmd text eol=lf
 docs/reproducibility/M5_01_INVENTORY.md text eol=lf
 docs/data/** -text
-docs/**/*.jsonl -text
-docs/**/*.csv -text
-docs/**/*.json -text
-docs/**/*.log -text

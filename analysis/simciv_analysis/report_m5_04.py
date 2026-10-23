@@ -29,7 +29,7 @@ from simciv_analysis.claims import (
 )
 from simciv_analysis.figures import configure, svg_bytes
 from simciv_analysis.findings import Finding, render_findings
-from simciv_analysis.io import load_data
+from simciv_analysis.io import load_data, write_text_lf
 from simciv_analysis.tables import dataframe_to_markdown
 from simciv_analysis.sources import load_sources, source_for_claim
 
@@ -1030,13 +1030,16 @@ def render_outputs() -> None:
     outputs = _outputs()
     for path, contents in outputs.items():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(contents)
+        if path.suffix == ".gz":
+            path.write_bytes(contents)
+        else:
+            write_text_lf(path, contents.decode("utf-8"))
     with tempfile.TemporaryDirectory(prefix="simciv-m5-04-") as temp:
         temp_dir = Path(temp)
         qmd = temp_dir / QMD_PATH.name
-        qmd.write_bytes(outputs[QMD_PATH])
+        write_text_lf(qmd, outputs[QMD_PATH].decode("utf-8"))
         rendered = _render_quarto(qmd, temp_dir)
-        MD_PATH.write_bytes(rendered.read_bytes())
+        write_text_lf(MD_PATH, rendered.read_text(encoding="utf-8"))
     print(f"generated {QMD_PATH.relative_to(ROOT)} and {MD_PATH.relative_to(ROOT)}")
 
 
@@ -1053,9 +1056,11 @@ def check_outputs() -> bool:
     with tempfile.TemporaryDirectory(prefix="simciv-m5-04-check-") as temp:
         temp_dir = Path(temp)
         qmd = temp_dir / QMD_PATH.name
-        qmd.write_bytes(outputs[QMD_PATH])
+        write_text_lf(qmd, outputs[QMD_PATH].decode("utf-8"))
         rendered = _render_quarto(qmd, temp_dir)
-        if rendered.read_bytes() != MD_PATH.read_bytes():
+        normalized = temp_dir / "normalized.md"
+        write_text_lf(normalized, rendered.read_text(encoding="utf-8"))
+        if normalized.read_bytes() != MD_PATH.read_bytes():
             print(f"M5-04 Quarto output differs: {MD_PATH}", file=sys.stderr)
             return False
     print("M5-04 claim statuses, comparison data, figures, QMD, and Quarto GFM output match")

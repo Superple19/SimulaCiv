@@ -1,4 +1,4 @@
-"""Checked readers for repository-local tabular and JSON data."""
+"""Checked data readers and UTF-8/LF text output for the analysis tools."""
 
 from __future__ import annotations
 
@@ -11,6 +11,13 @@ import pandas as pd
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+def write_text_lf(path: str | Path, text: str) -> None:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    destination.write_text(normalized, encoding="utf-8", newline="\n")
 
 
 def _checked_path(path: str | Path, root: str | Path) -> Path:

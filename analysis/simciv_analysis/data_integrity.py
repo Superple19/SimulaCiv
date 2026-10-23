@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from simciv_analysis.git_hooks import dvc_output_paths
+from simciv_analysis.io import write_text_lf
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -184,10 +185,9 @@ def write(root: Path = ROOT) -> None:
     for relative, path in sorted(files.items()):
         if relative not in entries:
             entries[relative] = _digest(root, relative, path)
-    manifest.write_text(
+    write_text_lf(
+        manifest,
         "".join(f"{digest}  {relative}\n" for relative, digest in sorted(entries.items())),
-        encoding="utf-8",
-        newline="\n",
     )
 
 

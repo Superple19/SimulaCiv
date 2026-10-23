@@ -173,6 +173,8 @@ Wait for explicit user instruction before proceeding.
 - Use this template for new reports: Status; Question; Method (links); Results (generated); Findings (at most five bullets, each citing a generated item); Limits (at most five bullets). Target one page of prose.
 - Do not duplicate content across the README, audits, and contracts; link to the single source.
 - Preserve existing historical reports. M5-08 may add summary-first headers.
+- All text files use UTF-8 with LF line endings except `.bat` and `.cmd` files, which use CRLF. Data files are byte-exact and are never normalized. Python analysis code writes text only through `simciv_analysis.io.write_text_lf`.
+- All text files use UTF-8 with LF line endings. Data files are byte-exact and are never normalized. Python analysis code writes text only through `simciv_analysis.io.write_text_lf`.
 
 ### Findings integrity
 

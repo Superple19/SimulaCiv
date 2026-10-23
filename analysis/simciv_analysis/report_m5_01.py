@@ -14,7 +14,7 @@ import pandas as pd
 
 from simciv_analysis.claims import OLD_LEDGER, ROOT, expand_old_ledger, match_old_claims
 from simciv_analysis.findings import Finding, render_findings
-from simciv_analysis.io import load_data
+from simciv_analysis.io import load_data, write_text_lf
 from simciv_analysis.tables import dataframe_to_markdown
 
 
@@ -272,9 +272,11 @@ def check_outputs() -> bool:
     with tempfile.TemporaryDirectory(prefix="simciv-m5-01-") as temp:
         temp_dir = Path(temp)
         qmd = temp_dir / QMD_PATH.name
-        qmd.write_text(qmd_text, encoding="utf-8", newline="\n")
+        write_text_lf(qmd, qmd_text)
         rendered = _render_quarto(qmd, temp_dir)
-        if not rendered.exists() or rendered.read_bytes() != MD_PATH.read_bytes():
+        normalized = temp_dir / "normalized.md"
+        write_text_lf(normalized, rendered.read_text(encoding="utf-8"))
+        if not rendered.exists() or normalized.read_bytes() != MD_PATH.read_bytes():
             print(f"Quarto output differs: {MD_PATH}", file=sys.stderr)
             return False
     print("M5-01 QMD and Quarto GFM output match committed files")
@@ -288,10 +290,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         return 0 if check_outputs() else 1
     qmd_text = render_qmd()
-    QMD_PATH.write_text(qmd_text, encoding="utf-8", newline="\n")
-    rendered = _render_quarto(QMD_PATH, QMD_PATH.parent)
-    if rendered != MD_PATH:
-        rendered.replace(MD_PATH)
+    write_text_lf(QMD_PATH, qmd_text)
+    with tempfile.TemporaryDirectory(prefix="simciv-m5-01-") as temp:
+        temp_dir = Path(temp)
+        qmd = temp_dir / QMD_PATH.name
+        write_text_lf(qmd, qmd_text)
+        rendered = _render_quarto(qmd, temp_dir)
+        write_text_lf(MD_PATH, rendered.read_text(encoding="utf-8"))
     print(f"generated {QMD_PATH.relative_to(ROOT)} and {MD_PATH.relative_to(ROOT)}")
     return 0
 

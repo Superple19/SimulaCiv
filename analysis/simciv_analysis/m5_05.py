@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .provenance import ROOT
+from .io import write_text_lf
 
 
 REGISTRY = Path("docs/reproducibility/m5_05_conclusions.toml")
@@ -363,7 +364,7 @@ def _summary_template(
 
 def _write_summary(path: Path, summary: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+    write_text_lf(path, json.dumps(summary, sort_keys=True, separators=(",", ":")) + "\n")
 
 
 def run_deterministic(session: int, raw_dir: Path, summary_path: Path, root: Path = ROOT) -> dict[str, Any]:
@@ -374,21 +375,22 @@ def run_deterministic(session: int, raw_dir: Path, summary_path: Path, root: Pat
     log_path = raw_dir / "deterministic-tests.log"
     raw_dir.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, str]] = []
-    with log_path.open("w", encoding="utf-8", newline="\n") as log:
-        for target in targets:
-            test_path = root / "crates" / "sim-model" / "tests" / f"{target}.rs"
-            if not test_path.is_file():
-                raise ValueError(f"registry names a missing Rust integration test: {target}")
-            command = ["cargo", "test", "-p", "sim-model", "--test", target]
-            log.write("COMMAND " + subprocess.list2cmdline(command) + "\n")
-            log.flush()
-            result = subprocess.run(command, cwd=root, capture_output=True, text=True)
-            log.write(result.stdout)
-            log.write(result.stderr)
-            results.append({"target": target, "status": "pass" if result.returncode == 0 else "fail"})
-            if result.returncode != 0:
-                log.flush()
-                raise subprocess.CalledProcessError(result.returncode, command)
+    log_parts = []
+    write_text_lf(log_path, "")
+    for target in targets:
+        test_path = root / "crates" / "sim-model" / "tests" / f"{target}.rs"
+        if not test_path.is_file():
+            write_text_lf(log_path, "".join(log_parts))
+            raise ValueError(f"registry names a missing Rust integration test: {target}")
+        command = ["cargo", "test", "-p", "sim-model", "--test", target]
+        log_parts.append("COMMAND " + subprocess.list2cmdline(command) + "\n")
+        write_text_lf(log_path, "".join(log_parts))
+        result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+        log_parts.extend((result.stdout, result.stderr))
+        write_text_lf(log_path, "".join(log_parts))
+        results.append({"target": target, "status": "pass" if result.returncode == 0 else "fail"})
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(result.returncode, command)
     configs = [entry["config"].split(";", maxsplit=1)[0] for entry in entries if int(entry["session"]) == session]
     harnesses = [
         str(root / "analysis" / "simciv_analysis" / "m5_05.py"),
@@ -436,7 +438,7 @@ def run_timing(entry_id: str, raw_dir: Path, summary_path: Path, root: Path = RO
     ]
     print(f"TIMING RUN START entry={entry_id}", flush=True)
     result = subprocess.run(command, cwd=root, capture_output=True, text=True)
-    log_path.write_text(result.stdout + result.stderr, encoding="utf-8", newline="\n")
+    write_text_lf(log_path, result.stdout + result.stderr)
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
     if result.returncode != 0:
