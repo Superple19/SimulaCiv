@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 
-def command(args: list[str], cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=check)
+def command(args: list[str], cwd: Path, check: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, check=check)
 
 
 def med_mad(values: list[float]) -> tuple[float, float]:
@@ -87,15 +87,22 @@ def measure_candidate(args: argparse.Namespace) -> int:
         "SIMCIV_M5_05_REVISION_COMMIT": commit,
     })
     started = time.perf_counter()
-    built = command(["cargo", "build", "--release", "-p", "sim-model", "--example", "m5_05_m3_09_revision"], root, check=False)
+    built = command(["cargo", "build", "--release", "-p", "sim-model", "--example", "m5_05_m3_09_revision"], root, check=False, env=env)
     if built.returncode:
         print(json.dumps({"commit": commit, "status": "skip", "reason": "build failed", "stderr": built.stderr[-4000:]}), flush=True)
         return 125
     exe = target_dir / "release/examples/m5_05_m3_09_revision.exe"
-    process = subprocess.Popen(
-        [str(exe), "--server"], cwd=root, env=env, text=True, encoding="utf-8",
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1,
-    )
+    if not exe.is_file():
+        print(json.dumps({"commit": commit, "status": "skip", "reason": f"built example not found: {exe}"}), flush=True)
+        return 125
+    try:
+        process = subprocess.Popen(
+            [str(exe), "--server"], cwd=root, env=env, text=True, encoding="utf-8",
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1,
+        )
+    except OSError as error:
+        print(json.dumps({"commit": commit, "status": "skip", "reason": str(error)}), flush=True)
+        return 125
     try:
         line = process.stdout.readline() if process.stdout else ""
         fields = line.rstrip("\r\n").split("|")
@@ -220,11 +227,13 @@ def run_bisect(args: argparse.Namespace) -> dict[str, Any]:
         lines.append(line.rstrip("\r\n"))
     return_code = process.wait()
     bisect_log = command(["git", "bisect", "log"], clone, check=False).stdout
-    bad_result = command(["git", "rev-parse", "--verify", "refs/bisect/bad"], clone, check=False)
-    first_bad = bad_result.stdout.strip() if bad_result.returncode == 0 else None
+    bad_line = next((line for line in lines if "is the first bad commit" in line), None)
+    first_bad = bad_line.split()[0] if bad_line else None
     candidate_records = []
     for path in sorted(output.glob("*.json")):
         candidate_records.append(json.loads(path.read_text(encoding="utf-8")))
+    if not candidate_records or first_bad is None:
+        raise RuntimeError("git bisect produced no valid measured change point")
     summary = {
         "plan": {"path": Path(args.plan).as_posix(), "values": plan},
         "first_changed_commit": first_bad,
