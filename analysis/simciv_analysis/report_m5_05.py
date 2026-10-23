@@ -93,8 +93,6 @@ def _entry_cells(entry: dict[str, Any], summary: dict[str, Any] | None) -> list[
             "K": row.get("K"),
             "k": row.get("k"),
             "p_local": row.get("p_local"),
-                "carrying capacity": row.get("carrying_capacity"),
-                "initial settlement resource": row.get("initial_settlement_resource"),
             "left_mode": row.get("left_mode"),
             "right_mode": row.get("right_mode"),
             "result": result,
@@ -112,7 +110,25 @@ def _status(entry_id: str, cells: list[dict[str, Any]]) -> tuple[str, str]:
     if entry_id == "m2_final_tick":
         new_values = [m["new_us"] for cell in cells for m in cell["measurements"] if m.get("new_us") is not None]
         holds = bool(new_values) and all(17_000 <= value <= 22_000 for value in new_values)
-        return ("holds" if holds else "does not hold"), "Selected 100k whole-tick values compared with the recorded 17–22 ms range."
+        return ("holds" if holds else "does not hold"), "Selected 100k serial and explicit-Rayon medians compared with the recorded 17–22 ms range."
+    if entry_id == "m2_phase4_crossover":
+        ratios = {str(cell["cell"]): float(cell["result"]["speedup_left_over_right"]) for cell in cells}
+        low = next((value for cell, value in ratios.items() if "N1000" in cell), None)
+        high = next((value for cell, value in ratios.items() if "N5000" in cell), None)
+        one_thread = next((value for cell, value in ratios.items() if "N10000" in cell), None)
+        if None not in {low, high, one_thread}:
+            note = (
+                f"Full-tick ratios (serial/Rayon) were 1k={low:.3f}, 5k={high:.3f}, "
+                f"10k one-thread={one_thread:.3f}; combined-P4 timing was not separately measured."
+            )
+        else:
+            note = "The selected full-tick cells are incomplete."
+        return "inconclusive", note
+    if entry_id == "m3_02_parallel_phase6b":
+        ratios = [float(cell["result"]["speedup_left_over_right"]) for cell in cells]
+        if len(ratios) == 3 and all(ratio <= 1.0 for ratio in ratios):
+            return "holds", "All selected full-tick cells show no parallel gain; the historical 180-cell aggregate is not recomputed."
+        return "inconclusive", "Selected cells do not establish the historical 180-cell aggregate."
     if entry_id == "m3_03_search_reduction":
         deltas = [cell["result"].get("paired_left_minus_right_median_us") for cell in cells]
         mads = [cell["result"].get("paired_left_minus_right_mad_us") for cell in cells]
@@ -124,6 +140,39 @@ def _status(entry_id: str, cells: list[dict[str, Any]]) -> tuple[str, str]:
     return "inconclusive", "The selected timing values do not have an exact historical workload/mode match."
 
 
+def _derived_summary(entry_id: str, cells: list[dict[str, Any]]) -> str:
+    by_n = {int(cell["N"]): cell["result"] for cell in cells if cell.get("N") is not None}
+
+    def alpha(low_n: int, high_n: int, field: str) -> float | None:
+        low = by_n.get(low_n, {}).get(field)
+        high = by_n.get(high_n, {}).get(field)
+        if not isinstance(low, (int, float)) or not isinstance(high, (int, float)) or low <= 0 or high <= 0:
+            return None
+        return math.log(float(high) / float(low)) / math.log(high_n / low_n)
+
+    if entry_id == "m2_near_linear":
+        serial = alpha(50_000, 100_000, "left_median_us")
+        rayon = alpha(50_000, 100_000, "right_median_us")
+        if serial is not None and rayon is not None:
+            return f"50k→100k α: serial {serial:.3f}; explicit Rayon {rayon:.3f}"
+    if entry_id == "m3_01_serial_baseline":
+        first = alpha(10_000, 50_000, "right_median_us")
+        second = alpha(50_000, 100_000, "right_median_us")
+        if first is not None and second is not None:
+            return f"serial storage α: 10k→50k {first:.3f}; 50k→100k {second:.3f}"
+    return "—"
+
+
+def _new_values_text(cells: list[dict[str, Any]]) -> str:
+    return "; ".join(
+        f"{cell['cell']} {cell['left_mode']} {cell['result']['left_median_us']:.3f} µs; "
+        f"{cell['right_mode']} {cell['result']['right_median_us']:.3f} µs"
+        for cell in cells
+        if isinstance(cell.get("result", {}).get("left_median_us"), (int, float))
+        and isinstance(cell.get("result", {}).get("right_median_us"), (int, float))
+    ) or "not run"
+
+
 def _build() -> dict[str, Any]:
     registry = _registry()
     deterministic = json.loads(DETERMINISTIC_SUMMARY.read_text(encoding="utf-8")) if DETERMINISTIC_SUMMARY.exists() else None
@@ -133,9 +182,13 @@ def _build() -> dict[str, Any]:
         summary = _summary(entry["id"])
         cells = _entry_cells(entry, summary)
         status, note = _status(entry["id"], cells)
-        raw = f"../../data/m5_05/{entry['id']}/summary.json" if summary else "not recorded"
+        raw = f"../data/m5_05/{entry['id']}/summary.json" if summary else "not recorded"
         harness_path = str(entry.get("harness", ""))
-        harness_link = f"[{Path(harness_path).name}](../../{harness_path})" if harness_path else "unmapped"
+        harness_link = (
+            f"[{Path(harness_path).name}](../../{harness_path})"
+            if harness_path and (ROOT / harness_path).is_file()
+            else f"source unavailable: `{harness_path}`" if harness_path else "unmapped"
+        )
         old_text = "; ".join(
             f"{item['cell']} {key} {value:.3f} µs"
             for cell in cells if (item := cell.get("historical"))
@@ -148,16 +201,13 @@ def _build() -> dict[str, Any]:
             "report": Path(entry["report"]).name,
             "section_anchor": entry["section"],
             "old values": old_text,
-            "new values": "; ".join(
-                f"{cell['cell']} {measurement['path']} {measurement['new_us']:.3f} µs"
-                for cell in cells for measurement in cell["measurements"]
-                if isinstance(measurement.get("new_us"), (int, float))
-            ) or "not run",
+            "new values": _new_values_text(cells),
             "new/old ratios": "; ".join(
                 f"{cell['cell']} {measurement['path']} {measurement['ratio']:.3f}×"
                 for cell in cells for measurement in cell["measurements"]
                 if measurement.get("ratio") is not None
             ) or "—",
+            "derived": _derived_summary(entry["id"], cells),
             ">20% flag": any(
                 measurement.get("flag_over_20_percent")
                 for cell in cells for measurement in cell["measurements"]
@@ -188,16 +238,25 @@ def _build() -> dict[str, Any]:
                 "r": result.get("repetitions_per_sample"),
                 "minimum sample s": result.get("minimum_sample_seconds"),
                 "harness": f"[m5_05_conclusion_measure.rs](../../crates/sim-model/examples/m5_05_conclusion_measure.rs)",
-                "summary": f"[summary](../../data/m5_05/{entry['id']}/summary.json)",
+                "summary": f"[summary](../data/m5_05/{entry['id']}/summary.json)",
             })
     deterministic_results = deterministic.get("details", {}).get("results", []) if deterministic else []
     results = {
         "session": 1,
+        "planned": [
+            {
+                "conclusion": entry["id"],
+                "session": int(entry["session"]),
+                "estimate_minutes": int(entry["estimate_minutes"]),
+                "status": "recorded" if _summary(entry["id"]) is not None else "not run",
+            }
+            for entry in registry["conclusion"]
+        ],
         "deterministic": deterministic_results,
         "conclusions": rows,
         "cells": measurement_rows,
         "deterministic_summary": (
-            "[deterministic summary](../../data/m5_05/deterministic/summary.json)"
+            "[deterministic summary](../data/m5_05/deterministic/summary.json)"
             if deterministic else "not recorded"
         ),
         "sessions_not_run": [2, 3],
@@ -236,7 +295,7 @@ def _timing_figure(rows: list[dict[str, Any]]) -> bytes:
     ax.set_xlabel("µs per tick")
     ax.set_title("Recorded versus M5-05 selected timings")
     fig.tight_layout()
-    rendered = svg_bytes(fig)
+    rendered = b"\n".join(line.rstrip(b" \t") for line in svg_bytes(fig).splitlines()) + b"\n"
     plt.close(fig)
     return rendered
 
@@ -281,11 +340,15 @@ The frozen conclusion set is [`m5_05_conclusions.toml`](m5_05_conclusions.toml).
 
 ### Conclusion status
 
-{_table(conclusions, ["milestone", "conclusion", "old values", "new values", "new/old ratios", ">20% flag", "status", "notes", "harness", "measurement harness", "summary", "source report"])}
+{_table(conclusions, ["milestone", "conclusion", "old values", "new values", "new/old ratios", "derived", ">20% flag", "status", "notes", "harness", "measurement harness", "summary", "source report"])}
+
+### Planned conclusion set
+
+{_table(data["planned"], ["conclusion", "session", "estimate_minutes", "status"])}
 
 ### Session 1 selected cells
 
-{_table(cells, ["conclusion", "cell", "N", "K", "k", "p_local", "carrying capacity", "initial settlement resource", "left µs/tick", "left MAD", "right µs/tick", "right MAD", "speedup", "paired delta µs", "paired delta MAD", "r", "minimum sample s"])}
+{_table(cells, ["conclusion", "cell", "N", "K", "k", "p_local", "left µs/tick", "left MAD", "right µs/tick", "right MAD", "speedup", "paired delta µs", "paired delta MAD", "r", "minimum sample s"])}
 
 ### Deterministic confirmations
 

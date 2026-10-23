@@ -3,7 +3,7 @@ import json
 
 from simciv_analysis.claims import apply_m5_05_results
 from simciv_analysis.m5_05 import validate_registry
-from simciv_analysis.report_m5_05 import _build
+from simciv_analysis.report_m5_05 import _build, _derived_summary, _new_values_text, _status
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -90,3 +90,44 @@ def test_m5_05_report_uses_one_git_summary_row_per_conclusion():
     assert len(generated["results_bytes"]) <= 1024 * 1024
     assert "docs/data/m5_05/" in generated["qmd"].decode("utf-8")
     assert "DVC raw paths" in generated["qmd"].decode("utf-8")
+
+
+def test_m5_05_status_does_not_overstate_partial_crossover_evidence():
+    def cell(name: str, speedup: float) -> dict:
+        return {"cell": name, "result": {"speedup_left_over_right": speedup}, "measurements": []}
+
+    status, note = _status(
+        "m2_phase4_crossover",
+        [cell("B-N1000-T6", 0.95), cell("B-N5000-T6", 1.16), cell("B-N10000-T1", 0.89)],
+    )
+    assert status == "inconclusive"
+    assert "combined-P4 timing was not separately measured" in note
+
+
+def test_m5_05_selected_parallel_cells_support_only_the_no_gain_statement():
+    cells = [
+        {"result": {"speedup_left_over_right": 0.86}, "measurements": []},
+        {"result": {"speedup_left_over_right": 0.96}, "measurements": []},
+        {"result": {"speedup_left_over_right": 0.99}, "measurements": []},
+    ]
+    status, note = _status("m3_02_parallel_phase6b", cells)
+    assert status == "holds"
+    assert "historical 180-cell aggregate is not recomputed" in note
+
+
+def test_m5_05_computes_scaling_exponents_from_measured_cells():
+    cells = [
+        {"N": 50_000, "result": {"left_median_us": 10.0, "right_median_us": 8.0}},
+        {"N": 100_000, "result": {"left_median_us": 20.0, "right_median_us": 16.0}},
+    ]
+    assert _derived_summary("m2_near_linear", cells) == "50k→100k α: serial 1.000; explicit Rayon 1.000"
+
+
+def test_m5_05_reports_new_timings_even_without_an_exact_historical_match():
+    cells = [{
+        "cell": "B-N1000-T6",
+        "left_mode": "M2Serial",
+        "right_mode": "M2Phase4Rayon",
+        "result": {"left_median_us": 10.0, "right_median_us": 11.0},
+    }]
+    assert _new_values_text(cells) == "B-N1000-T6 M2Serial 10.000 µs; M2Phase4Rayon 11.000 µs"
