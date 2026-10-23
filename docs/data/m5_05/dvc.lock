@@ -511,3 +511,77 @@ stages:
       md5: e421a7df67390b391707ba7b7e84654f.dir
       size: 8891
       nfiles: 2
+  m5_05_m3_06_settlement_index:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_06_settlement_index --raw-dir
+      docs/data/m5_05/m3_06_settlement_index/raw --summary
+      docs/data/m5_05/m3_06_settlement_index/summary.json
+    deps:
+    - path: Cargo.lock
+      hash: md5
+      md5: d1fb4588d9336d06a02fd3d85c39fc6b
+      size: 8630
+    - path: Cargo.toml
+      hash: md5
+      md5: 24901e4cd5f8bbbe41a5cfa89f7a5d65
+      size: 88
+    - path: analysis/simciv_analysis/m5_05.py
+      hash: md5
+      md5: a5ab6b1d980b4be6caeeb2dc75e184f0
+      size: 22355
+    - path: analysis/simciv_analysis/provenance.py
+      hash: md5
+      md5: f15fe16170c88b35a2085edba89cc13c
+      size: 7014
+    - path: crates/sim-core/Cargo.toml
+      hash: md5
+      md5: 9b512fbb43a72e2775faab5c3b9295dc
+      size: 134
+    - path: crates/sim-core/src
+      hash: md5
+      md5: 6a9075a8073d6b50097209057693c361.dir
+      size: 7155
+      nfiles: 3
+    - path: crates/sim-model/Cargo.toml
+      hash: md5
+      md5: 7e66efee2589a237359ffbebb5490030
+      size: 801
+    - path: crates/sim-model/benches/m3_scale_limit_bench.rs
+      hash: md5
+      md5: cee6e2a9b5ef1d8e6150297367972041
+      size: 89936
+    - path: crates/sim-model/examples/m5_05_conclusion_measure.rs
+      hash: md5
+      md5: acd785bbc51c972bd0b3ec180bb65647
+      size: 30640
+    - path: crates/sim-model/examples/m5_05_sessions23.rs
+      hash: md5
+      md5: 577f4f98492fc3f04b96496541543949
+      size: 48890
+    - path: crates/sim-model/src
+      hash: md5
+      md5: 617cec2d208f9ed19f795b4486b8b6a8.dir
+      size: 1502730
+      nfiles: 31
+    - path: docs/reports/M3_06_SETTLEMENT_INDEX.md
+      hash: md5
+      md5: 94022e0ce696b8faba7200fa26157e6e
+      size: 15567
+    - path: docs/reproducibility/m5_05_conclusions.toml
+      hash: md5
+      md5: df2728ae740c7bfc54c6bc1430fd0b04
+      size: 13214
+    - path: docs/reproducibility/m5_05_configs/m3_equilibrium.toml
+      hash: md5
+      md5: a683418e2eca87577869652841ffd388
+      size: 1195
+    - path: rust-toolchain.toml
+      hash: md5
+      md5: f36317fcd9148fcd1b4c7340b4c1e335
+      size: 31
+    outs:
+    - path: docs/data/m5_05/m3_06_settlement_index/raw
+      hash: md5
+      md5: 62279158b857befe44a1a1123a507cbd.dir
+      size: 2665
+      nfiles: 2
