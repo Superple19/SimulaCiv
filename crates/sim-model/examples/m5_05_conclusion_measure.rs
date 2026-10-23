@@ -25,7 +25,9 @@ use std::time::Instant;
 const DAYS: u32 = 3;
 const WARMUPS: usize = 2;
 const SAMPLES: usize = 41;
-const MIN_SAMPLE_SECONDS: f64 = 1.25;
+const TARGET_SAMPLE_SECONDS: f64 = 1.5;
+const MIN_SAMPLE_SECONDS: f64 = 1.0;
+const CALIBRATION_PROBES: usize = 3;
 const CHUNK: NonZeroUsize = NonZeroUsize::new(256).expect("nonzero chunk");
 const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 const REGISTRY: &str = "../../docs/reproducibility/m5_05_conclusions.toml";
@@ -585,55 +587,14 @@ fn run_samples(
     if !m2 {
         assert_eq!(chunk_size, CHUNK.get(), "M3 Session 1 uses fixed chunk 256");
     }
-    let calibration = if m2 {
-        m2_pair(
-            config,
-            pool.as_ref().expect("M2 candidate uses pool"),
-            pool_threads,
-            1,
-            0,
-            chunk_size,
-        )
-    } else {
-        m3_pair(config, left, right, pool.as_ref(), pool_threads, 1, 0)
-    };
-    let pair_seconds = (calibration.left_us + calibration.right_us) / 1_000_000.0;
-    let repetitions = (MIN_SAMPLE_SECONDS / pair_seconds).ceil().max(1.0) as usize;
-    for warmup_index in 0..(WARMUPS - 1) {
+    let run_pair = |count, order_offset| {
         if m2 {
-            let _ = m2_pair(
-                config,
-                pool.as_ref().expect("M2 candidate uses pool"),
-                pool_threads,
-                repetitions,
-                1,
-                chunk_size,
-            );
-        } else {
-            let _ = m3_pair(
-                config,
-                left,
-                right,
-                pool.as_ref(),
-                pool_threads,
-                repetitions,
-                1,
-            );
-        }
-        let _ = warmup_index;
-    }
-    let mut left_samples = Vec::with_capacity(SAMPLES);
-    let mut right_samples = Vec::with_capacity(SAMPLES);
-    let mut delta_samples = Vec::with_capacity(SAMPLES);
-    let mut sample_seconds = Vec::with_capacity(SAMPLES);
-    for sample in 0..SAMPLES {
-        let pair = if m2 {
             m2_pair(
                 config,
                 pool.as_ref().expect("M2 candidate uses pool"),
                 pool_threads,
-                repetitions,
-                sample,
+                count,
+                order_offset,
                 chunk_size,
             )
         } else {
@@ -643,10 +604,35 @@ fn run_samples(
                 right,
                 pool.as_ref(),
                 pool_threads,
-                repetitions,
-                sample,
+                count,
+                order_offset,
             )
-        };
+        }
+    };
+    // Warm the runner's lazy scratch allocations before calibrating repetitions.
+    let _ = run_pair(1, 0);
+    let mut probe_seconds = Vec::with_capacity(CALIBRATION_PROBES);
+    for probe in 0..CALIBRATION_PROBES {
+        let pair = run_pair(1, probe);
+        probe_seconds.push((pair.left_us + pair.right_us) / 1_000_000.0);
+    }
+    let repetitions = (TARGET_SAMPLE_SECONDS / median(&probe_seconds))
+        .ceil()
+        .max(1.0) as usize;
+    for warmup in 0..WARMUPS {
+        let pair = run_pair(repetitions, WARMUPS + warmup);
+        let elapsed = (pair.left_us + pair.right_us) / 1_000_000.0;
+        assert!(
+            elapsed >= MIN_SAMPLE_SECONDS,
+            "A-5 warmup was shorter than one second: {elapsed:.6}s (r={repetitions})"
+        );
+    }
+    let mut left_samples = Vec::with_capacity(SAMPLES);
+    let mut right_samples = Vec::with_capacity(SAMPLES);
+    let mut delta_samples = Vec::with_capacity(SAMPLES);
+    let mut sample_seconds = Vec::with_capacity(SAMPLES);
+    for sample in 0..SAMPLES {
+        let pair = run_pair(repetitions, sample);
         let elapsed = (pair.left_us + pair.right_us) / 1_000_000.0;
         if elapsed < 1.0 {
             panic!(
@@ -663,6 +649,8 @@ fn run_samples(
     let (delta_median, delta_mad) = median_mad(&delta_samples);
     json!({
         "warmups": WARMUPS,
+        "calibration_probe_pairs": CALIBRATION_PROBES,
+        "target_sample_seconds": TARGET_SAMPLE_SECONDS,
         "samples": SAMPLES,
         "repetitions_per_sample": repetitions,
         "days_per_operation": DAYS,

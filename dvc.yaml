@@ -14,7 +14,6 @@ stages:
     - crates/sim-core/Cargo.toml
     - Cargo.lock
     - rust-toolchain.toml
-    - crates/sim-model/examples/m5_05_conclusion_measure.rs
     - docs/reproducibility/m5_05_configs/m2_40.toml
     - docs/reproducibility/m5_05_configs/m3_m2_40.toml
     - crates/sim-model/tests/determinism_oracle_tests.rs
