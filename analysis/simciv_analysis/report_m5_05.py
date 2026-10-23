@@ -46,18 +46,10 @@ def _diagnosis() -> dict[str, Any] | None:
     if DIAGNOSIS_BISECT_SUMMARY.is_file():
         bisect = json.loads(DIAGNOSIS_BISECT_SUMMARY.read_text(encoding="utf-8"))
         commit = bisect.get("first_changed_commit")
-        patch = subprocess.run(
-            ["git", "show", "--format=", "--unified=0", str(commit), "--", "crates/sim-model/src/m3p.rs"],
-            cwd=ROOT, text=True, capture_output=True, check=True,
-        ).stdout if commit else ""
         details["bisect_summary"] = bisect
         details["bisect"] = commit
-        details["phase_attribution"] = (
-            "Phase 9B incremental non-compaction append path (`apply_phase9b_storage_incremental_append`)"
-            if "apply_phase9b_storage_incremental_append" in patch
-            else "phase not identified from the changed M3P source diff"
-        )
-        details["bisect_patch_has_phase9b_append"] = "apply_phase9b_storage_incremental_append" in patch
+        details["phase_attribution"] = bisect.get("phase_attribution")
+        details["bisect_patch_has_phase9b_append"] = bisect.get("bisect_patch_has_phase9b_append", False)
     return details
 
 
