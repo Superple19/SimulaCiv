@@ -94,6 +94,14 @@ def _dvc_lock_hashes(lock_path: Path) -> dict[str, str]:
     return result
 
 
+def _summary_lock_path(summary_path: Path, root: Path) -> Path:
+    for parent in summary_path.parents:
+        candidate = parent / "dvc.lock"
+        if candidate.is_file():
+            return candidate
+    return root / "dvc.lock"
+
+
 def finalize_summary(summary_path: str | Path, root: Path = ROOT) -> dict[str, Any]:
     path = Path(summary_path)
     resolved = path if path.is_absolute() else root / path
@@ -101,9 +109,7 @@ def finalize_summary(summary_path: str | Path, root: Path = ROOT) -> dict[str, A
     spec_files = [str(item) for item in summary.get("spec_files", [])]
     harness_files = [str(item) for item in summary.get("harness_files", [])]
     raw_outputs = [str(item) for item in summary.get("raw_outputs", [])]
-    lock_path = resolved.parent.parent / "dvc.lock"
-    if not lock_path.exists():
-        lock_path = root / "dvc.lock"
+    lock_path = _summary_lock_path(resolved, root)
     lock_hashes = _dvc_lock_hashes(lock_path)
     output_records = []
     for output in raw_outputs:
