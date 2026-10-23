@@ -165,7 +165,8 @@ class Worker:
         self.process.stdin.flush()
         line = self.process.stdout.readline()
         fields = line.rstrip("\r\n").split("|")
-        if not fields or fields[0] != operation.upper() and not (operation == "probe" and fields[0] == "PROBE"):
+        expected_operation = "PROBE" if operation == "probe" else operation
+        if not fields or fields[0] != expected_operation:
             stderr = self.process.stderr.read() if self.process.stderr else ""
             raise RuntimeError(f"bad worker reply from {self.revision['id']}: {line}\n{stderr}")
         if operation == "probe":
