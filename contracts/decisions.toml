@@ -470,7 +470,7 @@ milestone = "M5"
 stage = "M5-03"
 status = "frozen"
 summary = "Every GitHub Actions reference uses an exact existing tag and action-ref validation checks both CI workflows."
-enforced_by = ["analysis/simciv_analysis/action_refs.py", "test:analysis/tests/test_action_refs.py::test_ci_and_promotion_workflows_have_pinned_checkout_actions", "just:action-refs-check"]
+enforced_by = ["analysis/simciv_analysis/action_refs.py", "analysis/tests/test_action_refs.py", "just:action-refs-check", ".github/workflows/ci.yml", ".github/workflows/promote.yml"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-24"
 
