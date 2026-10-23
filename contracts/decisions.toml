@@ -420,7 +420,7 @@ milestone = "M5"
 stage = "M5-03"
 status = "frozen"
 summary = "Install and use the pinned prek hooks for repository checks and never bypass them with --no-verify."
-enforced_by = [".pre-commit-config.yaml", "AGENTS.md", "just:hooks-install", "prek:pre-push-clippy", "prek:pre-push-ci-linux"]
+enforced_by = [".pre-commit-config.yaml", "AGENTS.md", "just:hooks-install", "prek:pre-push-clippy", "prek:pre-push-cargo-test", "prek:pre-push-ci-linux"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-23"
 

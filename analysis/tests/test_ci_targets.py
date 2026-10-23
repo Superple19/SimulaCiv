@@ -111,6 +111,16 @@ def test_quarto_preflight_precedes_checks_and_report_commands():
         assert "check-quarto" in line
 
 
+def test_ship_only_checks_cleanliness_and_pushes_to_ci_check():
+    justfile = JUSTFILE.read_text(encoding="utf-8")
+    ship_line = next(line for line in justfile.splitlines() if line.startswith("ship:"))
+    assert ship_line == "ship: analysis-sync"
+    ship_recipe = justfile.split("ship: analysis-sync", 1)[1].split("\n\n", 1)[0]
+    assert "python -m simciv_analysis.ship" in ship_recipe
+    assert "just ci" not in ship_recipe
+    assert "ship: ci" not in justfile
+
+
 def test_just_jobs_install_all_target_tools_before_running_them():
     workflow = WORKFLOW.read_text(encoding="utf-8")
     jobs_with_just = {}

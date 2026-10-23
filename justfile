@@ -113,5 +113,5 @@ ci: check-quarto
     just clippy-cross
     just ci-analysis
 
-ship: ci
-    git push origin HEAD:ci-check
+ship: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.ship

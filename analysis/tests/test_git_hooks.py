@@ -77,6 +77,33 @@ def test_commit_range_comes_from_the_github_push_event(tmp_path):
     assert _commit_range(tmp_path, {"GITHUB_EVENT_NAME": "workflow_dispatch"}) is None
 
 
+def test_ship_refuses_dirty_trees_and_pushes_clean_trees(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from simciv_analysis import ship
+
+    calls = []
+    outputs = iter((SimpleNamespace(returncode=0, stdout=" M README.md\n", stderr=""),))
+    monkeypatch.setattr(ship.subprocess, "run", lambda *args, **kwargs: (calls.append(args[0]), next(outputs))[1])
+    assert ship.main() == 1
+    assert calls == [["git", "status", "--porcelain", "--untracked-files=all"]]
+    assert "working tree" in capsys.readouterr().err
+
+    calls.clear()
+    outputs = iter(
+        (
+            SimpleNamespace(returncode=0, stdout="", stderr=""),
+            SimpleNamespace(returncode=0),
+        )
+    )
+    monkeypatch.setattr(ship.subprocess, "run", lambda *args, **kwargs: (calls.append(args[0]), next(outputs))[1])
+    assert ship.main() == 0
+    assert calls == [
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        ["git", "push", "origin", "HEAD:ci-check"],
+    ]
+
+
 def test_large_file_check_allows_dvc_output_and_ignores_unstaged(tmp_path):
     output = tmp_path / "docs/data/sample/raw"
     output.mkdir(parents=True)

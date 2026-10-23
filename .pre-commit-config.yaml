@@ -93,6 +93,13 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      - id: pre-push-cargo-test
+        name: cargo test before push
+        entry: cargo test --workspace
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
       - id: pre-push-clippy-cross
         name: cross-target cargo clippy before push
         entry: just clippy-cross
