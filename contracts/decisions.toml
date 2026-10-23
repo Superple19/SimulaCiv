@@ -1,0 +1,712 @@
+# Machine-readable M5 decisions and the current milestone/stage status.
+
+[[decision]]
+id = "M5-00-D-1"
+milestone = "M5"
+stage = "M5-00"
+status = "superseded"
+summary = "The original policy capped Git data files at 1 MiB and used manifest-backed release assets for larger outputs."
+enforced_by = []
+superseded_by = "M5-00-A-1"
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-00-D-2"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "Judge timing conclusions on the Ryzen 5 9600X reference host using A-5 and flag absolute timing ratios that change by more than 20 percent."
+enforced_by = ["docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-00-D-3"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "Deterministic claims must reproduce bit-exactly or be labeled unrecoverable without fabrication or approximation."
+enforced_by = ["analysis/simciv_analysis/claims.py", "analysis/simciv_analysis/report_m5_04.py"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-00-D-4"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "The planned sim-py interface uses maturin and PyO3 for Python 3.11 or newer while keeping the runner core on the standard library."
+enforced_by = []
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-00-D-5"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "The planned Python smoke matrix is Python 3.12 on three operating systems and any Python CI addition requires explicit approval."
+enforced_by = []
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-00-D-6"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "The robustness pilot starts from at least ten seeds across M3P sustained, M3 equilibrium, and calibrated migration workloads."
+enforced_by = []
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-00-D-7"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "The publication plan is an arXiv technical report first with JOSS considered after M5."
+enforced_by = []
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-00-D-8"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "M5 acceptance requires every numeric claim to be classified and deterministic claims to be exact or explicitly unrecoverable."
+enforced_by = ["analysis/simciv_analysis/claims.py", "just:claims-check", "just:check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-02-D-1"
+milestone = "M5"
+stage = "M5-02"
+status = "frozen"
+summary = "Keep the M1 manifest at its existing root path and organize other repository content under the frozen docs and analysis layout."
+enforced_by = ["contracts/m1_contract.toml", "docs/README.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-02-D-2"
+milestone = "M5"
+stage = "M5-02"
+status = "frozen"
+summary = "Reports live under docs/reports with stage-based names and exactly one approved status header while historical prose is preserved."
+enforced_by = ["docs/reports/RENAMES.md", "analysis/simciv_analysis/links.py"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-02-D-3"
+milestone = "M5"
+stage = "M5-02"
+status = "frozen"
+summary = "Data is organized in flat per-stage docs/data folders with README files and superseded subfolders."
+enforced_by = ["docs/data/README.md", "docs/data/SHA256SUMS", "analysis/simciv_analysis/data_integrity.py"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-02-D-4"
+milestone = "M5"
+stage = "M5-02"
+status = "frozen"
+summary = "Maintained analysis tools live in analysis and obsolete tools use analysis/legacy."
+enforced_by = ["analysis/README.md", "analysis/simciv_analysis/links.py"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-02-D-5"
+milestone = "M5"
+stage = "M5-02"
+status = "frozen"
+summary = "Cited harnesses, data, and historical report wording are preserved, and removals are recorded in the rename index."
+enforced_by = ["AGENTS.md", "docs/reports/RENAMES.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-02-D-6"
+milestone = "M5"
+stage = "M5-02"
+status = "frozen"
+summary = "M5-03 commits the claim extractor, excludes input values, adds tiers, and rechecks the 29 M1 unrecoverable claims."
+enforced_by = ["analysis/simciv_analysis/claims.py", "docs/reproducibility/claims.csv.gz", "just:claims-check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"
+date = "2026-10-22"
+
+[[decision]]
+id = "M5-03-D-1"
+milestone = "M5"
+stage = "M5-03"
+status = "superseded"
+summary = "The original version policy pinned GitHub Actions by major tag while pinning Python, libraries, and Quarto more narrowly."
+enforced_by = []
+superseded_by = "M5-INFRA-EXACT-ACTION-TAGS"
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-03-D-2"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Analysis is a uv project requiring Python 3.11 or newer with pandas, matplotlib, and pytest as its direct dependencies."
+enforced_by = ["analysis/pyproject.toml", "analysis/uv.lock", ".python-version"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-03-D-3"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Quarto reports and Matplotlib figures are deterministic and check mode compares temporary renders without rewriting tracked files."
+enforced_by = ["analysis/simciv_analysis/figures.py", "analysis/simciv_analysis/report_m5_01.py", "analysis/tests/test_figures.py", "just:check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-03-D-4"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "The analysis toolchain exposes the frozen just commands and check validates analysis outputs without rewriting them."
+enforced_by = ["justfile", "just:check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-03-D-5"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "The Ubuntu analysis CI job runs the pinned analysis toolchain separately from Rust validation."
+enforced_by = [".github/workflows/ci.yml", "test:analysis/tests/test_ci_targets.py::test_workflow_check_steps_are_single_just_targets"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-03-D-6"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "The committed claim ledger is tidy, excludes configuration inputs, carries tiers, and records explicit reasons for M1 claim classifications."
+enforced_by = ["analysis/simciv_analysis/claims.py", "analysis/tests/test_claims.py", "docs/reproducibility/claims.csv.gz", "just:claims-check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-04-D-1"
+milestone = "M5"
+stage = "M5-04"
+status = "frozen"
+summary = "Deterministic M4 reruns compare bytes or deterministic fields exactly and report mismatches without patching historical outputs."
+enforced_by = ["analysis/simciv_analysis/report_m5_04.py", "just:report-m5-04-check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-04-D-2"
+milestone = "M5"
+stage = "M5-04"
+status = "frozen"
+summary = "Only final A-5 gates and conclusion-bearing M4 timings are rerun, with ratios and deviations over 20 percent recorded."
+enforced_by = ["analysis/simciv_analysis/report_m5_04.py", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-04-D-3"
+milestone = "M5"
+stage = "M5-04"
+status = "frozen"
+summary = "Bit-identical M4-07 parallel execution may be used for deterministic reruns when the mode is recorded."
+enforced_by = ["analysis/simciv_analysis/report_m5_04.py", "crates/sim-model/examples/m4_07_many_branch.rs"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-04-D-4"
+milestone = "M5"
+stage = "M5-04"
+status = "frozen"
+summary = "Restored harness labels change only after a successful rerun and record that result."
+enforced_by = ["analysis/simciv_analysis/report_m5_04.py", "crates/sim-model/examples/m4_02_a5_measure.rs"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-04-D-5"
+milestone = "M5"
+stage = "M5-04"
+status = "frozen"
+summary = "M4 outputs use the frozen size policy and the generated report reads committed harness summaries and data."
+enforced_by = ["analysis/simciv_analysis/report_m5_04.py", "docs/data/m5_04/README.md", "just:report-m5-04-check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-04-D-6"
+milestone = "M5"
+stage = "M5-04"
+status = "frozen"
+summary = "Every extracted M4 headline claim is classified as bit-exact, conclusion holds, mismatch, or unrecoverable."
+enforced_by = ["analysis/simciv_analysis/report_m5_04.py", "analysis/simciv_analysis/claims.py", "just:report-m5-04-check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-D-1"
+milestone = "M5"
+stage = "M5-05"
+status = "superseded"
+summary = "The original plan scoped regeneration to M2 and M3 headline claims and included supporting values only when produced by selected runs."
+enforced_by = []
+superseded_by = "M5-05-A1-1"
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-D-2"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "Deterministic headline claims use cited tests and goldens without re-blessing expected outputs."
+enforced_by = ["crates/sim-model/tests", "analysis/simciv_analysis/m5_05.py", "just:m5-05-deterministic"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-D-3"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "Conclusion-bearing timings use A-5 with matched execution options and report old/new ratios for prelisted cells."
+enforced_by = ["crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/dvc.yaml", "analysis/simciv_analysis/report_m5_05.py"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-D-4"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "The M3-08 and M3-09 equal-live drivers measure only the frozen 100k M3P/M3 comparison."
+enforced_by = ["crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/dvc.yaml"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-D-5"
+milestone = "M5"
+stage = "M5-05"
+status = "superseded"
+summary = "The original M5-05 timing plan stopped when the estimated total exceeded six hours."
+enforced_by = []
+superseded_by = "M5-05-A1-4"
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-D-6"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "M5-05 commits summaries and DVC data under the stage directory and cites harnesses and data for generated tables."
+enforced_by = ["docs/data/m5_05/dvc.yaml", "analysis/simciv_analysis/report_m5_05.py", "just:report-m5-05-check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-00-A-1"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "DVC tracks new raw outputs while Git retains small summaries and existing data, with manifest and cache handling defined by the amendment."
+enforced_by = ["docs/data/m5_05/dvc.yaml", "docs/data/SHA256SUMS", "analysis/simciv_analysis/data_integrity.py", "just:data-integrity-check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#144-m5-00-a-1a-2-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-00-A-2"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "Source, spec, harness, output, and toolchain content digests are authoritative and run provenance does not use Git commit hashes."
+enforced_by = ["analysis/simciv_analysis/provenance.py", "analysis/tests/test_provenance.py", "just:provenance"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#144-m5-00-a-1a-2-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-00-A-3"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "Timing DVC stages remain frozen unless a deliberate measurement run explicitly unfreezes and re-freezes them."
+enforced_by = ["justfile", "just:m5-05-timing"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#144-m5-00-a-1a-2-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-00-A-4"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+summary = "Clean-checkout analysis validation requires no DVC pull and reads only committed summaries."
+enforced_by = ["analysis/simciv_analysis/ci_clean.py", "analysis/tests/test_m5_05_dvc_status.py", "just:ci-clean"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#144-m5-00-a-1a-2-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-A1-1"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "M5-05 uses the selected conclusion-level registry and does not infer unmeasured aggregates from representative cells."
+enforced_by = ["docs/reproducibility/m5_05_conclusions.toml", "analysis/simciv_analysis/m5_05.py", "docs/data/m5_05/dvc.yaml"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-A1-2"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "Mapped deterministic tests run first and expected values are never re-blessed."
+enforced_by = ["analysis/simciv_analysis/m5_05.py", "crates/sim-model/tests", "just:m5-05-deterministic"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-A1-3"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "Timing comparisons retain A-5, matched run options, conclusion-level reporting, and documented inconclusive outcomes."
+enforced_by = ["crates/sim-model/examples/m5_05_conclusion_measure.rs", "analysis/simciv_analysis/report_m5_05.py", "docs/data/m5_05/dvc.yaml"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-A1-4"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "The 13 selected conclusions run in three recorded sessions, each bounded by six hours."
+enforced_by = ["docs/reproducibility/m5_05_conclusions.toml", "analysis/simciv_analysis/m5_05.py", "docs/data/m5_05/STATUS.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-05-A1-5"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "Each selected conclusion has a DVC raw stage and a committed summary with content-hash provenance."
+enforced_by = ["docs/data/m5_05/dvc.yaml", "analysis/simciv_analysis/provenance.py", "just:provenance-finalize"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-INFRA-PREK-HOOKS"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Install and use the pinned prek hooks for repository checks and never bypass them with --no-verify."
+enforced_by = [".pre-commit-config.yaml", "AGENTS.md", "just:hooks-install", "prek:pre-push-clippy", "prek:pre-push-ci-linux"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-INFRA-TEXT-FORMAT"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Repository text uses UTF-8 with LF and no BOM, while data files remain byte-exact and Python text output goes through write_text_lf."
+enforced_by = [".editorconfig", ".gitattributes", "analysis/simciv_analysis/io.py", "analysis/tests/test_text_output_policy.py", "prek:forbid-utf8-bom"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-INFRA-DATA-INTEGRITY"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Non-README docs/data bytes match SHA256SUMS generated from Git blobs and integrity checks compare working-tree bytes with blobs."
+enforced_by = ["docs/data/SHA256SUMS", "analysis/simciv_analysis/data_integrity.py", "analysis/tests/test_data_integrity.py", "just:data-integrity-check", "prek:data-integrity"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-INFRA-FINDINGS-GUARDRAILS"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "Every generated Findings bullet has a passing paired predicate, a preregistered or exploratory tag, and scoped Vale checks."
+enforced_by = ["analysis/simciv_analysis/findings.py", "analysis/simciv_analysis/report_m5_04.py", "analysis/simciv_analysis/report_m5_05.py", "analysis/tests/test_findings.py", "just:lint-prose", "prek:vale-changed-docs"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-INFRA-TEST-OPT"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Development test builds optimize sim-model and sim-core at level two while retaining debug assertions and overflow checks."
+enforced_by = ["Cargo.toml", "just:ci-rust"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-INFRA-EXACT-ACTION-TAGS"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Every GitHub Actions reference uses an exact existing tag and action-ref validation checks both CI workflows."
+enforced_by = ["analysis/simciv_analysis/action_refs.py", "test:analysis/tests/test_action_refs.py::test_ci_and_promotion_workflows_have_pinned_checkout_actions", "just:action-refs-check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-CI-JUST-TARGETS"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "CI validation jobs call only ci-rust or ci-analysis and install every tool their target uses before running it."
+enforced_by = [".github/workflows/ci.yml", "test:analysis/tests/test_ci_targets.py::test_workflow_check_steps_are_single_just_targets", "test:analysis/tests/test_ci_targets.py::test_just_jobs_install_all_target_tools_before_running_them", "just:ci-rust", "just:ci-analysis"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-CROSS-CLIPPY"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Local CI and pre-push validation run cross-target Clippy for Linux and macOS targets."
+enforced_by = ["justfile", "just:clippy-cross", "prek:pre-push-clippy-cross"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-CLEAN-CHECKOUT"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "The analysis check is validated in a temporary clean Git worktree without DVC outputs or ignored files."
+enforced_by = ["analysis/simciv_analysis/ci_clean.py", "justfile", "just:ci-clean", "prek:pre-push-ci-clean"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-WSL-LINUX"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "The WSL Linux pre-push check refreshes a clean clone while retaining target and runs the same Rust and analysis targets as CI."
+enforced_by = ["analysis/simciv_analysis/ci_linux.py", "analysis/README.md", "just:ci-linux", "prek:pre-push-ci-linux"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-DELIVERY"
+milestone = "M5"
+stage = "M5-AUDIT"
+status = "frozen"
+summary = "just ship runs local checks, pushes the same commit to ci-check, and green CI promotes it to main by fast-forward before dispatching main CI."
+enforced_by = ["justfile", ".github/workflows/promote.yml", "test:analysis/tests/test_ci_targets.py::test_promotion_workflow_is_push_only_fast_forward_and_dispatches_main_ci", "AGENTS.md", "analysis/README.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-MAIN-RULESET"
+milestone = "M5"
+stage = "M5-AUDIT"
+status = "frozen"
+summary = "The main branch ruleset requires passing checks, blocks force pushes and deletion, and has no bypass actors."
+enforced_by = ["docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-GZIP-CONTENT"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Generated gzip artifacts are compared by decompressed content rather than compressed container bytes."
+enforced_by = ["analysis/simciv_analysis/io.py", "test:analysis/tests/test_io.py::test_gzip_content_check_ignores_container_bytes", "analysis/simciv_analysis/claims.py", "analysis/simciv_analysis/report_m5_04.py", "analysis/simciv_analysis/report_m5_05.py"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-23"
+
+[[decision]]
+id = "M5-INFRA-DVC-CACHE"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "DVC upload remains deferred and the local DVC cache must not be garbage-collected before dvc push --all-commits succeeds."
+enforced_by = ["AGENTS.md", "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-CI-TIME-SCOPE"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "CI time reduction is in M5 scope and must preserve the full validation coverage."
+enforced_by = ["docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-M4-01-DEBT"
+milestone = "M5"
+stage = "M5-AUDIT"
+status = "frozen"
+summary = "M4-01 state, codec, and context extensibility debt is an M6 candidate rather than M5 scope."
+enforced_by = []
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-LARGE-FILE-REFACTOR"
+milestone = "M5"
+stage = "M5-AUDIT"
+status = "frozen"
+summary = "Large-file refactors are deferred to M6 rather than included in M5."
+enforced_by = []
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-COMPACTION-MONEY-LOSS"
+milestone = "M5"
+stage = "M5-AUDIT"
+status = "frozen"
+summary = "M3P compaction money-loss semantics are an M6 candidate only as a new profile."
+enforced_by = []
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[stage]]
+id = "M0"
+milestone = "M0"
+status = "graduated"
+tag = "v0.1.0-m0"
+summary = "Established deterministic reference semantics, replay, and canonical outputs."
+doc = "docs/contracts/M1_CONTRACT_FREEZE.md"
+
+[[stage]]
+id = "M1"
+milestone = "M1"
+status = "graduated"
+tag = "v0.2.0-m1"
+summary = "Froze the simulation semantic contracts and machine-readable M1 manifest."
+doc = "docs/contracts/M1_CONTRACT_FREEZE.md"
+
+[[stage]]
+id = "M2"
+milestone = "M2"
+status = "graduated"
+tag = "v0.3.0-m2"
+summary = "Implemented the optimized runtime with canonical parity to the frozen semantics."
+doc = "docs/contracts/M2_OPTIMIZATION_CONTRACT.md"
+
+[[stage]]
+id = "M3"
+milestone = "M3"
+status = "graduated"
+tag = "v0.4.0-m3"
+summary = "Delivered deterministic interaction, topology, population, migration, and propagation workloads."
+doc = "docs/contracts/M3_INTERACTION_CONTRACT.md"
+
+[[stage]]
+id = "M4"
+milestone = "M4"
+status = "graduated"
+tag = "v0.5.0-m4"
+summary = "Delivered the counterfactual research runtime and branch-analysis viewer."
+doc = "docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md"
+
+[[stage]]
+id = "M5-00"
+milestone = "M5"
+status = "frozen"
+summary = "Froze reproducibility definitions, provenance, and the initial data policy."
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen"
+
+[[stage]]
+id = "M5-01"
+milestone = "M5"
+status = "complete"
+summary = "Inventoried numeric M0–M4 claims and their sources and reproducibility status."
+doc = "docs/reproducibility/M5_01_INVENTORY.md"
+
+[[stage]]
+id = "M5-02"
+milestone = "M5"
+status = "complete"
+summary = "Reorganized repository documentation, reports, data, and analysis files."
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"
+
+[[stage]]
+id = "M5-03"
+milestone = "M5"
+status = "complete"
+summary = "Added the pinned analysis toolchain, deterministic report generation, and analysis CI."
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen"
+
+[[stage]]
+id = "M5-04"
+milestone = "M5"
+status = "complete"
+summary = "Regenerated M4 deterministic outputs and conclusion-bearing timing claims."
+doc = "docs/reproducibility/M5_04_M4_REGENERATION.md"
+
+[[stage]]
+id = "M5-05"
+milestone = "M5"
+status = "sessions 1–3 measured; M3-09 scope check pending"
+summary = "Measured sessions one through three; the M3-09 scope check remains pending."
+doc = "docs/reproducibility/M5_05_M0_M3_REGENERATION.md"
+
+[[stage]]
+id = "M5-06"
+milestone = "M5"
+status = "planned"
+summary = "Add PyO3 bindings and a Python runner with content-digest, configuration, and host provenance instead of commit-hash provenance."
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract"
+
+[[stage]]
+id = "M5-07"
+milestone = "M5"
+status = "planned"
+summary = "Run multi-seed, multi-workload robustness experiments with effect-size-first design."
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract"
+
+[[stage]]
+id = "M5-08"
+milestone = "M5"
+status = "planned"
+summary = "Clean up project documentation, generate figures, and prepare newcomer-facing material."
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract"
+
+[[stage]]
+id = "M5-09"
+milestone = "M5"
+status = "planned"
+summary = "Review related work and draft the technical report."
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract"
+
+[[stage]]
+id = "M5-AUDIT"
+milestone = "M5"
+status = "planned"
+summary = "Audit M5 reproducibility and research-hardening results."
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract"
