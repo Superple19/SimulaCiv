@@ -14,6 +14,7 @@ use sim_model::runner::{
 use sim_model::state::HybridWorldState;
 use sim_model::storage::canonical_state_hash_from_storage;
 use sim_model::{SimConfig, initialize_world};
+#[cfg(windows)]
 use std::ffi::c_void;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};

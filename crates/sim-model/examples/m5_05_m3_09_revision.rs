@@ -10,6 +10,7 @@ use sim_model::runner::{
 };
 use sim_model::state::{HybridWorldState, WorldState};
 use sim_model::{M3pReferenceState, SimConfig, decode_m3p_snapshot, initialize_world};
+#[cfg(windows)]
 use std::ffi::c_void;
 use std::io::{self, BufRead, BufWriter, Write};
 use std::path::PathBuf;
