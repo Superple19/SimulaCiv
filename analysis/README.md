@@ -6,6 +6,14 @@ The analysis environment is pinned to Python 3.15.1, uv 0.13.5, pandas 3.0.6, ma
 
 Install prek 0.5.7, uv 0.13.5, Quarto CLI 1.10.19, Vale 3.25.1, and just 1.58.0 using their official installation instructions. From the repository root, install the Git hooks:
 
+On Windows, disable Git's automatic EOL conversion for this checkout before working with repository data:
+
+```powershell
+git config --local core.autocrlf false
+```
+
+`just check` warns if the repository-local setting is `true`.
+
 ```powershell
 just hooks-install
 ```
