@@ -76,13 +76,12 @@ git -C "$dest" clean -fdx -e target/
             'cd "$HOME/simciv-ci"; '
         )
         for name, command in (
-            ("just check", "just check"),
-            ("cargo clippy", "cargo clippy --workspace --all-targets -- -D warnings"),
-            ("cargo test", "cargo test --workspace"),
+            ("just ci-rust", "just ci-rust"),
+            ("just ci-analysis", "just ci-analysis"),
         ):
             step(name, environment + command)
     else:
-        for name in ("just check", "cargo clippy", "cargo test"):
+        for name in ("just ci-rust", "just ci-analysis"):
             results.append((name, 125, 0.0))
             print(f"[SKIP] {name}: checkout preparation failed", flush=True)
 

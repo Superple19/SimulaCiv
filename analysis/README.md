@@ -26,7 +26,7 @@ Then install the pinned Python runtime and dependencies:
 uv python install
 ```
 
-`just check` runs the analysis tests and verifies links, claims, committed reports, and the Vale prose rules without rewriting them. `just lint-prose` runs the pinned Vale style and its rule tests. To reproduce the M5-01 report from the committed ledger, run the single command:
+`just check` runs the analysis tests and verifies links, claims, committed reports, and the Vale prose rules without rewriting them. `just ci-analysis` runs `just check` and `prek run --all-files` with `SKIP=cargo-fmt`; formatting is checked by `just ci-rust`, so the analysis job does not need to install Rust. The target sets `SKIP` only for the `prek` invocation. `just ci-rust` runs formatting, Clippy, and the Rust workspace tests. `just lint-prose` runs the pinned Vale style and its rule tests. To reproduce the M5-01 report from the committed ledger, run the single command:
 
 ```sh
 just report-m5-01
