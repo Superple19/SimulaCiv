@@ -56,6 +56,14 @@ repos:
         always_run: true
         stages: [pre-commit]
 
+      - id: forbid-utf8-bom
+        name: reject UTF-8 BOM in text files
+        entry: uv run --directory analysis --project . python -m simciv_analysis.git_hooks --check-bom
+        language: system
+        types: [text]
+        exclude: '^docs/data/'
+        stages: [pre-commit]
+
       - id: vale-changed-docs
         name: Vale changed Markdown and Quarto files
         entry: vale --config analysis/vale/.vale.ini

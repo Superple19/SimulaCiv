@@ -48,6 +48,7 @@ Unless explicitly requested:
 - Track new experiment raw outputs through DVC stages; keep summaries, specs, harnesses, reports, generated figures, and DVC pointers in Git. Never commit DVC credentials.
 - Install the repository Git hooks with `just hooks-install` before committing; never bypass them with `--no-verify`.
 - Write multi-line commit messages with `-F <file>` or separate `-m` flags.
+- When writing repository files from PowerShell, use PowerShell 7 or `-Encoding utf8NoBOM`; never rely on Windows PowerShell 5.1 `Out-File` or `Set-Content` defaults.
 
 ## 5. SimulaCiv development stages
 

@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MAX_FILE_BYTES = 1024 * 1024
+UTF8_BOM = b"\xef\xbb\xbf"
 
 
 def dvc_output_paths(root: Path = ROOT) -> set[str]:
@@ -80,8 +81,23 @@ def large_file_violations(
     return violations
 
 
+def bom_violations(root: Path, paths: list[str]) -> list[str]:
+    return [
+        Path(raw_path).as_posix()
+        for raw_path in paths
+        if (path := root / raw_path).is_file() and path.read_bytes().startswith(UTF8_BOM)
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     paths = argv if argv is not None else sys.argv[1:]
+    if paths[:1] == ["--check-bom"]:
+        violations = bom_violations(ROOT, paths[1:])
+        if violations:
+            for path in violations:
+                print(f"{path}: UTF-8 BOM is not allowed")
+            return 1
+        return 0
     staged = subprocess.check_output(
         ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMRT", "-z"],
         cwd=ROOT,

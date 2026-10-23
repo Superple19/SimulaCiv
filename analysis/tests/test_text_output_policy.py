@@ -1,6 +1,8 @@
 import ast
 from pathlib import Path
 
+from simciv_analysis.git_hooks import bom_violations
+
 
 PACKAGE = Path(__file__).resolve().parents[1] / "simciv_analysis"
 GENERATED_REPORTS = [
@@ -52,4 +54,12 @@ def test_generated_reports_contain_no_carriage_returns():
     for relative in GENERATED_REPORTS:
         path = root / relative
         assert path.is_file(), f"generated report is missing: {relative}"
-        assert b"\r" not in path.read_bytes(), f"generated report contains CR: {relative}"
+        content = path.read_bytes()
+        assert b"\r" not in content, f"generated report contains CR: {relative}"
+        assert not content.startswith(b"\xef\xbb\xbf"), f"generated report has UTF-8 BOM: {relative}"
+
+
+def test_bom_check_detects_only_leading_utf8_bom(tmp_path):
+    (tmp_path / "bom.txt").write_bytes(b"\xef\xbb\xbftext")
+    (tmp_path / "plain.txt").write_bytes(b"text\xef\xbb\xbf")
+    assert bom_violations(tmp_path, ["bom.txt", "plain.txt", "missing.txt"]) == ["bom.txt"]
