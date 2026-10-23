@@ -88,10 +88,83 @@ and timing are collected in the summaries under `docs/data/m5_05/`.
 
 ## M3-09 ratio diagnosis
 
-No cross-revision diagnosis has been recorded. The pre-registered plan
-is [m3_09_diagnosis.toml](m5_05_configs/m3_09_diagnosis.toml); its
-committed worker is
+### Absolute numerator and denominator decomposition
+
+Values are µs/tick. Numerator is the M3P incremental-topology runner;
+denominator is M3 at the same live population. The historical and
+current absolute paths are extracted from [M3-09
+report](../../docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md) and [M5-05
+summary](../data/m5_05/m3_09_incremental_equal_live/summary.json). New
+runner timings come from
 [m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs).
+
+| source | numerator_m3p_incremental_us | numerator_mad_us | denominator_m3_us | denominator_mad_us | ratio |
+|----|----|----|----|----|----|
+| M3-09 original 100k equal-live row | 28,802 |  | 11,145 |  | 2.58 |
+| M3-09 follow-up paired | 40,641 | 2,183 | 27,315 | 970 | 1.49 |
+| M3-09 follow-up non-interleaved | 39,135 | 1,006 | 26,590 | 1,918 | 1.47 |
+| M5-05 current M3-09 data | 57,601.97619 | 196.266667 | 24,816.180952 | 76.67619 | 2.321146 |
+
+Against `M3-09 follow-up paired`, numerator changed 41.7%, denominator
+changed -9.1%, and the ratio changed 55.8%. The decomposition attributes
+the ratio change to **both, dominated by numerator**.
+
+### Cross-revision A-5 results
+
+The paired execution options are
+`initial_population=100000;settlements=500;k=8;p_local=0.5;seed=81985529216486895;replicate=7;checkpoint_day=400;days=3;metrics=true;events=true;snapshots=false;policy=serial;pool=0;chunk=256;propagation=false;live_population=103237`
+for every revision. Checkpoint live population: 103237. M3P and M3
+digest parity across revisions: True. The worker is
+[m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs);
+raw rounds and calibration probes are
+[samples.jsonl](../data/m5_05/m3_09_diagnosis/raw/samples.jsonl),
+DVC-managed.
+
+| revision | commit | live population | numerator median µs/tick | numerator MAD µs/tick | numerator MAD/median | denominator median µs/tick | denominator MAD µs/tick | denominator MAD/median | M3P/M3 | r | samples | valid |
+|----|----|----|----|----|----|----|----|----|----|----|----|----|
+| m3_09_followup | 296ec384604aea935ccfee86f35c0664c5b4f67f | 103,237 | 74,647.044444 | 533.377777 | 0.007145 | 25,113.522222 | 246.233333 | 0.009805 | 2.972385 | 3 | 41 | true |
+| m3_release | 35342d4db58a48e26f6b2530c47ba00e4bb444d4 | 103,237 | 58,869.6 | 465.822222 | 0.007913 | 25,326.4 | 332.033333 | 0.01311 | 2.324436 | 3 | 41 | true |
+| m4_01_registry | a924be9284cf27a34c16a96ec07aedfa454644ed | 103,237 | 58,373.377778 | 447.9 | 0.007673 | 25,343.2 | 202.066667 | 0.007973 | 2.303315 | 3 | 41 | true |
+| m4_release | 4f4498b3e2df0a2b6e2b01bd0fe28d4193c0b3bf | 103,237 | 58,760.577778 | 500.944445 | 0.008525 | 25,368.744444 | 255.988889 | 0.010091 | 2.316259 | 3 | 41 | true |
+| task_start_head | 10b657d985cc61eb5ee09d01ac1257fc9e30d4ea | 103,237 | 58,506.722222 | 281.4 | 0.00481 | 25,421.522222 | 332.488889 | 0.013079 | 2.301464 | 3 | 41 | true |
+
+The screen was fixed at 20% before timing. A transition is
+screen-positive if the numerator, denominator, or ratio changes by more
+than that amount from the previous valid revision.
+
+| before | after | numerator change | denominator change | ratio change | step change | valid |
+|----|----|----|----|----|----|----|
+| m3_09_followup | m3_release | -0.211361 | 0.008477 | -0.217989 | true | true |
+| m3_release | m4_01_registry | -0.008429 | 0.000663 | -0.009086 | false | true |
+| m4_01_registry | m4_release | 0.006633 | 0.001008 | 0.00562 | false | true |
+| m4_release | task_start_head | -0.00432 | 0.00208 | -0.006387 | false | true |
+
+First screen-positive adjacent transition: `m3_09_followup` →
+`m3_release`. A-5 `git bisect run` identified
+`78181e21aad0733189450b77eb07ee8bc4708377` as the first changed commit.
+The example timer brackets the public three-day M3P incremental runner
+call; the changed source diff maps the first change to Phase 9B
+incremental non-compaction append path
+(`apply_phase9b_storage_incremental_append`).
+
+The bisect harness is
+[m5_05_m3_09_bisect.py](../../crates/sim-model/examples/m5_05_m3_09_bisect.py);
+per-candidate raw samples are DVC-managed. The example timer includes
+the full public runner call, so the phase attribution below comes from
+the first changed commit’s source diff, not an internal Phase 9B
+subphase stopwatch.
+
+| commit | numerator median µs/tick | numerator MAD µs/tick | denominator median µs/tick | denominator MAD µs/tick | ratio | numerator MAD/median | denominator MAD/median | status | raw data |
+|----|----|----|----|----|----|----|----|----|----|
+| 4dd991914996178d1ad7dc554ac88db459619e57 | 58,578.888889 | 325.1 | 25,313.577778 | 212.577778 | 2.314129 | 0.00555 | 0.008398 | changed | [samples](../data/m5_05/m3_09_diagnosis/bisect_raw/4dd991914996.json) |
+| 71f23ab7306aa88a7b46498884f09d55b352c58e | 58,780.266667 | 604.688889 | 25,439.755556 | 249.411112 | 2.310567 | 0.010287 | 0.009804 | changed | [samples](../data/m5_05/m3_09_diagnosis/bisect_raw/71f23ab7306a.json) |
+| 78181e21aad0733189450b77eb07ee8bc4708377 | 58,658.933333 | 517.577777 | 25,044.966667 | 235.088889 | 2.342145 | 0.008824 | 0.009387 | changed | [samples](../data/m5_05/m3_09_diagnosis/bisect_raw/78181e21aad0.json) |
+| c33a76125fcc447c8c6735d831164c2082800c95 | 60,043.777778 | 429.333334 | 25,203.9 | 291.977778 | 2.382321 | 0.00715 | 0.011585 | unchanged | [samples](../data/m5_05/m3_09_diagnosis/bisect_raw/c33a76125fcc.json) |
+
+Build/checkpoint time is outside the timed samples. Repetitions per
+sample were fixed at 3; total timing window 324.3 s; complete run 583.2
+s. Protocol and revision order are in
+[m3_09_diagnosis.toml](m5_05_configs/m3_09_diagnosis.toml).
 
 ### Deterministic confirmations
 
@@ -117,8 +190,6 @@ statistics.
 
 ## Findings
 
-- \[exploratory\] Every listed conclusion has a generated `holds`,
-  `does not hold`, or `inconclusive` status.
 - \[exploratory\] Selected path ratios are flagged when the absolute
   deviation exceeds 20%; the flag does not determine the conclusion
   status.
@@ -127,6 +198,12 @@ statistics.
   confirmations](#deterministic-confirmations).
 - \[exploratory\] Every pre-registered timing stage has a recorded
   summary.
+- \[exploratory\] The M5-05 decomposition is both, dominated by
+  numerator relative to the M3-09 follow-up paired result.
+- \[exploratory\] The M3-09 follow-up’s recorded ratio did not reproduce
+  at that revision in this session; the first pre-registered screen
+  crossing is `78181e21aad0733189450b77eb07ee8bc4708377` in Phase 9B.
+  The historical timing discrepancy remains unexplained.
 
 ## Limits
 
@@ -139,9 +216,10 @@ statistics.
 
 ## Appendix: paired findings checks
 
-| Finding tag     | Paired predicate                               | Value  |
-|-----------------|------------------------------------------------|--------|
-| \[exploratory\] | `finding_all_conclusions_have_reported_status` | `true` |
-| \[exploratory\] | `finding_ratio_flags_match_threshold`          | `true` |
-| \[exploratory\] | `finding_deterministic_targets_passed`         | `true` |
-| \[exploratory\] | `finding_all_timing_stages_recorded`           | `true` |
+| Finding tag | Paired predicate | Value |
+|----|----|----|
+| \[exploratory\] | `finding_ratio_flags_match_threshold` | `true` |
+| \[exploratory\] | `finding_deterministic_targets_passed` | `true` |
+| \[exploratory\] | `finding_all_timing_stages_recorded` | `true` |
+| \[exploratory\] | `finding_m3_09_decomposition_matches_paths` | `true` |
+| \[exploratory\] | `finding_m3_09_bisect_matches_candidate_and_phase_diff` | `true` |

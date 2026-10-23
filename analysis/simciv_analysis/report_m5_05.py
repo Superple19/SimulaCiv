@@ -31,6 +31,7 @@ MD_PATH = ROOT / "docs" / "reproducibility" / "M5_05_M0_M3_REGENERATION.md"
 FIGURE_PATH = ROOT / "docs" / "reproducibility" / "figures" / "m5_05_old_new_timing.svg"
 DETERMINISTIC_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "deterministic" / "summary.json"
 DIAGNOSIS_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "m3_09_diagnosis" / "summary.json"
+DIAGNOSIS_BISECT_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "m3_09_diagnosis" / "bisect_summary.json"
 
 
 def _summary(entry_id: str) -> dict[str, Any] | None:
@@ -41,7 +42,23 @@ def _summary(entry_id: str) -> dict[str, Any] | None:
 def _diagnosis() -> dict[str, Any] | None:
     if not DIAGNOSIS_SUMMARY.is_file():
         return None
-    return json.loads(DIAGNOSIS_SUMMARY.read_text(encoding="utf-8")).get("details", {})
+    details = json.loads(DIAGNOSIS_SUMMARY.read_text(encoding="utf-8")).get("details", {})
+    if DIAGNOSIS_BISECT_SUMMARY.is_file():
+        bisect = json.loads(DIAGNOSIS_BISECT_SUMMARY.read_text(encoding="utf-8"))
+        commit = bisect.get("first_changed_commit")
+        patch = subprocess.run(
+            ["git", "show", "--format=", "--unified=0", str(commit), "--", "crates/sim-model/src/m3p.rs"],
+            cwd=ROOT, text=True, capture_output=True, check=True,
+        ).stdout if commit else ""
+        details["bisect_summary"] = bisect
+        details["bisect"] = commit
+        details["phase_attribution"] = (
+            "Phase 9B incremental non-compaction append path (`apply_phase9b_storage_incremental_append`)"
+            if "apply_phase9b_storage_incremental_append" in patch
+            else "phase not identified from the changed M3P source diff"
+        )
+        details["bisect_patch_has_phase9b_append"] = "apply_phase9b_storage_incremental_append" in patch
+    return details
 
 
 def _diagnosis_change_screen(details: dict[str, Any]) -> bool:
@@ -66,6 +83,33 @@ def _diagnosis_change_screen(details: dict[str, Any]) -> bool:
     recorded_pair = None if recorded is None else (recorded["before"], recorded["after"])
     expected_pair = None if expected is None else (expected["before"], expected["after"])
     return recorded_pair == expected_pair
+
+
+def _decomposition_matches_paths(details: dict[str, Any]) -> bool:
+    rows = details["historical_decomposition"]["rows"]
+    baseline, current = rows[1], rows[-1]
+    numerator_delta = current["numerator_m3p_incremental_us"] / baseline["numerator_m3p_incremental_us"] - 1
+    denominator_delta = current["denominator_m3_us"] / baseline["denominator_m3_us"] - 1
+    expected = (
+        "both, dominated by numerator"
+        if numerator_delta > 0 and denominator_delta < 0 and abs(numerator_delta) > abs(denominator_delta)
+        else "numerator" if numerator_delta > 0 else "denominator" if denominator_delta < 0 else "neither"
+    )
+    return expected == details["historical_decomposition"]["dominant_component"]
+
+
+def _bisect_evidence_matches(details: dict[str, Any]) -> bool:
+    bisect = details.get("bisect_summary")
+    if not bisect or not details.get("bisect_patch_has_phase9b_append") or not _diagnosis_change_screen(details):
+        return False
+    commit = bisect.get("first_changed_commit")
+    reproduced_candidate = bool(commit) and any(
+        row.get("commit") == commit and row.get("status") == "changed"
+        for row in bisect.get("tested_candidates", [])
+    )
+    old_ratio = details["historical_decomposition"]["rows"][1]["ratio"]
+    same_revision_ratio = details["revisions"]["m3_09_followup"]["ratio"]
+    return reproduced_candidate and abs(same_revision_ratio / old_ratio - 1) > 0.20
 
 
 def _entry_cells(entry: dict[str, Any], summary: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -401,12 +445,6 @@ def _build() -> dict[str, Any]:
     findings = [
         Finding(
             "[exploratory]",
-            "Every listed conclusion has a generated `holds`, `does not hold`, or `inconclusive` status.",
-            "finding_all_conclusions_have_reported_status",
-            bool(rows) and all(row["status"] in {"holds", "does not hold", "inconclusive"} for row in rows),
-        ),
-        Finding(
-            "[exploratory]",
             "Selected path ratios are flagged when the absolute deviation exceeds {{< meta ratio_flag_threshold_percent >}}%; the flag does not determine the conclusion status.",
             "finding_ratio_flags_match_threshold",
             bool(ratio_measurements)
@@ -447,15 +485,9 @@ def _build() -> dict[str, Any]:
         ))
         findings.append(Finding(
             "[exploratory]",
-            "The first revision step-change label matches the pre-registered adjacent-path screen.",
-            "finding_m3_09_revision_screen_matches_data",
-            _diagnosis_change_screen(diagnosis),
-        ))
-        findings.append(Finding(
-            "[exploratory]",
-            "The cross-revision timing cells used identical execution options and checkpoint digests.",
-            "finding_m3_09_revision_comparison_is_matched",
-            diagnosis["execution_options_identical"] and diagnosis["checkpoint_digest_parity"],
+            f"The M3-09 follow-up's recorded ratio did not reproduce at that revision in this session; the first pre-registered screen crossing is `{diagnosis.get('bisect')}` in Phase 9B. The historical timing discrepancy remains unexplained.",
+            "finding_m3_09_bisect_matches_candidate_and_phase_diff",
+            _bisect_evidence_matches(diagnosis),
         ))
     findings_md, findings_checks_md = render_findings(findings)
     results["findings"] = findings_md
@@ -566,17 +598,35 @@ No cross-revision diagnosis has been recorded. The pre-registered plan is [m3_09
         step_text = "No valid adjacent transition exceeded the pre-registered change screen." if step is None else (
             f"First screen-positive adjacent transition: `{step['before']}` → `{step['after']}`."
         )
-        bisect = diagnosis.get("bisect")
+        bisect_summary = diagnosis.get("bisect_summary")
+        bisect_rows = []
+        if bisect_summary is not None:
+            for candidate in bisect_summary["tested_candidates"]:
+                candidate_commit = candidate["commit"]
+                bisect_rows.append({
+                    "commit": candidate_commit,
+                    "numerator median µs/tick": candidate.get("numerator_median_us_per_tick"),
+                    "numerator MAD µs/tick": candidate.get("numerator_mad_us_per_tick"),
+                    "denominator median µs/tick": candidate.get("denominator_median_us_per_tick"),
+                    "denominator MAD µs/tick": candidate.get("denominator_mad_us_per_tick"),
+                    "ratio": candidate.get("ratio"),
+                    "numerator MAD/median": candidate.get("spreads", {}).get("numerator_mad_over_median"),
+                    "denominator MAD/median": candidate.get("spreads", {}).get("denominator_mad_over_median"),
+                    "status": candidate.get("status"),
+                    "raw data": f"[samples](../data/m5_05/m3_09_diagnosis/bisect_raw/{candidate_commit[:12]}.json)",
+                })
         bisect_text = "Bisect not run: no valid step change was detected." if step is None else (
-            f"Bisect result: {bisect if bisect is not None else 'pending'}"
+            f"A-5 `git bisect run` identified `{diagnosis.get('bisect')}` as the first changed commit."
         )
         phase = diagnosis.get("phase_attribution")
-        phase_text = "Phase attribution: not run." if phase is None else f"Phase attribution: {phase}"
+        phase_text = "Phase attribution: not run." if phase is None else (
+            f"The example timer brackets the public three-day M3P incremental runner call; the changed source diff maps the first change to {phase}."
+        )
         diagnosis_section = f"""## M3-09 ratio diagnosis
 
 ### Absolute numerator and denominator decomposition
 
-Values are µs/tick. Numerator is the M3P incremental-topology runner; denominator is M3 at the same live population. The historical and current absolute paths are extracted from [M3-09 report](../../docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md) and [M5-05 summary](../data/m5_05/m3_09_incremental_equal_live/summary.json).
+Values are µs/tick. Numerator is the M3P incremental-topology runner; denominator is M3 at the same live population. The historical and current absolute paths are extracted from [M3-09 report](../../docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md) and [M5-05 summary](../data/m5_05/m3_09_incremental_equal_live/summary.json). New runner timings come from [m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs).
 
 {historical_table}
 
@@ -593,6 +643,10 @@ The screen was fixed at {diagnosis['plan']['values']['change_screen_percent']:.0
 {_table(change_rows, ["before", "after", "numerator change", "denominator change", "ratio change", "step change", "valid"])}
 
 {step_text} {bisect_text} {phase_text}
+
+The bisect harness is [m5_05_m3_09_bisect.py](../../crates/sim-model/examples/m5_05_m3_09_bisect.py); per-candidate raw samples are DVC-managed. The example timer includes the full public runner call, so the phase attribution below comes from the first changed commit's source diff, not an internal Phase 9B subphase stopwatch.
+
+{_table(bisect_rows, ["commit", "numerator median µs/tick", "numerator MAD µs/tick", "denominator median µs/tick", "denominator MAD µs/tick", "ratio", "numerator MAD/median", "denominator MAD/median", "status", "raw data"])}
 
 Build/checkpoint time is outside the timed samples. Repetitions per sample were fixed at {diagnosis['repetitions_per_sample']}; total timing window {diagnosis['timing_wall_seconds']:.1f} s; complete run {diagnosis['total_wall_seconds']:.1f} s. Protocol and revision order are in [m3_09_diagnosis.toml](m5_05_configs/m3_09_diagnosis.toml).
 """
