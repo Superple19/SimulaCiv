@@ -1,0 +1,310 @@
+stages:
+  m5_05_deterministic:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      deterministic --session 1 --raw-dir docs/data/m5_05/deterministic/raw
+      --summary docs/data/m5_05/deterministic/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - docs/reproducibility/m5_05_configs/m2_40.toml
+    - docs/reproducibility/m5_05_configs/m3_m2_40.toml
+    - crates/sim-model/tests/determinism_oracle_tests.rs
+    - crates/sim-model/tests/phase4_rayon_tests.rs
+    - crates/sim-model/tests/m3_reference_runner_tests.rs
+    - crates/sim-model/tests/m3_storage_runner_tests.rs
+    - crates/sim-model/tests/m3_parallel_phase6b_tests.rs
+    - crates/sim-model/tests/m3_parallel_runner_tests.rs
+    - crates/sim-model/tests/m3_search_reduction_tests.rs
+    outs:
+    - docs/data/m5_05/deterministic/raw
+  m5_05_m2_near_linear:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m2_near_linear --raw-dir docs/data/m5_05/m2_near_linear/raw
+      --summary docs/data/m5_05/m2_near_linear/summary.json
+    deps:
+    - Cargo.lock
+    - Cargo.toml
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - crates/sim-core/Cargo.toml
+    - crates/sim-core/src
+    - crates/sim-model/Cargo.toml
+    - crates/sim-model/benches/m0_baseline_bench.rs
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/src
+    - docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md
+    - docs/reproducibility/m5_05_conclusions.toml
+    - docs/reproducibility/m5_05_configs/m2_40.toml
+    - rust-toolchain.toml
+    outs:
+    - docs/data/m5_05/m2_near_linear/raw
+  m5_05_m2_final_tick:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m2_final_tick --raw-dir docs/data/m5_05/m2_final_tick/raw --summary
+      docs/data/m5_05/m2_final_tick/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m0_baseline_bench.rs
+    - docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md
+    - docs/reproducibility/m5_05_configs/m2_40.toml
+    outs:
+    - docs/data/m5_05/m2_final_tick/raw
+  m5_05_m2_phase4_crossover:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m2_phase4_crossover --raw-dir
+      docs/data/m5_05/m2_phase4_crossover/raw --summary
+      docs/data/m5_05/m2_phase4_crossover/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m0_baseline_bench.rs
+    - docs/reports/M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md
+    - docs/reproducibility/m5_05_configs/m2_40.toml
+    outs:
+    - docs/data/m5_05/m2_phase4_crossover/raw
+  m5_05_m3_01_serial_baseline:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_01_serial_baseline --raw-dir
+      docs/data/m5_05/m3_01_serial_baseline/raw --summary
+      docs/data/m5_05/m3_01_serial_baseline/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m3_01_serial_baseline_bench.rs
+    - docs/reports/M3_01_SERIAL_BASELINE.md
+    - docs/reproducibility/m5_05_configs/m3_m2_40.toml
+    outs:
+    - docs/data/m5_05/m3_01_serial_baseline/raw
+  m5_05_m3_02_parallel_phase6b:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_02_parallel_phase6b --raw-dir
+      docs/data/m5_05/m3_02_parallel_phase6b/raw --summary
+      docs/data/m5_05/m3_02_parallel_phase6b/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m3_02_parallel_phase6b_bench.rs
+    - docs/reports/M3_02_PARALLEL_PHASE6B.md
+    - docs/reproducibility/m5_05_configs/m3_m2_40.toml
+    outs:
+    - docs/data/m5_05/m3_02_parallel_phase6b/raw
+  m5_05_m3_03_search_reduction:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_03_search_reduction --raw-dir
+      docs/data/m5_05/m3_03_search_reduction/raw --summary
+      docs/data/m5_05/m3_03_search_reduction/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m3_02b_search_reduction_bench.rs
+    - docs/reports/M3_03_SEARCH_REDUCTION.md
+    - docs/reproducibility/m5_05_configs/m3_m2_40.toml
+    outs:
+    - docs/data/m5_05/m3_03_search_reduction/raw
+  m5_05_m3_06_settlement_index:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_06_settlement_index --raw-dir
+      docs/data/m5_05/m3_06_settlement_index/raw --summary
+      docs/data/m5_05/m3_06_settlement_index/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m3_scale_limit_bench.rs
+    - docs/reports/M3_06_SETTLEMENT_INDEX.md
+    - docs/reproducibility/m5_05_configs/m3_equilibrium.toml
+    outs:
+    - docs/data/m5_05/m3_06_settlement_index/raw
+  m5_05_m3_07_reversed_slots:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_07_reversed_slots --raw-dir
+      docs/data/m5_05/m3_07_reversed_slots/raw --summary
+      docs/data/m5_05/m3_07_reversed_slots/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m3_scale_limit_bench.rs
+    - docs/reports/M3_07_SCALE_RESIDUAL.md
+    - docs/reproducibility/m5_05_configs/m3_equilibrium.toml
+    outs:
+    - docs/data/m5_05/m3_07_reversed_slots/raw
+  m5_05_m3_08_full_rebuild_equal_live:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_08_full_rebuild_equal_live --raw-dir
+      docs/data/m5_05/m3_08_full_rebuild_equal_live/raw --summary
+      docs/data/m5_05/m3_08_full_rebuild_equal_live/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - docs/reports/M3_08_POPULATION_DYNAMICS.md
+    - crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
+    outs:
+    - docs/data/m5_05/m3_08_full_rebuild_equal_live/raw
+  m5_05_m3_09_incremental_equal_live:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_09_incremental_equal_live --raw-dir
+      docs/data/m5_05/m3_09_incremental_equal_live/raw --summary
+      docs/data/m5_05/m3_09_incremental_equal_live/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md
+    - crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
+    outs:
+    - docs/data/m5_05/m3_09_incremental_equal_live/raw
+  m5_05_m3_11_phase9c_speedup:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_11_phase9c_speedup --raw-dir
+      docs/data/m5_05/m3_11_phase9c_speedup/raw --summary
+      docs/data/m5_05/m3_11_phase9c_speedup/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m3_11_propagation_bench.rs
+    - docs/reports/M3_11_PROPAGATION.md
+    - docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml
+    outs:
+    - docs/data/m5_05/m3_11_phase9c_speedup/raw
+  m5_05_m3_11_whole_tick_speedup:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_11_whole_tick_speedup --raw-dir
+      docs/data/m5_05/m3_11_whole_tick_speedup/raw --summary
+      docs/data/m5_05/m3_11_whole_tick_speedup/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m3_11_propagation_bench.rs
+    - docs/reports/M3_11_PROPAGATION.md
+    - docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml
+    outs:
+    - docs/data/m5_05/m3_11_whole_tick_speedup/raw
+  m5_05_m3_11_frontier_crossover:
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
+      timing m3_11_frontier_crossover --raw-dir
+      docs/data/m5_05/m3_11_frontier_crossover/raw --summary
+      docs/data/m5_05/m3_11_frontier_crossover/summary.json
+    deps:
+    - analysis/simciv_analysis/m5_05.py
+    - analysis/simciv_analysis/provenance.py
+    - docs/reproducibility/m5_05_conclusions.toml
+    - crates/sim-model/src
+    - crates/sim-core/src
+    - Cargo.toml
+    - crates/sim-model/Cargo.toml
+    - crates/sim-core/Cargo.toml
+    - Cargo.lock
+    - rust-toolchain.toml
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/benches/m3_11_propagation_bench.rs
+    - docs/reports/M3_11_PROPAGATION.md
+    - docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml
+    outs:
+    - docs/data/m5_05/m3_11_frontier_crossover/raw

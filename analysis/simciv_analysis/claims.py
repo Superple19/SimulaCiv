@@ -20,6 +20,7 @@ OUTPUT = ROOT / "docs" / "reproducibility" / "claims.csv.gz"
 OLD_LEDGER = ROOT / "docs" / "reproducibility" / "superseded" / "claims.csv"
 RENAMES = ROOT / "docs" / "reports" / "RENAMES.md"
 M5_04_OVERRIDES = Path("docs") / "data" / "m5_04" / "claim_statuses.json"
+M5_05_RESULTS = Path("docs") / "data" / "m5_05" / "results.json"
 FIELDS = [
     "claim_id",
     "report",
@@ -470,6 +471,39 @@ def apply_m5_04_overrides(
     return claims
 
 
+def apply_m5_05_results(claims: list[dict[str, object]], root: Path = ROOT) -> list[dict[str, object]]:
+    """Apply recorded M5-05 conclusion outcomes to matching headline claims only."""
+    path = root / M5_05_RESULTS
+    if not path.is_file():
+        return claims
+    results = json.loads(path.read_text(encoding="utf-8"))
+    statuses = {
+        "holds": "conclusion holds",
+        "does not hold": "conclusion changed",
+        "inconclusive": "inconclusive",
+    }
+    by_source = {
+        (str(row["report"]), str(row["section_anchor"])): row
+        for row in results.get("conclusions", [])
+    }
+    for claim in claims:
+        if str(claim.get("M5 stage")) != "M5-05" or str(claim.get("tier")) not in {"headline", "key"}:
+            continue
+        if str(claim.get("class")) != "timing":
+            continue
+        result = by_source.get((Path(str(claim.get("report", ""))).name, str(claim.get("section anchor", ""))))
+        if result is None or str(claim.get("status")) == "missing-source":
+            continue
+        status = statuses.get(str(result.get("status")))
+        if status is None:
+            continue
+        claim["status"] = status
+        claim["notes"] = "; ".join(
+            filter(None, [str(claim.get("notes", "")), f"M5-05: {result.get('notes', result.get('status'))}"])
+        )
+    return claims
+
+
 def extract_claims(
     root: Path = ROOT, old_ledger: Path = OLD_LEDGER, *, apply_m5_04: bool = True
 ) -> list[dict[str, object]]:
@@ -539,7 +573,9 @@ def extract_claims(
                 "notes": note,
             }
         )
-    return apply_m5_04_overrides(output, root) if apply_m5_04 else output
+    if apply_m5_04:
+        output = apply_m5_04_overrides(output, root)
+    return apply_m5_05_results(output, root)
 
 
 def ledger_bytes(claims: list[dict[str, object]]) -> bytes:

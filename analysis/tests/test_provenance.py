@@ -94,8 +94,8 @@ def test_finalize_summary_records_dvc_and_content_hashes(tmp_path):
         encoding="utf-8",
     )
     (tmp_path / "dvc.lock").write_text(
-        "stages:\n  case:\n    outs:\n    - path: docs/data/m5_05/case/raw\n"
-        "      md5: 0123456789abcdef0123456789abcdef.dir\n",
+        "stages:\n  case:\n    outs:\n    - md5: 0123456789abcdef0123456789abcdef.dir\n"
+        "      path: docs/data/m5_05/case/raw\n",
         encoding="utf-8",
     )
 

@@ -69,17 +69,28 @@ def _dvc_lock_hashes(lock_path: Path) -> dict[str, str]:
         return {}
     result: dict[str, str] = {}
     current_path: str | None = None
-    path_line = re.compile(r"^\s*-\s+path:\s*(.+?)\s*$")
-    md5_line = re.compile(r"^\s+md5:\s*([0-9a-f]+(?:\.dir)?)\s*$")
+    current_md5: str | None = None
+    item_line = re.compile(r"^\s*-\s+")
+    path_line = re.compile(r"^\s*(?:-\s+)?path:\s*(.+?)\s*$")
+    md5_line = re.compile(r"^\s*(?:-\s+)?md5:\s*([0-9a-f]+(?:\.dir)?)\s*$")
+
+    def save() -> None:
+        if current_path is not None and current_md5 is not None:
+            result[current_path.replace("\\", "/")] = current_md5
+
     for line in lock_path.read_text(encoding="utf-8").splitlines():
+        if item_line.match(line):
+            save()
+            current_path = None
+            current_md5 = None
         path_match = path_line.match(line)
         if path_match:
             current_path = path_match.group(1).strip("'\"")
-            continue
         md5_match = md5_line.match(line)
-        if current_path is not None and md5_match:
-            result[current_path.replace("\\", "/")] = md5_match.group(1)
-            current_path = None
+        if md5_match:
+            current_md5 = md5_match.group(1)
+        save()
+    save()
     return result
 
 
@@ -146,7 +157,14 @@ def verify_summary(summary_path: str | Path, root: Path = ROOT) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("summary", type=Path, help="M5 run summary JSON to verify")
+    parser.add_argument(
+        "--finalize",
+        action="store_true",
+        help="after a completed DVC stage, add content digests and output hashes before verifying",
+    )
     args = parser.parse_args(argv)
+    if args.finalize:
+        finalize_summary(args.summary)
     verify_summary(args.summary)
     print(f"provenance matches current source: {args.summary}")
     return 0

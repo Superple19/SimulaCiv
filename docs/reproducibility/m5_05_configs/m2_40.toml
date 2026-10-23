@@ -1,3 +1,6 @@
+# Selected M2 baseline cells preserve the m0_baseline_bench convention:
+# carrying_capacity=1000*N and initial_settlement_resource=200*N.
+
 [world]
 master_seed = 81985529216486895
 replicate_id = 7

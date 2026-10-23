@@ -13,6 +13,7 @@ verbatim_conclusion = "From 50k to 100k, whole-tick alpha ranges from 1.058 to 1
 comparison = "Recompute 50k-to-100k alpha for workload B Serial and Explicit Rayon."
 cells = ["B N=50k K=250", "B N=100k K=500"]
 config = "docs/reproducibility/m5_05_configs/m2_40.toml; day 0; metrics/events on; snapshots off"
+config_overrides = ["world.initial_population=N", "world.settlement_count=K", "environment.carrying_capacity=1000*N", "world.initial_settlement_resource=200*N"]
 harness = "crates/sim-model/benches/m0_baseline_bench.rs"
 bench_args = ["M5-05 selector: workload B, N=50k/100k, Serial and Explicit Rayon 6/256"]
 pass_criterion = "Report the new alpha and each absolute timing ratio; conclusion holds only if both modes remain near-linear over these cells, otherwise inconclusive or changed as observed."
@@ -30,6 +31,7 @@ verbatim_conclusion = "Both execution modes complete a 100k-agent tick in a prac
 comparison = "Measure the original M2-40 100k workloads A and B for Serial and explicit Rayon 6/256."
 cells = ["A N=100k K=2", "B N=100k K=500"]
 config = "docs/reproducibility/m5_05_configs/m2_40.toml; day 0; metrics/events on; snapshots off"
+config_overrides = ["world.initial_population=100000", "world.settlement_count=K", "environment.carrying_capacity=1000*N", "world.initial_settlement_resource=200*N"]
 harness = "crates/sim-model/benches/m0_baseline_bench.rs"
 bench_args = ["M5-05 selector: workloads A/B, N=100k, Serial and Explicit Rayon 6/256"]
 pass_criterion = "Report per-cell ratios and whether the 17–22 ms range still describes both selected workloads."
@@ -47,6 +49,7 @@ verbatim_conclusion = "For every tested multi-thread setting, both workloads fir
 comparison = "Check workload B at N=1k and 5k using 6 threads/chunk 256, then the one-thread 10k full-tick comparison."
 cells = ["B N=1k Serial vs Rayon 6/256", "B N=5k Serial vs Rayon 6/256", "B N=10k Serial vs Rayon 1/256"]
 config = "docs/reproducibility/m5_05_configs/m2_40.toml; day 0; metrics/events on; snapshots off"
+config_overrides = ["world.initial_population=N", "world.settlement_count=ceil(N/200)", "environment.carrying_capacity=1000*N", "world.initial_settlement_resource=200*N"]
 harness = "crates/sim-model/benches/m0_baseline_bench.rs"
 bench_args = ["M5-05 selector: workload B, N=1k/5k/10k, Phase 4 and full tick, stated pools/chunk"]
 pass_criterion = "The sampled multi-thread crossover remains between 1k and 5k and the one-thread 10k tick does not improve; otherwise report the observed crossover or inconclusive sampling."
