@@ -5,6 +5,7 @@ import re
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 PROMOTE_WORKFLOW = ROOT / ".github" / "workflows" / "promote.yml"
+JUSTFILE = ROOT / "justfile"
 
 
 def _job_names(workflow: str) -> list[str]:
@@ -72,8 +73,31 @@ def test_workflow_check_steps_are_single_just_targets():
 
     assert checks("checks") == [("Run Rust checks", "just ci-rust")]
     assert checks("analysis") == [("Run analysis checks", "just ci-analysis")]
-    assert "check: analysis-test action-refs-check commit-messages-check" in (ROOT / "justfile").read_text(encoding="utf-8")
+    check_target = next(
+        line
+        for line in (ROOT / "justfile").read_text(encoding="utf-8").splitlines()
+        if line.startswith("check:")
+    )
+    assert check_target.startswith("check: check-quarto analysis-test")
+    assert "commit-messages-check" in check_target
     assert "fetch-depth: 0" in "\n".join(_steps(workflow, "analysis")[0])
+
+
+def test_quarto_preflight_precedes_checks_and_report_commands():
+    justfile = JUSTFILE.read_text(encoding="utf-8")
+    assert "check-quarto:" in justfile
+    for target in (
+        "report-m5-01:",
+        "report-m5-01-check:",
+        "report-m5-04:",
+        "report-m5-04-check:",
+        "report-m5-05:",
+        "report-m5-05-check:",
+        "check:",
+        "ci:",
+    ):
+        line = next(line for line in justfile.splitlines() if line.startswith(target))
+        assert "check-quarto" in line
 
 
 def test_just_jobs_install_all_target_tools_before_running_them():

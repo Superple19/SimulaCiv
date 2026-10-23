@@ -30,6 +30,9 @@ data-integrity-update: analysis-sync
 action-refs-check:
     uv run --directory analysis --project . python -m simciv_analysis.action_refs
 
+check-quarto:
+    uv run --directory analysis --project . python -m simciv_analysis.quarto_check
+
 commit-messages-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.git_hooks --check-commit-range
 
@@ -39,32 +42,32 @@ decisions: analysis-sync
 decisions-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.decisions --check
 
-report-m5-01: claims
+report-m5-01: check-quarto claims
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_01
 
-report-m5-01-check: analysis-sync
+report-m5-01-check: check-quarto analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_01 --check
 
-report-m5-04: analysis-sync
+report-m5-04: check-quarto analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_04
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_01
 
-report-m5-04-check: analysis-sync
+report-m5-04-check: check-quarto analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_04 --check
 
-report-m5-05: analysis-sync
+report-m5-05: check-quarto analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_05
     uv run --directory analysis --project . python -m simciv_analysis.claims
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_01
 
-report-m5-05-check: analysis-sync
+report-m5-05-check: check-quarto analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_05 --check
 
 lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
     vale --config analysis/vale/.vale.ini docs/data/m5_05/STATUS.md docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
-check: analysis-test action-refs-check commit-messages-check decisions-check check-autocrlf data-integrity-check links claims-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
+check: check-quarto analysis-test action-refs-check commit-messages-check decisions-check check-autocrlf data-integrity-check links claims-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
 
 ci-analysis: check
     uv run --directory analysis --project . python -m simciv_analysis.ci_analysis
@@ -105,7 +108,7 @@ m5-05-timing ENTRY: m5-05-plan
     just provenance-finalize docs/data/m5_05/{{ENTRY}}/summary.json
     just provenance docs/data/m5_05/{{ENTRY}}/summary.json
 
-ci:
+ci: check-quarto
     just ci-rust
     just clippy-cross
     just ci-analysis
