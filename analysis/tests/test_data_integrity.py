@@ -1,6 +1,12 @@
 import pytest
 
-from simciv_analysis.data_integrity import check, data_files, parse_manifest, write
+from simciv_analysis.data_integrity import (
+    autocrlf_warning,
+    check,
+    data_files,
+    parse_manifest,
+    write,
+)
 
 
 def test_manifest_parser_and_data_file_scope(tmp_path):
@@ -20,19 +26,30 @@ def test_integrity_check_detects_changed_and_unregistered_files(tmp_path):
     import subprocess
 
     subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "--local", "core.autocrlf", "false"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    assert autocrlf_warning(tmp_path) is None
+    subprocess.run(["git", "config", "--local", "core.autocrlf", "true"], cwd=tmp_path, check=True)
+    assert autocrlf_warning(tmp_path)
+    subprocess.run(["git", "config", "--local", "core.autocrlf", "false"], cwd=tmp_path, check=True)
     data = tmp_path / "docs/data/stage"
     data.mkdir(parents=True)
     record = data / "records.json"
-    record.write_text("{}\n", encoding="utf-8")
+    record.write_bytes(b"{}\n")
+    subprocess.run(["git", "add", "docs/data/stage/records.json"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "fixture"], cwd=tmp_path, check=True)
 
     write(tmp_path)
     assert check(tmp_path) == []
 
-    record.write_text('{"changed": true}\n', encoding="utf-8")
-    assert any("checksum mismatch" in error for error in check(tmp_path))
-    with pytest.raises(ValueError, match="refusing to change existing data checksum"):
+    record.write_bytes(b"{}\r\n")
+    assert any("working-tree bytes differ from Git blob" in error for error in check(tmp_path))
+    with pytest.raises(ValueError, match="working-tree bytes differ from Git blob"):
         write(tmp_path)
 
-    record.write_text("{}\n", encoding="utf-8")
-    (data / "new.json").write_text("[]\n", encoding="utf-8")
+    record.write_bytes(b"{}\n")
+    (data / "new.json").write_bytes(b"[]\n")
     assert any("unregistered data file" in error for error in check(tmp_path))
+    write(tmp_path)
+    assert check(tmp_path) == []

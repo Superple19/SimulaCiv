@@ -50,17 +50,26 @@ def parse_manifest(text: str) -> dict[str, str]:
     return entries
 
 
-def canonical_git_bytes(root: Path, relative: str, path: Path) -> bytes:
-    """Read Git-clean bytes so core.autocrlf does not create false failures."""
-    object_id = subprocess.check_output(
-        ["git", "hash-object", "-w", f"--path={relative}", "--", str(path)],
-        cwd=root,
-        text=True,
-        stderr=subprocess.DEVNULL,
-    ).strip()
-    return subprocess.check_output(
-        ["git", "cat-file", "blob", object_id], cwd=root
-    )
+def _git_blob_bytes(root: Path, relative: str) -> bytes | None:
+    for revision in (f"HEAD:{relative}", f":{relative}"):
+        result = subprocess.run(
+            ["git", "show", revision],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return result.stdout
+    return None
+
+
+def _content_bytes(root: Path, relative: str, path: Path) -> bytes:
+    blob = _git_blob_bytes(root, relative)
+    worktree = path.read_bytes()
+    if blob is not None and blob != worktree:
+        raise ValueError(f"working-tree bytes differ from Git blob: {relative}")
+    return blob if blob is not None else worktree
 
 
 def _is_dvc_output(relative: str, outputs: set[str]) -> bool:
@@ -70,13 +79,29 @@ def _is_dvc_output(relative: str, outputs: set[str]) -> bool:
     )
 
 
-def _digest(root: Path, relative: str, path: Path, outputs: set[str]) -> str:
-    raw = (
-        path.read_bytes()
-        if _is_dvc_output(relative, outputs)
-        else canonical_git_bytes(root, relative, path)
+def _digest(root: Path, relative: str, path: Path) -> str:
+    return hashlib.sha256(_content_bytes(root, relative, path)).hexdigest()
+
+
+def _tracked_data_paths(root: Path) -> set[str]:
+    paths = subprocess.check_output(
+        ["git", "ls-files", "-z", "docs/data"], cwd=root
+    ).split(b"\0")
+    return {path.decode("utf-8") for path in paths if path}
+
+
+def autocrlf_warning(root: Path = ROOT) -> str | None:
+    result = subprocess.run(
+        ["git", "config", "--local", "--get", "core.autocrlf"],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        text=True,
     )
-    return hashlib.sha256(raw).hexdigest()
+    if result.stdout.strip().casefold() == "true":
+        return "WARNING: repository-local core.autocrlf=true can convert checkout bytes."
+    return None
 
 
 def _committed_manifest(root: Path) -> dict[str, str]:
@@ -107,18 +132,31 @@ def check(root: Path = ROOT) -> list[str]:
             return [f"committed checksum entry changed or removed: {relative}"]
 
     files = data_files(root)
+    tracked = _tracked_data_paths(root)
     outputs = dvc_output_paths(root)
     errors = [
         f"unregistered data file: {path}"
         for path in sorted(files.keys() - expected.keys())
     ]
+    for relative in sorted(tracked):
+        path = root / relative
+        if not path.is_file():
+            errors.append(f"tracked data file is missing: {relative}")
+            continue
+        try:
+            _content_bytes(root, relative, path)
+        except ValueError as error:
+            errors.append(str(error))
     for relative in sorted(expected.keys() - files.keys()):
-        if not _is_dvc_output(relative, outputs):
+        if relative in tracked or not _is_dvc_output(relative, outputs):
             errors.append(f"manifest file is missing: {relative}")
     for relative, path in sorted(files.items()):
         if relative not in expected:
             continue
-        actual = _digest(root, relative, path, outputs)
+        try:
+            actual = _digest(root, relative, path)
+        except ValueError:
+            continue
         if actual != expected[relative]:
             errors.append(
                 f"checksum mismatch: {relative}: expected {expected[relative]}, got {actual}"
@@ -139,13 +177,13 @@ def write(root: Path = ROOT) -> None:
             elif relative not in files:
                 raise FileNotFoundError(f"refusing to drop missing non-DVC data file: {relative}")
             else:
-                actual = _digest(root, relative, files[relative], outputs)
+                actual = _digest(root, relative, files[relative])
                 if actual != digest:
                     raise ValueError(f"refusing to change existing data checksum: {relative}")
                 entries[relative] = digest
     for relative, path in sorted(files.items()):
         if relative not in entries:
-            entries[relative] = _digest(root, relative, path, outputs)
+            entries[relative] = _digest(root, relative, path)
     manifest.write_text(
         "".join(f"{digest}  {relative}\n" for relative, digest in sorted(entries.items())),
         encoding="utf-8",
@@ -158,7 +196,23 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="verify data files against SHA256SUMS")
     mode.add_argument("--write", action="store_true", help="update SHA256SUMS after producing data")
+    mode.add_argument("--check-autocrlf", action="store_true", help="warn if core.autocrlf is true")
     args = parser.parse_args(argv)
+    if args.check_autocrlf:
+        warning = autocrlf_warning()
+        if warning:
+            print(warning, file=sys.stderr)
+        else:
+            result = subprocess.run(
+                ["git", "config", "--local", "--get", "core.autocrlf"],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                text=True,
+            )
+            print(f"repository-local core.autocrlf={result.stdout.strip() or 'unset'}")
+        return 0
     if args.write:
         write()
         print("Updated docs/data/SHA256SUMS.")
