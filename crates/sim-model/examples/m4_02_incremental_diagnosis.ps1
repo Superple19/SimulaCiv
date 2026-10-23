@@ -77,7 +77,7 @@ Write-Output "HOST BEFORE $($hostBefore | ConvertTo-Json -Compress)"
 Write-Output "PRIORITY High; affinity=0x555; paired order alternates by sample"
 
 $writer = [System.IO.StreamWriter]::new($outputPath, $false, [System.Text.UTF8Encoding]::new($false))
-$writer.WriteLine("kind`tbuild`tcell`tsample`tr`tdirect_ms`tcandidate_ms`tdelta_ms`traw")
+$writer.WriteLine("kind`tbuild`tcell`tsample`trepetitions`tdirect_ms`tcandidate_ms`tdelta_ms")
 $summaries = [System.Collections.Generic.List[string]]::new()
 try {
     foreach ($cell in $cells) {
@@ -86,7 +86,6 @@ try {
             foreach ($build in $builds) {
                 $worker = Start-Worker $build.Exe $build.Label $cell.Id
                 $workers.Add($worker)
-                $writer.WriteLine("ready`t$($worker.Label)`t$($worker.CellId)`t`t$($worker.SuggestedRepetitions)`t`t`t`t$($worker.ReadyLine)")
             }
             $r = ($workers | Measure-Object -Property SuggestedRepetitions -Maximum).Maximum
             foreach ($worker in $workers) {
@@ -98,7 +97,6 @@ try {
                 if ($armed -ne "ARMED`t$($worker.Label)`t$($worker.CellId)`t$r") {
                     throw "unexpected warmup handshake '$armed'"
                 }
-                $writer.WriteLine("armed`t$($worker.Label)`t$($worker.CellId)`t`t$r`t`t`t`t$armed")
             }
 
             for ($sample = 0; $sample -lt 41; $sample++) {
@@ -111,7 +109,7 @@ try {
                     $line = $worker.Process.StandardOutput.ReadLine()
                     $fields = $line.Split("`t")
                     if ($fields.Length -ne 8 -or $fields[0] -ne 'SAMPLE') { throw "invalid sample '$line'" }
-                    $writer.WriteLine("sample`t$($fields[1])`t$($fields[2])`t$($fields[3])`t$($fields[4])`t$($fields[5])`t$($fields[6])`t$($fields[7])`t$line")
+                    $writer.WriteLine("sample`t$($fields[1])`t$($fields[2])`t$($fields[3])`t$($fields[4])`t$($fields[5])`t$($fields[6])`t$($fields[7])")
                 }
                 $writer.Flush()
             }
@@ -126,7 +124,6 @@ try {
                     throw "invalid summary '$summary'"
                 }
                 $summaries.Add($summary)
-                $writer.WriteLine("summary`t$($worker.Label)`t$($worker.CellId)`t`t$($r)`t`t`t`t$summary")
             }
         }
         finally {
