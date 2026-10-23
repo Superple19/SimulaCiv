@@ -267,29 +267,30 @@ stages:
     - docs/data/m5_05/m3_09_incremental_equal_live/raw
     frozen: true
   m5_05_m3_11_phase9c_speedup:
-    wdir: ../../../
+    wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
       timing m3_11_phase9c_speedup --raw-dir
       docs/data/m5_05/m3_11_phase9c_speedup/raw --summary
       docs/data/m5_05/m3_11_phase9c_speedup/summary.json
     deps:
+    - Cargo.lock
+    - Cargo.toml
     - analysis/simciv_analysis/m5_05.py
     - analysis/simciv_analysis/provenance.py
-    - docs/reproducibility/m5_05_conclusions.toml
-    - crates/sim-model/src
-    - crates/sim-core/src
-    - Cargo.toml
-    - crates/sim-model/Cargo.toml
     - crates/sim-core/Cargo.toml
-    - Cargo.lock
-    - rust-toolchain.toml
+    - crates/sim-core/src
+    - crates/sim-model/Cargo.toml
+    - crates/sim-model/benches/m3_11_propagation_bench.rs
     - crates/sim-model/examples/m5_05_conclusion_measure.rs
     - crates/sim-model/examples/m5_05_sessions23.rs
-    - crates/sim-model/benches/m3_11_propagation_bench.rs
+    - crates/sim-model/src
     - docs/reports/M3_11_PROPAGATION.md
+    - docs/reproducibility/m5_05_conclusions.toml
     - docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml
+    - rust-toolchain.toml
     outs:
     - docs/data/m5_05/m3_11_phase9c_speedup/raw
+    frozen: true
   m5_05_m3_11_whole_tick_speedup:
     wdir: ../../../
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
