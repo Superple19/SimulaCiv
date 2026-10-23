@@ -27,7 +27,7 @@ check-autocrlf: analysis-sync
 data-integrity-update: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.data_integrity --write
 
-action-refs-check:
+action-refs-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.action_refs
 
 check-quarto:

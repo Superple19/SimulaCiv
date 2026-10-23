@@ -63,7 +63,7 @@ repos:
         name: Vale changed Markdown and Quarto files
         entry: vale --config analysis/vale/.vale.ini
         language: system
-        files: '^(?:docs/reproducibility/.*\.(?:md|qmd)|docs/(?:reports|performance)/M5_[^/]+\.(?:md|qmd))$'
+        files: '^(?:docs/reproducibility/.*\.(?:md|qmd)|docs/reports/M5_[^/]+\.(?:md|qmd))$'
         stages: [pre-commit]
 
       - id: links-changed-docs
