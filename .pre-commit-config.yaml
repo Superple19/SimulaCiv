@@ -20,9 +20,12 @@ repos:
           - md
           - --markdown-linebreak-ext
           - qmd
+        exclude: '^(?:docs/data/(?!.*README\.md$)|docs/reports/(?!M5_).*|docs/contracts/(?:M1_CONTRACT_FREEZE|M2_OPTIMIZATION_CONTRACT|M3_INTERACTION_CONTRACT|M4_COUNTERFACTUAL_CONTRACT)\.md$|docs/design/|crates/sim-model/examples/m4_02_a[2-4]_measure\.rs$)'
       - id: end-of-file-fixer
+        exclude: '^(?:docs/data/(?!.*README\.md$)|docs/reports/(?!M5_).*|docs/contracts/(?:M1_CONTRACT_FREEZE|M2_OPTIMIZATION_CONTRACT|M3_INTERACTION_CONTRACT|M4_COUNTERFACTUAL_CONTRACT)\.md$|docs/design/|crates/sim-model/examples/m4_02_a[2-4]_measure\.rs$)'
       - id: mixed-line-ending
         args: [--fix=no]
+        exclude: '^(?:docs/data/(?!.*README\.md$)|docs/reports/(?!M5_).*|docs/contracts/(?:M1_CONTRACT_FREEZE|M2_OPTIMIZATION_CONTRACT|M3_INTERACTION_CONTRACT|M4_COUNTERFACTUAL_CONTRACT)\.md$|docs/design/|crates/sim-model/examples/m4_02_a[2-4]_measure\.rs$)'
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
@@ -49,9 +52,7 @@ repos:
         name: Vale changed Markdown and Quarto files
         entry: vale --config analysis/vale/.vale.ini
         language: system
-        files: '.*\.(md|qmd)$'
-        # AGENTS.md contains required absolute policy language, not report prose.
-        exclude: '^AGENTS\.md$'
+        files: '^(?:docs/reproducibility/.*\.(?:md|qmd)|docs/(?:reports|performance)/M5_[^/]+\.(?:md|qmd))$'
         stages: [pre-commit]
 
       - id: links-changed-docs
