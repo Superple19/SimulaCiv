@@ -1,5 +1,8 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
+hooks-install:
+    prek install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
+
 analysis-sync:
     uv sync --project analysis --frozen
 

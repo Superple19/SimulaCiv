@@ -1,0 +1,97 @@
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+  - pre-push
+default_stages:
+  - pre-commit
+
+repos:
+  - repo: https://github.com/crate-ci/committed
+    rev: v1.1.11
+    hooks:
+      - id: committed
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args:
+          - --markdown-linebreak-ext
+          - md
+          - --markdown-linebreak-ext
+          - qmd
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=no]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt --check
+        entry: cargo fmt --check
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: dvc-large-files
+        name: block staged files over 1 MiB unless DVC-managed
+        entry: uv run --directory analysis --project . python -m simciv_analysis.git_hooks
+        language: system
+        stages: [pre-commit]
+
+      - id: vale-changed-docs
+        name: Vale changed Markdown and Quarto files
+        entry: vale --config analysis/vale/.vale.ini
+        language: system
+        files: '.*\.(md|qmd)$'
+        # AGENTS.md contains required absolute policy language, not report prose.
+        exclude: '^AGENTS\.md$'
+        stages: [pre-commit]
+
+      - id: links-changed-docs
+        name: check links in changed Markdown and Quarto files
+        entry: uv run --directory analysis --project . python check_links.py
+        language: system
+        files: '.*\.(md|qmd)$'
+        stages: [pre-commit]
+
+      - id: reject-stray-message-m
+        name: reject stray -m tokens in commit messages
+        entry: '(?<!\S)-m(?!\S)'
+        language: pygrep
+        types: [text]
+        stages: [commit-msg]
+
+      - id: reject-message-trailing-whitespace
+        name: reject trailing whitespace in commit messages
+        entry: '[ \t]+\r?$'
+        language: pygrep
+        types: [text]
+        stages: [commit-msg]
+
+      - id: forbid-dvc-local-config
+        name: forbid local DVC credentials
+        entry: "^"
+        language: pygrep
+        files: '^\.dvc/config\.local$'
+        stages: [pre-commit]
+
+      - id: pre-push-clippy
+        name: cargo clippy before push
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: pre-push-analysis
+        name: just check before push
+        entry: just check
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

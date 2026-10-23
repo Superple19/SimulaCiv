@@ -46,6 +46,8 @@ Unless explicitly requested:
 - Do not rename files, milestones, branches, or architectural stages.
 - Never amend, rebase, reset, or force-push a commit that exists on `origin`; correct mistakes with a new commit.
 - Track new experiment raw outputs through DVC stages; keep summaries, specs, harnesses, reports, generated figures, and DVC pointers in Git. Never commit DVC credentials.
+- Install the repository Git hooks with `just hooks-install` before committing; never bypass them with `--no-verify`.
+- Write multi-line commit messages with `-F <file>` or separate `-m` flags.
 
 ## 5. SimulaCiv development stages
 

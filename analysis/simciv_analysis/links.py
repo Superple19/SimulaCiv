@@ -56,14 +56,20 @@ def relative_target(source: Path, target: str) -> Path | None:
     return candidate.resolve()
 
 
-def main() -> int:
+def main(paths: list[str] | None = None) -> int:
     assert targets("[local](a.md) [web](https://example.com)\n")[0][1] == "a.md"
     assert relative_target(ROOT / "README.md", "https://example.com") is None
 
     broken: list[tuple[Path, int, str]] = []
     checked = 0
-    for source in sorted(ROOT.rglob("*.md")):
-        if ".git" in source.parts or "target" in source.parts:
+    if paths:
+        sources = sorted((ROOT / path).resolve() for path in paths)
+    else:
+        sources = sorted((*ROOT.rglob("*.md"), *ROOT.rglob("*.qmd")))
+    for source in sources:
+        if source.suffix.lower() not in {".md", ".qmd"}:
+            continue
+        if ".git" in source.parts or "target" in source.parts or ".venv" in source.parts:
             continue
         for line, target in targets(source.read_text(encoding="utf-8")):
             candidate = relative_target(source, target)
@@ -83,4 +89,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:] or None))

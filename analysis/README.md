@@ -4,7 +4,15 @@ The analysis environment is pinned to Python 3.15.1, uv 0.13.5, pandas 3.0.6, ma
 
 ## Setup
 
-Install uv 0.13.5, Quarto CLI 1.10.19, Vale 3.25.1, and just 1.58.0 using their official installation instructions. From the repository root, run:
+Install prek 0.5.7, uv 0.13.5, Quarto CLI 1.10.19, Vale 3.25.1, and just 1.58.0 using their official installation instructions. From the repository root, install the Git hooks:
+
+```powershell
+just hooks-install
+```
+
+Pre-commit checks run formatting, file hygiene, DVC-aware size checks, secret detection, and Vale/link checks for Markdown and Quarto files. The pre-push hooks run Clippy and `just check`; Rust tests remain in CI. Do not bypass the hooks with `--no-verify`.
+
+Then install the pinned Python runtime and dependencies:
 
 ```sh
 uv python install
@@ -32,7 +40,7 @@ The shared DVC remote URL is in `.dvc/config`; the DagsHub DVC remote is public-
 dvc pull docs/data/m5_05/dvc.yaml
 ```
 
-Maintainers need a DagsHub token only to upload. Configure it in the ignored local file, never in Git:
+Maintainers need a DagsHub token only to upload. Set it in the ignored local file and keep credentials out of Git:
 
 ```powershell
 $env:DAGSHUB_USER = Read-Host "DagsHub username"

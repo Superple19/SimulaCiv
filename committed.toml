@@ -1,0 +1,6 @@
+style = "conventional"
+merge_commit = false
+subject_length = 72
+subject_capitalized = false
+subject_not_punctuated = true
+allowed_types = ["feat", "fix", "docs", "perf", "data", "test", "chore", "ci"]

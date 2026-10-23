@@ -69,5 +69,15 @@ jobs:
           sudo install -m 0755 /tmp/vale /usr/local/bin/vale
           vale --version
 
+      - name: Install pinned prek
+        run: |
+          curl -fsSL https://github.com/j178/prek/releases/download/v0.5.7/prek-x86_64-unknown-linux-gnu.tar.gz -o /tmp/prek.tar.gz
+          echo "e238e5a6b4e384e8d18f33d3c3b1a329be0e1237f77ac6e021e641ddd3a2bab6  /tmp/prek.tar.gz" | sha256sum --check
+          tar -xzf /tmp/prek.tar.gz -C /tmp
+          sudo install -m 0755 /tmp/prek-x86_64-unknown-linux-gnu/prek /usr/local/bin/prek
+          prek --version
+
       - name: Check analysis tooling and reports
-        run: just check
+        run: |
+          just check
+          prek run --all-files
