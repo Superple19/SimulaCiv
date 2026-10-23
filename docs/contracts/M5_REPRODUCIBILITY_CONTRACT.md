@@ -387,3 +387,47 @@ This amendment authorizes DVC setup, the public-read DagsHub remote URL in `.dvc
 ### 14.6 Implementation record
 
 The setup uses DVC 3.67.1, released 2026-03-31 ([PyPI release](https://pypi.org/project/dvc/3.67.1/), [upstream latest release](https://github.com/iterative/dvc/releases/latest)). Its published Python classifiers include 3.14 but not 3.15, so DVC was installed as an isolated uv tool under Python 3.14.9; the analysis project remains pinned to Python 3.15.1. The tracked remote configuration contains only the DagsHub URL; local credentials were not configured or committed.
+
+## 15. M5-05 conclusion-level regeneration amendment A-1 (FROZEN)
+
+This amendment replaces only the M5-05 scope and runtime plan in §13. It preserves §13's deterministic/timing classification, M5-00 A-1/A-2 data and provenance rules, and the requirement to report mismatches rather than repair historical values.
+
+### 15.1 Conclusion registry
+
+`docs/reproducibility/m5_05_conclusions.toml` is the pre-registered source for 13 conclusion-level rows. Each row records a verbatim report conclusion, its comparison, one to three representative original cells, the committed harness and cell arguments, the M5-00 pass criterion, deterministic test targets where applicable, and the estimated runtime. It covers M2 near-linear scaling, the M2-40 final tick, M2 Phase 4 crossover, M3-01 serial baseline, M3-02 parallel Phase 6B, M3-03 search reduction, M3-06 settlement indexing, M3-07 reversed-slot sensitivity, M3-08 full-rebuild cost, M3-09 incremental maintenance, and the three M3-11 propagation conclusions (Phase 9c speedup, whole-tick speedup, and observed crossover).
+
+The registry is intentionally conclusion-level. A sampled result can support or challenge the selected comparison; it cannot be reported as a new full-grid aggregate when the original headline was computed over a wider grid. Such a row is **inconclusive** unless its pre-registered cells establish the stated conclusion.
+
+### 15.2 Deterministic confirmations
+
+Run the integration-test targets named in the registry without timing. Record exact pass/fail and test names. A test confirms only the deterministic behavior it exercises; no expected value is changed. Mismatches are retained as findings.
+
+### 15.3 Timing stages and data
+
+- Each timing conclusion has a separate DVC stage and raw output directory `docs/data/m5_05/<conclusion-id>/raw/`; the stage writes a Git summary `docs/data/m5_05/<conclusion-id>/summary.json` from that same run. The deterministic confirmation has its own stage and raw log.
+- Every stage lists the conclusion spec, cell config and seeds, harness, `crates/sim-model/src`, `crates/sim-core/src`, root and crate manifests, `Cargo.lock`, and `rust-toolchain.toml` as dependencies. Timing stages are frozen in DVC after recording so `dvc repro` cannot replace measurements implicitly.
+- Apply the M4 standard A-5 protocol: reference host, two warmups, 41 paired samples, fixed per-cell repetition count chosen during warmup so each sample is at least one second, per-operation time reported as sample time divided by that count, and both paired execution orders. On Windows, run at high priority with affinity `0x555`; print `TIMING RUN START` and `TIMING RUN END`, and run only while the PC is idle. Record the host and the per-cell repetition count.
+- Every comparison asserts identical workload, starting checkpoint, execution mode, pool size, chunk size, horizon, enabled metrics/events, and snapshot options on both paths. This includes checks that are not a speed comparison.
+- Store a content-hash summary with the exact source/spec/harness digests, toolchain, DVC output md5, output SHA-256, cell key, path medians/MADs, old/new values, ratio, and conclusion status. Report generators read summaries only.
+
+### 15.4 Session plan
+
+The focused set has 13 conclusions and at most three representative cells per conclusion. The registry estimates **7 hours 30 minutes** total: Session 1 is 2h45m, Session 2 is 2h45m, and Session 3 is 2h; estimates use historical cell costs, the 41-sample A-5 minimum, selected-cell driver setup, and paired-parity checks, and exclude deterministic tests. **Session 1, authorized now:** deterministic confirmations, then M2 near-linear/M2-40 final-tick/M2 Phase 4 crossover, and M3-01/M3-02/M3-03 selected cells. Sessions 2 and 3 are listed in the registry but are not authorized by this amendment execution. Commit the raw-data pointer/lock and summary after each completed session group.
+
+### 15.5 Generated report and acceptance
+
+`analysis/simciv_analysis/report_m5_05.py` generates `docs/reproducibility/M5_05_M0_M3_REGENERATION.qmd` and its rendered Markdown from the committed summaries. It reports one row per conclusion as **holds**, **does not hold**, or **inconclusive**, with old/new values, new/old ratios for absolute timings, and a flag when `|ratio - 1| > 20%`. Deterministic results, timing results, and unrun sessions are distinct. Update ledger status only from source mappings and recorded comparison results. `just check` and `just ci` must pass.
+
+### 15.6 Frozen decision register
+
+| ID | Decision | Frozen rule |
+|---|---|---|
+| A1-1 | Scope | Use the 13 conclusion-level entries in the committed registry, with one to three representative cells copied from the named reports; never infer a new aggregate from the sample. |
+| A1-2 | Deterministic evidence | Run mapped tests first, record exact targets, and never re-bless expected values. |
+| A1-3 | Timing protocol | Apply A-5, preserve matched execution options, report old/new ratios and >20% flags, and mark unsupported aggregate conclusions inconclusive. |
+| A1-4 | Runtime budget | The planned focused set is estimated at 7h30m and split into three sub-six-hour sessions; execute Session 1 only now. |
+| A1-5 | Data/provenance | Use one DVC stage and raw output directory per timing conclusion, a Git summary at or below 1 MiB, content-hash provenance, and summary-only report generation. |
+
+### 15.7 Freeze record
+
+This amendment authorizes the conclusion registry and Session 1 work described in §15.1–§15.4. It does not authorize Sessions 2–3, any Git/DVC push, simulation semantic changes, or changes to existing tests, goldens, snapshots, or CI.

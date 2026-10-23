@@ -1,0 +1,225 @@
+schema_version = 1
+stage = "M5-05"
+source_host = "AMD Ryzen 5 9600X Windows desktop"
+timing_protocol = "M4 A-5; see M5 contract §15.3"
+
+[[conclusion]]
+id = "m2_near_linear"
+milestone = "M2"
+report = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
+section = "#full-tick-scaling"
+class = "timing"
+verbatim_conclusion = "From 50k to 100k, whole-tick alpha ranges from 1.058 to 1.102; A has phase-local P5/P6A/P6B timing outliers, but they do not move aggregate alpha above 1.058."
+comparison = "Recompute 50k-to-100k alpha for workload B Serial and Explicit Rayon."
+cells = ["B N=50k K=250", "B N=100k K=500"]
+config = "docs/reproducibility/m5_05_configs/m2_40.toml; day 0; metrics/events on; snapshots off"
+harness = "crates/sim-model/benches/m0_baseline_bench.rs"
+bench_args = ["M5-05 selector: workload B, N=50k/100k, Serial and Explicit Rayon 6/256"]
+pass_criterion = "Report the new alpha and each absolute timing ratio; conclusion holds only if both modes remain near-linear over these cells, otherwise inconclusive or changed as observed."
+estimate_minutes = 20
+session = 1
+tests = ["determinism_oracle_tests"]
+
+[[conclusion]]
+id = "m2_final_tick"
+milestone = "M2"
+report = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
+section = "#serial-and-explicit-rayon-full-tick-results"
+class = "timing"
+verbatim_conclusion = "Both execution modes complete a 100k-agent tick in a practical 17–22 ms on the measured host."
+comparison = "Measure the original M2-40 100k workloads A and B for Serial and explicit Rayon 6/256."
+cells = ["A N=100k K=2", "B N=100k K=500"]
+config = "docs/reproducibility/m5_05_configs/m2_40.toml; day 0; metrics/events on; snapshots off"
+harness = "crates/sim-model/benches/m0_baseline_bench.rs"
+bench_args = ["M5-05 selector: workloads A/B, N=100k, Serial and Explicit Rayon 6/256"]
+pass_criterion = "Report per-cell ratios and whether the 17–22 ms range still describes both selected workloads."
+estimate_minutes = 20
+session = 1
+tests = ["determinism_oracle_tests"]
+
+[[conclusion]]
+id = "m2_phase4_crossover"
+milestone = "M2"
+report = "docs/reports/M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md"
+section = "#10-crossover"
+class = "timing"
+verbatim_conclusion = "For every tested multi-thread setting, both workloads first showed combined-P4 and full-tick median improvement at N=5,000. No one-thread setting showed both improvements through N=50,000."
+comparison = "Check workload B at N=1k and 5k using 6 threads/chunk 256, then the one-thread 10k full-tick comparison."
+cells = ["B N=1k Serial vs Rayon 6/256", "B N=5k Serial vs Rayon 6/256", "B N=10k Serial vs Rayon 1/256"]
+config = "docs/reproducibility/m5_05_configs/m2_40.toml; day 0; metrics/events on; snapshots off"
+harness = "crates/sim-model/benches/m0_baseline_bench.rs"
+bench_args = ["M5-05 selector: workload B, N=1k/5k/10k, Phase 4 and full tick, stated pools/chunk"]
+pass_criterion = "The sampled multi-thread crossover remains between 1k and 5k and the one-thread 10k tick does not improve; otherwise report the observed crossover or inconclusive sampling."
+estimate_minutes = 30
+session = 1
+tests = ["phase4_rayon_tests", "determinism_oracle_tests"]
+
+[[conclusion]]
+id = "m3_01_serial_baseline"
+milestone = "M3"
+report = "docs/reports/M3_01_SERIAL_BASELINE.md"
+section = "#full-tick-results-and-scaling"
+class = "timing"
+verbatim_conclusion = "The M3-01 storage runner matched the M3-00 reference on the committed golden, the complete 60-cell 100-day differential matrix, a 10,000-agent 100-day release differential, snapshot pause/resume, and reversed storage slots."
+comparison = "Confirm deterministic parity separately; time the serial M3 storage runner at fixed p_local and k over N=10k/50k/100k and recompute alpha."
+cells = ["N=10k K=50 k=8 p_local=0.5", "N=50k K=250 k=8 p_local=0.5", "N=100k K=500 k=8 p_local=0.5"]
+config = "docs/reproducibility/m5_05_configs/m3_m2_40.toml; day 0; metrics/events on; snapshots off"
+harness = "crates/sim-model/benches/m3_01_serial_baseline_bench.rs"
+bench_args = ["M5-05 selector: N=10k/50k/100k, k=8, p_local=0.5, serial storage"]
+pass_criterion = "Report all new/old ratios and alpha; a mismatch is not repaired, and broader 45-cell conclusions remain inconclusive from these three samples."
+estimate_minutes = 25
+session = 1
+tests = ["m3_golden_tests", "m3_storage_runner_tests"]
+
+[[conclusion]]
+id = "m3_02_parallel_phase6b"
+milestone = "M3"
+report = "docs/reports/M3_02_PARALLEL_PHASE6B.md"
+section = "#summary"
+class = "timing"
+verbatim_conclusion = "At day 0, the median whole-tick speedup across the 180 active-workload configurations was 0.967x; no active-workload configuration exceeded the M3-01 Amdahl model bound."
+comparison = "Re-measure the selected active p_local=0.5/k=8/pool6/chunk256 cells; do not claim a new 180-cell median from representatives."
+cells = ["N=10k K=50", "N=50k K=250", "N=100k K=500"]
+config = "docs/reproducibility/m5_05_configs/m3_m2_40.toml; day 0; metrics/events on; snapshots off"
+harness = "crates/sim-model/benches/m3_02_parallel_phase6b_bench.rs"
+bench_args = ["M5-05 selector: N=10k/50k/100k, k=8, p_local=0.5, Serial vs pool6/chunk256"]
+pass_criterion = "Report selected ratios. The historical aggregate 0.967x is inconclusive unless all selected cells support the no-whole-tick-gain conclusion; do not label their mean as the original aggregate."
+estimate_minutes = 45
+session = 1
+tests = ["m3_parallel_phase6b_tests", "m3_parallel_runner_tests"]
+
+[[conclusion]]
+id = "m3_03_search_reduction"
+milestone = "M3"
+report = "docs/reports/M3_03_SEARCH_REDUCTION.md"
+section = "#paired-whole-tick-results"
+class = "timing"
+verbatim_conclusion = "No positive whole-tick paired saving exceeds its MAD."
+comparison = "Compare serial M3 with the explicit search-reduction runner on M2-40 day 0."
+cells = ["N=10k K=50 p_local=0.5", "N=100k K=500 p_local=0.5"]
+config = "docs/reproducibility/m5_05_configs/m3_m2_40.toml; day 0; k=8; metrics/events on; snapshots off"
+harness = "crates/sim-model/benches/m3_02b_search_reduction_bench.rs"
+bench_args = ["M5-05 selector: M2-40 day 0, p_local=0.5, k=8, serial vs search reduction"]
+pass_criterion = "For both selected cells report paired saving and MAD; the no-gain conclusion holds only when no saving exceeds MAD."
+estimate_minutes = 25
+session = 1
+tests = ["m3_search_reduction_tests"]
+
+[[conclusion]]
+id = "m3_06_settlement_index"
+milestone = "M3"
+report = "docs/reports/M3_06_SETTLEMENT_INDEX.md"
+section = "#whole-tick-result-at-n1000000"
+class = "timing"
+verbatim_conclusion = "The new serial median is 1.215x faster than the prior median (17.7% less time)."
+comparison = "Run the old and indexed M3 storage source paths at the same 1M/K=5k/k=8/p_local=0.5 checkpoint."
+cells = ["N=1M K=5k k=8 p_local=0.5 day 0"]
+config = "docs/reproducibility/m5_05_configs/m3_equilibrium.toml"
+harness = "crates/sim-model/benches/m3_scale_limit_bench.rs"
+bench_args = ["M5-05 selector: N=1M K=5k k=8 p_local=0.5; old and indexed paths"]
+pass_criterion = "Report the serial new/old ratio and whether the faster indexed path remains; any missing old path is explicitly unrecoverable."
+estimate_minutes = 50
+session = 2
+tests = ["m3_settlement_index_tests", "determinism_oracle_tests"]
+
+[[conclusion]]
+id = "m3_07_reversed_slots"
+milestone = "M3"
+report = "docs/reports/M3_07_SCALE_RESIDUAL.md"
+section = "#access-pattern-test"
+class = "timing"
+verbatim_conclusion = "P4 selection is a reliable 2.37x slower under reversed slots at 1M."
+comparison = "Pair normal and reversed DenseSlot layouts for the same logical N=1M/k=8/p_local=0.5 state."
+cells = ["N=1M K=5k k=8 p_local=0.5 normal slots", "N=1M K=5k k=8 p_local=0.5 reversed slots"]
+config = "docs/reproducibility/m5_05_configs/m3_equilibrium.toml"
+harness = "crates/sim-model/benches/m3_scale_limit_bench.rs"
+bench_args = ["M5-05 selector: N=1M, normal/reversed storage slots, per-phase profile"]
+pass_criterion = "Report P4-selection ratio and parity digests; a ratio within 20% of the old timing supports the historical magnitude, otherwise flag it."
+estimate_minutes = 35
+session = 2
+tests = ["m3_scale_residual_tests"]
+
+[[conclusion]]
+id = "m3_08_full_rebuild_equal_live"
+milestone = "M3"
+report = "docs/reports/M3_08_POPULATION_DYNAMICS.md"
+section = "#equal-live-comparison"
+class = "timing"
+verbatim_conclusion = "At 100k equal live population, the full-rebuild M3P tick was 5.23x the M3 tick."
+comparison = "Compare M3P and M3 from the same day-400 live population under the frozen sustained configuration."
+cells = ["initial N=100k, live=103241, k=8, p_local=0.5, checkpoint day 400"]
+config = "crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml"
+harness = "crates/sim-model/examples/m5_05_equal_live.rs"
+bench_args = ["--comparison m3p-full-rebuild-vs-m3 --N 100000 --day 400"]
+pass_criterion = "Report the equal-live ratio and profile timing ratios; classify the historical 5.23x magnitude using the 20% rule."
+estimate_minutes = 40
+session = 2
+tests = ["m3p_storage_runner_tests"]
+
+[[conclusion]]
+id = "m3_09_incremental_equal_live"
+milestone = "M3"
+report = "docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md"
+section = "#equal-live-m3p-m3-comparison"
+class = "timing"
+verbatim_conclusion = "The incremental M3P/M3 ratio at 100k live population was 1.49x in the follow-up paired run."
+comparison = "Compare incremental-topology M3P with M3 at the same day-400 live checkpoint."
+cells = ["initial N=100k, live=103241, k=8, p_local=0.5, checkpoint day 400"]
+config = "crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml"
+harness = "crates/sim-model/examples/m5_05_equal_live.rs"
+bench_args = ["--comparison m3p-incremental-vs-m3 --N 100000 --day 400"]
+pass_criterion = "Report the equal-live ratio and classify the historical 1.49x magnitude using the 20% rule."
+estimate_minutes = 40
+session = 2
+tests = ["m3p_incremental_topology_tests"]
+
+[[conclusion]]
+id = "m3_11_phase9c_speedup"
+milestone = "M3"
+report = "docs/reports/M3_11_PROPAGATION.md"
+section = "#summary"
+class = "timing"
+verbatim_conclusion = "At N=100,000, k=16, max_hops=16, transmit_probability=0.2, Phase 9c fell from 208.693 ms serial to 65.283 ms on pool 6."
+comparison = "Measure the fixed-topology M3 Phase 9c serial vs pool6/chunk256 at the large-frontier cell."
+cells = ["N=100k K=500 k=16 p_local=0.5 max_hops=16 transmit=0.2 day 0"]
+config = "docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml"
+harness = "crates/sim-model/benches/m3_11_propagation_bench.rs"
+bench_args = ["M5-05 selector: N=100k k=16 max_hops=16 transmit=0.2 serial vs pool6/chunk256"]
+pass_criterion = "Report Phase 9c speedup and path medians; flag absolute timings over 20% and state whether the parallel-win conclusion holds."
+estimate_minutes = 45
+session = 3
+tests = ["m3_propagation_tests"]
+
+[[conclusion]]
+id = "m3_11_whole_tick_speedup"
+milestone = "M3"
+report = "docs/reports/M3_11_PROPAGATION.md"
+section = "#summary"
+class = "timing"
+verbatim_conclusion = "The same workload's three-day whole tick improved by 2.26x interleaved and 2.29x non-interleaved on pool 6."
+comparison = "Measure M3 storage whole tick serial vs pool6/chunk256 at the same large-frontier cell."
+cells = ["N=100k K=500 k=16 p_local=0.5 max_hops=16 transmit=0.2, 3 days/sample"]
+config = "docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml"
+harness = "crates/sim-model/benches/m3_11_propagation_bench.rs"
+bench_args = ["M5-05 selector: N=100k k=16 max_hops=16 transmit=0.2, full tick serial vs pool6/chunk256"]
+pass_criterion = "Report interleaved and non-interleaved ratios; the measured speedup conclusion holds only if both exceed 1.0."
+estimate_minutes = 40
+session = 3
+tests = ["m3_propagation_tests"]
+
+[[conclusion]]
+id = "m3_11_frontier_crossover"
+milestone = "M3"
+report = "docs/reports/M3_11_PROPAGATION.md"
+section = "#phase-9c-measurements"
+class = "timing"
+verbatim_conclusion = "The first day-0 Phase 9c median that beat serial by more than the sum of both MADs was at frontier 728 for pools 2 and 4, and frontier 852 for pool 6."
+comparison = "Measure the selected k=8/p_local=0.5 cells where the prior frontier reached 728 and 852."
+cells = ["N=10k K=50 k=8 max_hops=8 transmit=0.2 pools 2/4", "N=10k K=50 k=8 max_hops=16 transmit=0.2 pool 6"]
+config = "docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml"
+harness = "crates/sim-model/benches/m3_11_propagation_bench.rs"
+bench_args = ["M5-05 selector: N=10k k=8 max_hops=8/16 transmit=0.2; pools2/4/6"]
+pass_criterion = "Report the first selected frontier meeting median improvement beyond both MADs; do not claim a universal threshold."
+estimate_minutes = 35
+session = 3
+tests = ["m3_propagation_tests"]

@@ -1,0 +1,69 @@
+profile = "m3"
+
+[simulation.systems]
+relationship_graph = true
+propagation = true
+
+[world]
+master_seed = 81985529216486895
+replicate_id = 7
+initial_population = 10
+settlement_count = 2
+initial_health = 1.0
+initial_food = 25.0
+initial_wealth = 10000
+initial_settlement_resource = 2000.0
+initial_treasury = 5000
+
+[traits]
+prod_min = 0.8
+prod_max = 1.5
+coop_min = 0.2
+coop_max = 0.8
+aggr_min = 0.1
+aggr_max = 0.5
+risk_min = 0.1
+risk_max = 0.5
+
+[environment]
+carrying_capacity = 10000.0
+regrowth_rate = 0.1
+base_metabolic_cost = 0.3129
+health_decay_rate = 0.05
+
+[economy]
+base_work_yield = 2.0
+food_price = 100
+target_food = 20.0
+target_reserve = 5000
+tax_rate = 0.1
+welfare_payment = 50
+
+[interaction]
+gift_amount = 2.0
+theft_amount = 3.0
+theft_success_probability = 0.5
+starvation_threshold = 5.0
+relationship_degree_k = 8
+p_local = 0.5
+
+[decision]
+decision_temperature = 1.0
+action_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+base_weight_matrix = [
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0],
+  [0.0, 0.0, 0.0, 0.0, 0.0]
+]
+trait_weight_cooperation = 1.0
+trait_weight_aggression = 1.0
+trait_weight_risk_tolerance = 1.0
+
+[propagation]
+seed_probability = 0.002
+transmit_probability = 0.2
+forget_probability = 0.02
+max_hops = 16
