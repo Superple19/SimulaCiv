@@ -63,19 +63,21 @@ Later update (2026-10-23): M5-00 A-1 in §14 supersedes Option A for new experim
 
 The order is structure → tooling → verification → new experiments → cleanup → publication.
 
-| Stage | Planned scope |
-|---|---|
-| **M5-00 — Contract and data policy** | **COMPLETE.** Freeze reproducibility definitions, the selected data-size policy, provenance requirements, and acceptance gates. |
-| **M5-01 — Reproducibility inventory** | **COMPLETE.** Inventory every numeric claim in M0–M4 reports and measured contract statements; map claim values to harnesses, raw data, status, class, and next stage. |
-| **M5-02 — Repository layout** | **FROZEN; implementation in progress.** Organize contracts, reports, data, reproducibility outputs, and analysis tools under the frozen layout in §10. |
-| **M5-03 — Analysis toolchain** | **FROZEN; implementation COMPLETE.** Add the pinned `uv` project, `pandas`, `matplotlib`, Quarto, `just`, `pytest`, deterministic report generation, link checking, and the approved Ubuntu analysis CI job. Regenerate M5-01 as a tidy one-row-per-claim gzip ledger, exclude configuration/input values, add key/supporting tiers, and recheck the 29 M1 claims currently labeled unrecoverable. |
-| **M5-04 — M4 regeneration** | **FROZEN; implementation COMPLETE.** Re-run existing Rust harnesses against committed M4 data, verify deterministic outputs bit-exactly, remeasure conclusion-bearing M4 timings, and produce a generated Quarto report; see [M5-04 regeneration](../reproducibility/M5_04_M4_REGENERATION.md). |
-| **M5-05 — M0–M3 regeneration and re-measurement** | **FROZEN.** Regenerate deterministic M2/M3 headline claims and re-measure conclusion-bearing timings only; the cell plan and budget are in §13. |
-| **M5-06 — Python bindings** | Add PyO3/maturin bindings and an experiment runner with commit, configuration, and host provenance. |
-| **M5-07 — Robustness experiments** | Run multi-seed and multi-workload, effect-size-first experiments, including migration calibration and a redesigned M4-05 predicate. Select the matrix from a pilot before execution. |
-| **M5-08 — Documentation content** | Align naming, make reports summary-first, split contracts by stage, create a newcomer README, and generate figures from committed data. |
-| **M5-09 — Literature and technical report** | Review related work, position SimulaCiv, and draft a Quarto technical report rendered to PDF. |
-| **M5 audit** | Assess which M0–M4 findings reproduce across code, data, seeds, workloads, and timing tolerances; classify unresolved evidence. |
+<!-- BEGIN GENERATED M5 STAGES -->
+| Milestone | Stage | Status | Tag | Summary | Document |
+|---|---|---|---|---|---|
+| M5 | `M5-00` | frozen | — | Froze reproducibility definitions, provenance, and the initial data policy. | [source](M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+| M5 | `M5-01` | complete | — | Inventoried numeric M0–M4 claims and their sources and reproducibility status. | [source](../reproducibility/M5_01_INVENTORY.md) |
+| M5 | `M5-02` | complete | — | Reorganized repository documentation, reports, data, and analysis files. | [source](M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen) |
+| M5 | `M5-03` | complete | — | Added the pinned analysis toolchain, deterministic report generation, and analysis CI. | [source](M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen) |
+| M5 | `M5-04` | complete | — | Regenerated M4 deterministic outputs and conclusion-bearing timing claims. | [source](../reproducibility/M5_04_M4_REGENERATION.md) |
+| M5 | `M5-05` | sessions 1–3 measured; M3-09 scope check pending | — | Measured sessions one through three; the M3-09 scope check remains pending. | [source](../reproducibility/M5_05_M0_M3_REGENERATION.md) |
+| M5 | `M5-06` | planned | — | Add PyO3 bindings and a Python runner with content-digest, configuration, and host provenance instead of commit-hash provenance. | [source](M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+| M5 | `M5-07` | planned | — | Run multi-seed, multi-workload robustness experiments with effect-size-first design. | [source](M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+| M5 | `M5-08` | planned | — | Clean up project documentation, generate figures, and prepare newcomer-facing material. | [source](M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+| M5 | `M5-09` | planned | — | Review related work and draft the technical report. | [source](M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+| M5 | `M5-AUDIT` | planned | — | Audit M5 reproducibility and research-hardening results. | [source](M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+<!-- END GENERATED M5 STAGES -->
 
 ## 6. Known inputs
 
@@ -90,16 +92,18 @@ The order is structure → tooling → verification → new experiments → clea
 
 ## 8. M5-00 decision register (FROZEN)
 
-| ID | Decision | Frozen rule |
-|---|---|---|
-| D-1 | Data size and provenance | Select Option A in §4: committed data files are at most 1 MiB; larger outputs use manifest-backed release assets prepared under `target/release-assets/<tag>/` for user upload. Keep already-pushed files and history unchanged. |
-| D-2 | Timing claims | Judge conclusions using the A-5 protocol on the reference host: the current Windows desktop with AMD Ryzen 5 9600X. Record new/old ratio for every absolute timing; flag `abs(ratio - 1) > 20%`. Gate PASS, ordering, and crossover-range conclusions are assessed on that host. Other hosts are supplementary evidence. |
-| D-3 | Deterministic claims | Require bit-exact reproduction. If source, inputs, or data do not permit it, label the claim **unrecoverable**; do not fabricate or approximate a deterministic result. |
-| D-4 | Python interface | Create a new `sim-py` crate using maturin and PyO3, supporting Python >=3.11. The experiment-runner core uses only the Python standard library; numpy, pandas, and matplotlib are optional analysis extras. The Rust core dependency set stays unchanged. |
-| D-5 | Python CI boundary | The planned smoke matrix is Python 3.12 on Linux, Windows, and macOS, building the package and running a smoke test. Changing Python CI requires explicit approval in the M5-06 freeze; the analysis-check CI proposal requires separate explicit approval in the M5-03 freeze. |
-| D-6 | Robustness matrix starting point | M5-07 begins from at least 10 seeds × 3 workloads: M3P sustained, M3 equilibrium, and calibrated migration. A pilot effect-size run at M5-07 freezes the actual matrix before the full run. |
-| D-7 | Publication direction | Draft an arXiv technical report first; consider JOSS after M5. |
-| D-8 | M5 acceptance | Classify every numeric claim. Deterministic claims must be bit-exact or explicitly unrecoverable. Timing conclusions must hold under D-2 or the change must be documented as a changed finding. |
+<!-- BEGIN GENERATED DECISIONS: m5-00 -->
+| ID | Status | Summary | Enforced by | Date | Document |
+|---|---|---|---|---|---|
+| `M5-00-D-1` | superseded | The original policy capped Git data files at 1 MiB and used manifest-backed release assets for larger outputs. | — | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+| `M5-00-D-2` | frozen | Judge timing conclusions on the Ryzen 5 9600X reference host using A-5 and flag absolute timing ratios that change by more than 20 percent. | `docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md`<br>`docs/reproducibility/M5_04_M4_REGENERATION.md` | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+| `M5-00-D-3` | frozen | Deterministic claims must reproduce bit-exactly or be labeled unrecoverable without fabrication or approximation. | `analysis/simciv_analysis/claims.py`<br>`analysis/simciv_analysis/report_m5_04.py` | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+| `M5-00-D-4` | frozen | The planned sim-py interface uses maturin and PyO3 for Python 3.11 or newer while keeping the runner core on the standard library. | — | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+| `M5-00-D-5` | frozen | The planned Python smoke matrix is Python 3.12 on three operating systems and any Python CI addition requires explicit approval. | — | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+| `M5-00-D-6` | frozen | The robustness pilot starts from at least ten seeds across M3P sustained, M3 equilibrium, and calibrated migration workloads. | — | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+| `M5-00-D-7` | frozen | The publication plan is an arXiv technical report first with JOSS considered after M5. | — | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+| `M5-00-D-8` | frozen | M5 acceptance requires every numeric claim to be classified and deterministic claims to be exact or explicitly unrecoverable. | `analysis/simciv_analysis/claims.py`<br>`just:claims-check`<br>`just:check` | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+<!-- END GENERATED DECISIONS: m5-00 -->
 
 The exact M5-07 seed/workload selection remains a blocking decision for that stage and is made from the pilot. Python CI changes remain unauthorized until explicitly approved in the M5-06 freeze. The proposed analysis-check CI job requires separate explicit approval in the M5-03 freeze.
 
@@ -139,14 +143,16 @@ viewer/                    static viewer
 
 ### 10.3 Decision register (FROZEN)
 
-| ID | Decision | Frozen rule |
-|---|---|---|
-| D-1 | Repository roots | Keep `contracts/m1_contract.toml` at root; use the target tree in §10.1 for all other listed content. |
-| D-2 | Report organization | Move reports to `docs/reports/`, use stage-based names, and give each report exactly one approved status header. Preserve historical body text except mechanical path/name updates and dated Later update notes. |
-| D-3 | Data organization | Store data in flat `docs/data/<stage>/` folders, add a README to each, and put superseded items in that stage's `superseded/` folder with a README note. Follow the frozen M5-00 size policy. |
-| D-4 | Analysis tools | Use `analysis/` for the link checker and maintained analysis tools. Reserve `analysis/legacy/` for tools that no longer run or are no longer maintained. The analysis toolchain itself is M5-03. |
-| D-5 | Preservation | Keep cited harnesses/data and historical report wording. Remove no unreferenced item unless its references have been checked; record any deletion and reason in `docs/reports/RENAMES.md`. |
-| D-6 | M5-03 claim work | Commit the extraction script, make a tidy claim ledger with configuration/input values excluded, and add key/supporting classification in M5-03. Recheck the M1 unrecoverable set there. |
+<!-- BEGIN GENERATED DECISIONS: m5-02 -->
+| ID | Status | Summary | Enforced by | Date | Document |
+|---|---|---|---|---|---|
+| `M5-02-D-1` | frozen | Keep the M1 manifest at its existing root path and organize other repository content under the frozen docs and analysis layout. | `contracts/m1_contract.toml`<br>`docs/README.md` | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen) |
+| `M5-02-D-2` | frozen | Reports live under docs/reports with stage-based names and exactly one approved status header while historical prose is preserved. | `docs/reports/RENAMES.md`<br>`analysis/simciv_analysis/links.py` | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen) |
+| `M5-02-D-3` | frozen | Data is organized in flat per-stage docs/data folders with README files and superseded subfolders. | `docs/data/README.md`<br>`docs/data/SHA256SUMS`<br>`analysis/simciv_analysis/data_integrity.py` | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen) |
+| `M5-02-D-4` | frozen | Maintained analysis tools live in analysis and obsolete tools use analysis/legacy. | `analysis/README.md`<br>`analysis/simciv_analysis/links.py` | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen) |
+| `M5-02-D-5` | frozen | Cited harnesses, data, and historical report wording are preserved, and removals are recorded in the rename index. | `AGENTS.md`<br>`docs/reports/RENAMES.md` | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen) |
+| `M5-02-D-6` | frozen | M5-03 commits the claim extractor, excludes input values, adds tiers, and rechecks the 29 M1 unrecoverable claims. | `analysis/simciv_analysis/claims.py`<br>`docs/reproducibility/claims.csv.gz`<br>`just:claims-check` | 2026-10-22 | [source](M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen) |
+<!-- END GENERATED DECISIONS: m5-02 -->
 
 ### 10.4 Freeze record
 
@@ -205,14 +211,16 @@ Later update (2026-10-23): `git ls-remote --tags --refs` verified the pinned CI 
 
 ### 11.4 M5-03 decision register (FROZEN)
 
-| ID | Decision | Frozen rule |
-|---|---|---|
-| D-1 | Version policy | Use the latest stable versions listed in §11.1, pin Python via `.python-version`, libraries via `uv.lock`, Quarto exactly, and GitHub Actions by major. Record upgrades in a separate commit and rerun `just check`. |
-| D-2 | Python project | Use `analysis/` as a uv project, `requires-python >=3.11`, and only pandas, matplotlib, and pytest as direct dependencies. |
-| D-3 | Deterministic reports | Commit `.qmd` and rendered GFM `.md`; suppress timestamps and stabilize Matplotlib SVG metadata/style/hash salt. `check` rerenders to temporary storage and fails on byte differences without rewriting tracked files. |
-| D-4 | Task interface | Provide the six named just targets. `check` covers sync/lock validation, tests, link checks, claim regeneration checks, and report-render comparisons without modifying committed artifacts. |
-| D-5 | Analysis CI | Add a separate `analysis` job on `ubuntu-latest` using uv, pinned Quarto, and `just check`; leave the Rust job unchanged. |
-| D-6 | Claim ledger | Generate a tidy gzip ledger; exclude input/config values; add tiers; transfer old metadata only by exact report/line/value match; classify all nonmatches as `unmapped`. Recheck the 29 M1 unrecoverable claims with explicit reasons. |
+<!-- BEGIN GENERATED DECISIONS: m5-03 -->
+| ID | Status | Summary | Enforced by | Date | Document |
+|---|---|---|---|---|---|
+| `M5-03-D-1` | superseded | The original version policy pinned GitHub Actions by major tag while pinning Python, libraries, and Quarto more narrowly. | — | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen) |
+| `M5-03-D-2` | frozen | Analysis is a uv project requiring Python 3.11 or newer with pandas, matplotlib, and pytest as its direct dependencies. | `analysis/pyproject.toml`<br>`analysis/uv.lock`<br>`.python-version` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen) |
+| `M5-03-D-3` | frozen | Quarto reports and Matplotlib figures are deterministic and check mode compares temporary renders without rewriting tracked files. | `analysis/simciv_analysis/figures.py`<br>`analysis/simciv_analysis/report_m5_01.py`<br>`analysis/tests/test_figures.py`<br>`just:check` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen) |
+| `M5-03-D-4` | frozen | The analysis toolchain exposes the frozen just commands and check validates analysis outputs without rewriting them. | `justfile`<br>`just:check` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen) |
+| `M5-03-D-5` | frozen | The Ubuntu analysis CI job runs the pinned analysis toolchain separately from Rust validation. | `.github/workflows/ci.yml`<br>`test:analysis/tests/test_ci_targets.py::test_workflow_check_steps_are_single_just_targets` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen) |
+| `M5-03-D-6` | frozen | The committed claim ledger is tidy, excludes configuration inputs, carries tiers, and records explicit reasons for M1 claim classifications. | `analysis/simciv_analysis/claims.py`<br>`analysis/tests/test_claims.py`<br>`docs/reproducibility/claims.csv.gz`<br>`just:claims-check` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen) |
+<!-- END GENERATED DECISIONS: m5-03 -->
 
 ### 11.5 Freeze record
 
@@ -262,14 +270,16 @@ Every M4 headline claim is classified as one of: **bit-exact**, **conclusion hol
 
 ### 12.5 M5-04 decision register (FROZEN)
 
-| ID | Decision | Frozen rule |
-|---|---|---|
-| D-1 | Deterministic reruns | Compare bytes or deterministic fields exactly; any mismatch is reported, never patched to match. |
-| D-2 | Timing reruns | Re-measure only final A-5 gates and conclusion-bearing timings on the reference host; report new/old ratios and flag deviations over 20%; A-1 through A-4 stay historical. |
-| D-3 | Execution mode | M4-07 parallel execution is allowed only for deterministic reruns already proven bit-identical; record the mode used. |
-| D-4 | Harness provenance | Change the restored/not-rerun header only after a successful rerun and record its result. |
-| D-5 | Data and report | Keep outputs under `docs/data/m5_04/`; apply the 1 MiB policy and manifest-backed release-asset process; generate the report from committed harnesses and data. |
-| D-6 | Acceptance | Classify every M4 headline claim as bit-exact, conclusion holds, mismatch, or unrecoverable. |
+<!-- BEGIN GENERATED DECISIONS: m5-04 -->
+| ID | Status | Summary | Enforced by | Date | Document |
+|---|---|---|---|---|---|
+| `M5-04-D-1` | frozen | Deterministic M4 reruns compare bytes or deterministic fields exactly and report mismatches without patching historical outputs. | `analysis/simciv_analysis/report_m5_04.py`<br>`just:report-m5-04-check` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen) |
+| `M5-04-D-2` | frozen | Only final A-5 gates and conclusion-bearing M4 timings are rerun, with ratios and deviations over 20 percent recorded. | `analysis/simciv_analysis/report_m5_04.py`<br>`docs/reproducibility/M5_04_M4_REGENERATION.md` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen) |
+| `M5-04-D-3` | frozen | Bit-identical M4-07 parallel execution may be used for deterministic reruns when the mode is recorded. | `analysis/simciv_analysis/report_m5_04.py`<br>`crates/sim-model/examples/m4_07_many_branch.rs` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen) |
+| `M5-04-D-4` | frozen | Restored harness labels change only after a successful rerun and record that result. | `analysis/simciv_analysis/report_m5_04.py`<br>`crates/sim-model/examples/m4_02_a5_measure.rs` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen) |
+| `M5-04-D-5` | frozen | M4 outputs use the frozen size policy and the generated report reads committed harness summaries and data. | `analysis/simciv_analysis/report_m5_04.py`<br>`docs/data/m5_04/README.md`<br>`just:report-m5-04-check` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen) |
+| `M5-04-D-6` | frozen | Every extracted M4 headline claim is classified as bit-exact, conclusion holds, mismatch, or unrecoverable. | `analysis/simciv_analysis/report_m5_04.py`<br>`analysis/simciv_analysis/claims.py`<br>`just:report-m5-04-check` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#125-m5-04-decision-register-frozen) |
+<!-- END GENERATED DECISIONS: m5-04 -->
 
 ### 12.6 Freeze record
 
@@ -332,14 +342,16 @@ Because the estimate exceeds the six-hour limit in M5-00 §8, no M5-05 determini
 
 ### 13.6 M5-05 decision register (FROZEN)
 
-| ID | Decision | Frozen rule |
-|---|---|---|
-| D-1 | Scope | M2/M3 headline claims only; supporting claims are included only when produced by the same selected run. |
-| D-2 | Deterministic evidence | Use only cited tests and committed goldens; require bit-exact results or classify the claim as unrecoverable. Never re-bless expected outputs. |
-| D-3 | Timing evidence | Use A-5 on the reference host, same-mode paired paths, report new/old ratios and flag absolute timing changes over 20%; only prelisted headline cells are run. |
-| D-4 | M3-08/M3-09 drivers | Commit new drivers for only the 100k equal-live M3P/M3 ratios using the frozen configs; detailed historical tables remain historical-protocol. |
-| D-5 | Runtime budget | Commit the plan and estimate before runs. If the estimate exceeds six hours, stop without running. |
-| D-6 | Provenance | Commit outputs under `docs/data/m5_05/`, apply the M5-00 size policy, and cite harness plus data/manifest for every generated table. |
+<!-- BEGIN GENERATED DECISIONS: m5-05 -->
+| ID | Status | Summary | Enforced by | Date | Document |
+|---|---|---|---|---|---|
+| `M5-05-D-1` | superseded | The original plan scoped regeneration to M2 and M3 headline claims and included supporting values only when produced by selected runs. | — | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
+| `M5-05-D-2` | frozen | Deterministic headline claims use cited tests and goldens without re-blessing expected outputs. | `crates/sim-model/tests`<br>`analysis/simciv_analysis/m5_05.py`<br>`just:m5-05-deterministic` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
+| `M5-05-D-3` | frozen | Conclusion-bearing timings use A-5 with matched execution options and report old/new ratios for prelisted cells. | `crates/sim-model/examples/m5_05_conclusion_measure.rs`<br>`docs/data/m5_05/dvc.yaml`<br>`analysis/simciv_analysis/report_m5_05.py` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
+| `M5-05-D-4` | frozen | The M3-08 and M3-09 equal-live drivers measure only the frozen 100k M3P/M3 comparison. | `crates/sim-model/examples/m5_05_conclusion_measure.rs`<br>`docs/data/m5_05/dvc.yaml` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
+| `M5-05-D-5` | superseded | The original M5-05 timing plan stopped when the estimated total exceeded six hours. | — | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
+| `M5-05-D-6` | frozen | M5-05 commits summaries and DVC data under the stage directory and cites harnesses and data for generated tables. | `docs/data/m5_05/dvc.yaml`<br>`analysis/simciv_analysis/report_m5_05.py`<br>`just:report-m5-05-check` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
+<!-- END GENERATED DECISIONS: m5-05 -->
 
 ### 13.7 Freeze record
 
@@ -375,12 +387,14 @@ Each run records `source_digest`, `spec_digest`, `harness_digest`, `rustc -V`, a
 
 ### 14.4 M5-00 A-1/A-2 decision register (FROZEN)
 
-| ID | Decision | Frozen rule |
-|---|---|---|
-| A-1 | New-data storage | DVC tracks new raw outputs on the DagsHub remote; small summaries and source artifacts stay in Git. Existing Git data is retained unchanged. This supersedes the release-asset policy in §4 for new work. |
-| A-2 | Provenance | Source/spec/harness/output content digests and toolchain version are authoritative. No Git commit hash is recorded in run data or generated reports. |
-| A-3 | Timing stages | Timing DVC stages are frozen by default. Re-measurement explicitly unfreezes, runs, reviews, and re-freezes the stage. |
-| A-4 | Clean-checkout behavior | `just check` requires no DVC pull and report generators read committed summaries only; credentials are never committed. |
+<!-- BEGIN GENERATED DECISIONS: m5-00-a1 -->
+| ID | Status | Summary | Enforced by | Date | Document |
+|---|---|---|---|---|---|
+| `M5-00-A-1` | frozen | DVC tracks new raw outputs while Git retains small summaries and existing data, with manifest and cache handling defined by the amendment. | `docs/data/m5_05/dvc.yaml`<br>`docs/data/SHA256SUMS`<br>`analysis/simciv_analysis/data_integrity.py`<br>`just:data-integrity-check` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#144-m5-00-a-1a-2-decision-register-frozen) |
+| `M5-00-A-2` | frozen | Source, spec, harness, output, and toolchain content digests are authoritative and run provenance does not use Git commit hashes. | `analysis/simciv_analysis/provenance.py`<br>`analysis/tests/test_provenance.py`<br>`just:provenance` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#144-m5-00-a-1a-2-decision-register-frozen) |
+| `M5-00-A-3` | frozen | Timing DVC stages remain frozen unless a deliberate measurement run explicitly unfreezes and re-freezes them. | `justfile`<br>`just:m5-05-timing` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#144-m5-00-a-1a-2-decision-register-frozen) |
+| `M5-00-A-4` | frozen | Clean-checkout analysis validation requires no DVC pull and reads only committed summaries. | `analysis/simciv_analysis/ci_clean.py`<br>`analysis/tests/test_m5_05_dvc_status.py`<br>`just:ci-clean` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#144-m5-00-a-1a-2-decision-register-frozen) |
+<!-- END GENERATED DECISIONS: m5-00-a1 -->
 
 ### 14.5 Freeze record
 
@@ -422,14 +436,43 @@ The focused set has 13 conclusions and at most three representative cells per co
 
 ### 15.6 Frozen decision register
 
-| ID | Decision | Frozen rule |
-|---|---|---|
-| A1-1 | Scope | Use the 13 conclusion-level entries in the committed registry, with one to three representative cells copied from the named reports; never infer a new aggregate from the sample. |
-| A1-2 | Deterministic evidence | Run mapped tests first, record exact targets, and never re-bless expected values. |
-| A1-3 | Timing protocol | Apply A-5, preserve matched execution options, report old/new ratios and >20% flags, and mark unsupported aggregate conclusions inconclusive. |
-| A1-4 | Runtime budget | The planned focused set is estimated at 7h30m and split into three sub-six-hour sessions; execute Session 1 only now. |
-| A1-5 | Data/provenance | Use one DVC stage and raw output directory per timing conclusion, a Git summary at or below 1 MiB, content-hash provenance, and summary-only report generation. |
+<!-- BEGIN GENERATED DECISIONS: m5-05-a1 -->
+| ID | Status | Summary | Enforced by | Date | Document |
+|---|---|---|---|---|---|
+| `M5-05-A1-1` | frozen | M5-05 uses the selected conclusion-level registry and does not infer unmeasured aggregates from representative cells. | `docs/reproducibility/m5_05_conclusions.toml`<br>`analysis/simciv_analysis/m5_05.py`<br>`docs/data/m5_05/dvc.yaml` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register) |
+| `M5-05-A1-2` | frozen | Mapped deterministic tests run first and expected values are never re-blessed. | `analysis/simciv_analysis/m5_05.py`<br>`crates/sim-model/tests`<br>`just:m5-05-deterministic` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register) |
+| `M5-05-A1-3` | frozen | Timing comparisons retain A-5, matched run options, conclusion-level reporting, and documented inconclusive outcomes. | `crates/sim-model/examples/m5_05_conclusion_measure.rs`<br>`analysis/simciv_analysis/report_m5_05.py`<br>`docs/data/m5_05/dvc.yaml` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register) |
+| `M5-05-A1-4` | frozen | The 13 selected conclusions run in three recorded sessions, each bounded by six hours. | `docs/reproducibility/m5_05_conclusions.toml`<br>`analysis/simciv_analysis/m5_05.py`<br>`docs/data/m5_05/STATUS.md` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register) |
+| `M5-05-A1-5` | frozen | Each selected conclusion has a DVC raw stage and a committed summary with content-hash provenance. | `docs/data/m5_05/dvc.yaml`<br>`analysis/simciv_analysis/provenance.py`<br>`just:provenance-finalize` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register) |
+<!-- END GENERATED DECISIONS: m5-05-a1 -->
 
 ### 15.7 Freeze record
 
 This amendment authorizes the conclusion registry and Session 1 work described in §15.1–§15.4. It does not authorize Sessions 2–3, any Git/DVC push, simulation semantic changes, or changes to existing tests, goldens, snapshots, or CI.
+
+## 16. M5 infrastructure decision register (FROZEN)
+
+This register records repository-wide M5 rules for checks, text/data integrity, and delivery. GitHub ruleset state is configured in repository settings and is not managed by this contract.
+
+<!-- BEGIN GENERATED DECISIONS: m5-infrastructure -->
+| ID | Status | Summary | Enforced by | Date | Document |
+|---|---|---|---|---|---|
+| `M5-INFRA-PREK-HOOKS` | frozen | Install and use the pinned prek hooks for repository checks and never bypass them with --no-verify. | `.pre-commit-config.yaml`<br>`AGENTS.md`<br>`just:hooks-install`<br>`prek:pre-push-clippy`<br>`prek:pre-push-ci-linux` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-TEXT-FORMAT` | frozen | Repository text uses UTF-8 with LF and no BOM, while data files remain byte-exact and Python text output goes through write_text_lf. | `.editorconfig`<br>`.gitattributes`<br>`analysis/simciv_analysis/io.py`<br>`analysis/tests/test_text_output_policy.py`<br>`prek:forbid-utf8-bom` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-DATA-INTEGRITY` | frozen | Non-README docs/data bytes match SHA256SUMS generated from Git blobs and integrity checks compare working-tree bytes with blobs. | `docs/data/SHA256SUMS`<br>`analysis/simciv_analysis/data_integrity.py`<br>`analysis/tests/test_data_integrity.py`<br>`just:data-integrity-check`<br>`prek:data-integrity` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-FINDINGS-GUARDRAILS` | frozen | Every generated Findings bullet has a passing paired predicate, a preregistered or exploratory tag, and scoped Vale checks. | `analysis/simciv_analysis/findings.py`<br>`analysis/simciv_analysis/report_m5_04.py`<br>`analysis/simciv_analysis/report_m5_05.py`<br>`analysis/tests/test_findings.py`<br>`just:lint-prose`<br>`prek:vale-changed-docs` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-TEST-OPT` | frozen | Development test builds optimize sim-model and sim-core at level two while retaining debug assertions and overflow checks. | `Cargo.toml`<br>`just:ci-rust` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-EXACT-ACTION-TAGS` | frozen | Every GitHub Actions reference uses an exact existing tag and action-ref validation checks both CI workflows. | `analysis/simciv_analysis/action_refs.py`<br>`test:analysis/tests/test_action_refs.py::test_ci_and_promotion_workflows_have_pinned_checkout_actions`<br>`just:action-refs-check` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-CI-JUST-TARGETS` | frozen | CI validation jobs call only ci-rust or ci-analysis and install every tool their target uses before running it. | `.github/workflows/ci.yml`<br>`test:analysis/tests/test_ci_targets.py::test_workflow_check_steps_are_single_just_targets`<br>`test:analysis/tests/test_ci_targets.py::test_just_jobs_install_all_target_tools_before_running_them`<br>`just:ci-rust`<br>`just:ci-analysis` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-CROSS-CLIPPY` | frozen | Local CI and pre-push validation run cross-target Clippy for Linux and macOS targets. | `justfile`<br>`just:clippy-cross`<br>`prek:pre-push-clippy-cross` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-CLEAN-CHECKOUT` | frozen | The analysis check is validated in a temporary clean Git worktree without DVC outputs or ignored files. | `analysis/simciv_analysis/ci_clean.py`<br>`justfile`<br>`just:ci-clean`<br>`prek:pre-push-ci-clean` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-WSL-LINUX` | frozen | The WSL Linux pre-push check refreshes a clean clone while retaining target and runs the same Rust and analysis targets as CI. | `analysis/simciv_analysis/ci_linux.py`<br>`analysis/README.md`<br>`just:ci-linux`<br>`prek:pre-push-ci-linux` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-DELIVERY` | frozen | just ship runs local checks, pushes the same commit to ci-check, and green CI promotes it to main by fast-forward before dispatching main CI. | `justfile`<br>`.github/workflows/promote.yml`<br>`test:analysis/tests/test_ci_targets.py::test_promotion_workflow_is_push_only_fast_forward_and_dispatches_main_ci`<br>`AGENTS.md`<br>`analysis/README.md` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-MAIN-RULESET` | frozen | The main branch ruleset requires passing checks, blocks force pushes and deletion, and has no bypass actors. | `docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-GZIP-CONTENT` | frozen | Generated gzip artifacts are compared by decompressed content rather than compressed container bytes. | `analysis/simciv_analysis/io.py`<br>`test:analysis/tests/test_io.py::test_gzip_content_check_ignores_container_bytes`<br>`analysis/simciv_analysis/claims.py`<br>`analysis/simciv_analysis/report_m5_04.py`<br>`analysis/simciv_analysis/report_m5_05.py` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-DVC-CACHE` | frozen | DVC upload remains deferred and the local DVC cache must not be garbage-collected before dvc push --all-commits succeeds. | `AGENTS.md`<br>`docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-CI-TIME-SCOPE` | frozen | CI time reduction is in M5 scope and must preserve the full validation coverage. | `docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-M4-01-DEBT` | frozen | M4-01 state, codec, and context extensibility debt is an M6 candidate rather than M5 scope. | — | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-LARGE-FILE-REFACTOR` | frozen | Large-file refactors are deferred to M6 rather than included in M5. | — | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+| `M5-INFRA-COMPACTION-MONEY-LOSS` | frozen | M3P compaction money-loss semantics are an M6 candidate only as a new profile. | — | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen) |
+<!-- END GENERATED DECISIONS: m5-infrastructure -->

@@ -9,3 +9,5 @@
 | M5 | [M5 reproducibility contract](M5_REPRODUCIBILITY_CONTRACT.md) | M5-00 and M5-02 frozen; M5-01 inventory complete; later stages planned. |
 
 The machine-readable M1 projection stays at [`contracts/m1_contract.toml`](../../contracts/m1_contract.toml), at the repository root. Existing tests and consumers read that exact path; moving it would break the established interface without adding value.
+
+The machine-readable decision and stage registry begins with M5 at [`contracts/decisions.toml`](../../contracts/decisions.toml). M1–M4 contracts remain historical documents and are not generated from this registry.

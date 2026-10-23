@@ -19,14 +19,14 @@ REGISTRY = ROOT / "contracts" / "decisions.toml"
 CONTRACT = Path("docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md")
 README = Path("README.md")
 DECISION_GROUPS = {
-    "m5-00": f"{CONTRACT}#8-m5-00-decision-register-frozen",
-    "m5-02": f"{CONTRACT}#103-decision-register-frozen",
-    "m5-03": f"{CONTRACT}#114-m5-03-decision-register-frozen",
-    "m5-04": f"{CONTRACT}#125-m5-04-decision-register-frozen",
-    "m5-05": f"{CONTRACT}#136-m5-05-decision-register-frozen",
-    "m5-00-a1": f"{CONTRACT}#144-m5-00-a-1a-2-decision-register-frozen",
-    "m5-05-a1": f"{CONTRACT}#156-frozen-decision-register",
-    "m5-infrastructure": f"{CONTRACT}#16-m5-infrastructure-decision-register-frozen",
+    "m5-00": f"{CONTRACT.as_posix()}#8-m5-00-decision-register-frozen",
+    "m5-02": f"{CONTRACT.as_posix()}#103-decision-register-frozen",
+    "m5-03": f"{CONTRACT.as_posix()}#114-m5-03-decision-register-frozen",
+    "m5-04": f"{CONTRACT.as_posix()}#125-m5-04-decision-register-frozen",
+    "m5-05": f"{CONTRACT.as_posix()}#136-m5-05-decision-register-frozen",
+    "m5-00-a1": f"{CONTRACT.as_posix()}#144-m5-00-a-1a-2-decision-register-frozen",
+    "m5-05-a1": f"{CONTRACT.as_posix()}#156-frozen-decision-register",
+    "m5-infrastructure": f"{CONTRACT.as_posix()}#16-m5-infrastructure-decision-register-frozen",
 }
 DECISION_MARKERS = {
     key: (f"<!-- BEGIN GENERATED DECISIONS: {key} -->", f"<!-- END GENERATED DECISIONS: {key} -->")

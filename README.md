@@ -14,14 +14,26 @@ The current reference workload is an agent-based synthetic society. The project 
 
 Canonical State, Metrics, and Events digests and snapshots are verified on Linux, Windows, and macOS in CI.
 
-| Milestone | Status | Result |
-|---|---|---|
-| M0 — `v0.1.0-m0` | Complete | Deterministic executable reference semantics and replay gate |
-| M1 — `v0.2.0-m1` | Complete | Frozen semantic contracts and machine-readable contract manifest |
-| M2 — `v0.3.0-m2` | Graduated | High-performance runtime with canonical parity |
-| M3 — `v0.4.0-m3` | Graduated — M3-00 through M3-11 complete; settlement migration delivered in M4-06 | Deterministic relationship-graph runtime, M3P population dynamics, incremental topology, feature switches, and propagation; [final audit](docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md), [M4-06 migration](docs/reports/M4_06_MIGRATION.md) |
-| M4 — Counterfactual | Graduated — `v0.5.0-m4` | Static system registry, snapshot-backed branching, divergence measurement, CRN efficiency, minimal-cause search, opt-in settlement migration, and measured many-branch execution; [M4 final audit](docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md), [M4 branch viewer](viewer/README.md#m4-branch-comparison) |
-| M5 — Reproducibility and Research Hardening | In progress — M5-05 Session 1 recorded; Sessions 2–3 pending | Regenerate selected M2/M3 conclusions with committed provenance; [M5-05 report](docs/reproducibility/M5_05_M0_M3_REGENERATION.md), [M5 contract](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md), [M5-01 inventory](docs/reproducibility/M5_01_INVENTORY.md) |
+<!-- BEGIN GENERATED MILESTONE TABLE -->
+| Milestone | Stage | Status | Tag | Summary | Document |
+|---|---|---|---|---|---|
+| M0 | `M0` | graduated | `v0.1.0-m0` | Established deterministic reference semantics, replay, and canonical outputs. | [source](docs/contracts/M1_CONTRACT_FREEZE.md) |
+| M1 | `M1` | graduated | `v0.2.0-m1` | Froze the simulation semantic contracts and machine-readable M1 manifest. | [source](docs/contracts/M1_CONTRACT_FREEZE.md) |
+| M2 | `M2` | graduated | `v0.3.0-m2` | Implemented the optimized runtime with canonical parity to the frozen semantics. | [source](docs/contracts/M2_OPTIMIZATION_CONTRACT.md) |
+| M3 | `M3` | graduated | `v0.4.0-m3` | Delivered deterministic interaction, topology, population, migration, and propagation workloads. | [source](docs/contracts/M3_INTERACTION_CONTRACT.md) |
+| M4 | `M4` | graduated | `v0.5.0-m4` | Delivered the counterfactual research runtime and branch-analysis viewer. | [source](docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md) |
+| M5 | `M5-00` | frozen | — | Froze reproducibility definitions, provenance, and the initial data policy. | [source](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#8-m5-00-decision-register-frozen) |
+| M5 | `M5-01` | complete | — | Inventoried numeric M0–M4 claims and their sources and reproducibility status. | [source](docs/reproducibility/M5_01_INVENTORY.md) |
+| M5 | `M5-02` | complete | — | Reorganized repository documentation, reports, data, and analysis files. | [source](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen) |
+| M5 | `M5-03` | complete | — | Added the pinned analysis toolchain, deterministic report generation, and analysis CI. | [source](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#114-m5-03-decision-register-frozen) |
+| M5 | `M5-04` | complete | — | Regenerated M4 deterministic outputs and conclusion-bearing timing claims. | [source](docs/reproducibility/M5_04_M4_REGENERATION.md) |
+| M5 | `M5-05` | sessions 1–3 measured; M3-09 scope check pending | — | Measured sessions one through three; the M3-09 scope check remains pending. | [source](docs/reproducibility/M5_05_M0_M3_REGENERATION.md) |
+| M5 | `M5-06` | planned | — | Add PyO3 bindings and a Python runner with content-digest, configuration, and host provenance instead of commit-hash provenance. | [source](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+| M5 | `M5-07` | planned | — | Run multi-seed, multi-workload robustness experiments with effect-size-first design. | [source](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+| M5 | `M5-08` | planned | — | Clean up project documentation, generate figures, and prepare newcomer-facing material. | [source](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+| M5 | `M5-09` | planned | — | Review related work and draft the technical report. | [source](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+| M5 | `M5-AUDIT` | planned | — | Audit M5 reproducibility and research-hardening results. | [source](docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract) |
+<!-- END GENERATED MILESTONE TABLE -->
 
 The M2 production path uses authoritative Segmented SoA storage. Serial remains the default; deterministic Phase4 Rayon execution is an explicit opt-in, and Auto policy remains experimental. Canonical State, Metrics, Events, and Day 100/250/500 snapshots were validated for exact parity. The measured workloads scale near-linearly through 100k agents; the 200k high-K results remain follow-up evidence. Timings depend on workload and host.
 

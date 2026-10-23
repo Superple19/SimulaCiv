@@ -163,6 +163,7 @@ Wait for explicit user instruction before proceeding.
 
 - Commit each experiment or measurement harness under `crates/sim-model/examples/` or `crates/sim-model/benches/`; do not delete it after measuring. Temporary instrumentation inside library code may be removed, but the driver that exercised it stays committed.
 - Track new full raw outputs under `docs/data/<stage>/` through DVC; commit a small summary (at most 1 MiB), specs, pointers, and reports in Git. Cite both the harness and its summary/raw data entry for every report table. Existing Git-tracked data stays in place.
+- Do not garbage-collect the local DVC cache until `dvc push --all-commits` has succeeded; DVC uploads remain deferred unless explicitly requested.
 - Never commit DVC credentials. Shared remote configuration may contain the URL only; tokens belong in ignored local config.
 - Choose thresholds and parameters from a measured effect distribution; record the choices before running the experiment.
 - Preserve historical documents, including frozen contracts and past audits. Add a dated **Later update** note instead of rewriting their historical wording.
