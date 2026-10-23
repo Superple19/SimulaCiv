@@ -119,49 +119,30 @@ affinity `0x555`; each log has timing markers.
 ### Source-map entries marked review
 
 The following entries in [`sources.toml`](sources.toml) still need human
-source review (40 entries). Their status remains conservative until the
+source review (21 entries). Their status remains conservative until the
 mapping is verified.
 
 | report | section | class | status | harness | raw data | notes |
 |----|----|----|----|----|----|----|
-| M2_06_BASELINE_REPORT.md | \* | \* | missing-data | crates/sim-model/benches/m0_baseline_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M2_07_ALLOCATION_ANALYSIS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_08_PHASE34_ALLOCATION_ANALYSIS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_09_PHASE34_SCRATCH_BUFFER_ANALYSIS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_12_PHASE4_INTENT_SCRATCH_BUFFER_ANALYSIS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_13_PHASE11_EVENT_SORT_ANALYSIS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_14_SOA_FEASIBILITY_ANALYSIS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_16_1_SOA_ABLATION_ANALYSIS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_17_HOT_PATH_SOA_EXPANSION_ANALYSIS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_18_1_STORAGE_AUTHORITY_ANALYSIS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_18_SEGMENTED_SOA_STORAGE_POC.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md | \* | \* | missing-data | crates/sim-model/benches/m0_baseline_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M2_34_POST_ALGORITHM_REPROFILING.md | \* | \* | missing-data | crates/sim-model/benches/m0_baseline_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M2_37_POST_P5_P6B_REPROFILING.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_39_RAYON_PRODUCTION_POLICY_GATE.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_OPTIMIZATION_CONTRACT.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M2_X_REBASELINE_REPORT.md | \* | \* | missing-data | crates/sim-model/benches/m0_baseline_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M3_01_SERIAL_BASELINE.md | \* | \* | missing-data | crates/sim-model/benches/m3_01_serial_baseline_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M3_02_PARALLEL_PHASE6B.md | \* | \* | missing-data | crates/sim-model/benches/m3_02_parallel_phase6b_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M3_03_SEARCH_REDUCTION.md | \* | \* | missing-data | crates/sim-model/benches/m3_02b_search_reduction_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M3_04_EQUILIBRIUM_WORKLOAD.md | \* | \* | missing-data | crates/sim-model/benches/m3_equilibrium_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M3_04_SUSTAINED_WORKLOAD.md | \* | \* | missing-data | crates/sim-model/benches/m3_sustained_workload_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M3_05_SCALE_DIAGNOSIS.md | \* | \* | missing-data | crates/sim-model/benches/m3_scale_limit_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M3_05_SCALE_LIMIT.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M3_06_SETTLEMENT_INDEX.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M3_07_SCALE_RESIDUAL.md | \* | \* | missing-data | crates/sim-model/benches/m3_scale_limit_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M3_08_POPULATION_DYNAMICS.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M3_09_INCREMENTAL_TOPOLOGY.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M3_11_PROPAGATION.md | \* | \* | missing-data | crates/sim-model/benches/m3_11_propagation_bench.rs | none | Committed harness is known; the report raw output is absent from docs/data and requires review. |
-| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M3_AUDIT_INTERIM_AUDIT.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
-| M3_INTERACTION_CONTRACT.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
+| M2_06_BASELINE_REPORT.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M2_16_1_SOA_ABLATION_ANALYSIS.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M2_X_REBASELINE_REPORT.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_01_SERIAL_BASELINE.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_02_PARALLEL_PHASE6B.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_04_EQUILIBRIUM_WORKLOAD.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_04_SUSTAINED_WORKLOAD.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_05_SCALE_DIAGNOSIS.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_05_SCALE_LIMIT.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_07_SCALE_RESIDUAL.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_08_POPULATION_DYNAMICS.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_08_POPULATION_DYNAMICS.md | \* | timing | missing-source | none | none | The original measurement driver is absent; M5-05 replaces only the headline equal-live ratio. |
+| M3_09_INCREMENTAL_TOPOLOGY.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
+| M3_09_INCREMENTAL_TOPOLOGY.md | \* | timing | missing-source | none | none | The m3p_09_measure driver is absent; detailed tables remain historical. |
+| M3_11_PROPAGATION.md | \* | deterministic | missing-source | none | none | No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred. |
 | M4_01_SYSTEM_REGISTRY.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
 | M4_02_BRANCHING.md | \* | \* | historical-protocol | crates/sim-model/examples/m4_02_a2_measure.rs; crates/sim-model/examples/m4_02_a3_measure.rs; crates/sim-model/examples/m4_02_a4_measure.rs; crates/sim-model/examples/m4_02_a5_measure.rs | docs/data/m4_02/m4_02_raw.csv; docs/data/m4_02/m4_02_final.csv; docs/data/m4_02/m4_02_followup.csv; docs/data/m4_02/m4_02_recorder.csv; docs/data/m4_02/m4_02_worked.csv | A-1 through A-4 are not M5-04 rerun targets; early harness/data recovery is incomplete. A-5 has a section-specific current mapping. |
 | M4_05_MINIMAL_CAUSE.md | seed-variation | \* | unrecoverable | none | docs/data/m4_05/seed-0.jsonl; docs/data/m4_05/seed-1.jsonl; docs/data/m4_05/seed-3.jsonl | The helper that produced these follow-up runs is incomplete; data survives but exact regeneration is unavailable. |
-| M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
+| M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md | \* | \* | missing-source | crates/sim-model/examples/m4_branch_trace.rs | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
 | M4_COUNTERFACTUAL_CONTRACT.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
 | M5_REPRODUCIBILITY_CONTRACT.md | \* | \* | missing-source | none | none | Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required. |
 

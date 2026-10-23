@@ -497,7 +497,8 @@ def extract_claims(
             note = "report has no sources.toml entry; source attribution requires review"
         elif source_map_present:
             status = str(mapped["status"])
-            source_harness = "; ".join(mapped.get("harness", [])) or "none"
+            source_commands = [*mapped.get("harness", []), *mapped.get("tests", [])]
+            source_harness = "; ".join(source_commands) or "none"
             raw_data = "; ".join(mapped.get("data", [])) or "none"
             stage = str(mapped["regeneration_stage"])
             note = str(mapped.get("notes", ""))

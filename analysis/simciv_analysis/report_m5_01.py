@@ -123,6 +123,7 @@ def _report_parts() -> dict[str, str]:
     gaps = claims.loc[
         ~claims["status"].isin([
             "reproducible-now",
+            "analysis-only",
             "historical-log",
             "historical-protocol",
             "bit-exact",
@@ -225,6 +226,7 @@ The **{parts['m1_count']}** previously unrecoverable M1 aggregate claims were re
 
 - The tidy ledger uses `sources.toml` for provenance; old-ledger matching is informational only; see the ledger comparison tables above.
 - The M1 aggregate run records are historical logs and are excluded from regeneration gap totals.
+- M2 design-analysis reports without measurement outputs are marked analysis-only and excluded from regeneration gap totals.
 - The largest gaps are grouped directly from the current status values in the tidy ledger; see Top evidence gaps.
 
 ## Limits

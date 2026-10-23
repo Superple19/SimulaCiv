@@ -1,7 +1,12 @@
 import csv
 
 from simciv_analysis.claims import extract_claims
-from simciv_analysis.sources import load_sources, source_for_claim, validate_source_paths
+from simciv_analysis.sources import (
+    load_sources,
+    source_for_claim,
+    validate_cited_harnesses,
+    validate_source_paths,
+)
 
 
 def test_sources_are_explicit_and_existing_artifacts_resolve():
@@ -29,6 +34,12 @@ def test_section_sources_override_report_defaults():
     assert m1 is not None and m1["status"] == "historical-log"
     assert seed_followup is not None and seed_followup["status"] == "unrecoverable" and seed_followup["review"]
 
+    m3_audit = source_for_claim(
+        sources, "M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md", "summary", "timing"
+    )
+    assert m3_audit is not None and m3_audit["status"] == "missing-source"
+    assert "crates/sim-model/benches/m3_01_serial_baseline_bench.rs" in m3_audit["harness"]
+
 
 def test_claim_extraction_uses_source_map_instead_of_old_metadata(tmp_path):
     reports = tmp_path / "docs" / "reports"
@@ -54,3 +65,26 @@ def test_claim_extraction_uses_source_map_instead_of_old_metadata(tmp_path):
     assert claim["status"] == "reproducible-now"
     assert claim["source harness"] == "none"
     assert claim["notes"] == "mapped source"
+
+
+def test_committed_harness_citation_must_be_in_source_map(tmp_path):
+    report = tmp_path / "docs" / "reports" / "sample.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        "# Sample\n\nSee [bench](../../crates/sim-model/benches/sample.rs).\n",
+        encoding="utf-8",
+    )
+    harness = tmp_path / "crates" / "sim-model" / "benches" / "sample.rs"
+    harness.parent.mkdir(parents=True)
+    harness.write_text("fn main() {}\n", encoding="utf-8")
+    sources = {
+        "reports": {"sample.md": {"harness": [], "data": [], "tests": []}},
+        "sections": [],
+    }
+
+    try:
+        validate_cited_harnesses(sources, tmp_path)
+    except ValueError as error:
+        assert "sample.rs" in str(error)
+    else:
+        raise AssertionError("unmapped committed harness citation was accepted")

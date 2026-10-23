@@ -14,309 +14,309 @@ notes = "M1 aggregate records are mapped by section as historical logs; other cl
 [reports."M2_06_BASELINE_REPORT.md"]
 harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M2_07_ALLOCATION_ANALYSIS.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+regeneration_stage = "M5-05"
+status = "analysis-only"
+review = false
+notes = "Design analysis without measurement outputs; excluded from M5-05 gap totals."
+tests = ["cargo test -p sim-model --test phase9_mortality_tests"]
 [reports."M2_08_PHASE34_ALLOCATION_ANALYSIS.md"]
-harness = []
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test phase4_intent_tests"]
 [reports."M2_09_PHASE34_SCRATCH_BUFFER_ANALYSIS.md"]
-harness = []
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test phase3_features_tests", "cargo test -p sim-model --test phase4_decision_tests", "cargo test -p sim-model --test phase4_intent_tests", "cargo test -p sim-model --test phase5_partition_tests", "cargo test -p sim-model --test phase6a_work_tests", "cargo test -p sim-model --test phase6b_targeted_tests"]
 [reports."M2_12_PHASE4_INTENT_SCRATCH_BUFFER_ANALYSIS.md"]
-harness = []
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test phase4_intent_tests", "cargo test -p sim-model --test phase5_partition_tests", "cargo test -p sim-model --test phase6a_work_tests", "cargo test -p sim-model --test phase6b_targeted_tests"]
 [reports."M2_13_PHASE11_EVENT_SORT_ANALYSIS.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+regeneration_stage = "M5-05"
+status = "analysis-only"
+review = false
+notes = "Design analysis without measurement outputs; excluded from M5-05 gap totals."
 
 [reports."M2_14_SOA_FEASIBILITY_ANALYSIS.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+regeneration_stage = "M5-05"
+status = "analysis-only"
+review = false
+notes = "Design analysis without measurement outputs; excluded from M5-05 gap totals."
 
 [reports."M2_16_1_SOA_ABLATION_ANALYSIS.md"]
-harness = []
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M2_17_HOT_PATH_SOA_EXPANSION_ANALYSIS.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+regeneration_stage = "M5-05"
+status = "analysis-only"
+review = false
+notes = "Design analysis without measurement outputs; excluded from M5-05 gap totals."
+tests = ["cargo test -p sim-model --test determinism_oracle_tests"]
 [reports."M2_18_1_STORAGE_AUTHORITY_ANALYSIS.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+regeneration_stage = "M5-05"
+status = "analysis-only"
+review = false
+notes = "Design analysis without measurement outputs; excluded from M5-05 gap totals."
 
 [reports."M2_18_SEGMENTED_SOA_STORAGE_POC.md"]
-harness = []
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test determinism_oracle_tests"]
 [reports."M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md"]
 harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
-
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
 [reports."M2_34_POST_ALGORITHM_REPROFILING.md"]
 harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
-
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
 [reports."M2_37_POST_P5_P6B_REPROFILING.md"]
-harness = []
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
 [reports."M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md"]
-harness = []
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test phase4_intent_tests", "cargo test -p sim-model --test phase4_decision_tests", "cargo test -p sim-model --test phase4_rayon_tests", "cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
 [reports."M2_39_RAYON_PRODUCTION_POLICY_GATE.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+regeneration_stage = "M5-05"
+status = "analysis-only"
+review = false
+notes = "Design analysis without measurement outputs; excluded from M5-05 gap totals."
 
 [reports."M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"]
-harness = []
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test phase4_rayon_tests", "cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
 [reports."M2_OPTIMIZATION_CONTRACT.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+regeneration_stage = "M5-05"
+status = "derived"
+review = false
+notes = "Claim statuses and artifact paths inherit conservatively from derived_from reports."
+derived_from = ["M2_06_BASELINE_REPORT.md", "M2_08_PHASE34_ALLOCATION_ANALYSIS.md", "M2_09_PHASE34_SCRATCH_BUFFER_ANALYSIS.md", "M2_12_PHASE4_INTENT_SCRATCH_BUFFER_ANALYSIS.md", "M2_16_1_SOA_ABLATION_ANALYSIS.md", "M2_18_SEGMENTED_SOA_STORAGE_POC.md", "M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md", "M2_34_POST_ALGORITHM_REPROFILING.md", "M2_37_POST_P5_P6B_REPROFILING.md", "M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md", "M2_39_RAYON_PRODUCTION_POLICY_GATE.md", "M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md", "M2_X_REBASELINE_REPORT.md"]
 [reports."M2_X_REBASELINE_REPORT.md"]
 harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M3_01_SERIAL_BASELINE.md"]
 harness = ["crates/sim-model/benches/m3_01_serial_baseline_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M3_02_PARALLEL_PHASE6B.md"]
 harness = ["crates/sim-model/benches/m3_02_parallel_phase6b_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M3_03_SEARCH_REDUCTION.md"]
 harness = ["crates/sim-model/benches/m3_02b_search_reduction_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
-
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test m3_search_reduction_tests"]
 [reports."M3_04_EQUILIBRIUM_WORKLOAD.md"]
 harness = ["crates/sim-model/benches/m3_equilibrium_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M3_04_SUSTAINED_WORKLOAD.md"]
 harness = ["crates/sim-model/benches/m3_sustained_workload_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M3_05_SCALE_DIAGNOSIS.md"]
 harness = ["crates/sim-model/benches/m3_scale_limit_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M3_05_SCALE_LIMIT.md"]
-harness = []
+harness = ["crates/sim-model/benches/m3_scale_limit_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M3_06_SETTLEMENT_INDEX.md"]
-harness = []
+harness = ["crates/sim-model/benches/m3_scale_limit_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+class = "timing"
+regeneration_stage = "M5-05"
+status = "missing-data"
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
+tests = ["cargo test -p sim-model --test m3_settlement_index_tests"]
 [reports."M3_07_SCALE_RESIDUAL.md"]
 harness = ["crates/sim-model/benches/m3_scale_limit_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M3_08_POPULATION_DYNAMICS.md"]
 harness = []
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-source"
 review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+notes = "The original measurement driver is absent; M5-05 replaces only the headline equal-live ratio."
 
 [reports."M3_09_INCREMENTAL_TOPOLOGY.md"]
 harness = []
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-source"
 review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+notes = "The m3p_09_measure driver is absent; detailed tables remain historical."
 
 [reports."M3_11_PROPAGATION.md"]
-harness = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
+harness = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "crates/sim-model/benches/m3_11_m3p_sustained_bench.rs"]
 data = []
-class = "*"
-regeneration_stage = "none"
+class = "timing"
+regeneration_stage = "M5-05"
 status = "missing-data"
-review = true
-notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+review = false
+notes = "Committed benchmark is mapped; raw measurement output is not committed."
 
 [reports."M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+regeneration_stage = "M5-05"
+status = "derived"
+review = false
+notes = "Claim statuses and artifact paths inherit conservatively from derived_from reports."
+derived_from = ["M3_01_SERIAL_BASELINE.md", "M3_02_PARALLEL_PHASE6B.md", "M3_03_SEARCH_REDUCTION.md", "M3_04_EQUILIBRIUM_WORKLOAD.md", "M3_04_SUSTAINED_WORKLOAD.md", "M3_05_SCALE_DIAGNOSIS.md", "M3_05_SCALE_LIMIT.md", "M3_06_SETTLEMENT_INDEX.md", "M3_07_SCALE_RESIDUAL.md", "M3_08_POPULATION_DYNAMICS.md", "M3_09_INCREMENTAL_TOPOLOGY.md", "M3_11_PROPAGATION.md"]
 [reports."M3_AUDIT_INTERIM_AUDIT.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+regeneration_stage = "M5-05"
+status = "derived"
+review = false
+notes = "Claim statuses and artifact paths inherit conservatively from derived_from reports."
+derived_from = ["M3_01_SERIAL_BASELINE.md", "M3_02_PARALLEL_PHASE6B.md", "M3_03_SEARCH_REDUCTION.md", "M3_04_SUSTAINED_WORKLOAD.md", "M3_05_SCALE_LIMIT.md", "M3_06_SETTLEMENT_INDEX.md", "M3_07_SCALE_RESIDUAL.md", "M3_08_POPULATION_DYNAMICS.md", "M3_09_INCREMENTAL_TOPOLOGY.md", "M3_11_PROPAGATION.md"]
 [reports."M3_INTERACTION_CONTRACT.md"]
 harness = []
 data = []
 class = "*"
-regeneration_stage = "none"
-status = "missing-source"
-review = true
-notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
-
+regeneration_stage = "M5-05"
+status = "derived"
+review = false
+notes = "Claim statuses and artifact paths inherit conservatively from derived_from reports."
+derived_from = ["M3_01_SERIAL_BASELINE.md", "M3_02_PARALLEL_PHASE6B.md", "M3_03_SEARCH_REDUCTION.md", "M3_04_EQUILIBRIUM_WORKLOAD.md", "M3_04_SUSTAINED_WORKLOAD.md", "M3_05_SCALE_DIAGNOSIS.md", "M3_05_SCALE_LIMIT.md", "M3_06_SETTLEMENT_INDEX.md", "M3_07_SCALE_RESIDUAL.md", "M3_08_POPULATION_DYNAMICS.md", "M3_09_INCREMENTAL_TOPOLOGY.md", "M3_11_PROPAGATION.md"]
 [reports."M4_01_SYSTEM_REGISTRY.md"]
 harness = []
 data = []
@@ -363,7 +363,7 @@ review = false
 notes = "Schema 1/2 and §14 A-1 guarantee renames are explicit normalizations. Seed follow-up is section-specific and unrecoverable."
 
 [reports."M4_06_MIGRATION.md"]
-harness = ["crates/sim-model/examples/m4_06_a5_gate.rs", "crates/sim-model/examples/m4_06_experiment.rs", "crates/sim-model/examples/m4_06_branch_experiment.rs", "crates/sim-model/examples/m4_06_hook_followup.rs"]
+harness = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "crates/sim-model/examples/m4_02_a2_measure.rs", "crates/sim-model/examples/m4_02_a3_measure.rs", "crates/sim-model/examples/m4_02_a4_measure.rs", "crates/sim-model/examples/m4_02_a5_measure.rs", "crates/sim-model/examples/m4_03_experiment.rs", "crates/sim-model/examples/m4_03_gate.rs", "crates/sim-model/examples/m4_04_crn_experiment.rs", "crates/sim-model/examples/m4_05_a5_gate.rs", "crates/sim-model/examples/m4_05_experiment.rs", "crates/sim-model/examples/m4_06_a5_gate.rs", "crates/sim-model/examples/m4_06_branch_experiment.rs", "crates/sim-model/examples/m4_06_experiment.rs", "crates/sim-model/examples/m4_06_hook_followup.rs"]
 data = ["docs/data/m4_06/a5_gate_final.json", "docs/data/m4_06/experiment.json", "docs/data/m4_06/branch_experiment.json", "docs/data/m4_06/hook_followup.json", "docs/data/m5_04/m4_06/a5_gate.json", "docs/data/m5_04/m4_06/experiment.json.gz", "docs/data/m5_04/m4_06/branch_experiment.json.gz", "docs/data/m5_04/m4_06/hook_followup.json"]
 class = "*"
 regeneration_stage = "M5-04"
@@ -381,7 +381,7 @@ review = false
 notes = "Deterministic fields are compared; timing reruns are supplemental, not A-5 gates."
 
 [reports."M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md"]
-harness = []
+harness = ["crates/sim-model/examples/m4_branch_trace.rs"]
 data = []
 class = "*"
 regeneration_stage = "none"
@@ -527,3 +527,293 @@ regeneration_stage = "M5-04"
 status = "reproducible-now"
 review = false
 notes = "Supplemental one-shot timings were rerun; they are not A-5 gates."
+
+# M5-05 class-specific M2/M3 evidence mappings.
+
+[[sections]]
+report = "M2_06_BASELINE_REPORT.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M2_08_PHASE34_ALLOCATION_ANALYSIS.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test phase4_intent_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M2_09_PHASE34_SCRATCH_BUFFER_ANALYSIS.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test phase3_features_tests", "cargo test -p sim-model --test phase4_decision_tests", "cargo test -p sim-model --test phase4_intent_tests", "cargo test -p sim-model --test phase5_partition_tests", "cargo test -p sim-model --test phase6a_work_tests", "cargo test -p sim-model --test phase6b_targeted_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M2_12_PHASE4_INTENT_SCRATCH_BUFFER_ANALYSIS.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test phase4_intent_tests", "cargo test -p sim-model --test phase5_partition_tests", "cargo test -p sim-model --test phase6a_work_tests", "cargo test -p sim-model --test phase6b_targeted_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M2_16_1_SOA_ABLATION_ANALYSIS.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M2_18_SEGMENTED_SOA_STORAGE_POC.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test determinism_oracle_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M2_34_POST_ALGORITHM_REPROFILING.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M2_37_POST_P5_P6B_REPROFILING.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test phase4_intent_tests", "cargo test -p sim-model --test phase4_decision_tests", "cargo test -p sim-model --test phase4_rayon_tests", "cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test phase4_rayon_tests", "cargo test -p sim-model --test determinism_oracle_tests", "cargo test -p sim-model --test m2_soa_gate_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M2_X_REBASELINE_REPORT.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_01_SERIAL_BASELINE.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_02_PARALLEL_PHASE6B.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_03_SEARCH_REDUCTION.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test m3_search_reduction_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M3_04_EQUILIBRIUM_WORKLOAD.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_04_SUSTAINED_WORKLOAD.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_05_SCALE_DIAGNOSIS.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_05_SCALE_LIMIT.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_06_SETTLEMENT_INDEX.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = ["cargo test -p sim-model --test m3_settlement_index_tests"]
+regeneration_stage = "M5-05"
+status = "reproducible-now"
+review = false
+notes = "Named integration tests are run by CI."
+
+[[sections]]
+report = "M3_07_SCALE_RESIDUAL.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_08_POPULATION_DYNAMICS.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_09_INCREMENTAL_TOPOLOGY.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
+
+[[sections]]
+report = "M3_11_PROPAGATION.md"
+section = "*"
+class = "deterministic"
+harness = []
+data = []
+tests = []
+regeneration_stage = "M5-05"
+status = "missing-source"
+review = true
+notes = "No integration-test target is named in the report; deterministic claims remain missing-source rather than inferred."
