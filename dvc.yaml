@@ -53,22 +53,23 @@ stages:
       timing m2_final_tick --raw-dir docs/data/m5_05/m2_final_tick/raw --summary
       docs/data/m5_05/m2_final_tick/summary.json
     deps:
+    - Cargo.lock
+    - Cargo.toml
     - analysis/simciv_analysis/m5_05.py
     - analysis/simciv_analysis/provenance.py
-    - docs/reproducibility/m5_05_conclusions.toml
-    - crates/sim-model/src
-    - crates/sim-core/src
-    - Cargo.toml
-    - crates/sim-model/Cargo.toml
     - crates/sim-core/Cargo.toml
-    - Cargo.lock
-    - rust-toolchain.toml
-    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-core/src
+    - crates/sim-model/Cargo.toml
     - crates/sim-model/benches/m0_baseline_bench.rs
+    - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/src
     - docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md
+    - docs/reproducibility/m5_05_conclusions.toml
     - docs/reproducibility/m5_05_configs/m2_40.toml
+    - rust-toolchain.toml
     outs:
     - docs/data/m5_05/m2_final_tick/raw
+    frozen: true
   m5_05_m2_phase4_crossover:
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
       timing m2_phase4_crossover --raw-dir
