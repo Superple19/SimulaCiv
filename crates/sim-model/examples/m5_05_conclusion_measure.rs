@@ -33,6 +33,14 @@ const ROOT: &str = env!("CARGO_MANIFEST_DIR");
 const REGISTRY: &str = "../../docs/reproducibility/m5_05_conclusions.toml";
 const M2_CONFIG: &str = "../../docs/reproducibility/m5_05_configs/m2_40.toml";
 const M3_CONFIG: &str = "../../docs/reproducibility/m5_05_configs/m3_m2_40.toml";
+const SESSION_ONE_ENTRIES: &[&str] = &[
+    "m2_near_linear",
+    "m2_final_tick",
+    "m2_phase4_crossover",
+    "m3_01_serial_baseline",
+    "m3_02_parallel_phase6b",
+    "m3_03_search_reduction",
+];
 
 #[cfg(windows)]
 unsafe extern "system" {
@@ -614,6 +622,10 @@ fn run_samples(
 }
 
 fn session_one(entry: &str) -> Vec<(Cell, bool, M3Mode, M3Mode, usize)> {
+    assert!(
+        SESSION_ONE_ENTRIES.contains(&entry),
+        "entry is outside Session 1"
+    );
     match entry {
         "m2_near_linear" => [50_000, 100_000]
             .into_iter()

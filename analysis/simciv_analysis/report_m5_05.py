@@ -78,7 +78,23 @@ def _entry_cells(entry: dict[str, Any], summary: dict[str, Any] | None) -> list[
                     {"path": "serial", "old_us": old["serial_median_us"], "new_us": result.get("left_median_us")},
                     {"path": "search reduction", "old_us": old["search_reduction_median_us"], "new_us": result.get("right_median_us")},
                 ])
+            elif "indexed_before_us" in old:
+                measurements.append({"path": "indexed M3 vs recorded pre-index baseline", "old_us": old["indexed_before_us"], "new_us": result.get("right_median_us")})
+            elif "reversed_over_normal" in old:
+                measurements.append({"path": "reversed/normal P4 selection slowdown", "old_us": old["reversed_over_normal"], "new_us": result.get("reverse_over_normal"), "unit": "×"})
+            elif "old_ratio" in old:
+                measurements.append({"path": "M3P/M3 equal-live ratio", "old_us": old["old_ratio"], "new_us": result.get("m3p_over_m3"), "unit": "×"})
+            elif entry["id"] == "m3_11_phase9c_speedup" and "serial_median_us" in old:
+                measurements.extend([
+                    {"path": "Phase 9c serial", "old_us": old["serial_median_us"], "new_us": result.get("left_median_us")},
+                    {"path": "Phase 9c pool 6", "old_us": old["parallel_median_us"], "new_us": result.get("right_median_us")},
+                ])
+            elif entry["id"] == "m3_11_whole_tick_speedup":
+                for schedule, old_key in (("interleaved", "interleaved_speedup"), ("non-interleaved", "non_interleaved_speedup")):
+                    new_result = result.get(schedule.replace("-", "_"), {})
+                    measurements.append({"path": f"whole-tick {schedule} speedup", "old_us": old.get(old_key), "new_us": new_result.get("speedup_left_over_right")})
         for measurement in measurements:
+            measurement.setdefault("unit", "µs")
             old_value = measurement.get("old_us")
             new_value = measurement.get("new_us")
             if isinstance(old_value, (int, float)) and isinstance(new_value, (int, float)) and old_value != 0:
@@ -94,6 +110,8 @@ def _entry_cells(entry: dict[str, Any], summary: dict[str, Any] | None) -> list[
             "K": row.get("K"),
             "k": row.get("k"),
             "p_local": row.get("p_local"),
+            "threads": row.get("threads"),
+            "max_hops": row.get("max_hops"),
             "left_mode": row.get("left_mode"),
             "right_mode": row.get("right_mode"),
             "result": result,
@@ -106,7 +124,7 @@ def _entry_cells(entry: dict[str, Any], summary: dict[str, Any] | None) -> list[
 
 def _status(entry_id: str, cells: list[dict[str, Any]]) -> tuple[str, str]:
     if not cells:
-        return "inconclusive", "No Session 1 summary; later session not run."
+        return "inconclusive", "No recorded timing summary for this conclusion."
     exact = [m for cell in cells for m in cell["measurements"] if m.get("ratio") is not None]
     if entry_id == "m2_final_tick":
         new_values = [m["new_us"] for cell in cells for m in cell["measurements"] if m.get("new_us") is not None]
@@ -136,6 +154,48 @@ def _status(entry_id: str, cells: list[dict[str, Any]]) -> tuple[str, str]:
         if all(delta is not None and mad is not None and delta <= mad for delta, mad in zip(deltas, mads, strict=True)):
             return "holds", "The selected paired savings do not exceed their paired MADs."
         return "does not hold", "At least one selected paired saving exceeded its paired MAD."
+    if entry_id == "m3_06_settlement_index":
+        return "inconclusive", "The current indexed path was measured, but the executable pre-index implementation is absent; the recorded before value is historical context only."
+    if entry_id == "m3_07_reversed_slots":
+        ratio = cells[0]["result"].get("reverse_over_normal") if cells else None
+        if isinstance(ratio, (int, float)):
+            holds = abs(float(ratio) / 2.3734 - 1.0) <= 0.20
+            return ("holds" if holds else "does not hold"), f"The reversed/normal Phase 4 selection slowdown was {float(ratio):.3f}×; canonical digest parity was asserted."
+        return "inconclusive", "The selected Phase 4 selection ratio was not recorded."
+    if entry_id in {"m3_08_full_rebuild_equal_live", "m3_09_incremental_equal_live"}:
+        measurement = next((item for item in cells[0]["measurements"] if item["path"] == "M3P/M3 equal-live ratio"), None) if cells else None
+        if measurement and isinstance(measurement.get("old_us"), (int, float)) and isinstance(measurement.get("new_us"), (int, float)):
+            holds = abs(float(measurement["new_us"]) / float(measurement["old_us"]) - 1.0) <= 0.20
+            return ("holds" if holds else "does not hold"), f"The equal-live ratio was {float(measurement['new_us']):.3f}× versus the recorded {float(measurement['old_us']):.3f}×; the sustained non-propagation workload was used."
+        return "inconclusive", "The selected equal-live result lacks a matched historical ratio."
+    if entry_id == "m3_11_phase9c_speedup":
+        ratio = cells[0]["result"].get("speedup_left_over_right") if cells else None
+        if isinstance(ratio, (int, float)):
+            return ("holds" if ratio > 1.0 else "does not hold"), f"The selected Phase 9c serial/pool-6 speedup was {float(ratio):.3f}×."
+        return "inconclusive", "The selected Phase 9c cell is missing its speedup."
+    if entry_id == "m3_11_whole_tick_speedup":
+        result = cells[0]["result"] if cells else {}
+        interleaved = result.get("interleaved", {}).get("speedup_left_over_right")
+        non_interleaved = result.get("non_interleaved", {}).get("speedup_left_over_right")
+        if isinstance(interleaved, (int, float)) and isinstance(non_interleaved, (int, float)):
+            holds = interleaved > 1.0 and non_interleaved > 1.0
+            return ("holds" if holds else "does not hold"), f"Interleaved/non-interleaved speedups were {float(interleaved):.3f}×/{float(non_interleaved):.3f}×."
+        return "inconclusive", "The paired whole-tick schedules are incomplete."
+    if entry_id == "m3_11_frontier_crossover":
+        selected = [cell for cell in cells if cell["result"].get("paired_left_minus_right_median_us") is not None]
+        if len(selected) == 3:
+            expected_frontier = {2: 728, 4: 728, 6: 852}
+            frontiers_match = all(
+                cell["result"].get("max_frontier_size") == expected_frontier.get(int(cell.get("threads", 0)))
+                for cell in selected
+            )
+            clears = frontiers_match and all(
+                cell["result"]["paired_left_minus_right_median_us"]
+                > cell["result"]["left_mad_us"] + cell["result"]["right_mad_us"]
+                for cell in selected
+            )
+            return ("holds" if clears else "does not hold"), "Pool 2/4 at frontier 728 and pool 6 at frontier 852 were checked against the paired MAD sum and the recorded frontier size."
+        return "inconclusive", "The selected frontier/pool cells are incomplete."
     if exact:
         return "inconclusive", "Representative cells were remeasured; the headline covers a broader population/grid than this session."
     return "inconclusive", "The selected timing values do not have an exact historical workload/mode match."
@@ -165,13 +225,27 @@ def _derived_summary(entry_id: str, cells: list[dict[str, Any]]) -> str:
 
 
 def _new_values_text(cells: list[dict[str, Any]]) -> str:
-    return "; ".join(
-        f"{cell['cell']} {cell['left_mode']} {cell['result']['left_median_us']:.3f} µs; "
-        f"{cell['right_mode']} {cell['result']['right_median_us']:.3f} µs"
-        for cell in cells
-        if isinstance(cell.get("result", {}).get("left_median_us"), (int, float))
-        and isinstance(cell.get("result", {}).get("right_median_us"), (int, float))
-    ) or "not run"
+    values: list[str] = []
+    for cell in cells:
+        result = cell.get("result", {})
+        if isinstance(result.get("interleaved"), dict):
+            interleaved = result["interleaved"]
+            non_interleaved = result.get("non_interleaved", {})
+            values.append(
+                f"{cell['cell']} interleaved {interleaved.get('left_median_us', float('nan')):.3f}/{interleaved.get('right_median_us', float('nan')):.3f} µs/tick; "
+                f"non-interleaved {non_interleaved.get('left_median_us', float('nan')):.3f}/{non_interleaved.get('right_median_us', float('nan')):.3f} µs/tick"
+            )
+            continue
+        left, right = result.get("left_median_us"), result.get("right_median_us")
+        if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+            unit = result.get("time_unit")
+            suffix = f" {unit.replace('us', 'µs')}" if isinstance(unit, str) else " µs"
+            frontier = f"; max frontier {result['max_frontier_size']}" if isinstance(result.get("max_frontier_size"), int) else ""
+            values.append(f"{cell['cell']} {cell['left_mode']} {left:.3f}{suffix}; {cell['right_mode']} {right:.3f}{suffix}{frontier}")
+        elif isinstance(result.get("single_path"), dict):
+            single = result["single_path"]
+            values.append(f"{cell['cell']} {cell['right_mode']} {single['median_us']:.3f} µs/tick")
+    return "; ".join(values) or "not run"
 
 
 def _build() -> dict[str, Any]:
@@ -180,6 +254,11 @@ def _build() -> dict[str, Any]:
     rows = []
     measurement_rows = []
     ratio_measurements = []
+    measurement_harness_by_session = {
+        1: "crates/sim-model/examples/m5_05_conclusion_measure.rs",
+        2: "crates/sim-model/examples/m5_05_sessions23.rs",
+        3: "crates/sim-model/examples/m5_05_sessions23.rs",
+    }
     for entry in registry["conclusion"]:
         summary = _summary(entry["id"])
         cells = _entry_cells(entry, summary)
@@ -192,16 +271,17 @@ def _build() -> dict[str, Any]:
         status, note = _status(entry["id"], cells)
         raw = f"../data/m5_05/{entry['id']}/summary.json" if summary else "not recorded"
         harness_path = str(entry.get("harness", ""))
+        measurement_harness = measurement_harness_by_session[int(entry["session"])]
         harness_link = (
             f"[{Path(harness_path).name}](../../{harness_path})"
             if harness_path and (ROOT / harness_path).is_file()
             else f"source unavailable: `{harness_path}`" if harness_path else "unmapped"
         )
         old_text = "; ".join(
-            f"{item['cell']} {key} {value:.3f} µs"
+            f"{item['cell']} {key} {value:.3f} {'agents' if 'frontier' in key else '×' if key.endswith('ratio') or key.endswith('_over_normal') or 'speedup' in key or 'slowdown' in key else 'µs'}"
             for cell in cells if (item := cell.get("historical"))
             for key, value in item.items()
-            if key.endswith("_us") and isinstance(value, (int, float))
+            if (key.endswith("_us") or key.endswith("ratio") or "slowdown" in key) and isinstance(value, (int, float))
         ) or "not exactly mapped"
         rows.append({
             "milestone": entry["milestone"],
@@ -223,7 +303,7 @@ def _build() -> dict[str, Any]:
             "status": status,
             "notes": note,
             "harness": harness_link,
-            "measurement harness": "[m5_05_conclusion_measure.rs](../../crates/sim-model/examples/m5_05_conclusion_measure.rs)",
+            "measurement harness": f"[{Path(measurement_harness).name}](../../{measurement_harness})",
             "summary": f"[summary]({raw})" if summary else raw,
             "source report": f"[{Path(entry['report']).name}](../../{entry['report']})",
         })
@@ -236,22 +316,25 @@ def _build() -> dict[str, Any]:
                 "K": cell["K"],
                 "k": cell["k"],
                 "p_local": cell["p_local"],
-                "left µs/tick": result.get("left_median_us"),
+                "threads": cell["threads"],
+                "max hops": cell["max_hops"],
+                "time unit": result.get("time_unit", "µs/tick"),
+                "max frontier": result.get("max_frontier_size"),
+                "levels": result.get("phase9c_levels"),
+                "left median": result.get("left_median_us"),
                 "left MAD": result.get("left_mad_us"),
-                "right µs/tick": result.get("right_median_us"),
+                "right median": result.get("right_median_us"),
                 "right MAD": result.get("right_mad_us"),
                 "speedup": result.get("speedup_left_over_right"),
-                "paired delta µs": result.get("paired_left_minus_right_median_us"),
+                "paired delta": result.get("paired_left_minus_right_median_us"),
                 "paired delta MAD": result.get("paired_left_minus_right_mad_us"),
                 "r": result.get("repetitions_per_sample"),
                 "minimum sample s": result.get("minimum_sample_seconds"),
-                "harness": f"[m5_05_conclusion_measure.rs](../../crates/sim-model/examples/m5_05_conclusion_measure.rs)",
+                "harness": f"[{Path(measurement_harness).name}](../../{measurement_harness})",
                 "summary": f"[summary](../data/m5_05/{entry['id']}/summary.json)",
             })
     deterministic_results = deterministic.get("details", {}).get("results", []) if deterministic else []
-    results = {
-        "session": 1,
-        "planned": [
+    planned = [
             {
                 "conclusion": entry["id"],
                 "session": int(entry["session"]),
@@ -259,7 +342,13 @@ def _build() -> dict[str, Any]:
                 "status": "recorded" if _summary(entry["id"]) is not None else "not run",
             }
             for entry in registry["conclusion"]
-        ],
+        ]
+    sessions_not_run = sorted({row["session"] for row in planned if row["status"] == "not run"})
+    sessions_complete = sorted({row["session"] for row in planned if row["status"] == "recorded"})
+    results = {
+        "session": max(sessions_complete, default=0),
+        "sessions_complete": sessions_complete,
+        "planned": planned,
         "deterministic": deterministic_results,
         "conclusions": rows,
         "cells": measurement_rows,
@@ -267,11 +356,11 @@ def _build() -> dict[str, Any]:
             "[deterministic summary](../data/m5_05/deterministic/summary.json)"
             if deterministic else "not recorded"
         ),
-        "sessions_not_run": [2, 3],
+        "sessions_not_run": sessions_not_run,
     }
     conclusion_by_id = {row["conclusion"]: row for row in rows}
-    unrun_ids = {row["conclusion"] for row in results["planned"] if row["session"] in results["sessions_not_run"]}
-    findings_md, findings_checks_md = render_findings([
+    unrun_ids = {row["conclusion"] for row in results["planned"] if row["status"] == "not run"}
+    findings = [
         Finding(
             "[exploratory]",
             "Every listed conclusion has a generated `holds`, `does not hold`, or `inconclusive` status.",
@@ -294,15 +383,23 @@ def _build() -> dict[str, Any]:
             "finding_deterministic_targets_passed",
             bool(deterministic_results) and all(item["status"] == "pass" for item in deterministic_results),
         ),
-        Finding(
+    ]
+    if unrun_ids:
+        findings.append(Finding(
             "[exploratory]",
             "Unrun session conclusions remain inconclusive and are not counted as reproduced.",
             "finding_unrun_sessions_remain_inconclusive",
-            bool(unrun_ids)
-            and all(conclusion_by_id.get(identifier, {}).get("status") == "inconclusive" for identifier in unrun_ids)
+            all(conclusion_by_id.get(identifier, {}).get("status") == "inconclusive" for identifier in unrun_ids)
             and all(row["status"] == "not run" for row in results["planned"] if row["conclusion"] in unrun_ids),
-        ),
-    ])
+        ))
+    else:
+        findings.append(Finding(
+            "[exploratory]",
+            "Every pre-registered timing stage has a recorded summary.",
+            "finding_all_timing_stages_recorded",
+            all(row["status"] == "recorded" for row in results["planned"]),
+        ))
+    findings_md, findings_checks_md = render_findings(findings)
     results["findings"] = findings_md
     results["findings_checks"] = findings_checks_md
     figure = _timing_figure(measurement_rows)
@@ -324,19 +421,21 @@ def _timing_figure(rows: list[dict[str, Any]]) -> bytes:
                 if cell["cell"] != row["cell"]:
                     continue
                 for measure in cell["measurements"]:
+                    if measure.get("unit", "µs") != "µs":
+                        continue
                     if measure.get("ratio") is not None:
                         matched.append((f"{entry['id']}\n{cell['cell']}\n{measure['path']}", measure["old_us"], measure["new_us"]))
     fig, ax = plt.subplots(figsize=(9, max(2.5, 0.35 * len(matched))))
     if matched:
         positions = list(range(len(matched)))
         ax.scatter([item[1] for item in matched], positions, label="recorded", marker="o")
-        ax.scatter([item[2] for item in matched], positions, label="M5-05 Session 1", marker="x")
+        ax.scatter([item[2] for item in matched], positions, label="M5-05 current measurements", marker="x")
         ax.set_yticks(positions, [item[0] for item in matched])
         ax.legend(loc="best")
     else:
         ax.text(0.5, 0.5, "No exact old/new timing pairs recorded yet", ha="center", va="center")
         ax.set_axis_off()
-    ax.set_xlabel("µs per tick")
+    ax.set_xlabel("µs per operation (timing comparisons only)")
     ax.set_title("Recorded versus M5-05 selected timings")
     fig.tight_layout()
     rendered = b"\n".join(line.rstrip(b" \t") for line in svg_bytes(fig).splitlines()) + b"\n"
@@ -365,13 +464,16 @@ def _render_qmd(data: dict[str, Any]) -> str:
         for item in deterministic
     ]
     deterministic_table = _table(deterministic_rows, ["target", "status", "harness", "summary"])
+    completed = ", ".join(str(session) for session in data["sessions_complete"]) or "none"
+    pending = ", ".join(str(session) for session in data["sessions_not_run"]) or "none"
+    status = f"Status: sessions complete {completed}; sessions pending {pending}"
     return f'''---
 title: "M5-05 M0–M3 Conclusion Regeneration"
 format: gfm
 ratio_flag_threshold_percent: 20
 ---
 
-Status: in progress — Session 1 complete; Sessions 2–3 not run
+{status}
 
 ## Question
 
@@ -379,7 +481,7 @@ Do the selected conclusion-bearing M2/M3 timing results and mapped deterministic
 
 ## Method
 
-The frozen conclusion set is [`m5_05_conclusions.toml`](m5_05_conclusions.toml). Each timing stage runs the committed [measurement example](../../crates/sim-model/examples/m5_05_conclusion_measure.rs) with A-5 sampling; every timing DVC output has a Git summary and a raw output directory. This report reads only Git summaries, not DVC raw paths. Historical values are extracted from the named reports by [m5_05.py](../../analysis/simciv_analysis/m5_05.py). Session 1 cell data and timing are collected in the summaries under `docs/data/m5_05/`.
+The frozen conclusion set is [`m5_05_conclusions.toml`](m5_05_conclusions.toml). Each timing stage runs its committed measurement example with A-5 sampling; every timing DVC output has a Git summary and a raw output directory. This report reads only Git summaries, not DVC raw paths. Historical values are extracted from the named reports by [m5_05.py](../../analysis/simciv_analysis/m5_05.py). Session cell data and timing are collected in the summaries under `docs/data/m5_05/`.
 
 ## Results
 
@@ -391,9 +493,9 @@ The frozen conclusion set is [`m5_05_conclusions.toml`](m5_05_conclusions.toml).
 
 {_table(data["planned"], ["conclusion", "session", "estimate_minutes", "status"])}
 
-### Session 1 selected cells
+### Selected cells
 
-{_table(cells, ["conclusion", "cell", "N", "K", "k", "p_local", "left µs/tick", "left MAD", "right µs/tick", "right MAD", "speedup", "paired delta µs", "paired delta MAD", "r", "minimum sample s"])}
+{_table(cells, ["conclusion", "cell", "N", "K", "k", "p_local", "threads", "max hops", "time unit", "max frontier", "levels", "left median", "left MAD", "right median", "right MAD", "speedup", "paired delta", "paired delta MAD", "r", "minimum sample s"])}
 
 ### Deterministic confirmations
 
@@ -405,7 +507,7 @@ The frozen conclusion set is [`m5_05_conclusions.toml`](m5_05_conclusions.toml).
 
 ### Sessions not run
 
-Session 2 and Session 3 are **not run** in this execution. Their conclusion rows remain inconclusive. This report does not substitute selected cells for the broader historical grid or its aggregate statistics.
+{f"Sessions {pending} remain not run; their conclusion rows remain inconclusive." if data["sessions_not_run"] else "All registered sessions have a recorded summary."} This report does not substitute selected cells for broader historical grids or aggregate statistics.
 
 ## Findings
 

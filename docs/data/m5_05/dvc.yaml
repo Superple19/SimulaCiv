@@ -186,6 +186,7 @@ stages:
     - Cargo.lock
     - rust-toolchain.toml
     - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/examples/m5_05_sessions23.rs
     - crates/sim-model/benches/m3_scale_limit_bench.rs
     - docs/reports/M3_06_SETTLEMENT_INDEX.md
     - docs/reproducibility/m5_05_configs/m3_equilibrium.toml
@@ -209,6 +210,7 @@ stages:
     - Cargo.lock
     - rust-toolchain.toml
     - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/examples/m5_05_sessions23.rs
     - crates/sim-model/benches/m3_scale_limit_bench.rs
     - docs/reports/M3_07_SCALE_RESIDUAL.md
     - docs/reproducibility/m5_05_configs/m3_equilibrium.toml
@@ -232,6 +234,7 @@ stages:
     - Cargo.lock
     - rust-toolchain.toml
     - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/examples/m5_05_sessions23.rs
     - docs/reports/M3_08_POPULATION_DYNAMICS.md
     - crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
     outs:
@@ -254,6 +257,7 @@ stages:
     - Cargo.lock
     - rust-toolchain.toml
     - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/examples/m5_05_sessions23.rs
     - docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md
     - crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
     outs:
@@ -276,6 +280,7 @@ stages:
     - Cargo.lock
     - rust-toolchain.toml
     - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/examples/m5_05_sessions23.rs
     - crates/sim-model/benches/m3_11_propagation_bench.rs
     - docs/reports/M3_11_PROPAGATION.md
     - docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml
@@ -299,6 +304,7 @@ stages:
     - Cargo.lock
     - rust-toolchain.toml
     - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/examples/m5_05_sessions23.rs
     - crates/sim-model/benches/m3_11_propagation_bench.rs
     - docs/reports/M3_11_PROPAGATION.md
     - docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml
@@ -322,6 +328,7 @@ stages:
     - Cargo.lock
     - rust-toolchain.toml
     - crates/sim-model/examples/m5_05_conclusion_measure.rs
+    - crates/sim-model/examples/m5_05_sessions23.rs
     - crates/sim-model/benches/m3_11_propagation_bench.rs
     - docs/reports/M3_11_PROPAGATION.md
     - docs/reproducibility/m5_05_configs/m3_equilibrium_propagation.toml

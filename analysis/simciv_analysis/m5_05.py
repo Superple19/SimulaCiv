@@ -17,6 +17,7 @@ from .provenance import ROOT
 
 REGISTRY = Path("docs/reproducibility/m5_05_conclusions.toml")
 MEASURE_HARNESS = Path("crates/sim-model/examples/m5_05_conclusion_measure.rs")
+MEASURE_HARNESS_SESSION_23 = Path("crates/sim-model/examples/m5_05_sessions23.rs")
 
 
 def _table(path: Path, header_predicate) -> list[list[str]]:
@@ -179,6 +180,93 @@ def _m3_03_values(entry: dict[str, Any], root: Path) -> list[dict[str, Any]]:
     return result
 
 
+def _m3_06_values(entry: dict[str, Any], root: Path) -> list[dict[str, Any]]:
+    rows = _table(root / entry["report"], lambda line: "| Run | Serial median ± MAD µs/tick |" in line)
+    before = next((row for row in rows if row[0] == "Before"), None)
+    if before is None:
+        return []
+    return [{
+        "cell": "M3-indexed-N1000000-K5000-k8-p0.5-day0",
+        "indexed_before_us": _number(before[1]),
+        "source_report": entry["report"],
+        "source_match": "historical before value; executable pre-index source is unrecoverable",
+    }]
+
+
+def _m3_07_values(entry: dict[str, Any], root: Path) -> list[dict[str, Any]]:
+    rows = _table(root / entry["report"], lambda line: "| Phase | N=100k slowdown |" in line)
+    row = next((item for item in rows if item and item[0] == "P4 action selection"), None)
+    if row is None or len(row) < 4:
+        return []
+    return [{
+        "cell": "P4-selection-N1000000-K5000-k8-p0.5",
+        "reversed_over_normal": _number(row[3]),
+        "source_report": entry["report"],
+        "source_match": "same selected Phase 4 selection cell",
+    }]
+
+
+def _m3_08_values(entry: dict[str, Any], root: Path) -> list[dict[str, Any]]:
+    rows = _table(root / entry["report"], lambda line: "| Initial N | Live agents | M3P median µs/tick |" in line)
+    row = next((item for item in rows if item and item[0].replace(",", "") == "100000"), None)
+    if row is None:
+        return []
+    return [{
+        "cell": "initial-N100000-live103241-k8-p0.5-day400",
+        "old_ratio": _number(row[4]),
+        "source_report": entry["report"],
+        "source_match": "same equal-live population and three-day shape",
+    }]
+
+
+def _m3_09_values(entry: dict[str, Any], root: Path) -> list[dict[str, Any]]:
+    rows = _table(root / entry["report"], lambda line: "| Initial N | Schedule | M3P serial |" in line)
+    row = next((item for item in rows if item and item[0].replace(",", "") == "100000" and item[1] == "Paired"), None)
+    if row is None:
+        return []
+    return [{
+        "cell": "initial-N100000-live103241-k8-p0.5-day400",
+        "old_ratio": _number(row[5]),
+        "source_report": entry["report"],
+        "source_match": "same paired equal-live population and three-day shape",
+    }]
+
+
+def _m3_11_values(entry: dict[str, Any], root: Path) -> list[dict[str, Any]]:
+    text = (root / entry["report"]).read_text(encoding="utf-8")
+    if entry["id"] == "m3_11_phase9c_speedup":
+        match = re.search(r"Phase 9c fell from ([0-9.]+) ms serial to ([0-9.]+) ms on pool 6", text)
+        if not match:
+            return []
+        return [{
+            "cell": "M3PROP-P9c-N100000-k16-hops16-pool6",
+            "serial_median_us": float(match.group(1)) * 1000.0,
+            "parallel_median_us": float(match.group(2)) * 1000.0,
+            "source_report": entry["report"],
+            "source_match": "same fixed-topology N=100k Phase 9c cell",
+        }]
+    if entry["id"] == "m3_11_whole_tick_speedup":
+        match = re.search(r"whole tick improved by ([0-9.]+)× interleaved and ([0-9.]+)× non-interleaved", text)
+        return [{
+            "cell": "M3PROP-whole-tick-N100000-k16-hops16-pool6",
+            "interleaved_speedup": float(match.group(1)) if match else None,
+            "non_interleaved_speedup": float(match.group(2)) if match else None,
+            "source_report": entry["report"],
+            "source_match": "same fixed-topology N=100k whole-tick cell",
+        }] if match else []
+    match = re.search(r"frontier sizes of ([0-9,]+) sources for pools 2 and 4, and ([0-9,]+) for pool 6", text)
+    if not match:
+        return []
+    return [{
+        "cell": "M3PROP-frontier-k8-N10000-hops8-16-transmit0.2",
+        "N": 10_000,
+        "frontier_pool2_4": int(match.group(1).replace(",", "")),
+        "frontier_pool6": int(match.group(2).replace(",", "")),
+        "source_report": entry["report"],
+        "source_match": "same selected day-zero frontier cells",
+    }]
+
+
 def historical_values(entry: dict[str, Any], root: Path = ROOT) -> list[dict[str, Any]]:
     return {
         "m2_near_linear": _m2_40_values,
@@ -187,6 +275,13 @@ def historical_values(entry: dict[str, Any], root: Path = ROOT) -> list[dict[str
         "m3_01_serial_baseline": _m3_01_values,
         "m3_02_parallel_phase6b": _m3_02_values,
         "m3_03_search_reduction": _m3_03_values,
+        "m3_06_settlement_index": _m3_06_values,
+        "m3_07_reversed_slots": _m3_07_values,
+        "m3_08_full_rebuild_equal_live": _m3_08_values,
+        "m3_09_incremental_equal_live": _m3_09_values,
+        "m3_11_phase9c_speedup": _m3_11_values,
+        "m3_11_whole_tick_speedup": _m3_11_values,
+        "m3_11_frontier_crossover": _m3_11_values,
     }.get(entry["id"], lambda _entry, _root: [])(entry, root)
 
 
@@ -213,6 +308,35 @@ def validate_registry(root: Path = ROOT) -> list[dict[str, Any]]:
         if not report.is_file() or not config.is_file():
             raise ValueError(f"missing report/config for {entry['id']}")
     return entries
+
+
+def validate_implemented_stages(root: Path = ROOT) -> list[str]:
+    entries = validate_registry(root)
+    registry_ids = {entry["id"] for entry in entries}
+    pipeline = (root / "docs" / "data" / "m5_05" / "dvc.yaml").read_text(encoding="utf-8")
+    stage_ids = set(re.findall(r"^\s+m5_05_([a-z0-9_]+):\s*$", pipeline, flags=re.MULTILINE))
+    stage_ids.discard("deterministic")
+    if stage_ids != registry_ids:
+        raise ValueError(
+            f"DVC conclusion stages differ from registry: missing={sorted(registry_ids - stage_ids)}, "
+            f"extra={sorted(stage_ids - registry_ids)}"
+        )
+
+    def declared(path: Path, constant: str) -> set[str]:
+        source = (root / path).read_text(encoding="utf-8")
+        match = re.search(rf"const {constant}: &\[&str\] = &\[(.*?)\];", source, flags=re.DOTALL)
+        if not match:
+            raise ValueError(f"measurement harness has no {constant} declaration: {path}")
+        return set(re.findall(r'"([a-z0-9_]+)"', match.group(1)))
+
+    implemented = declared(MEASURE_HARNESS, "SESSION_ONE_ENTRIES")
+    implemented.update(declared(MEASURE_HARNESS_SESSION_23, "SUPPORTED_ENTRIES"))
+    if implemented != registry_ids:
+        raise ValueError(
+            f"conclusion entries lack a measurement path: missing={sorted(registry_ids - implemented)}, "
+            f"extra={sorted(implemented - registry_ids)}"
+        )
+    return sorted(registry_ids)
 
 
 def _test_targets(entries: list[dict[str, Any]], session: int) -> list[str]:
@@ -295,6 +419,7 @@ def run_timing(entry_id: str, raw_dir: Path, summary_path: Path, root: Path = RO
     raw_dir.mkdir(parents=True, exist_ok=True)
     samples_path = raw_dir / "samples.jsonl"
     log_path = raw_dir / "run.log"
+    harness = MEASURE_HARNESS if int(entry["session"]) == 1 else MEASURE_HARNESS_SESSION_23
     command = [
         "cargo",
         "run",
@@ -302,7 +427,7 @@ def run_timing(entry_id: str, raw_dir: Path, summary_path: Path, root: Path = RO
         "-p",
         "sim-model",
         "--example",
-        MEASURE_HARNESS.name.removesuffix(".rs"),
+        harness.name.removesuffix(".rs"),
         "--",
         "--entry",
         entry_id,
@@ -326,19 +451,24 @@ def run_timing(entry_id: str, raw_dir: Path, summary_path: Path, root: Path = RO
     cell_records = [record for record in raw_records if record.get("type") == "cell"]
     config = entry["config"].split(";", maxsplit=1)[0]
     baseline = historical_values(entry, root)
+    recorded_overrides = list(entry.get("config_overrides", []))
+    for cell in cell_records:
+        override = cell.get("result", {}).get("config_override")
+        if isinstance(override, str) and override not in recorded_overrides:
+            recorded_overrides.append(override)
     summary = _summary_template(
         stage=entry_id,
         specs=[str(REGISTRY), config, entry["report"]],
         harnesses=[
             str(root / "analysis" / "simciv_analysis" / "m5_05.py"),
-            str(root / MEASURE_HARNESS),
+            str(root / harness),
             str(root / entry["harness"]),
         ],
         raw_output=raw_dir.relative_to(root).as_posix(),
         details={
             "entry": entry_id,
             "cells": entry["cells"],
-            "config_overrides": entry.get("config_overrides", []),
+            "config_overrides": recorded_overrides,
             "bench_args": entry["bench_args"],
             "host": header.get("host") if header else None,
             "process_controls": header.get("process_controls") if header else None,
@@ -362,7 +492,8 @@ def _timing_session_authorized(session: int) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="mode", required=True)
+    parser.add_argument("--dry-run", action="store_true", help="verify that every registered DVC conclusion has a measurement implementation")
+    subparsers = parser.add_subparsers(dest="mode")
     validate_parser = subparsers.add_parser("validate")
     validate_parser.set_defaults(mode="validate")
     deterministic = subparsers.add_parser("deterministic")
@@ -374,6 +505,12 @@ def main(argv: list[str] | None = None) -> int:
     timing.add_argument("--raw-dir", type=Path, required=True)
     timing.add_argument("--summary", type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.dry_run:
+        for entry_id in validate_implemented_stages():
+            print(f"IMPLEMENTED|{entry_id}")
+        return 0
+    if args.mode is None:
+        parser.error("a mode is required unless --dry-run is used")
     if args.mode == "validate":
         entries = validate_registry()
         print(f"validated {len(entries)} M5-05 conclusion entries")

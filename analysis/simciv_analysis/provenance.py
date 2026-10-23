@@ -101,7 +101,10 @@ def finalize_summary(summary_path: str | Path, root: Path = ROOT) -> dict[str, A
     spec_files = [str(item) for item in summary.get("spec_files", [])]
     harness_files = [str(item) for item in summary.get("harness_files", [])]
     raw_outputs = [str(item) for item in summary.get("raw_outputs", [])]
-    lock_hashes = _dvc_lock_hashes(root / "dvc.lock")
+    lock_path = resolved.parent.parent / "dvc.lock"
+    if not lock_path.exists():
+        lock_path = root / "dvc.lock"
+    lock_hashes = _dvc_lock_hashes(lock_path)
     output_records = []
     for output in raw_outputs:
         relative, output_path = _relative_path(output, root)
