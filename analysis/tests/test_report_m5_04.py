@@ -1,4 +1,9 @@
-from simciv_analysis.report_m5_04 import _cell_gate, _timing_source
+from simciv_analysis.report_m5_04 import (
+    _cell_gate,
+    _old_new_m4_04_comparison,
+    _m4_05_differences,
+    _timing_source,
+)
 
 
 def test_a5_gate_classification_uses_spread_then_bootstrap_bound():
@@ -12,3 +17,17 @@ def test_reported_timing_sources_are_committed():
     harness, data = _timing_source("M4-02")
     assert harness.endswith("m4_02_a5_measure.rs")
     assert data.endswith("m4_02/m4_02_a5.log")
+
+
+def test_representation_only_m4_differences_are_normalized_and_listed_separately():
+    m4_04 = _old_new_m4_04_comparison()
+    m4_05_differences, m4_05_normalizations = _m4_05_differences()
+    assert m4_04["mismatch_count"] == 0
+    assert m4_04["exact_fields"] == 836
+    assert m4_04["normalized_fields"] == 4
+    assert m4_04["compared_fields"] == 840
+    assert len(m4_04["normalizations"]) == 4
+    assert all(row["harness"] and row["raw data"] for row in m4_04["normalizations"])
+    assert m4_05_differences == []
+    assert len(m4_05_normalizations) == 8
+    assert all(row["harness"] and row["raw data"] for row in m4_05_normalizations)

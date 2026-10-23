@@ -52,6 +52,11 @@ M4_02_CELLS = {
     "Recorder M3P serial, 10k": "recorder-10k",
     "Recorder M3P serial, 100k": "recorder-100k",
 }
+M4_02_DIAG_COMMITS = {
+    "m4-02-pass": "d9b08fd",
+    "v0.5.0-m4": "4f4498b",
+    "head": "ad0c971",
+}
 
 
 def _bytes(path: Path) -> bytes:
@@ -141,7 +146,49 @@ def _timing_source(stage: str) -> tuple[str, str]:
     return sources[stage]
 
 
-def _m4_02_timings() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+def _m4_02_diagnosis() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    log_path = DATA_ROOT / "m4_02_incremental_diagnosis" / "run.log"
+    rows: list[dict[str, Any]] = []
+    lines = _lines(log_path)
+    for line in lines:
+        if not line.startswith("SUMMARY\t"):
+            continue
+        parts = line.split("\t")
+        rows.append({
+            "revision": parts[1],
+            "commit": M4_02_DIAG_COMMITS[parts[1]],
+            "cell": parts[2],
+            "repetitions": int(parts[3]),
+            "direct_ms": float(parts[4]),
+            "candidate_ms": float(parts[5]),
+            "delta_ms": float(parts[6]),
+            "delta_mad_ms": float(parts[7]),
+            "upper_ms": float(parts[8]),
+            "threshold_ms": float(parts[9]),
+            "direct_spread_pct": float(parts[10]),
+            "candidate_spread_pct": float(parts[11]),
+            "status": parts[12],
+            "harness": "crates/sim-model/examples/m4_02_a5_measure.rs + crates/sim-model/examples/m4_02_incremental_diagnosis.ps1",
+            "raw data": "docs/data/m5_04/m4_02_incremental_diagnosis/paired_samples.tsv; docs/data/m5_04/m4_02_incremental_diagnosis/run.log",
+        })
+    if len(rows) != len(M4_02_DIAG_COMMITS) * 2:
+        raise ValueError(f"expected six M4-02 diagnosis summaries in {log_path}, found {len(rows)}")
+    before = json.loads(next(line.removeprefix("HOST BEFORE ") for line in lines if line.startswith("HOST BEFORE ")))
+    after = json.loads(next(line.removeprefix("HOST AFTER ") for line in lines if line.startswith("HOST AFTER ")))
+    start = next(line.removeprefix("TIMING RUN START UTC ") for line in lines if line.startswith("TIMING RUN START UTC "))
+    end = next(line.removeprefix("TIMING RUN END UTC ") for line in lines if line.startswith("TIMING RUN END UTC "))
+    return rows, {
+        "start_utc": start,
+        "end_utc": end,
+        "host_before": before,
+        "host_after": after,
+        "log": "docs/data/m5_04/m4_02_incremental_diagnosis/run.log",
+        "samples": "docs/data/m5_04/m4_02_incremental_diagnosis/paired_samples.tsv",
+        "harness": "crates/sim-model/examples/m4_02_a5_measure.rs + crates/sim-model/examples/m4_02_incremental_diagnosis.ps1",
+    }
+
+
+def _m4_02_timings(diagnosis: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     report = ROOT / "docs" / "reports" / "M4_02_BRANCHING.md"
     text = report.read_text(encoding="utf-8")
     section = text.split("### Final confirmatory measurement under frozen §11.7 A-5", 1)[1]
@@ -173,14 +220,35 @@ def _m4_02_timings() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
             "candidate_spread": float(parts[12]) / 100.0,
             "status": parts[13],
         }
+    corrected = {row["cell"]: row for row in diagnosis if row["revision"] == "head"}
+    for label, cell_id in M4_02_CELLS.items():
+        if cell_id not in {"m3p-incremental-10k", "m3p-incremental-100k"}:
+            continue
+        result = corrected[cell_id]
+        current[cell_id] = {
+            "direct": result["direct_ms"],
+            "candidate": result["candidate_ms"],
+            "status": result["status"],
+        }
     rows: list[dict[str, Any]] = []
     gates: list[dict[str, str]] = []
     for label, cell_id in M4_02_CELLS.items():
         old_direct, old_candidate, old_gate = old[cell_id]
         measured = current[cell_id]
         gates.append({"stage": "M4-02", "cell": label, "old": old_gate, "new": measured["status"]})
-        rows.append(_timing_row("M4-02", label, "direct pair median", old_direct, measured["direct"], "ms/operation", "A-5, 41 samples", old_gate, measured["status"]))
-        rows.append(_timing_row("M4-02", label, "analysis-disabled/full median", old_candidate, measured["candidate"], "ms/operation", "A-5, 41 samples", old_gate, measured["status"]))
+        row_data = "docs/data/m5_04/m4_02_incremental_diagnosis/paired_samples.tsv" if cell_id in corrected else "docs/data/m5_04/m4_02/m4_02_a5.log"
+        for metric, old_value, new_value in [
+            ("direct pair median", old_direct, measured["direct"]),
+            ("analysis-disabled/full median", old_candidate, measured["candidate"]),
+        ]:
+            timing = _timing_row("M4-02", label, metric, old_value, new_value, "ms/operation", "A-5, 41 samples", old_gate, measured["status"])
+            timing["raw data"] = row_data
+            if cell_id in corrected:
+                timing["harness"] = "crates/sim-model/examples/m4_02_a5_measure.rs + crates/sim-model/examples/m4_02_incremental_diagnosis.ps1"
+            rows.append(timing)
+        gates[-1]["raw data"] = row_data
+        if cell_id in corrected:
+            gates[-1]["harness"] = "crates/sim-model/examples/m4_02_a5_measure.rs + crates/sim-model/examples/m4_02_incremental_diagnosis.ps1"
     return rows, gates
 
 
@@ -328,41 +396,76 @@ def _old_new_m4_04_comparison() -> dict[str, Any]:
         return re.sub(r"e([+-]?)0*(\d+)$", lambda match: "e" + str(-int(match.group(2)) if match.group(1) == "-" else int(match.group(2))), text)
 
     matches = 0
+    normalizations: list[dict[str, Any]] = []
     differences: list[dict[str, Any]] = []
+
+    def compare_field(old: dict[str, str], key: str, expected: str) -> None:
+        nonlocal matches
+        if old[key] == expected:
+            matches += 1
+        elif old[key] == "inf" and expected == "":
+            normalizations.append({
+                "stage": "M4-04",
+                "file": old["intervention"],
+                "field": f"H={old['horizon']} {old['outcome']} {key}",
+                "old": "inf",
+                "new": "null",
+                "rule": "JSON null and CSV inf both encode an unbounded confidence interval; comparison maps both to positive infinity.",
+                "harness": "crates/sim-model/examples/m4_07_many_branch.rs (--only=crn-parallel)",
+                "raw data": "docs/data/m4_04/m4_04_crn_efficiency.csv; docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz",
+            })
+        else:
+            differences.append({
+                "intervention": old["intervention"], "horizon": int(old["horizon"]),
+                "outcome": old["outcome"], "field": key, "old": old[key], "new": expected,
+                "difference": "field value differs",
+            })
+
     for old in old_rows:
         intervention = label_map.get(old["intervention"], old["intervention"])
         current = estimates[(intervention, int(old["horizon"]), old["outcome"])]
         for old_field, new_field in field_map.items():
             precision = 6 if old_field in {"mean_D_H", "mean_newborn_crn_loss"} else 12
             expected = formatted(current[new_field], precision)
-            if old[old_field] == expected:
-                matches += 1
-            else:
-                differences.append({"intervention": old["intervention"], "horizon": int(old["horizon"]), "outcome": old["outcome"], "field": old_field, "old": old[old_field], "new": expected, "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf" if expected == "" and old[old_field] == "inf" else "field value differs"})
+            compare_field(old, old_field, expected)
         ratio = current["variance_ratio"]
         expected_ratio = "exact" if ratio["kind"] == "exact_paired_variance_zero" else formatted(ratio["ratio"], 12)
         expected_low = "" if ratio["kind"] == "exact_paired_variance_zero" else formatted(ratio["ci95_lower"], 12)
         expected_high = "" if ratio["kind"] == "exact_paired_variance_zero" else formatted(ratio["ci95_upper"], 12)
         for old_field, expected in [("variance_ratio", expected_ratio), ("ratio_ci95_low", expected_low), ("ratio_ci95_high", expected_high)]:
-            if old[old_field] == expected:
-                matches += 1
-            else:
-                differences.append({"intervention": old["intervention"], "horizon": int(old["horizon"]), "outcome": old["outcome"], "field": old_field, "old": old[old_field], "new": expected, "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf" if expected == "" and old[old_field] == "inf" else "field value differs"})
+            compare_field(old, old_field, expected)
     return {
         "method": "M4-07 six-thread parallel-only CRN rerun; estimates compared to M4-04 serial CSV",
         "harness": "crates/sim-model/examples/m4_07_many_branch.rs (--only=crn-parallel)",
         "new_data": "docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz",
         "reference_data": "docs/data/m4_04/m4_04_crn_efficiency.csv",
-        "compared_fields": matches + len(differences),
+        "compared_fields": matches + len(normalizations) + len(differences),
         "exact_fields": matches,
+        "normalized_fields": len(normalizations),
         "mismatch_count": len(differences),
+        "normalizations": normalizations,
         "mismatches": differences,
     }
 
 
-def _m4_05_differences() -> list[dict[str, Any]]:
+def _m4_05_differences() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     files = ["m4_05_a_health8.jsonl", "m4_05_a_health8_full_probe.jsonl", "m4_05_b_health16.jsonl", "m4_05_c_config6.jsonl"]
     differences: list[dict[str, Any]] = []
+    normalizations: list[dict[str, Any]] = []
+
+    def normalized_value(filename: str, path: str, old: Any, new: Any) -> tuple[bool, str]:
+        if path.endswith("/schema") and old == 1 and new == 2:
+            return True, "M4-05 output schema 1 is normalized to schema 2; the guarantee enum clarified incomplete versus exhausted search."
+        if path.endswith("/result/guarantee"):
+            renames = {
+                ("m4_05_a_health8.jsonl", "Minimum", "minimum"),
+                ("m4_05_a_health8_full_probe.jsonl", "None", "incomplete"),
+                ("m4_05_b_health16.jsonl", "OneMinimal", "one_minimal"),
+                ("m4_05_c_config6.jsonl", "None", "exhausted_no_cause"),
+            }
+            if (filename, old, new) in renames:
+                return True, "M4-05 §14 A-1 explicitly renamed guarantee labels to distinguish the frozen search outcomes."
+        return False, ""
 
     def walk(old: Any, new: Any, path: str, filename: str) -> None:
         if isinstance(old, dict) and isinstance(new, dict):
@@ -379,7 +482,15 @@ def _m4_05_differences() -> list[dict[str, Any]]:
             for index, (left, right) in enumerate(zip(old, new)):
                 walk(left, right, f"{path}/{index}", filename)
         elif old != new:
-            differences.append({"file": filename, "field": path, "old": old, "new": new, "difference": "deterministic JSON field differs"})
+            normalized, rule = normalized_value(filename, path, old, new)
+            if normalized:
+                normalizations.append({
+                    "stage": "M4-05", "file": filename, "field": path, "old": old, "new": new, "rule": rule,
+                    "harness": "crates/sim-model/examples/m4_05_experiment.rs",
+                    "raw data": f"docs/data/m4_05/{filename}; docs/data/m5_04/m4_05/{filename}",
+                })
+            else:
+                differences.append({"file": filename, "field": path, "old": old, "new": new, "difference": "deterministic JSON field differs"})
 
     for filename in files:
         old = _jsonl(ROOT / "docs" / "data" / "m4_05" / filename)
@@ -388,10 +499,10 @@ def _m4_05_differences() -> list[dict[str, Any]]:
             walk(left, right, f"record/{index}", filename)
         if len(old) != len(new):
             differences.append({"file": filename, "field": "records/length", "old": len(old), "new": len(new), "difference": "JSONL record count differs"})
-    return differences
+    return differences, normalizations
 
 
-def _deterministic_results(m4_04: dict[str, Any], m4_05_diffs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _deterministic_results(m4_04: dict[str, Any], m4_05_diffs: list[dict[str, Any]], m4_05_normalizations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     a1_old = ROOT / "docs" / "data" / "m4_03" / "m4_03_a1_experiments.csv"
     a1_new = DATA_ROOT / "m4_03" / "m4_03_a1_experiments.csv.gz"
     m406_experiment_equal = gzip.decompress(_bytes(DATA_ROOT / "m4_06" / "experiment.json.gz")) == _bytes(ROOT / "docs" / "data" / "m4_06" / "experiment.json")
@@ -410,8 +521,8 @@ def _deterministic_results(m4_04: dict[str, Any], m4_05_diffs: list[dict[str, An
     new_viewer = _jsonl(DATA_ROOT / "viewer" / "food_0_h90.jsonl")
     return [
         {"stage": "M4-03 A-1 divergence CSV", "result": "bit-exact" if _bytes(a1_old) == gzip.decompress(_bytes(a1_new)) else "mismatch", "harness": "crates/sim-model/examples/m4_03_experiment.rs", "data": "docs/data/m5_04/m4_03/m4_03_a1_experiments.csv.gz"},
-        {"stage": "M4-04 CRN estimates", "result": "bit-exact" if m4_04["mismatch_count"] == 0 else "mismatch", "harness": m4_04["harness"], "data": m4_04["new_data"], "detail": f"{m4_04['exact_fields']}/{m4_04['compared_fields']} fields exact"},
-        {"stage": "M4-05 deterministic case records", "result": "bit-exact" if not m4_05_diffs else "mismatch", "harness": "crates/sim-model/examples/m4_05_experiment.rs", "data": "docs/data/m5_04/m4_05/", "detail": f"{len(m4_05_diffs)} deterministic JSON fields differ"},
+        {"stage": "M4-04 CRN estimates", "result": "bit-exact after documented normalization" if m4_04["mismatch_count"] == 0 and m4_04["normalized_fields"] else "bit-exact" if m4_04["mismatch_count"] == 0 else "mismatch", "harness": m4_04["harness"], "data": m4_04["new_data"], "detail": f"{m4_04['exact_fields']} raw-exact + {m4_04['normalized_fields']} documented normalizations / {m4_04['compared_fields']} fields"},
+        {"stage": "M4-05 deterministic case records", "result": "bit-exact after documented normalization" if not m4_05_diffs and m4_05_normalizations else "bit-exact" if not m4_05_diffs else "mismatch", "harness": "crates/sim-model/examples/m4_05_experiment.rs", "data": "docs/data/m5_04/m4_05/", "detail": f"{len(m4_05_diffs)} unexplained fields; {len(m4_05_normalizations)} documented normalizations"},
         {"stage": "M4-06 population experiment", "result": "bit-exact" if m406_experiment_equal else "mismatch", "harness": "crates/sim-model/examples/m4_06_experiment.rs", "data": "docs/data/m5_04/m4_06/experiment.json.gz"},
         {"stage": "M4-06 branch experiment", "result": "bit-exact" if m406_branch_equal else "mismatch", "harness": "crates/sim-model/examples/m4_06_branch_experiment.rs", "data": "docs/data/m5_04/m4_06/branch_experiment.json.gz"},
         {"stage": "M4-07 CRN estimate arrays", "result": "bit-exact" if crn_equal else "mismatch", "harness": "crates/sim-model/examples/m4_07_many_branch.rs (--only=crn-parallel)", "data": "docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz"},
@@ -424,7 +535,7 @@ def _deterministic_results(m4_04: dict[str, Any], m4_05_diffs: list[dict[str, An
 
 def _timing_log_durations() -> list[dict[str, Any]]:
     paths = [
-        ("M4-02 A-5 nine-cell gate", DATA_ROOT / "m4_02" / "m4_02_a5.log"),
+        ("M4-02 A-5 nine-cell attempt (superseded path mismatch)", DATA_ROOT / "m4_02" / "m4_02_a5.log"),
         ("M4-03 gate A-5 rerun", DATA_ROOT / "m4_03" / "m4_03_gate_a5.log"),
         ("M4-05 batch-of-one A-5 gate", DATA_ROOT / "m4_05" / "m4_05_a5_gate_full.log"),
         ("M4-06 migration-off A-5 gate", DATA_ROOT / "m4_06" / "a5_gate.log"),
@@ -513,18 +624,17 @@ def _status_overrides(claims: list[dict[str, object]]) -> dict[str, Any]:
             continue
         report = str(claim["report"])
         if report == "M4_02_BRANCHING.md":
-            result = "unrecoverable"
-            ledger_status = "unrecoverable"
-            note = "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 §12.2. The final A-5 verdict is separately regenerated in the timing table."
+            result = ledger_status = "historical-protocol"
+            note = "This claim is from superseded M4-02 A-1 through A-4 protocols, which M5-04 does not rerun. The final A-5 verdict is regenerated using the corrected same-mode incremental diagnosis."
         elif report == "M4_03_DIVERGENCE.md":
             result = ledger_status = "bit-exact"
             note = "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte."
         elif report == "M4_04_CRN_EFFICIENCY.md":
-            result = ledger_status = "mismatch"
-            note = "M4-07 parallel estimate arrays reproduce numeric estimates; four non-finite confidence bounds serialize as inf in CSV and null in JSON."
+            result = ledger_status = "bit-exact after documented normalization"
+            note = "M4-04 numeric estimates match after the documented normalization of CSV inf and JSON null for unbounded confidence limits."
         elif report == "M4_05_MINIMAL_CAUSE.md":
-            result = ledger_status = "mismatch"
-            note = "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records."
+            result = ledger_status = "bit-exact after documented normalization"
+            note = "M4-05 values match after the documented §14 A-1 schema and guarantee-label normalization."
         elif report == "M4_06_MIGRATION.md":
             result = ledger_status = "conclusion holds"
             note = "Deterministic experiment files match byte-for-byte and both fresh migration-off A-5 cells pass."
@@ -566,7 +676,7 @@ Which M4 findings regenerate from committed harnesses and data, and which A-5 ti
 
 ## Method
 
-The comparison logic is in [`report_m5_04.py`](../../analysis/simciv_analysis/report_m5_04.py). Claim carry-over is applied by [`claims.py`](../../analysis/simciv_analysis/claims.py). Runs used the committed M4 harnesses; the deterministic M4-04 CRN comparison used the explicitly bit-identical M4-07 parallel-only mode. All timing gate processes ran at High priority with affinity `0x555`; each log has timing markers. The headline table shows explicit `none` where historical source artifacts were not recoverable.
+The comparison logic is in [`report_m5_04.py`](../../analysis/simciv_analysis/report_m5_04.py). Source provenance is resolved through [`sources.toml`](sources.toml); regeneration outcomes are read separately from the committed M5-04 comparisons. The deterministic M4-04 CRN comparison used the explicitly bit-identical M4-07 parallel-only mode. All timing gate processes ran at High priority with affinity `0x555`; each log has timing markers.
 
 ## Results
 
@@ -578,9 +688,15 @@ The comparison logic is in [`report_m5_04.py`](../../analysis/simciv_analysis/re
 
 ### Deterministic reruns
 
-Each row cites its current harness and raw output. The M4-04 field comparison contains {data['m4_04_exact_fields']} exact fields and {data['m4_04_mismatches']} serialization mismatches out of {data['m4_04_compared_fields']} fields.
+Each row cites its current harness and raw output. The M4-04 field comparison has {data['m4_04_exact_fields']} raw-exact fields, {data['m4_04_normalized_count']} documented normalization cases, and {data['m4_04_mismatches']} unexplained mismatches out of {data['m4_04_compared_fields']} fields.
 
 {data['deterministic_table']}
+
+#### Documented representation normalizations
+
+These are listed separately from raw bit-exact results. The transformations are limited to the recorded M4-04 non-finite CI encoding and the M4-05 §14 A-1 schema/guarantee clarification. Every row cites the old/new data and producing harness.
+
+{data['normalization_table']}
 
 ### A-5 timing ratios
 
@@ -591,6 +707,16 @@ Each row cites its current harness and raw output. The M4-04 field comparison co
 #### Gate verdicts
 
 {data['gate_table']}
+
+### M4-02 incremental diagnosis
+
+The first M5-04 A-5 attempt used an incremental direct runner but left `BranchRequest.execution = Serial`; its two incremental-cell FAILs are invalid comparisons and are retained under `superseded/serial_branch_request/`. The corrected harness selects incremental topology for both paths. In the interleaved rerun, all three revisions agreed; the results below determine the diagnosis.
+
+{data['diagnosis_table']}
+
+Host samples for that same session:
+
+{data['diagnosis_host_table']}
 
 ### Mismatch list
 
@@ -613,13 +739,14 @@ The total above sums timing-gate runs with explicit start/end markers. Restored 
 ## Findings
 
 - The M4-03 A-1 daily CSV, M4-06 experiment outputs, M4-07 CRN estimate arrays, and viewer sample regenerated exactly; see [Deterministic reruns](#deterministic-reruns).
-- M4-02’s final A-5 conclusion changed: {data['m4_02_fail_count']} of nine cells now fail, specifically the M3P incremental cells at 10k and 100k; see [Gate verdicts](#gate-verdicts) and [A-5 timing ratios](#a-5-timing-ratios).
+- The corrected M4-02 incremental A-5 comparison agrees across the M4-02 PASS commit, tag, and pre-follow-up HEAD; see [M4-02 incremental diagnosis](#m4-02-incremental-diagnosis). The previous failures came from the harness path mismatch, not a runtime change.
 - M4-03, M4-05, and M4-06 A-5 gates pass; see [Gate verdicts](#gate-verdicts) and their cited raw samples.
-- M4-04 has {data['m4_04_mismatches']} recorded `inf` → JSON `null` confidence-bound mismatches; see [Mismatch list](#mismatch-list). No value was patched.
+- M4-04 and M4-05 representation differences are listed under [documented normalizations](#documented-representation-normalizations), separate from unexplained mismatches.
 
 ## Limits
 
-- A-1–A-4 timings are retained as historical evidence and were not remeasured.
+- A-1–A-4 measurements remain `historical-protocol`; they are not regeneration targets.
+- The invalid first M5-04 incremental A-5 comparison is preserved as superseded evidence and excluded from the corrected verdict.
 - The M4-07 search, day-scan, and clone-share reruns are supplemental one-shot measurements, not A-5 timing results.
 - The M4-05 seed-specific follow-up helper source is incomplete; those historical seed records remain unrecoverable.
 - The aggregate A-5 gate time excludes deterministic harness wall time, which the restored harnesses did not record.
@@ -636,17 +763,20 @@ def _render_quarto(qmd: Path, output_dir: Path) -> Path:
 def _build() -> dict[str, Any]:
     base_claims = extract_claims(apply_m5_04=False)
     m4_04 = _old_new_m4_04_comparison()
-    m4_05_diffs = _m4_05_differences()
-    deterministic = _deterministic_results(m4_04, m4_05_diffs)
+    m4_05_diffs, m4_05_normalizations = _m4_05_differences()
+    deterministic = _deterministic_results(m4_04, m4_05_diffs, m4_05_normalizations)
+    diagnosis_rows, diagnosis_info = _m4_02_diagnosis()
     timing_rows, gate_rows = [], []
     for parser in (_m4_02_timings, _m4_03_timings, _m4_05_timings, _m4_06_timings):
-        rows, gates = parser()
+        rows, gates = parser(diagnosis_rows) if parser is _m4_02_timings else parser()
         timing_rows.extend(rows)
         gate_rows.extend(gates)
     timing_rows.extend(_m4_06_hook_timings())
     timing_rows.extend(_m4_07_supplemental_timings())
     for gate in gate_rows:
-        gate["harness"], gate["raw data"] = _timing_source(gate["stage"])
+        default_harness, default_data = _timing_source(gate["stage"])
+        gate.setdefault("harness", default_harness)
+        gate.setdefault("raw data", default_data)
     divergence, d_exact = _divergence_series()
     m4_02_failures = [row for row in gate_rows if row["stage"] == "M4-02" and row["new"] == "FAIL"]
     m4_04_mismatch = m4_04["mismatches"]
@@ -666,6 +796,26 @@ def _build() -> dict[str, Any]:
                 "basis": override["note"],
             })
     headline_counts = collections.Counter(row["M5-04 result"] for row in headline_rows)
+    diagnosis_frame = pd.DataFrame(diagnosis_rows)
+    diagnosis_table = _markdown(diagnosis_frame[[
+        "revision", "commit", "cell", "repetitions", "direct_ms", "candidate_ms",
+        "delta_ms", "delta_mad_ms", "upper_ms", "threshold_ms", "direct_spread_pct",
+        "candidate_spread_pct", "status",
+        "harness", "raw data",
+    ]])
+    diagnosis_host_table = _markdown(pd.DataFrame([
+        {
+            "boundary": boundary,
+            "UTC": sample["utc"],
+            "total CPU samples (%)": ", ".join(map(str, sample["total_cpu_samples_percent"])),
+            "free RAM (bytes)": sample["free_ram_bytes"],
+            "harness": diagnosis_info["harness"],
+            "raw data": diagnosis_info["log"],
+        }
+        for boundary, sample in [("before", diagnosis_info["host_before"]), ("after", diagnosis_info["host_after"])]
+    ]))
+    diagnosis_start = dt.datetime.fromisoformat(diagnosis_info["start_utc"].replace("Z", "+00:00"))
+    diagnosis_end = dt.datetime.fromisoformat(diagnosis_info["end_utc"].replace("Z", "+00:00"))
 
     mismatches: list[dict[str, Any]] = []
     for row in m4_04_mismatch:
@@ -678,10 +828,19 @@ def _build() -> dict[str, Any]:
             mismatches.append({"area": "M4-02 A-5 gate", "difference": f"{row['cell']}: {row['old']} → {row['new']}", "cause": "fresh valid 41-sample A-5 run changed the gate verdict", "source": "m4_02_a5_measure.rs · docs/data/m5_04/m4_02/m4_02_a5.log"})
 
     durations = _timing_log_durations()
+    durations.append({
+        "run": "M4-02 corrected three-revision incremental diagnosis",
+        "start_utc": diagnosis_info["start_utc"],
+        "end_utc": diagnosis_info["end_utc"],
+        "seconds": (diagnosis_end - diagnosis_start).total_seconds(),
+        "harness": diagnosis_info["harness"],
+        "data": diagnosis_info["log"],
+    })
     total_gate_seconds = sum(row["seconds"] for row in durations)
     m4_04_comparison = {
         **m4_04,
         "m4_05_deterministic_differences": m4_05_diffs,
+        "m4_05_normalizations": m4_05_normalizations,
         "m4_03_curve_changed_records_exact": d_exact,
     }
     status_bytes = (json.dumps(headline_overrides, indent=2, sort_keys=True) + "\n").encode("utf-8")
@@ -693,6 +852,9 @@ def _build() -> dict[str, Any]:
         "headline_table": _markdown(pd.DataFrame(headline_rows)),
         "headline_counts_table": _markdown(pd.DataFrame([{"M5-04 result": result, "headline claims": count, "source ledger": "docs/reproducibility/claims.csv.gz"} for result, count in sorted(headline_counts.items())])),
         "deterministic_table": _markdown(pd.DataFrame(deterministic)),
+        "normalization_table": _markdown(pd.DataFrame(m4_04["normalizations"] + m4_05_normalizations, columns=["stage", "file", "field", "old", "new", "rule", "harness", "raw data"])),
+        "diagnosis_table": diagnosis_table,
+        "diagnosis_host_table": diagnosis_host_table,
         "timing_table": _markdown(timing_frame[["stage", "cell", "metric", "old", "new", "new/old", "|ratio-1| > 20%", "old gate", "new gate", "unit", "protocol", "harness", "raw data"]]),
         "gate_table": _markdown(gate_frame[["stage", "cell", "old", "new", "harness", "raw data"]]),
         "mismatch_table": _markdown(pd.DataFrame(mismatches, columns=["area", "difference", "cause", "source"])),
@@ -700,6 +862,9 @@ def _build() -> dict[str, Any]:
         "headline_count": len(headline_rows),
         "m4_02_fail_count": len(m4_02_failures),
         "m4_04_mismatches": len(m4_04_mismatch),
+        "m4_04_normalized_count": m4_04["normalized_fields"],
+        "m4_04_normalizations": m4_04["normalizations"],
+        "m4_05_normalizations": m4_05_normalizations,
         "m4_04_exact_fields": m4_04["exact_fields"],
         "m4_04_compared_fields": m4_04["compared_fields"],
         "status_bytes": status_bytes,

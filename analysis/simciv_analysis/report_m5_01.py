@@ -115,7 +115,14 @@ def _report_parts() -> dict[str, str]:
     m1 = m1.sort_values(["line", "claim_id"], kind="stable")
     m1 = m1[["claim_id", "line", "value", "class", "status", "notes"]]
     gaps = claims.loc[
-        ~claims["status"].isin(["reproducible-now", "historical-log", "bit-exact", "conclusion holds"])
+        ~claims["status"].isin([
+            "reproducible-now",
+            "historical-log",
+            "historical-protocol",
+            "bit-exact",
+            "bit-exact after documented normalization",
+            "conclusion holds",
+        ])
     ].copy()
     gaps["milestone"] = gaps["report"].map(_milestone)
     top_gaps = (
