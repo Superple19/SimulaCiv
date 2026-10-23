@@ -62,6 +62,9 @@ clippy-cross:
     cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
     cargo clippy --workspace --all-targets --target aarch64-apple-darwin -- -D warnings
 
+ci-clean: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.ci_clean
+
 provenance SUMMARY: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.provenance {{SUMMARY}}
 

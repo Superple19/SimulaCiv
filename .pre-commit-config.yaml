@@ -119,3 +119,10 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+      - id: pre-push-ci-clean
+        name: just ci-clean before push
+        entry: just ci-clean
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
