@@ -219,28 +219,29 @@ stages:
     - docs/data/m5_05/m3_07_reversed_slots/raw
     frozen: true
   m5_05_m3_08_full_rebuild_equal_live:
-    wdir: ../../../
+    wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
       timing m3_08_full_rebuild_equal_live --raw-dir
       docs/data/m5_05/m3_08_full_rebuild_equal_live/raw --summary
       docs/data/m5_05/m3_08_full_rebuild_equal_live/summary.json
     deps:
+    - Cargo.lock
+    - Cargo.toml
     - analysis/simciv_analysis/m5_05.py
     - analysis/simciv_analysis/provenance.py
-    - docs/reproducibility/m5_05_conclusions.toml
-    - crates/sim-model/src
-    - crates/sim-core/src
-    - Cargo.toml
-    - crates/sim-model/Cargo.toml
     - crates/sim-core/Cargo.toml
-    - Cargo.lock
-    - rust-toolchain.toml
+    - crates/sim-core/src
+    - crates/sim-model/Cargo.toml
     - crates/sim-model/examples/m5_05_conclusion_measure.rs
     - crates/sim-model/examples/m5_05_sessions23.rs
-    - docs/reports/M3_08_POPULATION_DYNAMICS.md
+    - crates/sim-model/src
     - crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
+    - docs/reports/M3_08_POPULATION_DYNAMICS.md
+    - docs/reproducibility/m5_05_conclusions.toml
+    - rust-toolchain.toml
     outs:
     - docs/data/m5_05/m3_08_full_rebuild_equal_live/raw
+    frozen: true
   m5_05_m3_09_incremental_equal_live:
     wdir: ../../../
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
