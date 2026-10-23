@@ -10,6 +10,9 @@ use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;
 
+#[path = "common/process_controls.rs"]
+mod process_controls;
+
 const DAYS_PER_OPERATION: u32 = 3;
 const WARMUPS: usize = 2;
 const SAMPLES: usize = 41;
@@ -261,33 +264,15 @@ fn run_cell(population: u64, probability: f32) -> Result<serde_json::Value, Box<
 fn apply_windows_controls() -> Result<String, Box<dyn Error>> {
     #[cfg(windows)]
     {
-        use std::ffi::c_void;
-        #[link(name = "kernel32")]
-        unsafe extern "system" {
-            fn GetCurrentProcess() -> *mut c_void;
-            fn SetPriorityClass(process: *mut c_void, priority_class: u32) -> i32;
-            fn SetProcessAffinityMask(process: *mut c_void, mask: usize) -> i32;
-            fn GetPriorityClass(process: *mut c_void) -> u32;
-            fn GetProcessAffinityMask(
-                process: *mut c_void,
-                process_mask: *mut usize,
-                system_mask: *mut usize,
-            ) -> i32;
-        }
-        let process = unsafe { GetCurrentProcess() };
-        if unsafe { SetPriorityClass(process, 0x80) } == 0
-            || unsafe { SetProcessAffinityMask(process, 0x555) } == 0
-        {
+        let status = process_controls::apply_high_priority_affinity();
+        if !status.priority_set || !status.affinity_set {
             return Err(std::io::Error::last_os_error().into());
         }
-        let mut process_mask = 0_usize;
-        let mut system_mask = 0_usize;
-        if unsafe { GetProcessAffinityMask(process, &mut process_mask, &mut system_mask) } == 0 {
-            return Err(std::io::Error::last_os_error().into());
-        }
+        let settings =
+            process_controls::current_settings().ok_or_else(std::io::Error::last_os_error)?;
         Ok(format!(
-            "priority_class=0x{:x}; affinity=0x{process_mask:x}; system=0x{system_mask:x}",
-            unsafe { GetPriorityClass(process) }
+            "priority_class=0x{:x}; affinity=0x{:x}; system=0x{:x}",
+            settings.priority_class, settings.process_mask, settings.system_mask
         ))
     }
     #[cfg(not(windows))]

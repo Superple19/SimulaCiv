@@ -14,8 +14,6 @@ use sim_model::runner::{
 use sim_model::state::HybridWorldState;
 use sim_model::storage::canonical_state_hash_from_storage;
 use sim_model::{SimConfig, initialize_world};
-#[cfg(windows)]
-use std::ffi::c_void;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::num::NonZeroUsize;
@@ -43,12 +41,8 @@ const SESSION_ONE_ENTRIES: &[&str] = &[
     "m3_03_search_reduction",
 ];
 
-#[cfg(windows)]
-unsafe extern "system" {
-    fn GetCurrentProcess() -> *mut c_void;
-    fn SetPriorityClass(process: *mut c_void, priority: u32) -> i32;
-    fn SetProcessAffinityMask(process: *mut c_void, mask: usize) -> i32;
-}
+#[path = "common/process_controls.rs"]
+mod process_controls;
 
 #[derive(Clone, Debug)]
 struct Cell {
@@ -744,20 +738,16 @@ fn session_one(entry: &str) -> Vec<(Cell, bool, M3Mode, M3Mode, usize)> {
 }
 
 fn apply_windows_controls() -> Value {
-    #[cfg(windows)]
-    {
-        let process = unsafe { GetCurrentProcess() };
-        let priority = unsafe { SetPriorityClass(process, 0x0000_0080) } != 0;
-        let affinity = unsafe { SetProcessAffinityMask(process, 0x555) } != 0;
-        if !priority || !affinity {
+    let status = process_controls::apply_high_priority_affinity();
+    if cfg!(windows) {
+        if !status.priority_set || !status.affinity_set {
             panic!(
-                "A-5 Windows priority/affinity setup failed: priority={priority}, affinity={affinity}"
+                "A-5 Windows priority/affinity setup failed: priority={}, affinity={}",
+                status.priority_set, status.affinity_set
             );
         }
         json!({"priority":"high","affinity_mask":"0x555"})
-    }
-    #[cfg(not(windows))]
-    {
+    } else {
         json!({"priority":"not-applied","affinity_mask":"not-applied"})
     }
 }

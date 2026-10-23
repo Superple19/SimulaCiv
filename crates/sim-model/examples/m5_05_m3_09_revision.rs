@@ -10,8 +10,6 @@ use sim_model::runner::{
 };
 use sim_model::state::{HybridWorldState, WorldState};
 use sim_model::{M3pReferenceState, SimConfig, decode_m3p_snapshot, initialize_world};
-#[cfg(windows)]
-use std::ffi::c_void;
 use std::io::{self, BufRead, BufWriter, Write};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -24,12 +22,8 @@ const SEED: u64 = 81_985_529_216_486_895;
 const REPLICATE: u32 = 7;
 const DAYS: u32 = 3;
 
-#[cfg(windows)]
-unsafe extern "system" {
-    fn GetCurrentProcess() -> *mut c_void;
-    fn SetPriorityClass(process: *mut c_void, priority: u32) -> i32;
-    fn SetProcessAffinityMask(process: *mut c_void, mask: usize) -> i32;
-}
+#[path = "common/process_controls.rs"]
+mod process_controls;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 struct Digests {
@@ -59,16 +53,14 @@ fn options(snapshot_boundary: bool) -> DayExecutionOptions {
 }
 
 fn windows_controls() -> String {
-    #[cfg(windows)]
-    {
-        let process = unsafe { GetCurrentProcess() };
-        let priority = unsafe { SetPriorityClass(process, 0x0000_0080) } != 0;
-        let affinity = unsafe { SetProcessAffinityMask(process, 0x555) } != 0;
-        assert!(priority && affinity, "M4 A-5 process controls failed");
+    let status = process_controls::apply_high_priority_affinity();
+    if cfg!(windows) {
+        assert!(
+            status.priority_set && status.affinity_set,
+            "M4 A-5 process controls failed"
+        );
         "priority=high;affinity_mask=0x555".to_owned()
-    }
-    #[cfg(not(windows))]
-    {
+    } else {
         "priority=not-applied;affinity_mask=not-applied".to_owned()
     }
 }

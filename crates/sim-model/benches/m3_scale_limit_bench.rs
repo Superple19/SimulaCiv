@@ -48,6 +48,9 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "../examples/common/process_controls.rs"]
+mod process_controls;
+
 const M2_40_CONFIG: &str = r#"
 [world]
 master_seed = 81985529216486895
@@ -375,51 +378,8 @@ fn context_memory(
     }
 }
 
-#[cfg(windows)]
-#[repr(C)]
-struct ProcessMemoryCountersEx {
-    size: u32,
-    page_fault_count: u32,
-    // Peak WS, current WS, quota peaks/usage, pagefile usage/peak, private usage.
-    values: [usize; 9],
-}
-
-#[cfg(windows)]
-#[link(name = "Psapi")]
-unsafe extern "system" {
-    fn GetProcessMemoryInfo(
-        process: *mut std::ffi::c_void,
-        counters: *mut ProcessMemoryCountersEx,
-        size: u32,
-    ) -> i32;
-}
-
-#[cfg(windows)]
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn GetCurrentProcess() -> *mut std::ffi::c_void;
-}
-
-#[cfg(windows)]
-fn current_working_set_bytes() -> Option<usize> {
-    let mut counters = ProcessMemoryCountersEx {
-        size: std::mem::size_of::<ProcessMemoryCountersEx>() as u32,
-        page_fault_count: 0,
-        values: [0; 9],
-    };
-    // SAFETY: the process pseudo-handle is valid and the buffer has the declared C layout/size.
-    let succeeded =
-        unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.size) };
-    (succeeded != 0).then_some(counters.values[1])
-}
-
-#[cfg(not(windows))]
-fn current_working_set_bytes() -> Option<usize> {
-    None
-}
-
 fn sampled_peak_working_set(operation: impl FnOnce()) -> Option<usize> {
-    let Some(initial) = current_working_set_bytes() else {
+    let Some(initial) = process_controls::current_working_set_bytes() else {
         operation();
         return None;
     };
@@ -429,7 +389,7 @@ fn sampled_peak_working_set(operation: impl FnOnce()) -> Option<usize> {
     let monitor_peak = Arc::clone(&peak);
     let monitor = thread::spawn(move || {
         while !monitor_finished.load(Ordering::Relaxed) {
-            if let Some(current) = current_working_set_bytes() {
+            if let Some(current) = process_controls::current_working_set_bytes() {
                 monitor_peak.fetch_max(current, Ordering::Relaxed);
             }
             thread::sleep(Duration::from_millis(2));

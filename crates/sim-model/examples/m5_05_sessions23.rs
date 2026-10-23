@@ -24,7 +24,6 @@ use sim_model::state::{HybridWorldState, WorldState};
 use sim_model::storage::SegmentedAgentStorage;
 use sim_model::{M3pReferenceState, SimConfig, decode_m3p_snapshot, initialize_world};
 use std::collections::BTreeMap;
-use std::ffi::c_void;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::num::NonZeroUsize;
@@ -46,6 +45,9 @@ const DAYS: u32 = 3;
 const CHUNK: NonZeroUsize = NonZeroUsize::new(256).expect("nonzero chunk");
 const SEED: u64 = 81_985_529_216_486_895;
 const REPLICATE: u32 = 7;
+
+#[path = "common/process_controls.rs"]
+mod process_controls;
 const SUPPORTED_ENTRIES: &[&str] = &[
     "m3_06_settlement_index",
     "m3_07_reversed_slots",
@@ -55,13 +57,6 @@ const SUPPORTED_ENTRIES: &[&str] = &[
     "m3_11_whole_tick_speedup",
     "m3_11_frontier_crossover",
 ];
-
-#[cfg(windows)]
-unsafe extern "system" {
-    fn GetCurrentProcess() -> *mut c_void;
-    fn SetPriorityClass(process: *mut c_void, priority: u32) -> i32;
-    fn SetProcessAffinityMask(process: *mut c_void, mask: usize) -> i32;
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Bundle {
@@ -162,16 +157,14 @@ fn options(snapshot_boundary: bool) -> DayExecutionOptions {
 }
 
 fn apply_windows_controls() -> Value {
-    #[cfg(windows)]
-    {
-        let process = unsafe { GetCurrentProcess() };
-        let priority = unsafe { SetPriorityClass(process, 0x0000_0080) } != 0;
-        let affinity = unsafe { SetProcessAffinityMask(process, 0x555) } != 0;
-        assert!(priority && affinity, "A-5 priority/affinity setup failed");
+    let status = process_controls::apply_high_priority_affinity();
+    if cfg!(windows) {
+        assert!(
+            status.priority_set && status.affinity_set,
+            "A-5 priority/affinity setup failed"
+        );
         json!({"priority":"high", "affinity_mask":"0x555"})
-    }
-    #[cfg(not(windows))]
-    {
+    } else {
         json!({"priority":"not-applied", "affinity_mask":"not-applied"})
     }
 }
