@@ -30,6 +30,7 @@ from simciv_analysis.claims import (
 from simciv_analysis.figures import configure, svg_bytes
 from simciv_analysis.io import load_data
 from simciv_analysis.tables import dataframe_to_markdown
+from simciv_analysis.sources import load_sources, source_for_claim
 
 
 DATA_ROOT = ROOT / "docs" / "data" / "m5_04"
@@ -148,6 +149,19 @@ def _timing_source(stage: str) -> tuple[str, str]:
 
 def _m4_02_diagnosis() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     log_path = DATA_ROOT / "m4_02_incremental_diagnosis" / "run.log"
+    sample_path = DATA_ROOT / "m4_02_incremental_diagnosis" / "paired_samples.tsv"
+    with sample_path.open(encoding="utf-8", newline="") as stream:
+        sample_counts = collections.Counter(
+            (row["build"], row["cell"])
+            for row in csv.DictReader(stream, delimiter="\t")
+        )
+    expected_pairs = {
+        (build, cell)
+        for build in M4_02_DIAG_COMMITS
+        for cell in ("m3p-incremental-10k", "m3p-incremental-100k")
+    }
+    if set(sample_counts) != expected_pairs or any(sample_counts[pair] != 41 for pair in expected_pairs):
+        raise ValueError(f"expected 41 paired samples for each diagnosis revision/cell in {sample_path}")
     rows: list[dict[str, Any]] = []
     lines = _lines(log_path)
     for line in lines:
@@ -158,6 +172,7 @@ def _m4_02_diagnosis() -> tuple[list[dict[str, Any]], dict[str, Any]]:
             "revision": parts[1],
             "commit": M4_02_DIAG_COMMITS[parts[1]],
             "cell": parts[2],
+            "samples": sample_counts[(parts[1], parts[2])],
             "repetitions": int(parts[3]),
             "direct_ms": float(parts[4]),
             "candidate_ms": float(parts[5]),
@@ -548,7 +563,7 @@ def _timing_log_durations() -> list[dict[str, Any]]:
         start_time = dt.datetime.fromisoformat(start.replace("Z", "+00:00"))
         end_time = dt.datetime.fromisoformat(end.replace("Z", "+00:00"))
         harness_key = {
-            "M4-02 A-5 nine-cell gate": "M4-02",
+            "M4-02 A-5 nine-cell attempt (superseded path mismatch)": "M4-02",
             "M4-03 gate A-5 rerun": "M4-03 gate",
             "M4-05 batch-of-one A-5 gate": "M4-05",
             "M4-06 migration-off A-5 gate": "M4-06",
@@ -617,45 +632,73 @@ def _normalized_svg(fig: Any) -> bytes:
     return b"\n".join(line.rstrip() for line in svg_bytes(fig).splitlines()) + b"\n"
 
 
-def _status_overrides(claims: list[dict[str, object]]) -> dict[str, Any]:
+def _status_overrides(
+    claims: list[dict[str, object]],
+    sources: dict[str, Any],
+    *,
+    m4_02_fail_count: int,
+    gate_rows: list[dict[str, Any]],
+    m4_04: dict[str, Any],
+    m4_05_diffs: list[dict[str, Any]],
+    m4_05_normalizations: list[dict[str, Any]],
+    deterministic: list[dict[str, Any]],
+) -> dict[str, Any]:
     updates: dict[str, Any] = {}
+    deterministic_by_stage = {row["stage"]: row["result"] for row in deterministic}
+    def gate_passes(stage: str) -> bool:
+        rows = [row for row in gate_rows if row["stage"] == stage]
+        return bool(rows) and all(row["new"] == "PASS" for row in rows)
     for claim in claims:
         if claim["tier"] != "headline" or not str(claim["report"]).startswith("M4_"):
             continue
         report = str(claim["report"])
+        source = source_for_claim(
+            sources,
+            report,
+            str(claim["section anchor"]),
+            str(claim["class"]),
+        )
+        if source is None or source.get("regeneration_stage") != "M5-04":
+            continue
         if report == "M4_02_BRANCHING.md":
-            result = ledger_status = "historical-protocol"
-            note = "This claim is from superseded M4-02 A-1 through A-4 protocols, which M5-04 does not rerun. The final A-5 verdict is regenerated using the corrected same-mode incremental diagnosis."
+            result = ledger_status = "mismatch" if m4_02_fail_count else "conclusion holds"
+            note = "Corrected same-mode A-5 results are compared with the three-revision incremental diagnosis."
         elif report == "M4_03_DIVERGENCE.md":
-            result = ledger_status = "bit-exact"
-            note = "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte."
+            result = ledger_status = (
+                ("conclusion holds" if gate_passes("M4-03 gate") else "mismatch")
+                if str(claim["class"]) == "timing" else
+                ("bit-exact" if deterministic_by_stage.get("M4-03 A-1 divergence CSV") == "bit-exact" else "mismatch")
+            )
+            note = "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun."
         elif report == "M4_04_CRN_EFFICIENCY.md":
-            result = ledger_status = "bit-exact after documented normalization"
-            note = "M4-04 numeric estimates match after the documented normalization of CSV inf and JSON null for unbounded confidence limits."
+            result = ledger_status = (
+                "mismatch" if m4_04["mismatch_count"] else
+                "bit-exact after documented normalization" if m4_04["normalized_fields"] else "bit-exact"
+            )
+            note = "M4-04 fields are compared directly; the recorded CSV inf and JSON null convention is normalized explicitly."
         elif report == "M4_05_MINIMAL_CAUSE.md":
-            result = ledger_status = "bit-exact after documented normalization"
-            note = "M4-05 values match after the documented §14 A-1 schema and guarantee-label normalization."
+            if str(claim["class"]) == "timing":
+                result = ledger_status = "conclusion holds" if gate_passes("M4-05") else "mismatch"
+                note = "The final batch-of-one A-5 gate conclusion is evaluated from its fresh rerun."
+            else:
+                result = ledger_status = (
+                    "mismatch" if m4_05_diffs else
+                    "bit-exact after documented normalization" if m4_05_normalizations else "bit-exact"
+                )
+                note = "M4-05 values match after the documented §14 A-1 schema and guarantee-label normalization."
         elif report == "M4_06_MIGRATION.md":
-            result = ledger_status = "conclusion holds"
+            exact = all(
+                deterministic_by_stage.get(stage) == "bit-exact"
+                for stage in ("M4-06 population experiment", "M4-06 branch experiment")
+            )
+            result = ledger_status = "conclusion holds" if exact and gate_passes("M4-06") else "mismatch"
             note = "Deterministic experiment files match byte-for-byte and both fresh migration-off A-5 cells pass."
         elif report == "M4_07_MANY_BRANCH.md":
-            result = ledger_status = "conclusion holds"
-            note = "Parallel CRN results and deterministic scan/search fields match; one-shot supplementary timings are not A-5 gate results."
-        else:
-            result = ledger_status = "unrecoverable"
-            note = "No M5-04 comparator was included for this headline claim."
+            reruns = [result for stage, result in deterministic_by_stage.items() if stage.startswith("M4-07")]
+            result = ledger_status = source["status"] if reruns and all(value == "bit-exact" for value in reruns) else "mismatch"
+            note = "Parallel CRN results and deterministic scan/search fields match; supplemental timings are not A-5 gates."
         updates[str(claim["claim_id"])] = {"result": result, "ledger_status": ledger_status, "note": note}
     return {"schema": 1, "claims": updates}
-
-
-def _headline_source(report: str) -> tuple[str, str]:
-    sources = {
-        "M4_02_BRANCHING.md": ("none (historical A-1–A-4 sources unavailable)", "none"),
-        "M4_03_DIVERGENCE.md": ("crates/sim-model/examples/m4_03_experiment.rs", "docs/data/m5_04/m4_03/m4_03_a1_experiments.csv.gz"),
-        "M4_05_MINIMAL_CAUSE.md": ("crates/sim-model/examples/m4_05_experiment.rs", "docs/data/m5_04/m4_05/"),
-        "M4_07_MANY_BRANCH.md": ("crates/sim-model/examples/m4_07_many_branch.rs", "docs/data/m5_04/m4_07/clone_share.jsonl.gz"),
-    }
-    return sources.get(report, ("none", "none"))
 
 
 def _markdown(frame: pd.DataFrame) -> str:
@@ -676,7 +719,7 @@ Which M4 findings regenerate from committed harnesses and data, and which A-5 ti
 
 ## Method
 
-The comparison logic is in [`report_m5_04.py`](../../analysis/simciv_analysis/report_m5_04.py). Source provenance is resolved through [`sources.toml`](sources.toml); regeneration outcomes are read separately from the committed M5-04 comparisons. The deterministic M4-04 CRN comparison used the explicitly bit-identical M4-07 parallel-only mode. All timing gate processes ran at High priority with affinity `0x555`; each log has timing markers.
+The comparison logic is in [`report_m5_04.py`](../../analysis/simciv_analysis/report_m5_04.py). Source provenance is resolved through [`sources.toml`](sources.toml); regeneration outcomes are read separately from the committed M5-04 comparisons. Old-ledger matching is reported only as an informational comparison and does not populate claim provenance. The deterministic M4-04 CRN comparison used the explicitly bit-identical M4-07 parallel-only mode. All timing gate processes ran at High priority with affinity `0x555`; each log has timing markers.
 
 ## Results
 
@@ -685,6 +728,12 @@ The comparison logic is in [`report_m5_04.py`](../../analysis/simciv_analysis/re
 {data['headline_counts_table']}
 
 {data['headline_table']}
+
+### Source-map entries marked review
+
+The following entries in [`sources.toml`](sources.toml) still need human source review ({data['source_review_count']} entries). Their status remains conservative until the mapping is verified.
+
+{data['source_review_table']}
 
 ### Deterministic reruns
 
@@ -710,7 +759,7 @@ These are listed separately from raw bit-exact results. The transformations are 
 
 ### M4-02 incremental diagnosis
 
-The first M5-04 A-5 attempt used an incremental direct runner but left `BranchRequest.execution = Serial`; its two incremental-cell FAILs are invalid comparisons and are retained under `superseded/serial_branch_request/`. The corrected harness selects incremental topology for both paths. In the interleaved rerun, all three revisions agreed; the results below determine the diagnosis.
+The first M5-04 A-5 attempt used an incremental direct runner but left `BranchRequest.execution = Serial`; its two incremental-cell FAILs are invalid comparisons and are retained with their [superseded samples and README](../data/m5_04/m4_02_incremental_diagnosis/superseded/serial_branch_request/README.md). The corrected harness selects incremental topology for both paths. In the interleaved rerun, all three revisions agreed; the results below determine the diagnosis.
 
 {data['diagnosis_table']}
 
@@ -762,6 +811,7 @@ def _render_quarto(qmd: Path, output_dir: Path) -> Path:
 
 def _build() -> dict[str, Any]:
     base_claims = extract_claims(apply_m5_04=False)
+    sources = load_sources()
     m4_04 = _old_new_m4_04_comparison()
     m4_05_diffs, m4_05_normalizations = _m4_05_differences()
     deterministic = _deterministic_results(m4_04, m4_05_diffs, m4_05_normalizations)
@@ -778,27 +828,43 @@ def _build() -> dict[str, Any]:
         gate.setdefault("harness", default_harness)
         gate.setdefault("raw data", default_data)
     divergence, d_exact = _divergence_series()
-    m4_02_failures = [row for row in gate_rows if row["stage"] == "M4-02" and row["new"] == "FAIL"]
+    m4_02_failures = [row for row in gate_rows if row["stage"] == "M4-02" and row["new"] != "PASS"]
     m4_04_mismatch = m4_04["mismatches"]
     timing_frame = pd.DataFrame(timing_rows)
     gate_frame = pd.DataFrame(gate_rows)
-    headline_overrides = _status_overrides(base_claims)
+    headline_overrides = _status_overrides(
+        base_claims,
+        sources,
+        m4_02_fail_count=len(m4_02_failures),
+        gate_rows=gate_rows,
+        m4_04=m4_04,
+        m4_05_diffs=m4_05_diffs,
+        m4_05_normalizations=m4_05_normalizations,
+        deterministic=deterministic,
+    )
     headline_rows = []
     for claim in base_claims:
+        if claim["tier"] != "headline" or not str(claim["report"]).startswith("M4_"):
+            continue
+        source = source_for_claim(
+            sources,
+            str(claim["report"]),
+            str(claim["section anchor"]),
+            str(claim["class"]),
+        )
         override = headline_overrides["claims"].get(str(claim["claim_id"]))
-        if override is not None:
-            headline_rows.append({
-                "claim_id": claim["claim_id"], "report": claim["report"], "section": claim["section anchor"],
-                "claim": claim["claim text (short)"], "value": claim["value"], "unit": claim["unit"],
-                "class": claim["class"], "M5-04 result": override["result"],
-                "harness": _headline_source(str(claim["report"]))[0],
-                "raw data": _headline_source(str(claim["report"]))[1],
-                "basis": override["note"],
-            })
+        headline_rows.append({
+            "claim_id": claim["claim_id"], "report": claim["report"], "section": claim["section anchor"],
+            "claim": claim["claim text (short)"], "value": claim["value"], "unit": claim["unit"],
+            "class": claim["class"],
+            "M5-04 result": override["result"] if override else (source["status"] if source else "unmapped"),
+            "harness": claim["source harness"], "raw data": claim["raw data"],
+            "basis": override["note"] if override else (source.get("notes", "") if source else "no source mapping"),
+        })
     headline_counts = collections.Counter(row["M5-04 result"] for row in headline_rows)
     diagnosis_frame = pd.DataFrame(diagnosis_rows)
     diagnosis_table = _markdown(diagnosis_frame[[
-        "revision", "commit", "cell", "repetitions", "direct_ms", "candidate_ms",
+        "revision", "commit", "cell", "samples", "repetitions", "direct_ms", "candidate_ms",
         "delta_ms", "delta_mad_ms", "upper_ms", "threshold_ms", "direct_spread_pct",
         "candidate_spread_pct", "status",
         "harness", "raw data",
@@ -822,7 +888,6 @@ def _build() -> dict[str, Any]:
         mismatches.append({"area": "M4-04 CRN estimates", "difference": f"{row['intervention']} H={row['horizon']} {row['outcome']} {row['field']}: {row['old']} → {row['new']}", "cause": row["difference"], "source": "m4_07_many_branch.rs · docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz"})
     for row in m4_05_diffs:
         mismatches.append({"area": "M4-05 JSONL", "difference": f"{row['file']} {row['field']}: {row['old']} → {row['new']}", "cause": row["difference"], "source": f"m4_05_experiment.rs · docs/data/m5_04/m4_05/{row['file']}"})
-    old_m4_02_status = {row["cell"]: row["old"] for row in gate_rows if row["stage"] == "M4-02"}
     for row in gate_rows:
         if row["stage"] == "M4-02" and row["old"] != row["new"]:
             mismatches.append({"area": "M4-02 A-5 gate", "difference": f"{row['cell']}: {row['old']} → {row['new']}", "cause": "fresh valid 41-sample A-5 run changed the gate verdict", "source": "m4_02_a5_measure.rs · docs/data/m5_04/m4_02/m4_02_a5.log"})
@@ -848,6 +913,22 @@ def _build() -> dict[str, Any]:
     ledger_bytes_updated = ledger_bytes(apply_m5_04_overrides(base_claims, ROOT, headline_overrides))
     timing_svg = _timing_figure(timing_rows)
     divergence_svg = _divergence_figure(divergence)
+    review_rows = []
+    for report, source in sources.get("reports", {}).items():
+        if source.get("review"):
+            review_rows.append({
+                "report": report, "section": "*", "class": source.get("class", "*"),
+                "status": source["status"], "harness": "; ".join(source.get("harness", [])) or "none",
+                "raw data": "; ".join(source.get("data", [])) or "none", "notes": source.get("notes", ""),
+            })
+    for source in sources.get("sections", []):
+        if source.get("review"):
+            review_rows.append({
+                "report": source["report"], "section": source["section"], "class": source.get("class", "*"),
+                "status": source["status"], "harness": "; ".join(source.get("harness", [])) or "none",
+                "raw data": "; ".join(source.get("data", [])) or "none", "notes": source.get("notes", ""),
+            })
+    review_rows.sort(key=lambda row: (row["report"], row["section"], row["class"]))
     data = {
         "headline_table": _markdown(pd.DataFrame(headline_rows)),
         "headline_counts_table": _markdown(pd.DataFrame([{"M5-04 result": result, "headline claims": count, "source ledger": "docs/reproducibility/claims.csv.gz"} for result, count in sorted(headline_counts.items())])),
@@ -857,9 +938,11 @@ def _build() -> dict[str, Any]:
         "diagnosis_host_table": diagnosis_host_table,
         "timing_table": _markdown(timing_frame[["stage", "cell", "metric", "old", "new", "new/old", "|ratio-1| > 20%", "old gate", "new gate", "unit", "protocol", "harness", "raw data"]]),
         "gate_table": _markdown(gate_frame[["stage", "cell", "old", "new", "harness", "raw data"]]),
+        "source_review_table": _markdown(pd.DataFrame(review_rows, columns=["report", "section", "class", "status", "harness", "raw data", "notes"])),
         "mismatch_table": _markdown(pd.DataFrame(mismatches, columns=["area", "difference", "cause", "source"])),
         "duration_table": _markdown(pd.DataFrame(durations + [{"run": "TOTAL A-5 gate wall time", "start_utc": "", "end_utc": "", "seconds": total_gate_seconds, "harness": "four committed A-5 drivers", "data": "sum of four logs"}])),
         "headline_count": len(headline_rows),
+        "source_review_count": len(review_rows),
         "m4_02_fail_count": len(m4_02_failures),
         "m4_04_mismatches": len(m4_04_mismatch),
         "m4_04_normalized_count": m4_04["normalized_fields"],

@@ -1,419 +1,144 @@
 {
   "claims": {
-    "28128": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28580": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28581": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28582": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28583": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28584": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28585": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28586": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28587": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28588": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28589": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28590": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28591": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28592": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28593": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28594": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28595": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28596": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28597": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28598": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28599": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28600": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28601": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28602": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28603": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28604": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28605": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28606": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28607": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28608": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28609": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28610": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28611": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28612": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28613": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28614": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28615": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28616": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28617": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28618": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28619": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28620": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28621": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28622": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28623": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28624": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28625": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28626": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28627": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28628": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28629": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28630": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28631": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28632": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
-    "28633": {
-      "ledger_status": "unrecoverable",
-      "note": "This claim records an A-1 through A-4 run or host trace; those historical protocols were not rerun under M5-04 \u00a712.2. The final A-5 verdict is separately regenerated in the timing table.",
-      "result": "unrecoverable"
-    },
     "28997": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "28998": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "28999": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30620": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30621": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30622": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30623": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30624": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30625": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30626": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30627": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30628": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30629": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30630": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30631": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30632": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30633": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "30634": {
       "ledger_status": "bit-exact",
-      "note": "M4-03 A-1 deterministic daily records match the committed raw CSV byte-for-byte.",
+      "note": "M4-03 A-1 daily records match exactly; the final A-5 conclusion is evaluated from the M5-04 rerun.",
       "result": "bit-exact"
     },
     "31981": {
-      "ledger_status": "mismatch",
-      "note": "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records.",
-      "result": "mismatch"
+      "ledger_status": "bit-exact after documented normalization",
+      "note": "M4-05 values match after the documented \u00a714 A-1 schema and guarantee-label normalization.",
+      "result": "bit-exact after documented normalization"
     },
     "31982": {
-      "ledger_status": "mismatch",
-      "note": "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records.",
-      "result": "mismatch"
+      "ledger_status": "bit-exact after documented normalization",
+      "note": "M4-05 values match after the documented \u00a714 A-1 schema and guarantee-label normalization.",
+      "result": "bit-exact after documented normalization"
     },
     "31983": {
-      "ledger_status": "mismatch",
-      "note": "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records.",
-      "result": "mismatch"
+      "ledger_status": "bit-exact after documented normalization",
+      "note": "M4-05 values match after the documented \u00a714 A-1 schema and guarantee-label normalization.",
+      "result": "bit-exact after documented normalization"
     },
     "31984": {
-      "ledger_status": "mismatch",
-      "note": "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records.",
-      "result": "mismatch"
+      "ledger_status": "bit-exact after documented normalization",
+      "note": "M4-05 values match after the documented \u00a714 A-1 schema and guarantee-label normalization.",
+      "result": "bit-exact after documented normalization"
     },
     "31985": {
-      "ledger_status": "mismatch",
-      "note": "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records.",
-      "result": "mismatch"
+      "ledger_status": "bit-exact after documented normalization",
+      "note": "M4-05 values match after the documented \u00a714 A-1 schema and guarantee-label normalization.",
+      "result": "bit-exact after documented normalization"
     },
     "31986": {
-      "ledger_status": "mismatch",
-      "note": "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records.",
-      "result": "mismatch"
+      "ledger_status": "bit-exact after documented normalization",
+      "note": "M4-05 values match after the documented \u00a714 A-1 schema and guarantee-label normalization.",
+      "result": "bit-exact after documented normalization"
     },
     "31987": {
-      "ledger_status": "mismatch",
-      "note": "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records.",
-      "result": "mismatch"
+      "ledger_status": "bit-exact after documented normalization",
+      "note": "M4-05 values match after the documented \u00a714 A-1 schema and guarantee-label normalization.",
+      "result": "bit-exact after documented normalization"
     },
     "31988": {
-      "ledger_status": "mismatch",
-      "note": "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records.",
-      "result": "mismatch"
+      "ledger_status": "bit-exact after documented normalization",
+      "note": "M4-05 values match after the documented \u00a714 A-1 schema and guarantee-label normalization.",
+      "result": "bit-exact after documented normalization"
     },
     "31989": {
-      "ledger_status": "mismatch",
-      "note": "Numeric outcomes match, but regenerated JSON schema and guarantee labels differ from historical records.",
-      "result": "mismatch"
+      "ledger_status": "bit-exact after documented normalization",
+      "note": "M4-05 values match after the documented \u00a714 A-1 schema and guarantee-label normalization.",
+      "result": "bit-exact after documented normalization"
     },
     "32224": {
-      "ledger_status": "conclusion holds",
-      "note": "Parallel CRN results and deterministic scan/search fields match; one-shot supplementary timings are not A-5 gate results.",
-      "result": "conclusion holds"
+      "ledger_status": "bit-exact",
+      "note": "Parallel CRN results and deterministic scan/search fields match; supplemental timings are not A-5 gates.",
+      "result": "bit-exact"
     }
   },
   "schema": 1

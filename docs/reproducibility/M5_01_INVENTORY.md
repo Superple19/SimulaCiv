@@ -13,14 +13,16 @@ remain?
 
 The committed extractor
 [claims.py](../../analysis/simciv_analysis/claims.py) reads the
-report/contract source tree. Its tidy output
+report/contract source tree and assigns provenance from
+[`sources.toml`](sources.toml). Its tidy output
 [claims.csv.gz](claims.csv.gz) contains **32,465** rows; the prior
 packed ledger [superseded/claims.csv](superseded/claims.csv) contains
-**37,612** expanded scalar values. Excluded inputs are table columns or
-labeled assignments for population/workload sizes, group and neighbor
-counts, seeds, replicates, horizons/days, thread/chunk settings, and
-simulation parameter values. Free-text numbers are only extracted from
-tables, report Summary/Findings/Status sections, selected
+**37,612** expanded scalar values. M5-04 statuses are applied only to
+source-map entries assigned to that stage. Excluded inputs are table
+columns or labeled assignments for population/workload sizes, group and
+neighbor counts, seeds, replicates, horizons/days, thread/chunk
+settings, and simulation parameter values. Free-text numbers are only
+extracted from tables, report Summary/Findings/Status sections, selected
 audit/graduation tables, and measured contract sections. The
 machine-readable contracts/m1_contract.toml is a configuration/contract
 input and is not scanned as a measured report.
@@ -30,7 +32,8 @@ input and is not scanned as a measured report.
 Every table below is generated from [claims.csv.gz](claims.csv.gz) by
 the report generator
 [report_m5_01.py](../../analysis/simciv_analysis/report_m5_01.py).
-Old-ledger comparisons additionally read the retained packed ledger.
+Old-ledger matching is diagnostic only and does not populate source
+paths, statuses, or M5 stages.
 
 The tidy ledger contains **783** headline claims, **895** key claims,
 and **30,787** supporting claims.
@@ -49,117 +52,104 @@ verdicts remain in the `key` tier.
 
 ### Counts by milestone, class, status, and tier
 
-| milestone | class         | status             | tier       | claims |
-|-----------|---------------|--------------------|------------|--------|
-| M0        | —             | —                  | —          | 0      |
-| M1        | derived       | historical-log     | supporting | 9      |
-| M1        | derived       | unmapped           | supporting | 5      |
-| M1        | deterministic | historical-log     | key        | 3      |
-| M1        | deterministic | historical-log     | supporting | 17     |
-| M2        | derived       | missing-data       | headline   | 4      |
-| M2        | derived       | missing-data       | key        | 3      |
-| M2        | derived       | missing-data       | supporting | 169    |
-| M2        | derived       | unmapped           | headline   | 147    |
-| M2        | derived       | unmapped           | key        | 11     |
-| M2        | derived       | unmapped           | supporting | 2,715  |
-| M2        | deterministic | reproducible-now   | headline   | 46     |
-| M2        | deterministic | reproducible-now   | key        | 4      |
-| M2        | deterministic | reproducible-now   | supporting | 480    |
-| M2        | deterministic | unmapped           | headline   | 32     |
-| M2        | deterministic | unmapped           | key        | 6      |
-| M2        | deterministic | unmapped           | supporting | 147    |
-| M2        | deterministic | unrecoverable      | headline   | 1      |
-| M2        | deterministic | unrecoverable      | supporting | 6      |
-| M2        | timing        | missing-data       | headline   | 6      |
-| M2        | timing        | missing-data       | supporting | 164    |
-| M2        | timing        | unmapped           | headline   | 52     |
-| M2        | timing        | unmapped           | key        | 10     |
-| M2        | timing        | unmapped           | supporting | 721    |
-| M2        | timing        | unrecoverable      | supporting | 2      |
-| M3        | derived       | missing-data       | headline   | 18     |
-| M3        | derived       | missing-data       | key        | 2      |
-| M3        | derived       | missing-data       | supporting | 113    |
-| M3        | derived       | unmapped           | headline   | 275    |
-| M3        | derived       | unmapped           | key        | 14     |
-| M3        | derived       | unmapped           | supporting | 11,426 |
-| M3        | derived       | unrecoverable      | headline   | 11     |
-| M3        | derived       | unrecoverable      | supporting | 10     |
-| M3        | deterministic | reproducible-now   | headline   | 14     |
-| M3        | deterministic | reproducible-now   | key        | 2      |
-| M3        | deterministic | reproducible-now   | supporting | 1,689  |
-| M3        | deterministic | unmapped           | headline   | 5      |
-| M3        | deterministic | unmapped           | supporting | 127    |
-| M3        | deterministic | unrecoverable      | headline   | 2      |
-| M3        | deterministic | unrecoverable      | supporting | 91     |
-| M3        | timing        | missing-data       | headline   | 1      |
-| M3        | timing        | missing-data       | key        | 2      |
-| M3        | timing        | missing-data       | supporting | 393    |
-| M3        | timing        | unmapped           | headline   | 67     |
-| M3        | timing        | unmapped           | key        | 5      |
-| M3        | timing        | unmapped           | supporting | 9,002  |
-| M3        | timing        | unrecoverable      | headline   | 19     |
-| M3        | timing        | unrecoverable      | supporting | 8      |
-| M4        | derived       | bit-exact          | headline   | 13     |
-| M4        | derived       | mismatch           | headline   | 5      |
-| M4        | derived       | reproducible-now   | key        | 2      |
-| M4        | derived       | reproducible-now   | supporting | 43     |
-| M4        | derived       | restored-not-rerun | key        | 21     |
-| M4        | derived       | unmapped           | key        | 319    |
-| M4        | derived       | unmapped           | supporting | 3,037  |
-| M4        | derived       | unrecoverable      | headline   | 37     |
-| M4        | derived       | unrecoverable      | supporting | 2      |
-| M4        | deterministic | bit-exact          | headline   | 5      |
-| M4        | deterministic | conclusion holds   | headline   | 1      |
-| M4        | deterministic | mismatch           | headline   | 4      |
-| M4        | deterministic | reproducible-now   | key        | 1      |
-| M4        | deterministic | reproducible-now   | supporting | 3      |
-| M4        | deterministic | restored-not-rerun | key        | 49     |
-| M4        | deterministic | restored-not-rerun | supporting | 178    |
-| M4        | deterministic | unmapped           | key        | 22     |
-| M4        | deterministic | unmapped           | supporting | 19     |
-| M4        | deterministic | unrecoverable      | headline   | 9      |
-| M4        | deterministic | unrecoverable      | supporting | 3      |
-| M4        | timing        | reproducible-now   | key        | 4      |
-| M4        | timing        | reproducible-now   | supporting | 9      |
-| M4        | timing        | restored-not-rerun | key        | 13     |
-| M4        | timing        | restored-not-rerun | supporting | 23     |
-| M4        | timing        | unmapped           | key        | 381    |
-| M4        | timing        | unmapped           | supporting | 155    |
-| M4        | timing        | unrecoverable      | headline   | 9      |
-| M4        | timing        | unrecoverable      | key        | 15     |
-| M5        | derived       | unmapped           | key        | 6      |
-| M5        | derived       | unmapped           | supporting | 12     |
-| M5        | deterministic | reproducible-now   | supporting | 8      |
-| M5        | deterministic | unrecoverable      | supporting | 1      |
+| milestone | class | status | tier | claims |
+|----|----|----|----|----|
+| M0 | — | — | — | 0 |
+| M1 | derived | historical-log | key | 3 |
+| M1 | derived | historical-log | supporting | 29 |
+| M1 | deterministic | historical-log | supporting | 2 |
+| M2 | derived | missing-data | headline | 34 |
+| M2 | derived | missing-data | key | 6 |
+| M2 | derived | missing-data | supporting | 677 |
+| M2 | derived | missing-source | headline | 161 |
+| M2 | derived | missing-source | key | 10 |
+| M2 | derived | missing-source | supporting | 2,658 |
+| M2 | deterministic | missing-data | headline | 10 |
+| M2 | deterministic | missing-data | key | 5 |
+| M2 | deterministic | missing-data | supporting | 40 |
+| M2 | deterministic | missing-source | headline | 25 |
+| M2 | deterministic | missing-source | key | 3 |
+| M2 | deterministic | missing-source | supporting | 138 |
+| M2 | timing | missing-data | headline | 1 |
+| M2 | timing | missing-data | key | 1 |
+| M2 | timing | missing-data | supporting | 362 |
+| M2 | timing | missing-source | headline | 57 |
+| M2 | timing | missing-source | key | 9 |
+| M2 | timing | missing-source | supporting | 529 |
+| M3 | derived | missing-data | headline | 68 |
+| M3 | derived | missing-data | key | 17 |
+| M3 | derived | missing-data | supporting | 11,581 |
+| M3 | derived | missing-source | headline | 239 |
+| M3 | derived | missing-source | supporting | 1,983 |
+| M3 | deterministic | missing-data | headline | 4 |
+| M3 | deterministic | missing-data | supporting | 59 |
+| M3 | deterministic | missing-source | headline | 2 |
+| M3 | deterministic | missing-source | supporting | 80 |
+| M3 | timing | missing-data | headline | 49 |
+| M3 | timing | missing-data | key | 8 |
+| M3 | timing | missing-data | supporting | 9,000 |
+| M3 | timing | missing-source | headline | 50 |
+| M3 | timing | missing-source | supporting | 156 |
+| M4 | derived | bit-exact | headline | 19 |
+| M4 | derived | bit-exact | key | 3 |
+| M4 | derived | bit-exact | supporting | 1,664 |
+| M4 | derived | bit-exact after documented normalization | headline | 9 |
+| M4 | derived | bit-exact after documented normalization | key | 2 |
+| M4 | derived | bit-exact after documented normalization | supporting | 1,327 |
+| M4 | derived | conclusion holds | key | 111 |
+| M4 | derived | conclusion holds | supporting | 122 |
+| M4 | derived | historical-protocol | headline | 46 |
+| M4 | derived | historical-protocol | key | 216 |
+| M4 | derived | historical-protocol | supporting | 102 |
+| M4 | derived | missing-source | key | 25 |
+| M4 | derived | missing-source | supporting | 44 |
+| M4 | derived | unrecoverable | supporting | 7 |
+| M4 | deterministic | historical-protocol | key | 24 |
+| M4 | deterministic | historical-protocol | supporting | 25 |
+| M4 | deterministic | missing-source | supporting | 3 |
+| M4 | timing | conclusion holds | key | 106 |
+| M4 | timing | conclusion holds | supporting | 43 |
+| M4 | timing | historical-protocol | headline | 9 |
+| M4 | timing | historical-protocol | key | 266 |
+| M4 | timing | historical-protocol | supporting | 110 |
+| M4 | timing | missing-source | key | 74 |
+| M4 | timing | missing-source | supporting | 5 |
+| M4 | timing | reproducible-now | supporting | 20 |
+| M5 | derived | missing-source | key | 6 |
+| M5 | derived | missing-source | supporting | 21 |
 
 ### Old and tidy ledger comparison
 
-| Ledger view | rows | mapped before (exact name/line/value) | mapped after (renamed report/source/value) | unmapped after | reason | mapped from old metadata |
-|----|----|----|----|----|----|----|
-| old packed records | 37,612 | 653 | 1,988 | 35,624 | RENAMES.md report mapping; normalized source text and value; line only breaks ties |  |
-| new tidy records | 32,465 |  |  | 28,770 | unmatched and ambiguous provenance stays unmapped | 3,695 |
+| Ledger view | rows | mapped before (exact name/line/value) | matched after (informational) | unmatched old rows | reason | matched to old ledger (informational) | unmatched old-ledger comparison |
+|----|----|----|----|----|----|----|----|
+| old packed records | 37,612 | 653 | 1,988 | 35,624 | RENAMES.md report mapping; normalized source text and value; line only breaks ties |  |  |
+| new tidy records | 32,465 |  |  |  | sources.toml and regeneration results supply provenance; old matches are diagnostics only | 3,695 | 28,770 |
 
 #### Match and unmapped reasons
 
 | old record disposition | records | rule |
 |----|----|----|
-| old rows transferred | 1,988 | RENAMES.md plus normalized source/value; line breaks ties |
-| old rows still unmapped | 35,624 | includes excluded inputs, changed/unselected text, and ambiguous old matches |
+| old rows matched (informational) | 1,988 | RENAMES.md plus normalized source/value; line breaks ties; does not assign new provenance |
+| old rows unmatched | 35,624 | includes excluded inputs, changed/unselected text, and ambiguous old matches |
 | new rows ambiguous | 731 | current claims with conflicting metadata or tied candidates; these are new-row counts |
 | historical-log subset of transferred rows | 29 | M1 aggregate runs are not regeneration gaps |
 | previous exact-name/line/value baseline | 653 | old rows matched before the correction; diagnostic baseline |
-| old report basenames in RENAMES.md | 29,669 | diagnostic count; this may overlap transferred and unmapped rows |
+| old report basenames in RENAMES.md | 29,669 | diagnostic count; this may overlap matched and unmatched rows |
 
-The regenerated ledger has **3,695** rows with transferred prior
-status/provenance and **28,770** rows marked unmapped. Mapping uses the
-report name after `RENAMES.md`, normalized source-text prefix, and
-value; the old line is only a tie-breaker. Ambiguous matches remain
-unmapped.
+The old ledger text-matches **3,695** new claims for comparison;
+**28,770** do not match. These matches do not transfer status or
+provenance. The extractor assigns harness, data, status, and M5 stage
+from [`sources.toml`](sources.toml) and the committed regeneration
+results.
 
 ### M1 unrecoverable-claim recheck
 
-The **29** M1 aggregate test-run records are classified as
-`historical-log`, not regeneration gaps. Current source evidence
+The **29** previously unrecoverable M1 aggregate claims were rechecked
+against current tests, goldens, and the M1 manifest. All remain
+`historical-log`: current tests and canonical artifacts revalidate
+behavior, not the original aggregate test-run totals. The current
+extractor also selects **5** additional numeric values from those
+historical M1 sections, for **34** historical-log values total. Evidence
 includes [golden PRNG
 vectors](../../crates/sim-core/tests/golden_prng_tests.rs), [determinism
 oracles](../../crates/sim-model/tests/determinism_oracle_tests.rs), [M0
@@ -167,61 +157,60 @@ graduation
 gate](../../crates/sim-model/tests/m0_determinism_gate_tests.rs),
 [snapshot
 tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the
-[M1 manifest](../../contracts/m1_contract.toml); these cover semantics
-and canonical values, not the historical aggregate run output.
+[M1 manifest](../../contracts/m1_contract.toml).
 
 | claim_id | line | value | class | status | notes |
 |----|----|----|----|----|----|
-| 32,295 | 6 | 521 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,296 | 6 | 521 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,297 | 6 | 500 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,299 | 37 | 0 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,300 | 38 | 7 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,301 | 39 | 1 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,302 | 40 | 15 | derived | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,303 | 41 | 8 | derived | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,304 | 42 | 12 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,307 | 43 | 10 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,308 | 44 | 12 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,309 | 45 | 13 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,310 | 46 | 12 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,311 | 47 | 11 | derived | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; M1 historical-log carried by report/value and nearest line because source matching was unavailable |
-| 32,313 | 48 | 27 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,315 | 49 | 36 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,316 | 50 | 37 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,317 | 51 | 30 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,318 | 52 | 41 | derived | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,319 | 53 | 50 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,320 | 54 | 47 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,321 | 55 | 66 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,322 | 55 | 256 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,323 | 56 | 50 | derived | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,324 | 56 | 1 | derived | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,325 | 56 | 11 | derived | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,326 | 57 | 36 | derived | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,327 | 57 | 500 | derived | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
-| 32,328 | 58 | 521 | deterministic | historical-log | M1 aggregate test-run output is a historical log, not a regeneration target.; matched by renamed report, normalized source text, and value; line used only as a tie-breaker |
+| 32,295 | 6 | 521 | derived | historical-log | The recorded M1 validation aggregate is a historical test-run log, not a regeneration target. |
+| 32,296 | 6 | 521 | derived | historical-log | The recorded M1 validation aggregate is a historical test-run log, not a regeneration target. |
+| 32,297 | 6 | 500 | derived | historical-log | The recorded M1 validation aggregate is a historical test-run log, not a regeneration target. |
+| 32,299 | 37 | 0 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,300 | 38 | 7 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,301 | 39 | 1 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,302 | 40 | 15 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,303 | 41 | 8 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,304 | 42 | 12 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,307 | 43 | 10 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,308 | 44 | 12 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,309 | 45 | 13 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,310 | 46 | 12 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,311 | 47 | 11 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,313 | 48 | 27 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,315 | 49 | 36 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,316 | 50 | 37 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,317 | 51 | 30 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,318 | 52 | 41 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,319 | 53 | 50 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,320 | 54 | 47 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,321 | 55 | 66 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,322 | 55 | 256 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,323 | 56 | 50 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,324 | 56 | 1 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,325 | 56 | 11 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,326 | 57 | 36 | deterministic | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,327 | 57 | 500 | deterministic | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,328 | 58 | 521 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
 
 ### Top evidence gaps
 
 | milestone | report | status | claims |
 |----|----|----|----|
-| M3 | M3_02_PARALLEL_PHASE6B.md | unmapped | 10,524 |
-| M3 | M3_11_PROPAGATION.md | unmapped | 3,738 |
-| M3 | M3_04_SUSTAINED_WORKLOAD.md | unmapped | 1,988 |
-| M4 | M4_03_DIVERGENCE.md | unmapped | 1,636 |
-| M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | unmapped | 1,295 |
-| M3 | M3_05_SCALE_LIMIT.md | unmapped | 1,295 |
-| M4 | M4_04_CRN_EFFICIENCY.md | unmapped | 1,067 |
-| M3 | M3_01_SERIAL_BASELINE.md | unmapped | 819 |
-| M4 | M4_02_BRANCHING.md | unmapped | 622 |
-| M2 | M2_37_POST_P5_P6B_REPROFILING.md | unmapped | 549 |
+| M3 | M3_02_PARALLEL_PHASE6B.md | missing-data | 10,954 |
+| M3 | M3_11_PROPAGATION.md | missing-data | 4,903 |
+| M3 | M3_04_SUSTAINED_WORKLOAD.md | missing-data | 2,222 |
+| M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | missing-source | 1,597 |
+| M3 | M3_05_SCALE_LIMIT.md | missing-source | 1,325 |
+| M3 | M3_01_SERIAL_BASELINE.md | missing-data | 894 |
+| M2 | M2_37_POST_P5_P6B_REPROFILING.md | missing-source | 663 |
+| M2 | M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | missing-source | 569 |
+| M3 | M3_07_SCALE_RESIDUAL.md | missing-data | 544 |
+| M3 | M3_04_EQUILIBRIUM_WORKLOAD.md | missing-data | 539 |
 
 ## Findings
 
-- The tidy ledger preserves one row per selected claim and leaves
-  ambiguous or unmatched provenance unmapped; see the ledger comparison
-  tables above.
+- The tidy ledger uses `sources.toml` for provenance; old-ledger
+  matching is informational only; see the ledger comparison tables
+  above.
 - The M1 aggregate run records are historical logs and are excluded from
   regeneration gap totals.
 - The largest gaps are grouped directly from the current status values
@@ -229,8 +218,8 @@ and canonical values, not the historical aggregate run output.
 
 ## Limits
 
-- A carried reproducible-now status means inputs/source are present; it
-  does not claim that any harness was run in this inventory task.
+- A `reproducible-now` status means a source and data mapping is
+  present; this inventory did not run the harness.
 - Values excluded as input/configuration or outside the selected claim
   contexts are not assigned new provenance.
 - This report compares source evidence only and does not remeasure

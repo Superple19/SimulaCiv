@@ -12,6 +12,8 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 
+from .sources import load_sources, source_for_claim, validate_source_paths
+
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "docs" / "reproducibility" / "claims.csv.gz"
@@ -311,7 +313,7 @@ def _report_renames(root: Path = ROOT) -> dict[str, str]:
 def match_old_claims(
     old_claims: list[dict[str, str | int]], current_claims: list[dict[str, object]], root: Path = ROOT
 ) -> tuple[dict[int, dict[str, str | int]], set[int]]:
-    """Carry old provenance by renamed report, normalized short source, and value; line is only a tie-breaker."""
+    """Match old rows for inventory diagnostics; do not use matches as current provenance."""
     renames = _report_renames(root)
     old_by_report_value: dict[tuple[str, str], list[tuple[dict[str, str | int], str]]] = {}
     historical_m1: list[tuple[dict[str, str | int], str]] = []
@@ -447,7 +449,17 @@ def apply_m5_04_overrides(
             return claims
         overrides = json.loads(path.read_text(encoding="utf-8"))
     records = overrides.get("claims", {})
+    sources = load_sources(root)
     for claim in claims:
+        if {"report", "section anchor", "class"}.issubset(claim):
+            source = source_for_claim(
+                sources,
+                str(claim["report"]),
+                str(claim["section anchor"]),
+                str(claim["class"]),
+            )
+            if source is None or source.get("regeneration_stage") != "M5-04":
+                continue
         override = records.get(str(claim["claim_id"]))
         if override is None:
             continue
@@ -462,44 +474,63 @@ def extract_claims(
     root: Path = ROOT, old_ledger: Path = OLD_LEDGER, *, apply_m5_04: bool = True
 ) -> list[dict[str, object]]:
     current = scan_documents(root)
-    old_claims = expand_old_ledger(old_ledger)
-    metadata, ambiguous_claims = match_old_claims(old_claims, current, root)
+    sources = load_sources(root)
+    validate_source_paths(sources, root)
+    source_map_present = (root / "docs" / "reproducibility" / "sources.toml").is_file()
+    if source_map_present:
+        old_matches: dict[int, dict[str, str | int]] = {}
+        ambiguous_claims: set[int] = set()
+    else:
+        old_claims = expand_old_ledger(old_ledger)
+        old_matches, ambiguous_claims = match_old_claims(old_claims, current, root)
     output: list[dict[str, object]] = []
     for index, claim in enumerate(current):
-        old = metadata.get(index)
-        if old:
-            status = str(old["status"] or "unmapped")
-            note = str(old["notes"] or "")
-            source_harness = str(old["source harness"] or "none")
-            raw_data = str(old["raw data"] or "none")
-            stage = str(old["M5 stage"] or "none")
-            claim_class = str(old["class"] or claim["class"])
-            unit = str(old["unit"] or claim["unit"])
-            if str(claim["report"]) == "M1_CONTRACT_FREEZE.md" and status == "unrecoverable":
-                status = "historical-log"
-                note = "M1 aggregate test-run output is a historical log, not a regeneration target."
-            match_note = (
-                "M1 historical-log carried by report/value and nearest line because source matching was unavailable"
-                if str(old.get("mapping_mode", "")) == "historical-report-value-fallback"
-                else "matched by renamed report, normalized source text, and value; line used only as a tie-breaker"
-            )
-            note = "; ".join(filter(None, [note, match_note]))
+        mapped = source_for_claim(
+            sources,
+            str(claim["report"]),
+            str(claim["section anchor"]),
+            str(claim["class"]),
+        )
+        old = old_matches.get(index)
+        if source_map_present and mapped is None:
+            status, source_harness, raw_data, stage = "unmapped", "none", "none", "none"
+            note = "report has no sources.toml entry; source attribution requires review"
+        elif source_map_present:
+            status = str(mapped["status"])
+            source_harness = "; ".join(mapped.get("harness", [])) or "none"
+            raw_data = "; ".join(mapped.get("data", [])) or "none"
+            stage = str(mapped["regeneration_stage"])
+            note = str(mapped.get("notes", ""))
+            if mapped.get("review"):
+                note = "; ".join(filter(None, ["review required", note]))
         else:
-            status = source_harness = raw_data = stage = "unmapped"
-            ambiguous = index in ambiguous_claims
-            note = (
-                "ambiguous duplicate old mappings; provenance was not inferred"
-                if ambiguous
-                else "not matched by normalized (report, source text, value); prior provenance was not inferred"
-            )
-            claim_class = str(claim["class"])
-            unit = str(claim["unit"])
+            # Standalone extraction roots without a source map keep the old diagnostic behavior.
+            if old:
+                status = str(old["status"] or "unmapped")
+                source_harness = str(old["source harness"] or "none")
+                raw_data = str(old["raw data"] or "none")
+                stage = str(old["M5 stage"] or "none")
+                note = str(old["notes"] or "")
+                if str(claim["report"]) == "M1_CONTRACT_FREEZE.md" and status == "unrecoverable":
+                    status = "historical-log"
+                    note = "M1 aggregate test-run output is a historical log, not a regeneration target."
+                match_note = (
+                    "M1 historical-log carried by report/value and nearest line because source matching was unavailable"
+                    if str(old.get("mapping_mode", "")) == "historical-report-value-fallback"
+                    else "matched by renamed report, normalized source text, and value; line used only as a tie-breaker"
+                )
+                note = "; ".join(filter(None, [note, match_note]))
+            else:
+                status = source_harness = raw_data = stage = "unmapped"
+                note = (
+                    "ambiguous duplicate old mappings; provenance was not inferred"
+                    if index in ambiguous_claims
+                    else "not matched by normalized (report, source text, value); prior provenance was not inferred"
+                )
         output.append(
             {
                 "claim_id": len(output) + 1,
                 **claim,
-                "unit": unit,
-                "class": claim_class,
                 "source harness": source_harness,
                 "raw data": raw_data,
                 "status": status,

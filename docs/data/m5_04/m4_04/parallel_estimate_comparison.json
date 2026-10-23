@@ -3,104 +3,135 @@
   "exact_fields": 836,
   "harness": "crates/sim-model/examples/m4_07_many_branch.rs (--only=crn-parallel)",
   "m4_03_curve_changed_records_exact": true,
-  "m4_05_deterministic_differences": [
+  "m4_05_deterministic_differences": [],
+  "m4_05_normalizations": [
     {
-      "difference": "deterministic JSON field differs",
       "field": "record/0/schema",
       "file": "m4_05_a_health8.jsonl",
+      "harness": "crates/sim-model/examples/m4_05_experiment.rs",
       "new": 2,
-      "old": 1
+      "old": 1,
+      "raw data": "docs/data/m4_05/m4_05_a_health8.jsonl; docs/data/m5_04/m4_05/m4_05_a_health8.jsonl",
+      "rule": "M4-05 output schema 1 is normalized to schema 2; the guarantee enum clarified incomplete versus exhausted search.",
+      "stage": "M4-05"
     },
     {
-      "difference": "deterministic JSON field differs",
       "field": "record/106/result/guarantee",
       "file": "m4_05_a_health8.jsonl",
+      "harness": "crates/sim-model/examples/m4_05_experiment.rs",
       "new": "minimum",
-      "old": "Minimum"
+      "old": "Minimum",
+      "raw data": "docs/data/m4_05/m4_05_a_health8.jsonl; docs/data/m5_04/m4_05/m4_05_a_health8.jsonl",
+      "rule": "M4-05 \u00a714 A-1 explicitly renamed guarantee labels to distinguish the frozen search outcomes.",
+      "stage": "M4-05"
     },
     {
-      "difference": "deterministic JSON field differs",
       "field": "record/0/schema",
       "file": "m4_05_a_health8_full_probe.jsonl",
+      "harness": "crates/sim-model/examples/m4_05_experiment.rs",
       "new": 2,
-      "old": 1
+      "old": 1,
+      "raw data": "docs/data/m4_05/m4_05_a_health8_full_probe.jsonl; docs/data/m5_04/m4_05/m4_05_a_health8_full_probe.jsonl",
+      "rule": "M4-05 output schema 1 is normalized to schema 2; the guarantee enum clarified incomplete versus exhausted search.",
+      "stage": "M4-05"
     },
     {
-      "difference": "deterministic JSON field differs",
       "field": "record/12/result/guarantee",
       "file": "m4_05_a_health8_full_probe.jsonl",
+      "harness": "crates/sim-model/examples/m4_05_experiment.rs",
       "new": "incomplete",
-      "old": "None"
+      "old": "None",
+      "raw data": "docs/data/m4_05/m4_05_a_health8_full_probe.jsonl; docs/data/m5_04/m4_05/m4_05_a_health8_full_probe.jsonl",
+      "rule": "M4-05 \u00a714 A-1 explicitly renamed guarantee labels to distinguish the frozen search outcomes.",
+      "stage": "M4-05"
     },
     {
-      "difference": "deterministic JSON field differs",
       "field": "record/0/schema",
       "file": "m4_05_b_health16.jsonl",
+      "harness": "crates/sim-model/examples/m4_05_experiment.rs",
       "new": 2,
-      "old": 1
+      "old": 1,
+      "raw data": "docs/data/m4_05/m4_05_b_health16.jsonl; docs/data/m5_04/m4_05/m4_05_b_health16.jsonl",
+      "rule": "M4-05 output schema 1 is normalized to schema 2; the guarantee enum clarified incomplete versus exhausted search.",
+      "stage": "M4-05"
     },
     {
-      "difference": "deterministic JSON field differs",
       "field": "record/26/result/guarantee",
       "file": "m4_05_b_health16.jsonl",
+      "harness": "crates/sim-model/examples/m4_05_experiment.rs",
       "new": "one_minimal",
-      "old": "OneMinimal"
+      "old": "OneMinimal",
+      "raw data": "docs/data/m4_05/m4_05_b_health16.jsonl; docs/data/m5_04/m4_05/m4_05_b_health16.jsonl",
+      "rule": "M4-05 \u00a714 A-1 explicitly renamed guarantee labels to distinguish the frozen search outcomes.",
+      "stage": "M4-05"
     },
     {
-      "difference": "deterministic JSON field differs",
       "field": "record/0/schema",
       "file": "m4_05_c_config6.jsonl",
+      "harness": "crates/sim-model/examples/m4_05_experiment.rs",
       "new": 2,
-      "old": 1
+      "old": 1,
+      "raw data": "docs/data/m4_05/m4_05_c_config6.jsonl; docs/data/m5_04/m4_05/m4_05_c_config6.jsonl",
+      "rule": "M4-05 output schema 1 is normalized to schema 2; the guarantee enum clarified incomplete versus exhausted search.",
+      "stage": "M4-05"
     },
     {
-      "difference": "deterministic JSON field differs",
       "field": "record/75/result/guarantee",
       "file": "m4_05_c_config6.jsonl",
+      "harness": "crates/sim-model/examples/m4_05_experiment.rs",
       "new": "exhausted_no_cause",
-      "old": "None"
+      "old": "None",
+      "raw data": "docs/data/m4_05/m4_05_c_config6.jsonl; docs/data/m5_04/m4_05/m4_05_c_config6.jsonl",
+      "rule": "M4-05 \u00a714 A-1 explicitly renamed guarantee labels to distinguish the frozen search outcomes.",
+      "stage": "M4-05"
     }
   ],
   "method": "M4-07 six-thread parallel-only CRN rerun; estimates compared to M4-04 serial CSV",
-  "mismatch_count": 4,
-  "mismatches": [
+  "mismatch_count": 0,
+  "mismatches": [],
+  "new_data": "docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz",
+  "normalizations": [
     {
-      "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf",
-      "field": "ratio_ci95_high",
-      "horizon": 90,
-      "intervention": "food_0",
-      "new": "",
+      "field": "H=90 alive_population ratio_ci95_high",
+      "file": "food_0",
+      "harness": "crates/sim-model/examples/m4_07_many_branch.rs (--only=crn-parallel)",
+      "new": "null",
       "old": "inf",
-      "outcome": "alive_population"
+      "raw data": "docs/data/m4_04/m4_04_crn_efficiency.csv; docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz",
+      "rule": "JSON null and CSV inf both encode an unbounded confidence interval; comparison maps both to positive infinity.",
+      "stage": "M4-04"
     },
     {
-      "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf",
-      "field": "ratio_ci95_high",
-      "horizon": 90,
-      "intervention": "food_0",
-      "new": "",
+      "field": "H=90 target_settlement_alive_population ratio_ci95_high",
+      "file": "food_0",
+      "harness": "crates/sim-model/examples/m4_07_many_branch.rs (--only=crn-parallel)",
+      "new": "null",
       "old": "inf",
-      "outcome": "target_settlement_alive_population"
+      "raw data": "docs/data/m4_04/m4_04_crn_efficiency.csv; docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz",
+      "rule": "JSON null and CSV inf both encode an unbounded confidence interval; comparison maps both to positive infinity.",
+      "stage": "M4-04"
     },
     {
-      "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf",
-      "field": "ratio_ci95_high",
-      "horizon": 30,
-      "intervention": "health_0_01",
-      "new": "",
+      "field": "H=30 alive_population ratio_ci95_high",
+      "file": "health_0_01",
+      "harness": "crates/sim-model/examples/m4_07_many_branch.rs (--only=crn-parallel)",
+      "new": "null",
       "old": "inf",
-      "outcome": "alive_population"
+      "raw data": "docs/data/m4_04/m4_04_crn_efficiency.csv; docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz",
+      "rule": "JSON null and CSV inf both encode an unbounded confidence interval; comparison maps both to positive infinity.",
+      "stage": "M4-04"
     },
     {
-      "difference": "M4-07 JSON estimator serializes non-finite CI upper bounds as null; old M4-04 CSV records inf",
-      "field": "ratio_ci95_high",
-      "horizon": 30,
-      "intervention": "health_0_01",
-      "new": "",
+      "field": "H=30 target_settlement_alive_population ratio_ci95_high",
+      "file": "health_0_01",
+      "harness": "crates/sim-model/examples/m4_07_many_branch.rs (--only=crn-parallel)",
+      "new": "null",
       "old": "inf",
-      "outcome": "target_settlement_alive_population"
+      "raw data": "docs/data/m4_04/m4_04_crn_efficiency.csv; docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz",
+      "rule": "JSON null and CSV inf both encode an unbounded confidence interval; comparison maps both to positive infinity.",
+      "stage": "M4-04"
     }
   ],
-  "new_data": "docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz",
+  "normalized_fields": 4,
   "reference_data": "docs/data/m4_04/m4_04_crn_efficiency.csv"
 }

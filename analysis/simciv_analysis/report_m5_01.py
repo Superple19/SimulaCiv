@@ -80,18 +80,18 @@ def _comparison(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     old_new_rows = pd.DataFrame(
         [
-            {"Ledger view": "old packed records", "rows": len(old), "mapped before (exact name/line/value)": previous_exact, "mapped after (renamed report/source/value)": mapped_old, "unmapped after": len(old) - mapped_old, "reason": "RENAMES.md report mapping; normalized source text and value; line only breaks ties"},
-            {"Ledger view": "new tidy records", "rows": len(current), "mapped from old metadata": mapped_new, "unmapped after": len(current) - mapped_new, "reason": "unmatched and ambiguous provenance stays unmapped"},
+            {"Ledger view": "old packed records", "rows": len(old), "mapped before (exact name/line/value)": previous_exact, "matched after (informational)": mapped_old, "unmatched old rows": len(old) - mapped_old, "reason": "RENAMES.md report mapping; normalized source text and value; line only breaks ties"},
+            {"Ledger view": "new tidy records", "rows": len(current), "matched to old ledger (informational)": mapped_new, "unmatched old-ledger comparison": len(current) - mapped_new, "reason": "sources.toml and regeneration results supply provenance; old matches are diagnostics only"},
         ]
     )
     reasons = pd.DataFrame(
         [
-            {"old record disposition": "old rows transferred", "records": mapped_old, "rule": "RENAMES.md plus normalized source/value; line breaks ties"},
-            {"old record disposition": "old rows still unmapped", "records": source_unmatched + missing_report, "rule": "includes excluded inputs, changed/unselected text, and ambiguous old matches"},
+            {"old record disposition": "old rows matched (informational)", "records": mapped_old, "rule": "RENAMES.md plus normalized source/value; line breaks ties; does not assign new provenance"},
+            {"old record disposition": "old rows unmatched", "records": source_unmatched + missing_report, "rule": "includes excluded inputs, changed/unselected text, and ambiguous old matches"},
             {"old record disposition": "new rows ambiguous", "records": len(ambiguous), "rule": "current claims with conflicting metadata or tied candidates; these are new-row counts"},
             {"old record disposition": "historical-log subset of transferred rows", "records": historical_log, "rule": "M1 aggregate runs are not regeneration gaps"},
             {"old record disposition": "previous exact-name/line/value baseline", "records": previous_exact, "rule": "old rows matched before the correction; diagnostic baseline"},
-            {"old record disposition": "old report basenames in RENAMES.md", "records": mapped_old_names, "rule": "diagnostic count; this may overlap transferred and unmapped rows"},
+            {"old record disposition": "old report basenames in RENAMES.md", "records": mapped_old_names, "rule": "diagnostic count; this may overlap matched and unmatched rows"},
         ]
     )
     return old_new_rows, reasons
@@ -111,7 +111,13 @@ def _report_parts() -> dict[str, str]:
         .rename("headline claims")
         .reset_index()
     )
-    m1 = claims.loc[(claims["report"] == "M1_CONTRACT_FREEZE.md") & (claims["status"] == "historical-log")].copy()
+    old_claims = expand_old_ledger(OLD_LEDGER)
+    old_matches, _ = match_old_claims(old_claims, claims.to_dict(orient="records"), ROOT)
+    m1_indices = [
+        index for index, old in old_matches.items()
+        if str(old["report"]) == "M1_CONTRACT_FREEZE.md" and str(old["status"]) == "unrecoverable"
+    ]
+    m1 = claims.iloc[m1_indices].copy()
     m1 = m1.sort_values(["line", "claim_id"], kind="stable")
     m1 = m1[["claim_id", "line", "value", "class", "status", "notes"]]
     gaps = claims.loc[
@@ -151,11 +157,13 @@ def _report_parts() -> dict[str, str]:
         "input_rule": input_rule,
         "total": f"{len(claims):,}",
         "m1_count": f"{len(m1):,}",
+        "m1_historical_count": f"{int(((claims['report'] == 'M1_CONTRACT_FREEZE.md') & (claims['status'] == 'historical-log')).sum()):,}",
+        "m1_extra_count": f"{int(((claims['report'] == 'M1_CONTRACT_FREEZE.md') & (claims['status'] == 'historical-log')).sum()) - len(m1):,}",
         "headline_count": f"{int((claims['tier'] == 'headline').sum()):,}",
         "key_count": f"{int((claims['tier'] == 'key').sum()):,}",
         "supporting_count": f"{int((claims['tier'] == 'supporting').sum()):,}",
-        "mapped_count": f"{int(new_ledger['mapped from old metadata']):,}",
-        "unmapped_count": f"{int(new_ledger['unmapped after']):,}",
+        "mapped_count": f"{int(new_ledger['matched to old ledger (informational)']):,}",
+        "unmapped_count": f"{int(new_ledger['unmatched old-ledger comparison']):,}",
         "old_count": f"{len(expand_old_ledger(OLD_LEDGER)):,}",
     }
 
@@ -175,11 +183,11 @@ Which numeric statements in the existing M0–M4 performance reports and contrac
 
 ## Method
 
-The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree. Its tidy output [claims.csv.gz](claims.csv.gz) contains **{parts['total']}** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **{parts['old_count']}** expanded scalar values. {parts['input_rule']}
+The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree and assigns provenance from [`sources.toml`](sources.toml). Its tidy output [claims.csv.gz](claims.csv.gz) contains **{parts['total']}** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **{parts['old_count']}** expanded scalar values. M5-04 statuses are applied only to source-map entries assigned to that stage. {parts['input_rule']}
 
 ## Results
 
-Every table below is generated from [claims.csv.gz](claims.csv.gz) by the report generator [report_m5_01.py](../../analysis/simciv_analysis/report_m5_01.py). Old-ledger comparisons additionally read the retained packed ledger.
+Every table below is generated from [claims.csv.gz](claims.csv.gz) by the report generator [report_m5_01.py](../../analysis/simciv_analysis/report_m5_01.py). Old-ledger matching is diagnostic only and does not populate source paths, statuses, or M5 stages.
 
 The tidy ledger contains **{parts['headline_count']}** headline claims, **{parts['key_count']}** key claims, and **{parts['supporting_count']}** supporting claims.
 
@@ -201,11 +209,11 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 
 {parts['comparison_reasons']}
 
-The regenerated ledger has **{parts['mapped_count']}** rows with transferred prior status/provenance and **{parts['unmapped_count']}** rows marked unmapped. Mapping uses the report name after `RENAMES.md`, normalized source-text prefix, and value; the old line is only a tie-breaker. Ambiguous matches remain unmapped.
+The old ledger text-matches **{parts['mapped_count']}** new claims for comparison; **{parts['unmapped_count']}** do not match. These matches do not transfer status or provenance. The extractor assigns harness, data, status, and M5 stage from [`sources.toml`](sources.toml) and the committed regeneration results.
 
 ### M1 unrecoverable-claim recheck
 
-The **{parts['m1_count']}** M1 aggregate test-run records are classified as `historical-log`, not regeneration gaps. Current source evidence includes [golden PRNG vectors](../../crates/sim-core/tests/golden_prng_tests.rs), [determinism oracles](../../crates/sim-model/tests/determinism_oracle_tests.rs), [M0 graduation gate](../../crates/sim-model/tests/m0_determinism_gate_tests.rs), [snapshot tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the [M1 manifest](../../contracts/m1_contract.toml); these cover semantics and canonical values, not the historical aggregate run output.
+The **{parts['m1_count']}** previously unrecoverable M1 aggregate claims were rechecked against current tests, goldens, and the M1 manifest. All remain `historical-log`: current tests and canonical artifacts revalidate behavior, not the original aggregate test-run totals. The current extractor also selects **{parts['m1_extra_count']}** additional numeric values from those historical M1 sections, for **{parts['m1_historical_count']}** historical-log values total. Evidence includes [golden PRNG vectors](../../crates/sim-core/tests/golden_prng_tests.rs), [determinism oracles](../../crates/sim-model/tests/determinism_oracle_tests.rs), [M0 graduation gate](../../crates/sim-model/tests/m0_determinism_gate_tests.rs), [snapshot tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the [M1 manifest](../../contracts/m1_contract.toml).
 
 {parts['m1_recheck']}
 
@@ -215,13 +223,13 @@ The **{parts['m1_count']}** M1 aggregate test-run records are classified as `his
 
 ## Findings
 
-- The tidy ledger preserves one row per selected claim and leaves ambiguous or unmatched provenance unmapped; see the ledger comparison tables above.
+- The tidy ledger uses `sources.toml` for provenance; old-ledger matching is informational only; see the ledger comparison tables above.
 - The M1 aggregate run records are historical logs and are excluded from regeneration gap totals.
 - The largest gaps are grouped directly from the current status values in the tidy ledger; see Top evidence gaps.
 
 ## Limits
 
-- A carried reproducible-now status means inputs/source are present; it does not claim that any harness was run in this inventory task.
+- A `reproducible-now` status means a source and data mapping is present; this inventory did not run the harness.
 - Values excluded as input/configuration or outside the selected claim contexts are not assigned new provenance.
 - This report compares source evidence only and does not remeasure timings or run simulations.
 '''

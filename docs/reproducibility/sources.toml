@@ -1,0 +1,529 @@
+version = 1
+
+# Report-level defaults are explicit. review=true marks unresolved source attribution.
+
+[reports."M1_CONTRACT_FREEZE.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "unmapped"
+review = false
+notes = "M1 aggregate records are mapped by section as historical logs; other claims require a separate source entry."
+
+[reports."M2_06_BASELINE_REPORT.md"]
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M2_07_ALLOCATION_ANALYSIS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_08_PHASE34_ALLOCATION_ANALYSIS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_09_PHASE34_SCRATCH_BUFFER_ANALYSIS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_12_PHASE4_INTENT_SCRATCH_BUFFER_ANALYSIS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_13_PHASE11_EVENT_SORT_ANALYSIS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_14_SOA_FEASIBILITY_ANALYSIS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_16_1_SOA_ABLATION_ANALYSIS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_17_HOT_PATH_SOA_EXPANSION_ANALYSIS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_18_1_STORAGE_AUTHORITY_ANALYSIS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_18_SEGMENTED_SOA_STORAGE_POC.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md"]
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M2_34_POST_ALGORITHM_REPROFILING.md"]
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M2_37_POST_P5_P6B_REPROFILING.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_39_RAYON_PRODUCTION_POLICY_GATE.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_OPTIMIZATION_CONTRACT.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M2_X_REBASELINE_REPORT.md"]
+harness = ["crates/sim-model/benches/m0_baseline_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M3_01_SERIAL_BASELINE.md"]
+harness = ["crates/sim-model/benches/m3_01_serial_baseline_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M3_02_PARALLEL_PHASE6B.md"]
+harness = ["crates/sim-model/benches/m3_02_parallel_phase6b_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M3_03_SEARCH_REDUCTION.md"]
+harness = ["crates/sim-model/benches/m3_02b_search_reduction_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M3_04_EQUILIBRIUM_WORKLOAD.md"]
+harness = ["crates/sim-model/benches/m3_equilibrium_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M3_04_SUSTAINED_WORKLOAD.md"]
+harness = ["crates/sim-model/benches/m3_sustained_workload_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M3_05_SCALE_DIAGNOSIS.md"]
+harness = ["crates/sim-model/benches/m3_scale_limit_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M3_05_SCALE_LIMIT.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M3_06_SETTLEMENT_INDEX.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M3_07_SCALE_RESIDUAL.md"]
+harness = ["crates/sim-model/benches/m3_scale_limit_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M3_08_POPULATION_DYNAMICS.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M3_09_INCREMENTAL_TOPOLOGY.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M3_11_PROPAGATION.md"]
+harness = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-data"
+review = true
+notes = "Committed harness is known; the report raw output is absent from docs/data and requires review."
+
+[reports."M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M3_AUDIT_INTERIM_AUDIT.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M3_INTERACTION_CONTRACT.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M4_01_SYSTEM_REGISTRY.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M4_02_BRANCHING.md"]
+harness = ["crates/sim-model/examples/m4_02_a2_measure.rs", "crates/sim-model/examples/m4_02_a3_measure.rs", "crates/sim-model/examples/m4_02_a4_measure.rs", "crates/sim-model/examples/m4_02_a5_measure.rs"]
+data = ["docs/data/m4_02/m4_02_raw.csv", "docs/data/m4_02/m4_02_final.csv", "docs/data/m4_02/m4_02_followup.csv", "docs/data/m4_02/m4_02_recorder.csv", "docs/data/m4_02/m4_02_worked.csv"]
+class = "*"
+regeneration_stage = "none"
+status = "historical-protocol"
+review = true
+notes = "A-1 through A-4 are not M5-04 rerun targets; early harness/data recovery is incomplete. A-5 has a section-specific current mapping."
+
+[reports."M4_03_DIVERGENCE.md"]
+harness = ["crates/sim-model/examples/m4_03_experiment.rs", "crates/sim-model/examples/m4_03_gate.rs"]
+data = ["docs/data/m4_03/m4_03_divergence_experiments.csv", "docs/data/m4_03/m4_03_a1_experiments.csv", "docs/data/m4_03/m4_03_gate_rerun.csv", "docs/data/m5_04/m4_03/m4_03_a1_experiments.csv.gz", "docs/data/m5_04/m4_03/m4_03_gate_a5.log"]
+class = "*"
+regeneration_stage = "M5-04"
+status = "bit-exact"
+review = false
+notes = "M5-04 compares deterministic daily records and reruns the final A-5 gate."
+
+[reports."M4_04_CRN_EFFICIENCY.md"]
+harness = ["crates/sim-model/examples/m4_04_crn_experiment.rs", "crates/sim-model/examples/m4_07_many_branch.rs"]
+data = ["docs/data/m4_04/m4_04_crn_efficiency.csv", "docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz"]
+class = "*"
+regeneration_stage = "M5-04"
+status = "bit-exact after documented normalization"
+review = false
+notes = "Four inf/null confidence-bound encodings are listed separately as documented normalizations."
+
+[reports."M4_05_MINIMAL_CAUSE.md"]
+harness = ["crates/sim-model/examples/m4_05_experiment.rs", "crates/sim-model/examples/m4_05_a5_gate.rs"]
+data = ["docs/data/m4_05/m4_05_a_health8.jsonl", "docs/data/m4_05/m4_05_a_health8_full_probe.jsonl", "docs/data/m4_05/m4_05_b_health16.jsonl", "docs/data/m4_05/m4_05_c_config6.jsonl", "docs/data/m5_04/m4_05/m4_05_a_health8.jsonl", "docs/data/m5_04/m4_05/m4_05_a_health8_full_probe.jsonl", "docs/data/m5_04/m4_05/m4_05_b_health16.jsonl", "docs/data/m5_04/m4_05/m4_05_c_config6.jsonl", "docs/data/m5_04/m4_05/m4_05_a5_gate_full.log"]
+class = "*"
+regeneration_stage = "M5-04"
+status = "bit-exact after documented normalization"
+review = false
+notes = "Schema 1/2 and §14 A-1 guarantee renames are explicit normalizations. Seed follow-up is section-specific and unrecoverable."
+
+[reports."M4_06_MIGRATION.md"]
+harness = ["crates/sim-model/examples/m4_06_a5_gate.rs", "crates/sim-model/examples/m4_06_experiment.rs", "crates/sim-model/examples/m4_06_branch_experiment.rs", "crates/sim-model/examples/m4_06_hook_followup.rs"]
+data = ["docs/data/m4_06/a5_gate_final.json", "docs/data/m4_06/experiment.json", "docs/data/m4_06/branch_experiment.json", "docs/data/m4_06/hook_followup.json", "docs/data/m5_04/m4_06/a5_gate.json", "docs/data/m5_04/m4_06/experiment.json.gz", "docs/data/m5_04/m4_06/branch_experiment.json.gz", "docs/data/m5_04/m4_06/hook_followup.json"]
+class = "*"
+regeneration_stage = "M5-04"
+status = "conclusion holds"
+review = false
+notes = "M5-04 compares deterministic records and reruns the final A-5 gate."
+
+[reports."M4_07_MANY_BRANCH.md"]
+harness = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+data = ["docs/data/m4_07/crn_parallel.jsonl", "docs/data/m4_07/day_scan.jsonl", "docs/data/m4_07/minimal_cause_final.jsonl", "docs/data/m4_07/clone_share.jsonl", "docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz", "docs/data/m5_04/m4_07/day_scan.jsonl.gz", "docs/data/m5_04/m4_07/minimal_cause_final.jsonl", "docs/data/m5_04/m4_07/clone_share.jsonl.gz"]
+class = "*"
+regeneration_stage = "M5-04"
+status = "bit-exact"
+review = false
+notes = "Deterministic fields are compared; timing reruns are supplemental, not A-5 gates."
+
+[reports."M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M4_COUNTERFACTUAL_CONTRACT.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[reports."M5_REPRODUCIBILITY_CONTRACT.md"]
+harness = []
+data = []
+class = "*"
+regeneration_stage = "none"
+status = "missing-source"
+review = true
+notes = "Source/data attribution for this report has not yet been verified against an M5 regeneration run; review required."
+
+[[sections]]
+report = "M1_CONTRACT_FREEZE.md"
+section = "2-m0-empirical-validation-evidence-summary"
+class = "*"
+harness = []
+data = []
+regeneration_stage = "none"
+status = "historical-log"
+review = false
+notes = "M1 aggregate test-run counts are preserved historical logs, not regeneration targets."
+
+[[sections]]
+report = "M1_CONTRACT_FREEZE.md"
+section = "m1-contract-freeze-specification-contracts-c01-c10"
+class = "*"
+harness = []
+data = []
+regeneration_stage = "none"
+status = "historical-log"
+review = false
+notes = "The recorded M1 validation aggregate is a historical test-run log, not a regeneration target."
+
+[[sections]]
+report = "M4_02_BRANCHING.md"
+section = "final-confirmatory-measurement-under-frozen-11-7-a-5"
+class = "*"
+harness = ["crates/sim-model/examples/m4_02_a5_measure.rs", "crates/sim-model/examples/m4_02_incremental_diagnosis.ps1"]
+data = ["docs/data/m5_04/m4_02/m4_02_a5.log", "docs/data/m5_04/m4_02_incremental_diagnosis/paired_samples.tsv", "docs/data/m5_04/m4_02_incremental_diagnosis/run.log"]
+regeneration_stage = "M5-04"
+status = "conclusion holds"
+review = false
+notes = "Corrected same-mode run covers the two incremental cells; the other seven cells use the M5-04 A-5 run."
+
+[[sections]]
+report = "M4_03_DIVERGENCE.md"
+section = "first-divergence-experiments-historical-superseded-for-a-1-statistics"
+class = "*"
+harness = ["crates/sim-model/examples/m4_03_experiment.rs"]
+data = ["docs/data/m4_03/m4_03_divergence_experiments.csv"]
+regeneration_stage = "none"
+status = "historical-protocol"
+review = false
+notes = "Superseded A-1 statistics are retained as historical protocol records."
+
+[[sections]]
+report = "M4_03_DIVERGENCE.md"
+section = "original-performance-gate-protocol-deviation-superseded"
+class = "*"
+harness = ["crates/sim-model/examples/m4_03_gate.rs"]
+data = ["docs/data/m4_03/m4_03_gate_rerun.csv"]
+regeneration_stage = "none"
+status = "historical-protocol"
+review = false
+notes = "Superseded timing protocol is not an M5-04 rerun target."
+
+[[sections]]
+report = "M4_03_DIVERGENCE.md"
+section = "*"
+class = "timing"
+harness = ["crates/sim-model/examples/m4_03_gate.rs"]
+data = ["docs/data/m5_04/m4_03/m4_03_gate_a5.log"]
+regeneration_stage = "M5-04"
+status = "conclusion holds"
+review = false
+notes = "Final A-5 conclusion is evaluated from the M5-04 gate rerun."
+
+[[sections]]
+report = "M4_05_MINIMAL_CAUSE.md"
+section = "seed-variation"
+class = "*"
+harness = []
+data = ["docs/data/m4_05/seed-0.jsonl", "docs/data/m4_05/seed-1.jsonl", "docs/data/m4_05/seed-3.jsonl"]
+regeneration_stage = "none"
+status = "unrecoverable"
+review = true
+notes = "The helper that produced these follow-up runs is incomplete; data survives but exact regeneration is unavailable."
+
+[[sections]]
+report = "M4_05_MINIMAL_CAUSE.md"
+section = "*"
+class = "timing"
+harness = ["crates/sim-model/examples/m4_05_a5_gate.rs"]
+data = ["docs/data/m5_04/m4_05/m4_05_a5_gate_full.log"]
+regeneration_stage = "M5-04"
+status = "conclusion holds"
+review = false
+notes = "The final A-5 gate was rerun under M5-04."
+
+[[sections]]
+report = "M4_06_MIGRATION.md"
+section = "*"
+class = "timing"
+harness = ["crates/sim-model/examples/m4_06_a5_gate.rs"]
+data = ["docs/data/m5_04/m4_06/a5_gate.json"]
+regeneration_stage = "M5-04"
+status = "conclusion holds"
+review = false
+notes = "The final migration-off A-5 gate was rerun under M5-04."
+
+[[sections]]
+report = "M4_06_MIGRATION.md"
+section = "*"
+class = "deterministic"
+harness = ["crates/sim-model/examples/m4_06_experiment.rs", "crates/sim-model/examples/m4_06_branch_experiment.rs"]
+data = ["docs/data/m5_04/m4_06/experiment.json.gz", "docs/data/m5_04/m4_06/branch_experiment.json.gz"]
+regeneration_stage = "M5-04"
+status = "bit-exact"
+review = false
+notes = "Deterministic experiment records match their committed M4 data."
+
+[[sections]]
+report = "M4_07_MANY_BRANCH.md"
+section = "*"
+class = "timing"
+harness = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+data = ["docs/data/m5_04/m4_07/crn_parallel_only.jsonl.gz", "docs/data/m5_04/m4_07/day_scan.jsonl.gz", "docs/data/m5_04/m4_07/minimal_cause_final.jsonl", "docs/data/m5_04/m4_07/clone_share.jsonl.gz"]
+regeneration_stage = "M5-04"
+status = "reproducible-now"
+review = false
+notes = "Supplemental one-shot timings were rerun; they are not A-5 gates."
