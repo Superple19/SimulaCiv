@@ -29,7 +29,7 @@ def test_claims_exclude_inputs_match_exact_metadata_and_pack_one_row_each(tmp_pa
     assert claims[0]["tier"] == "headline"
     first = ledger_bytes(claims)
     second = ledger_bytes(claims)
-    assert first == second
+    assert gzip.decompress(first) == gzip.decompress(second)
     assert gzip.decompress(first).count(b"\n") == 2
 
 

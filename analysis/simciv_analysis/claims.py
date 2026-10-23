@@ -12,6 +12,7 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 
+from .io import content_matches
 from .sources import load_sources, source_for_claim, validate_source_paths
 
 
@@ -598,7 +599,7 @@ def main(argv: list[str] | None = None) -> int:
     claims = extract_claims()
     rendered = ledger_bytes(claims)
     if args.check:
-        if not args.output.exists() or args.output.read_bytes() != rendered:
+        if not args.output.exists() or not content_matches(args.output, rendered):
             print(f"claim ledger differs from regenerated output: {args.output}", file=sys.stderr)
             return 1
         print(f"claim ledger matches: {args.output}")

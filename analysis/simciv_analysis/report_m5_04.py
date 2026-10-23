@@ -29,7 +29,7 @@ from simciv_analysis.claims import (
 )
 from simciv_analysis.figures import configure, svg_bytes
 from simciv_analysis.findings import Finding, render_findings
-from simciv_analysis.io import load_data, write_text_lf
+from simciv_analysis.io import content_matches, load_data, write_text_lf
 from simciv_analysis.tables import dataframe_to_markdown
 from simciv_analysis.sources import load_sources, source_for_claim
 
@@ -1049,7 +1049,9 @@ def check_outputs() -> bool:
     if missing:
         print(f"missing M5-04 outputs: {', '.join(missing)}", file=sys.stderr)
         return False
-    mismatched = [str(path) for path, expected in outputs.items() if path.read_bytes() != expected]
+    mismatched = [
+        str(path) for path, expected in outputs.items() if not content_matches(path, expected)
+    ]
     if mismatched:
         print(f"M5-04 generated files differ: {', '.join(mismatched)}", file=sys.stderr)
         return False

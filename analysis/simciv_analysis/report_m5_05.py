@@ -18,7 +18,7 @@ from .figures import configure, svg_bytes
 from .findings import Finding, render_findings
 from .m5_05 import _registry
 from .provenance import ROOT
-from .io import write_text_lf
+from .io import content_matches, write_text_lf
 from .tables import dataframe_to_markdown
 
 configure()
@@ -747,7 +747,9 @@ def check_outputs() -> bool:
     if missing:
         print(f"missing M5-05 outputs: {', '.join(missing)}", file=sys.stderr)
         return False
-    mismatched = [str(path) for path, expected in outputs.items() if path.read_bytes() != expected]
+    mismatched = [
+        str(path) for path, expected in outputs.items() if not content_matches(path, expected)
+    ]
     if mismatched:
         print(f"M5-05 generated files differ: {', '.join(mismatched)}", file=sys.stderr)
         return False

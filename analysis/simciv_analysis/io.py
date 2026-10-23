@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,18 @@ import pandas as pd
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+def content_matches(path: str | Path, expected: bytes) -> bool:
+    """Compare generated content, ignoring gzip container metadata/encoding."""
+    candidate = Path(path)
+    actual = candidate.read_bytes()
+    if candidate.suffix != ".gz":
+        return actual == expected
+    try:
+        return gzip.decompress(actual) == gzip.decompress(expected)
+    except (OSError, EOFError, zlib.error):
+        return False
 
 
 def write_text_lf(path: str | Path, text: str) -> None:

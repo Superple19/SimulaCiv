@@ -4,7 +4,7 @@ import json
 import pandas as pd
 import pytest
 
-from simciv_analysis.io import load_data, write_text_lf
+from simciv_analysis.io import content_matches, load_data, write_text_lf
 
 
 def test_write_text_lf_creates_parents_and_normalizes_newlines(tmp_path):
@@ -26,6 +26,18 @@ def test_loads_csv_json_jsonl_and_gzip(tmp_path):
     assert load_data("one.json", root=tmp_path) == {"a": 1}
     assert load_data("lines.jsonl", root=tmp_path) == [{"a": 1}, {"a": 2}]
     assert load_data("lines.jsonl.gz", root=tmp_path) == [{"a": 3}]
+
+
+def test_gzip_content_check_ignores_container_bytes(tmp_path):
+    payload = b"claim_id,value\n1,42\n"
+    expected = gzip.compress(payload, compresslevel=9, mtime=0)
+    differently_encoded = gzip.compress(payload, compresslevel=1, mtime=123)
+    target = tmp_path / "claims.csv.gz"
+    target.write_bytes(differently_encoded)
+
+    assert differently_encoded != expected
+    assert content_matches(target, expected)
+    assert not content_matches(target, gzip.compress(payload + b"2,43\n", mtime=0))
 
 
 def test_rejects_escape_and_unknown_format(tmp_path):
