@@ -83,6 +83,17 @@ def test_workflow_check_steps_are_single_just_targets():
     assert "fetch-depth: 0" in "\n".join(_steps(workflow, "analysis")[0])
 
 
+def test_workflows_use_fixed_ga_runner_images():
+    ci = WORKFLOW.read_text(encoding="utf-8")
+    promote = PROMOTE_WORKFLOW.read_text(encoding="utf-8")
+    assert "- ubuntu-24.04" in ci
+    assert "- windows-2025" in ci
+    assert "- macos-15-intel" in ci
+    assert "runs-on: ubuntu-24.04" in ci
+    assert "runs-on: ubuntu-24.04" in promote
+    assert all(label not in ci + promote for label in ("ubuntu-latest", "windows-latest", "macos-latest"))
+
+
 def test_quarto_preflight_precedes_checks_and_report_commands():
     justfile = JUSTFILE.read_text(encoding="utf-8")
     assert "check-quarto:" in justfile

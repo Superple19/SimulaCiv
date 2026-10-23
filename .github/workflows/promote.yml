@@ -17,7 +17,7 @@ permissions:
 jobs:
   promote:
     if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out full history at tested commit
         uses: actions/checkout@v7.0.1
