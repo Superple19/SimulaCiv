@@ -29,3 +29,12 @@ report-m5-04-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_04 --check
 
 check: analysis-test links claims-check report-m5-01-check report-m5-04-check
+
+provenance SUMMARY: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.provenance {{SUMMARY}}
+
+ci:
+    cargo fmt --check
+    cargo clippy --workspace --all-targets -- -D warnings
+    cargo test --workspace
+    just check

@@ -22,7 +22,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 const FIXTURE: &str = include_str!("../tests/fixtures/m3p_propagation_sustained.toml");
@@ -74,19 +73,12 @@ fn selected(only: &Option<String>, section: &str) -> bool {
 }
 
 fn header() -> Value {
-    let commit = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
     json!({
         "kind": "header",
         "stage": "M4-07",
         "host_os": std::env::consts::OS,
         "host_arch": std::env::consts::ARCH,
         "logical_processors": std::thread::available_parallelism().ok().map(usize::from),
-        "commit": commit,
         "crn": {"population": 10_000, "settlements": 50, "k": 8, "p_local": 0.5,
                  "seed": SEED, "initial_replicate": REPLICATE, "replicates": 100,
                  "horizons": GOLDEN_HORIZONS},

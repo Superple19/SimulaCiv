@@ -753,16 +753,6 @@ fn optional_float(value: Option<f32>) -> String {
     value.map_or_else(|| "null".into(), |number| number.to_string())
 }
 
-fn git_commit_hash() -> Option<String> {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-}
-
 fn write_header(
     writer: &mut impl Write,
     config: &SimConfig,
@@ -778,10 +768,9 @@ fn write_header(
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
         .unwrap_or_else(|| "unavailable".into());
     let processor = std::env::var("PROCESSOR_IDENTIFIER").unwrap_or_default();
-    let commit = git_commit_hash().map_or_else(|| "null".into(), |hash| json_string(&hash));
     writeln!(
         writer,
-        "{{\"type\":\"header\",\"config_toml\":{},\"runner\":{},\"host\":{{\"os\":{},\"arch\":{},\"logical_processors\":{},\"processor\":{},\"rustc\":{}}},\"commit\":{}}}",
+        "{{\"type\":\"header\",\"config_toml\":{},\"runner\":{},\"host\":{{\"os\":{},\"arch\":{},\"logical_processors\":{},\"processor\":{},\"rustc\":{}}}}}",
         json_string(&config_toml),
         json_string(&runner.label()),
         json_string(std::env::consts::OS),
@@ -789,7 +778,6 @@ fn write_header(
         logical_processors,
         json_string(&processor),
         json_string(&rustc),
-        commit,
     )?;
     Ok(())
 }

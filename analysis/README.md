@@ -17,3 +17,37 @@ just report-m5-01
 ```
 
 This regenerates the tidy claim ledger, `.qmd`, and rendered GitHub-flavored Markdown with the pinned tools. Use `just claims` alone when only the ledger needs regeneration.
+
+## DVC experiment data
+
+DVC 3.67.1 is the latest stable release checked for M5-05 (2026-03-31). Its published Python classifiers currently include Python 3.14 but not 3.15, so install it as an isolated uv tool with Python 3.14; this does not change the analysis project or its Python 3.15.1 pin:
+
+```powershell
+uv tool install --python 3.14 dvc==3.67.1
+```
+
+The shared DVC remote URL is in `.dvc/config`; the DagsHub DVC remote is public-read. Pull raw data when needed with:
+
+```powershell
+dvc pull
+```
+
+Maintainers need a DagsHub token only to upload. Configure it in the ignored local file, never in Git:
+
+```powershell
+$env:DAGSHUB_USER = Read-Host "DagsHub username"
+$secure = Read-Host "DagsHub token" -AsSecureString
+$env:DAGSHUB_TOKEN = [System.Net.NetworkCredential]::new("", $secure).Password
+dvc remote modify dagshub --local auth basic
+dvc remote modify dagshub --local user $env:DAGSHUB_USER
+dvc remote modify dagshub --local password $env:DAGSHUB_TOKEN
+Remove-Item Env:DAGSHUB_TOKEN, Env:DAGSHUB_USER
+```
+
+Deterministic stages can be reproduced with `dvc repro <stage>`. Timing stages are frozen so ordinary `dvc repro` cannot silently replace samples. A deliberate re-measurement uses `dvc unfreeze <stage>`, `dvc repro <stage>`, then `dvc freeze <stage>`. Each committed summary is verified against its current source tree with:
+
+```powershell
+just provenance docs/data/m5_05/<entry>/summary.json
+```
+
+`just check` works without DVC installed and without `dvc pull`; report generators consume committed summaries, never raw DVC outputs.

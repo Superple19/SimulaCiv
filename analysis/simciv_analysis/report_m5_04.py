@@ -53,11 +53,7 @@ M4_02_CELLS = {
     "Recorder M3P serial, 10k": "recorder-10k",
     "Recorder M3P serial, 100k": "recorder-100k",
 }
-M4_02_DIAG_COMMITS = {
-    "m4-02-pass": "d9b08fd",
-    "v0.5.0-m4": "4f4498b",
-    "head": "ad0c971",
-}
+M4_02_DIAG_REVISIONS = ("m4-02-pass", "v0.5.0-m4", "head")
 
 
 def _bytes(path: Path) -> bytes:
@@ -156,8 +152,8 @@ def _m4_02_diagnosis() -> tuple[list[dict[str, Any]], dict[str, Any]]:
             for row in csv.DictReader(stream, delimiter="\t")
         )
     expected_pairs = {
-        (build, cell)
-        for build in M4_02_DIAG_COMMITS
+        (revision, cell)
+        for revision in M4_02_DIAG_REVISIONS
         for cell in ("m3p-incremental-10k", "m3p-incremental-100k")
     }
     if set(sample_counts) != expected_pairs or any(sample_counts[pair] != 41 for pair in expected_pairs):
@@ -170,7 +166,6 @@ def _m4_02_diagnosis() -> tuple[list[dict[str, Any]], dict[str, Any]]:
         parts = line.split("\t")
         rows.append({
             "revision": parts[1],
-            "commit": M4_02_DIAG_COMMITS[parts[1]],
             "cell": parts[2],
             "samples": sample_counts[(parts[1], parts[2])],
             "repetitions": int(parts[3]),
@@ -186,7 +181,7 @@ def _m4_02_diagnosis() -> tuple[list[dict[str, Any]], dict[str, Any]]:
             "harness": "crates/sim-model/examples/m4_02_a5_measure.rs + crates/sim-model/examples/m4_02_incremental_diagnosis.ps1",
             "raw data": "docs/data/m5_04/m4_02_incremental_diagnosis/paired_samples.tsv; docs/data/m5_04/m4_02_incremental_diagnosis/run.log",
         })
-    if len(rows) != len(M4_02_DIAG_COMMITS) * 2:
+    if len(rows) != len(M4_02_DIAG_REVISIONS) * 2:
         raise ValueError(f"expected six M4-02 diagnosis summaries in {log_path}, found {len(rows)}")
     before = json.loads(next(line.removeprefix("HOST BEFORE ") for line in lines if line.startswith("HOST BEFORE ")))
     after = json.loads(next(line.removeprefix("HOST AFTER ") for line in lines if line.startswith("HOST AFTER ")))
@@ -799,6 +794,8 @@ The total above sums timing-gate runs with explicit start/end markers. Restored 
 - The M4-07 search, day-scan, and clone-share reruns are supplemental one-shot measurements, not A-5 timing results.
 - The M4-05 seed-specific follow-up helper source is incomplete; those historical seed records remain unrecoverable.
 - The aggregate A-5 gate time excludes deterministic harness wall time, which the restored harnesses did not record.
+
+Later update (2026-10-23): generated provenance tables use revision labels and content digests, not Git commit hashes. Historical M4-02 raw logs remain unchanged.
 '''
 
 
@@ -864,7 +861,7 @@ def _build() -> dict[str, Any]:
     headline_counts = collections.Counter(row["M5-04 result"] for row in headline_rows)
     diagnosis_frame = pd.DataFrame(diagnosis_rows)
     diagnosis_table = _markdown(diagnosis_frame[[
-        "revision", "commit", "cell", "samples", "repetitions", "direct_ms", "candidate_ms",
+        "revision", "cell", "samples", "repetitions", "direct_ms", "candidate_ms",
         "delta_ms", "delta_mad_ms", "upper_ms", "threshold_ms", "direct_spread_pct",
         "candidate_spread_pct", "status",
         "harness", "raw data",

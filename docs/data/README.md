@@ -1,16 +1,38 @@
 # Research data
 
-Committed data follows the [M5-00 size policy](../contracts/M5_REPRODUCIBILITY_CONTRACT.md#4-data-size-policy-frozen): each committed data file is at most 1 MiB; larger outputs are prepared as release assets with checksums and a `MANIFEST.json`, and the user uploads the assets. Already-pushed files remain in repository history and are not rewritten. Several existing M4-06 data files predate the policy and are retained as required by that decision.
+Specs, summaries, reports, generated tables/figures, golden files, and DVC pointer files live in Git. New full experiment and measurement outputs are tracked by DVC under `docs/data/<stage>/<entry>/raw/`; older raw files already committed to Git remain there unchanged. See the [M5 reproducibility contract](../contracts/M5_REPRODUCIBILITY_CONTRACT.md#14-m5-00-a-1a-2-data-and-provenance-amendment-frozen) for the storage and provenance rules.
+
+## Pulling DVC data
+
+The DagsHub DVC remote is public-read. After installing DVC 3.67.1, use `dvc pull` from the repository root. `just check` does not require DVC or `dvc pull`; reports read only Git-committed summary files.
+
+## Maintainer authentication
+
+Only maintainers who upload data need a token. The shared `.dvc/config` stores the remote URL; credentials are stored only in ignored `.dvc/config.local`. In PowerShell:
+
+```powershell
+$env:DAGSHUB_USER = Read-Host "DagsHub username"
+$secure = Read-Host "DagsHub token" -AsSecureString
+$env:DAGSHUB_TOKEN = [System.Net.NetworkCredential]::new("", $secure).Password
+dvc remote modify dagshub --local auth basic
+dvc remote modify dagshub --local user $env:DAGSHUB_USER
+dvc remote modify dagshub --local password $env:DAGSHUB_TOKEN
+Remove-Item Env:DAGSHUB_TOKEN, Env:DAGSHUB_USER
+```
+
+Never stage or commit `.dvc/config.local`. After the corresponding Git commit has been pushed, a maintainer can upload its DVC objects with `dvc push`.
+
+## Existing Git data
 
 | Folder | Contents |
 |---|---|
 | [`m4_02/`](m4_02/README.md) | M4-02 historical paired runs, host records, and worked-example traces. |
 | [`m4_03/`](m4_03/README.md) | M4-03 divergence experiments and gate records. |
 | [`m4_04/`](m4_04/README.md) | M4-04 CRN experiment outputs. |
-| [`m4_05/`](m4_05/README.md) | M4-05 minimal-cause search logs and probes. |
-| [`m4_06/`](m4_06/README.md) | M4-06 migration gates and experiments; superseded runs are in `superseded/`. |
-| [`m4_07/`](m4_07/README.md) | M4-07 branch, day-scan, and search outputs; invalid attempts are in `superseded/`. |
-| [`m4_viewer/`](m4_viewer/README.md) | Sample JSONL trace for the branch-comparison viewer. |
-| [`m4_inventory/`](m4_inventory/README.md) | Recovery inventory for M4-02 through M4-05 data, sources, and local binaries. |
+| [`m4_05/`](m4_05/README.md) | M4-05 minimal-cause logs and probes. |
+| [`m4_06/`](m4_06/README.md) | M4-06 migration gates and experiments. |
+| [`m4_07/`](m4_07/README.md) | M4-07 branch, day-scan, and search outputs. |
+| [`m4_viewer/`](m4_viewer/README.md) | Sample JSONL trace. |
+| [`m4_inventory/`](m4_inventory/README.md) | M4 artifact recovery inventory. |
 
-Each stage folder's README maps files to their producing harnesses and report use. M5 adds manifests and report-generated data when those stages are authorized.
+New DVC-backed stage directories are indexed here after their measurement summaries are committed.

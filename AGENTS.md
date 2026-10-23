@@ -44,6 +44,8 @@ Unless explicitly requested:
 - Do not bump project versions.
 - Do not invent document versions, revision numbers, or release labels.
 - Do not rename files, milestones, branches, or architectural stages.
+- Never amend, rebase, reset, or force-push a commit that exists on `origin`; correct mistakes with a new commit.
+- Track new experiment raw outputs through DVC stages; keep summaries, specs, harnesses, reports, generated figures, and DVC pointers in Git. Never commit DVC credentials.
 
 ## 5. SimulaCiv development stages
 
@@ -155,7 +157,8 @@ Wait for explicit user instruction before proceeding.
 ## 12. Standing research rules
 
 - Commit each experiment or measurement harness under `crates/sim-model/examples/` or `crates/sim-model/benches/`; do not delete it after measuring. Temporary instrumentation inside library code may be removed, but the driver that exercised it stays committed.
-- Commit raw outputs under `docs/data/<stage>/` and follow the data-size policy frozen by M5-00. Cite both the harness and its data file for every report table.
+- Track new full raw outputs under `docs/data/<stage>/` through DVC; commit a small summary (at most 1 MiB), specs, pointers, and reports in Git. Cite both the harness and its summary/raw data entry for every report table. Existing Git-tracked data stays in place.
+- Never commit DVC credentials. Shared remote configuration may contain the URL only; tokens belong in ignored local config.
 - Choose thresholds and parameters from a measured effect distribution; record the choices before running the experiment.
 - Preserve historical documents, including frozen contracts and past audits. Add a dated **Later update** note instead of rewriting their historical wording.
 

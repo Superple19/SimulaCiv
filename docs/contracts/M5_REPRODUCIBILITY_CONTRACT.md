@@ -383,3 +383,7 @@ Each run records `source_digest`, `spec_digest`, `harness_digest`, `rustc -V`, a
 ### 14.5 Freeze record
 
 This amendment authorizes DVC setup, the public-read DagsHub remote URL in `.dvc/config`, local-only credentials, content-hash provenance tooling, and DVC-backed outputs for new work. It authorizes no DVC push, Git push, or migration of existing data.
+
+### 14.6 Implementation record
+
+The setup uses DVC 3.67.1, released 2026-03-31 ([PyPI release](https://pypi.org/project/dvc/3.67.1/), [upstream latest release](https://github.com/iterative/dvc/releases/latest)). Its published Python classifiers include 3.14 but not 3.15, so DVC was installed as an isolated uv tool under Python 3.14.9; the analysis project remains pinned to Python 3.15.1. The tracked remote configuration contains only the DagsHub URL; local credentials were not configured or committed.
