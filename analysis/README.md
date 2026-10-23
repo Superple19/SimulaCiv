@@ -29,7 +29,7 @@ uv tool install --python 3.14 dvc==3.67.1
 The shared DVC remote URL is in `.dvc/config`; the DagsHub DVC remote is public-read. Pull raw data when needed with:
 
 ```powershell
-dvc pull
+dvc pull docs/data/m5_05/dvc.yaml
 ```
 
 Maintainers need a DagsHub token only to upload. Configure it in the ignored local file, never in Git:
@@ -44,7 +44,7 @@ dvc remote modify dagshub --local password $env:DAGSHUB_TOKEN
 Remove-Item Env:DAGSHUB_TOKEN, Env:DAGSHUB_USER
 ```
 
-Deterministic stages can be reproduced with `dvc repro <stage>`. Timing stages are frozen so ordinary `dvc repro` cannot silently replace samples. A deliberate re-measurement uses `dvc unfreeze <stage>`, `dvc repro <stage>`, then `dvc freeze <stage>`. Each committed summary is verified against its current source tree with:
+Deterministic stages can be reproduced with `dvc repro docs/data/m5_05/dvc.yaml:<stage>`. Timing stages are frozen so ordinary `dvc repro` cannot silently replace samples. A deliberate re-measurement uses `dvc unfreeze docs/data/m5_05/dvc.yaml:<stage>`, `dvc repro docs/data/m5_05/dvc.yaml:<stage>`, then `dvc freeze docs/data/m5_05/dvc.yaml:<stage>`. The pipeline and lockfile are kept in `docs/data/m5_05/`; stage paths remain rooted at the repository root. Each committed summary is verified against its current source tree with:
 
 ```powershell
 just provenance docs/data/m5_05/<entry>/summary.json

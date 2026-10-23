@@ -48,13 +48,13 @@ m5-05-plan: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.m5_05 validate
 
 m5-05-deterministic: m5-05-plan
-    dvc repro m5_05_deterministic
+    dvc repro docs/data/m5_05/dvc.yaml:m5_05_deterministic
     just provenance-finalize docs/data/m5_05/deterministic/summary.json
     just provenance docs/data/m5_05/deterministic/summary.json
 
 m5-05-timing ENTRY: m5-05-plan
-    dvc repro m5_05_{{ENTRY}}
-    dvc freeze m5_05_{{ENTRY}}
+    dvc repro docs/data/m5_05/dvc.yaml:m5_05_{{ENTRY}}
+    dvc freeze docs/data/m5_05/dvc.yaml:m5_05_{{ENTRY}}
     just provenance-finalize docs/data/m5_05/{{ENTRY}}/summary.json
     just provenance docs/data/m5_05/{{ENTRY}}/summary.json
 
