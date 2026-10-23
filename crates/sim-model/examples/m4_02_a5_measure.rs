@@ -143,7 +143,11 @@ fn make_cell(id: &str, runner: Runner, population: u32, recorder: bool) -> Cell 
         run_context,
         intervention,
         horizon_days: if recorder { 1 } else { DAYS },
-        execution: BranchExecutionOption::Serial,
+        execution: if matches!(runner, Runner::M3pIncremental) {
+            BranchExecutionOption::IncrementalTopology
+        } else {
+            BranchExecutionOption::Serial
+        },
         snapshot_days: Vec::new(),
     };
     let expected = if recorder {
