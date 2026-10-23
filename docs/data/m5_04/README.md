@@ -4,7 +4,7 @@ All files in this stage directory are at most 1 MiB; no release assets or manife
 
 | Stage directory | Main report tables | Harness/data index |
 |---|---|---|
-| [`m4_02/`](m4_02/README.md) | A-5 gate status, per-cell timing ratios, and timing figure | `m4_02_a5_measure.rs`; `m4_02_a5.log`, `m4_02_a5_samples.tsv` |
+| [`m4_02/`](m4_02/README.md) and [`m4_02_incremental_diagnosis/`](m4_02_incremental_diagnosis/README.md) | A-5 gate status, per-cell timing ratios, and interleaved incremental-path diagnosis | `m4_02_a5_measure.rs`; M5-04 A-5 samples and same-session three-revision pairs |
 | [`m4_03/`](m4_03/README.md) | deterministic divergence result, A-5 gate and timing ratios, divergence figure | `m4_03_experiment.rs`, `m4_03_gate.rs`; `m4_03_a1_experiments.csv.gz`, `m4_03_gate_a5.log` |
 | [`m4_04/`](m4_04/README.md) | field-by-field CRN comparison and serialization mismatch list | `m4_07_many_branch.rs --only=crn-parallel`; `parallel_estimate_comparison.json` |
 | [`m4_05/`](m4_05/README.md) | minimal-cause deterministic comparison, A-5 gate and ratios | `m4_05_experiment.rs`, `m4_05_a5_gate.rs`; JSONL reruns and A-5 logs |
