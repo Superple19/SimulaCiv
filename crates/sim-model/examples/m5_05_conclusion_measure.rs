@@ -2,16 +2,16 @@ use rayon::ThreadPool;
 use serde_json::{Value, json};
 use sha2::Digest;
 use sim_model::hashing::{
-    CanonicalHash, canonical_event_hash, canonical_m3_metrics_hash, canonical_m3_state_hash,
+    CanonicalHash, canonical_event_hash, canonical_m3_metrics_hash,
     canonical_m3_state_hash_from_storage, canonical_metrics_hash,
 };
 use sim_model::runner::{
-    DayExecutionOptions, M0RunContext, M3ParallelStorageRunContext, M3ReferenceContext,
-    M3SearchReductionRunContext, M3StorageRunContext, run_hybrid_authority_days,
-    run_hybrid_authority_days_with_rayon_phase4, run_m3_reference_day, run_m3_storage_days,
-    run_m3_storage_days_with_parallel_phase6b, run_m3_storage_days_with_search_reduction,
+    DayExecutionOptions, M0RunContext, M3ParallelStorageRunContext, M3SearchReductionRunContext,
+    M3StorageRunContext, run_hybrid_authority_days, run_hybrid_authority_days_with_rayon_phase4,
+    run_m3_storage_days, run_m3_storage_days_with_parallel_phase6b,
+    run_m3_storage_days_with_search_reduction,
 };
-use sim_model::state::{HybridWorldState, WorldState};
+use sim_model::state::HybridWorldState;
 use sim_model::storage::canonical_state_hash_from_storage;
 use sim_model::{SimConfig, initialize_world};
 use std::ffi::c_void;
@@ -57,7 +57,6 @@ enum M2Mode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum M3Mode {
-    Reference,
     Storage,
     Parallel,
     SearchReduction,
@@ -206,12 +205,6 @@ impl M2Run {
 }
 
 enum M3Runtime {
-    Reference {
-        initial: WorldState,
-        world: WorldState,
-        context: M3ReferenceContext,
-        graph: sim_model::RelationshipGraph,
-    },
     Storage {
         initial: HybridWorldState,
         hybrid: HybridWorldState,
@@ -237,18 +230,6 @@ impl M3Runtime {
         let world = initialize_world(config).expect("initialize M3 world");
         let run_context = M0RunContext::new(config.world.master_seed, config.world.replicate_id);
         match mode {
-            M3Mode::Reference => {
-                let context = M3ReferenceContext::new(&world, config, &run_context)
-                    .expect("M3 reference context");
-                let graph = context.relationship_graph().clone();
-                let initial = world.clone();
-                Self::Reference {
-                    initial,
-                    world,
-                    context,
-                    graph,
-                }
-            }
             M3Mode::Storage => {
                 let hybrid = HybridWorldState::hybrid(world);
                 let context = M3StorageRunContext::new(&hybrid, config, &run_context)
@@ -295,7 +276,6 @@ impl M3Runtime {
 
     fn reset(&mut self) {
         match self {
-            Self::Reference { initial, world, .. } => *world = initial.clone(),
             Self::Storage {
                 initial, hybrid, ..
             }
@@ -319,27 +299,7 @@ impl M3Runtime {
             events_enabled: true,
             snapshot_boundary: false,
         };
-        let (outcomes, graph, hybrid, reference_world, elapsed_us) = match (mode, &mut *self) {
-            (
-                M3Mode::Reference,
-                Self::Reference {
-                    world,
-                    context,
-                    graph,
-                    ..
-                },
-            ) => {
-                let started = Instant::now();
-                let mut outcomes = Vec::with_capacity(DAYS as usize);
-                for _ in 0..DAYS {
-                    outcomes.push(
-                        run_m3_reference_day(world, config, context, &options)
-                            .expect("M3 reference day succeeds"),
-                    );
-                }
-                let elapsed_us = started.elapsed().as_secs_f64() * 1_000_000.0;
-                (outcomes, graph.clone(), None, Some(world), elapsed_us)
-            }
+        let (outcomes, graph, hybrid, elapsed_us) = match (mode, &mut *self) {
             (
                 M3Mode::Storage,
                 Self::Storage {
@@ -353,7 +313,7 @@ impl M3Runtime {
                 let outcomes = run_m3_storage_days(hybrid, config, context, DAYS, &options)
                     .expect("M3 serial storage runner succeeds");
                 let elapsed_us = started.elapsed().as_secs_f64() * 1_000_000.0;
-                (outcomes, graph.clone(), Some(hybrid), None, elapsed_us)
+                (outcomes, graph.clone(), Some(hybrid), elapsed_us)
             }
             (
                 M3Mode::Parallel,
@@ -376,7 +336,7 @@ impl M3Runtime {
                 )
                 .expect("M3 parallel storage runner succeeds");
                 let elapsed_us = started.elapsed().as_secs_f64() * 1_000_000.0;
-                (outcomes, graph.clone(), Some(hybrid), None, elapsed_us)
+                (outcomes, graph.clone(), Some(hybrid), elapsed_us)
             }
             (
                 M3Mode::SearchReduction,
@@ -393,69 +353,43 @@ impl M3Runtime {
                 )
                 .expect("M3 search-reduction runner succeeds");
                 let elapsed_us = started.elapsed().as_secs_f64() * 1_000_000.0;
-                (outcomes, graph.clone(), Some(hybrid), None, elapsed_us)
+                (outcomes, graph.clone(), Some(hybrid), elapsed_us)
             }
             _ => panic!("M3 mode/runtime mismatch"),
         };
-        let bundle = if let Some(hybrid) = hybrid {
-            let storage = hybrid
-                .segmented_storage
-                .as_ref()
-                .expect("hybrid storage exists");
-            Bundle {
-                state: hash_text(
-                    canonical_m3_state_hash_from_storage(
-                        storage,
-                        hybrid.world.current_day,
-                        &hybrid.world.settlements,
-                        &graph,
-                    )
-                    .expect("M3 storage state hash"),
-                ),
-                metrics: hash_text(
-                    canonical_m3_metrics_hash(
-                        &outcomes
-                            .iter()
-                            .map(|outcome| outcome.metrics.clone().expect("metrics enabled"))
-                            .collect::<Vec<_>>(),
-                    )
-                    .expect("M3 metrics hash"),
-                ),
-                events: hash_text(
-                    canonical_event_hash(
-                        &outcomes
-                            .iter()
-                            .flat_map(|outcome| outcome.events.iter().cloned())
-                            .collect::<Vec<_>>(),
-                    )
-                    .expect("M3 events hash"),
-                ),
-            }
-        } else {
-            let world = reference_world.expect("reference runtime has a world");
-            Bundle {
-                state: hash_text(
-                    canonical_m3_state_hash(world, &graph).expect("M3 reference state hash"),
-                ),
-                metrics: hash_text(
-                    canonical_m3_metrics_hash(
-                        &outcomes
-                            .iter()
-                            .map(|outcome| outcome.metrics.clone().expect("metrics enabled"))
-                            .collect::<Vec<_>>(),
-                    )
-                    .expect("M3 reference metrics hash"),
-                ),
-                events: hash_text(
-                    canonical_event_hash(
-                        &outcomes
-                            .iter()
-                            .flat_map(|outcome| outcome.events.iter().cloned())
-                            .collect::<Vec<_>>(),
-                    )
-                    .expect("M3 reference events hash"),
-                ),
-            }
+        let hybrid = hybrid.expect("M3 storage runtime has a hybrid state");
+        let storage = hybrid
+            .segmented_storage
+            .as_ref()
+            .expect("hybrid storage exists");
+        let bundle = Bundle {
+            state: hash_text(
+                canonical_m3_state_hash_from_storage(
+                    storage,
+                    hybrid.world.current_day,
+                    &hybrid.world.settlements,
+                    &graph,
+                )
+                .expect("M3 storage state hash"),
+            ),
+            metrics: hash_text(
+                canonical_m3_metrics_hash(
+                    &outcomes
+                        .iter()
+                        .map(|outcome| outcome.metrics.clone().expect("metrics enabled"))
+                        .collect::<Vec<_>>(),
+                )
+                .expect("M3 metrics hash"),
+            ),
+            events: hash_text(
+                canonical_event_hash(
+                    &outcomes
+                        .iter()
+                        .flat_map(|outcome| outcome.events.iter().cloned())
+                        .collect::<Vec<_>>(),
+                )
+                .expect("M3 events hash"),
+            ),
         };
         Timed {
             result: bundle,
@@ -748,11 +682,11 @@ fn session_one(entry: &str) -> Vec<(Cell, bool, M3Mode, M3Mode, usize)> {
                     Cell {
                         population: n,
                         settlements: n.div_ceil(200) as u32,
-                        label: format!("M3-reference-storage-N{n}"),
+                        label: format!("M3-storage-replay-N{n}"),
                         chunk_size: CHUNK.get(),
                     },
                     false,
-                    M3Mode::Reference,
+                    M3Mode::Storage,
                     M3Mode::Storage,
                     0,
                 )
