@@ -65,6 +65,9 @@ clippy-cross:
 ci-clean: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.ci_clean
 
+ci-linux: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.ci_linux
+
 provenance SUMMARY: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.provenance {{SUMMARY}}
 

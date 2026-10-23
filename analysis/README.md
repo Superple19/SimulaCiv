@@ -34,6 +34,39 @@ just report-m5-01
 
 This regenerates the tidy claim ledger, `.qmd`, and rendered GitHub-flavored Markdown with the pinned tools. Use `just claims` alone when only the ledger needs regeneration.
 
+## WSL (Linux) checks
+
+The default Ubuntu WSL distro runs Linux checks from `~/simciv-ci`. These user-home installs need no `sudo`; the distro must already have `build-essential`, `pkg-config`, `curl`, and `git`:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+cd /mnt/c/AI/SimulaCiv
+rustup toolchain install
+rustup component add rustfmt clippy
+
+mkdir -p "$HOME/.local/bin"
+curl -LsSf https://astral.sh/uv/0.13.5/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh
+
+curl -fSL https://github.com/quarto-dev/quarto-cli/releases/download/v1.10.19/quarto-1.10.19-linux-amd64.tar.gz -o /tmp/quarto-1.10.19-linux-amd64.tar.gz
+tar -xzf /tmp/quarto-1.10.19-linux-amd64.tar.gz -C "$HOME/.local"
+ln -sfn "$HOME/.local/quarto-1.10.19/bin/quarto" "$HOME/.local/bin/quarto"
+
+cargo +1.98.1 install just --version 1.58.0 --locked
+
+curl -fsSL https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_64-bit.tar.gz -o /tmp/vale.tar.gz
+echo "4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182  /tmp/vale.tar.gz" | sha256sum --check
+tar -xzf /tmp/vale.tar.gz -C /tmp
+install -m 0755 /tmp/vale "$HOME/.local/bin/vale"
+
+curl -fsSL https://github.com/j178/prek/releases/download/v0.5.7/prek-x86_64-unknown-linux-gnu.tar.gz -o /tmp/prek.tar.gz
+echo "e238e5a6b4e384e8d18f33d3c3b1a329be0e1237f77ac6e021e641ddd3a2bab6  /tmp/prek.tar.gz" | sha256sum --check
+tar -xzf /tmp/prek.tar.gz -C /tmp
+install -m 0755 /tmp/prek-x86_64-unknown-linux-gnu/prek "$HOME/.local/bin/prek"
+```
+
+This pins Rust to the repository's `rust-toolchain.toml` (`1.98.1`), uv `0.13.5`, Quarto `1.10.19`, just `1.58.0`, Vale `3.25.1`, and prek `0.5.7`. From Windows, run `just ci-linux`; it clones the current commit once, then fetches and checks it out cleanly on later runs. The WSL clone preserves only its `target/` build cache between runs.
+
 ## DVC experiment data
 
 DVC 3.67.1 is the latest stable release checked for M5-05 (2026-03-31). Its published Python classifiers currently include Python 3.14 but not 3.15, so install it as an isolated uv tool with Python 3.14; this does not change the analysis project or its Python 3.15.1 pin:

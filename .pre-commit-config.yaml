@@ -126,3 +126,10 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+      - id: pre-push-ci-linux
+        name: just ci-linux before push
+        entry: just ci-linux
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
