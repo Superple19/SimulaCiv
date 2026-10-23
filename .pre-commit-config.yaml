@@ -106,6 +106,13 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      - id: pre-push-clippy-cross
+        name: cross-target cargo clippy before push
+        entry: just clippy-cross
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
       - id: pre-push-analysis
         name: just check before push
         entry: just check

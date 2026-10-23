@@ -57,6 +57,11 @@ lint-prose: analysis-sync
 
 check: analysis-test action-refs-check check-autocrlf data-integrity-check links claims-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
 
+clippy-cross:
+    rustup target add x86_64-unknown-linux-gnu aarch64-apple-darwin
+    cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+    cargo clippy --workspace --all-targets --target aarch64-apple-darwin -- -D warnings
+
 provenance SUMMARY: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.provenance {{SUMMARY}}
 
@@ -80,5 +85,6 @@ m5-05-timing ENTRY: m5-05-plan
 ci:
     cargo fmt --check
     cargo clippy --workspace --all-targets -- -D warnings
+    just clippy-cross
     cargo test --workspace
     just check
