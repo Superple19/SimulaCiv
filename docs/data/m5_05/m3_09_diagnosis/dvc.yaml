@@ -16,7 +16,7 @@ stages:
     - docs/data/m5_05/m3_09_diagnosis/raw
   m5_05_m3_09_diagnosis_bisect:
     wdir: ../../../../
-    cmd: uv run --directory analysis --project . python
+    cmd: uv run --project analysis python
       crates/sim-model/examples/m5_05_m3_09_bisect.py
       --run --repo .
       --plan docs/reproducibility/m5_05_configs/m3_09_diagnosis_bisect.toml
