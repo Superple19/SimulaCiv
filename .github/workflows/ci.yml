@@ -56,7 +56,10 @@ jobs:
           version: ${{ env.MISE_VERSION }}
 
       - name: Install pinned Python
-        run: uv python install
+        run: uv python install --directory analysis
+
+      - name: Show analysis Python version
+        run: uv run --directory analysis --project . python -c "import sys; print(sys.version)"
 
       - name: Run analysis checks
         run: just ci-analysis

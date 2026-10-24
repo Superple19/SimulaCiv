@@ -1,6 +1,6 @@
 # SimulaCiv analysis
 
-Standalone tools are pinned in [mise.toml](../mise.toml) and locked in [mise.lock](../mise.lock). `uv.toml` and `.python-version` separately constrain uv and the analysis Python runtime; Python package versions are in `uv.lock`. The package supports Python >=3.11.
+Standalone tools are pinned in [mise.toml](../mise.toml) and locked in [mise.lock](../mise.lock). The analysis project pins uv with `tool.uv.required-version` in `analysis/pyproject.toml` and Python with `analysis/.python-version`; Python package versions are in `uv.lock`. The package supports Python >=3.11.
 
 ## Setup
 
@@ -23,7 +23,7 @@ Pre-commit checks run formatting, file hygiene, DVC-aware size checks, secret de
 Then install the pinned Python runtime and dependencies:
 
 ```sh
-uv python install
+(cd analysis && uv python install)
 ```
 
 `just check` runs the analysis tests and verifies links, claims, committed reports, and the Vale prose rules without rewriting them. `just ci-analysis` runs `just check` and `prek run --all-files` with `SKIP=cargo-fmt`; formatting is checked by `just ci-rust`, so the analysis job does not need to install Rust. The target sets `SKIP` only for the `prek` invocation. `just ci-rust` runs formatting, Clippy, and the Rust workspace tests. `just lint-prose` runs the pinned Vale style and its rule tests. To reproduce the M5-01 report from the committed ledger, run the single command:
@@ -50,7 +50,9 @@ mise self-update $miseVersion --yes --no-plugins
 mise activate pwsh | Out-String | Invoke-Expression
 mise trust --yes
 mise install --locked
+Push-Location analysis
 uv python install
+Pop-Location
 ```
 
 Run the activation command in each new PowerShell session, or add it to your PowerShell profile.
@@ -86,7 +88,7 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 mise trust --yes
 mise install --locked
 eval "$(mise activate bash)"
-uv python install
+(cd analysis && uv python install)
 rustup toolchain install
 ```
 
@@ -104,7 +106,7 @@ Rust remains pinned in `rust-toolchain.toml`; the standalone tool versions and p
 
 ## DVC experiment data
 
-DVC is pinned in `mise.toml` and installed in its own environment with a private Python runtime; this does not change the analysis project's `.python-version`.
+DVC is pinned in `mise.toml` and installed in its own environment with a private Python runtime; this does not change `analysis/.python-version`.
 
 The shared DVC remote URL is in `.dvc/config`, but uploads are deferred and the remote currently has no raw outputs. Raw outputs exist only in the maintainer's local DVC cache until `dvc push --all-commits` is run. After upload, pull raw data with:
 

@@ -68,7 +68,7 @@ def test_workflow_check_steps_are_single_just_targets():
         return [
         (name, command)
         for name, command in _run_steps(_steps(workflow, job))
-        if not (name or "").startswith("Install pinned")
+            if not (name or "").startswith(("Install pinned", "Show analysis Python version"))
         ]
 
     assert checks("checks") == [("Run Rust checks", "just ci-rust")]
@@ -153,7 +153,11 @@ def test_just_jobs_install_all_target_tools_before_running_them():
 
     analysis_steps = _steps(workflow, "analysis")
     analysis_block = "\n".join("\n".join(step) for step in analysis_steps)
-    assert "uv python install" in analysis_block
+    assert "uv python install --directory analysis" in analysis_block
+    python_step = "uv run --directory analysis --project . python -c \"import sys; print(sys.version)\""
+    assert python_step in analysis_block
+    analysis_names = [step[0] for step in analysis_steps]
+    assert analysis_names.index("      - name: Show analysis Python version") < analysis_names.index("      - name: Run analysis checks")
     assert "setup-uv" not in workflow
     assert "quarto-actions" not in workflow
     assert "curl -fsSL" not in workflow

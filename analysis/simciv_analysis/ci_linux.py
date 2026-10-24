@@ -77,7 +77,7 @@ git -C "$dest" clean -fdx -e target/
         )
         step("mise install --locked", environment + "mise trust --yes && mise install --locked")
         if results[-1][1] == 0:
-            step("uv python install", environment + "mise exec -- uv python install")
+            step("uv python install", environment + "mise exec -- uv python install --directory analysis")
             if results[-1][1] == 0:
                 for name, command in (
                     ("just ci-rust", "just ci-rust"),

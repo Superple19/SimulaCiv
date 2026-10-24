@@ -32,7 +32,7 @@ URL_TOOL_VERSION_PATTERN = re.compile(
     r"(?P<version>\d+\.\d+(?:\.\d+)?)"
 )
 SCANNED_SUFFIXES = {".md", ".qmd", ".toml", ".yaml", ".yml", ".py", ".ps1", ".sh", ".txt"}
-PIN_FILES = {"mise.toml", "mise.lock", "uv.toml", "uv.lock", ".python-version", "rust-toolchain.toml"}
+PIN_FILES = {"mise.toml", "mise.lock", "analysis/pyproject.toml", "analysis/.python-version", "analysis/uv.lock", "rust-toolchain.toml"}
 
 
 def load_mise_config(root: Path = ROOT) -> tuple[dict[str, dict[str, str]], str]:
@@ -60,9 +60,9 @@ def load_mise_config(root: Path = ROOT) -> tuple[dict[str, dict[str, str]], str]
         versions[name] = values
 
     # The analysis interpreter is intentionally managed by uv, not mise.
-    python_version = (root / ".python-version").read_text(encoding="utf-8").strip()
+    python_version = (root / "analysis" / ".python-version").read_text(encoding="utf-8").strip()
     if not python_version:
-        raise ValueError(".python-version: expected a pinned analysis Python version")
+        raise ValueError("analysis/.python-version: expected a pinned analysis Python version")
     versions["python"] = {"version": python_version}
     return versions, match.group(1)
 
@@ -126,17 +126,22 @@ def check_tool_versions(root: Path = ROOT) -> list[str]:
             return ""
 
     try:
-        uv_config = tomllib.loads(read("uv.toml"))
+        analysis_project = tomllib.loads(read("analysis/pyproject.toml"))
     except tomllib.TOMLDecodeError as error:
-        errors.append(f"uv.toml: invalid TOML: {error}")
-        uv_config = {}
+        errors.append(f"analysis/pyproject.toml: invalid TOML: {error}")
+        analysis_project = {}
     expected_uv = f"=={pins['uv']['version']}"
-    if uv_config.get("required-version") != expected_uv:
-        errors.append(f"uv.toml: expected required-version {expected_uv!r}, found {uv_config.get('required-version')!r}")
+    uv_settings = analysis_project.get("tool", {}).get("uv", {})
+    if uv_settings.get("required-version") != expected_uv:
+        errors.append(f"analysis/pyproject.toml: expected tool.uv.required-version {expected_uv!r}, found {uv_settings.get('required-version')!r}")
 
-    python_pin = read(".python-version").strip()
+    python_pin = read("analysis/.python-version").strip()
     if python_pin != pins["python"]["version"]:
-        errors.append(f".python-version: expected Python {pins['python']['version']}, found {python_pin!r}")
+        errors.append(f"analysis/.python-version: expected Python {pins['python']['version']}, found {python_pin!r}")
+    if (root / ".python-version").exists():
+        errors.append(".python-version: move the analysis interpreter pin to analysis/.python-version")
+    if (root / "uv.toml").exists():
+        errors.append("uv.toml: move required-version to analysis/pyproject.toml")
 
     mise = tomllib.loads(read("mise.toml"))
     settings = mise.get("settings", {})
@@ -198,6 +203,11 @@ def check_tool_versions(root: Path = ROOT) -> list[str]:
         if "tools.toml" in text:
             errors.append(f"{relative}: stale tools.toml reference")
     analysis_readme = read("analysis/README.md")
+    for marker in ("analysis/pyproject.toml", "analysis/.python-version"):
+        if marker not in analysis_readme:
+            errors.append(f"analysis/README.md: missing analysis pin reference {marker!r}")
+    if "uv.toml" in analysis_readme:
+        errors.append("analysis/README.md: stale uv.toml reference")
     for marker in (
         "winget install --id jdx.mise",
         "mise self-update $miseVersion",
