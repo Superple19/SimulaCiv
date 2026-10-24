@@ -175,6 +175,10 @@ pass_criterion = "Report the equal-live ratio and classify the historical 1.49x 
 estimate_minutes = 40
 session = 2
 tests = ["m3p_incremental_topology_tests"]
+scope_check_hypothesis = "The historical 1.49x ratio reflects non-compaction days; the M5-05 checkpoint-day-400 sample includes compaction, while a days-101–103 scope-matched sample will be within 20% of 1.49x."
+scope_check_reference_days = [101, 102, 103]
+scope_check_current_cursor_days = [400, 401, 402]
+scope_check_tolerance = 0.20
 
 [[conclusion]]
 id = "m3_11_phase9c_speedup"

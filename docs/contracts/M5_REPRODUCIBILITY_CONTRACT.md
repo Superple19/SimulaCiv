@@ -353,6 +353,7 @@ Because the estimate exceeds the six-hour limit in M5-00 §8, no M5-05 determini
 | `M5-05-D-4` | frozen | The M3-08 and M3-09 equal-live drivers measure only the frozen 100k M3P/M3 comparison. | `crates/sim-model/examples/m5_05_conclusion_measure.rs`<br>`docs/data/m5_05/dvc.yaml` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
 | `M5-05-D-5` | superseded | The original M5-05 timing plan stopped when the estimated total exceeded six hours. | — | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
 | `M5-05-D-6` | frozen | M5-05 commits summaries and DVC data under the stage directory and cites harnesses and data for generated tables. | `docs/data/m5_05/dvc.yaml`<br>`analysis/simciv_analysis/report_m5_05.py`<br>`just:report-m5-05-check` | 2026-10-23 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
+| `M5-05-M3-09-SCOPE-CHECK` | draft | Test whether the historical 1.49x M3-09 ratio is specific to normal days by comparing days 101–103 with the M5-05 checkpoint sample that includes compaction. | `docs/reproducibility/m5_05_conclusions.toml` | 2026-10-24 | [source](M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen) |
 <!-- END GENERATED DECISIONS: m5-05 -->
 
 ### 13.7 Freeze record

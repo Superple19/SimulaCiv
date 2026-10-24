@@ -415,6 +415,16 @@ doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-registe
 date = "2026-10-23"
 
 [[decision]]
+id = "M5-05-M3-09-SCOPE-CHECK"
+milestone = "M5"
+stage = "M5-05"
+status = "draft"
+summary = "Test whether the historical 1.49x M3-09 ratio is specific to normal days by comparing days 101–103 with the M5-05 checkpoint sample that includes compaction."
+enforced_by = ["docs/reproducibility/m5_05_conclusions.toml"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
 id = "M5-INFRA-PREK-HOOKS"
 milestone = "M5"
 stage = "M5-03"
