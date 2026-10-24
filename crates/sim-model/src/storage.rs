@@ -7,7 +7,8 @@
 
 use crate::hashing::{CanonicalHash, CanonicalHashError, DOMAIN_STATE};
 use crate::state::{AgentState, SettlementState, WorldState};
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use sim_core::{AgentId, DenseSlot, GroupId, Money, SimulationDay};
 use std::collections::{HashMap, HashSet};
@@ -257,7 +258,7 @@ impl PersonalityStorage {
 ///
 /// Holds partitioned columns across demography, economy, and personality domains,
 /// alongside identity tracking and fast $O(1)$ `AgentId -> dense slot` resolution.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct SegmentedAgentStorage {
     pub demography: DemographyStorage,
     pub economy: EconomyStorage,
@@ -266,6 +267,41 @@ pub struct SegmentedAgentStorage {
     pub dense_slots: Vec<DenseSlot>,
     #[serde(skip)]
     slot_map: HashMap<AgentId, usize>,
+}
+
+#[derive(Deserialize)]
+struct SegmentedAgentStorageFields {
+    demography: DemographyStorage,
+    economy: EconomyStorage,
+    personality: PersonalityStorage,
+    agent_ids: Vec<AgentId>,
+    dense_slots: Vec<DenseSlot>,
+}
+
+impl<'de> Deserialize<'de> for SegmentedAgentStorage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let fields = SegmentedAgentStorageFields::deserialize(deserializer)?;
+        let mut slot_map = HashMap::with_capacity(fields.agent_ids.len());
+        for (slot, &agent_id) in fields.agent_ids.iter().enumerate() {
+            if slot_map.insert(agent_id, slot).is_some() {
+                return Err(D::Error::custom(format!(
+                    "duplicate AgentId {} in SegmentedAgentStorage",
+                    agent_id.as_u32()
+                )));
+            }
+        }
+        Ok(Self {
+            demography: fields.demography,
+            economy: fields.economy,
+            personality: fields.personality,
+            agent_ids: fields.agent_ids,
+            dense_slots: fields.dense_slots,
+            slot_map,
+        })
+    }
 }
 
 impl SegmentedAgentStorage {
@@ -411,6 +447,11 @@ impl SegmentedAgentStorage {
 
     /// Appends an [`AgentState`] record across all storage segments and updates the slot mapping.
     pub fn push(&mut self, agent: &AgentState) {
+        debug_assert!(
+            !self.slot_map.contains_key(&agent.agent_id),
+            "duplicate AgentId {} in SegmentedAgentStorage",
+            agent.agent_id.as_u32()
+        );
         let slot = self.agent_ids.len();
         self.demography
             .push(agent.alive, agent.birth_day, agent.health);
