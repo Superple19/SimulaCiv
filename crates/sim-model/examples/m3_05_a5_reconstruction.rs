@@ -1,3 +1,7 @@
+#[cfg(not(debug_assertions))]
+#[path = "common/process_controls.rs"]
+mod historical_process_controls;
+
 struct Args {
     smoke: bool,
 }
@@ -17,9 +21,6 @@ fn args() -> Args {
 mod scale {
     include!("../benches/m3_scale_limit_bench.rs");
 
-    #[cfg(not(debug_assertions))]
-    #[path = "../common/process_controls.rs"]
-    mod historical_process_controls;
     use std::process::Command;
 
     const A5_WARMUPS: usize = 2;
@@ -408,7 +409,7 @@ mod scale {
         } else {
             #[cfg(not(debug_assertions))]
             {
-                let status = historical_process_controls::apply_high_priority_affinity();
+                let status = super::historical_process_controls::apply_high_priority_affinity();
                 if cfg!(windows) {
                     assert!(status.priority_set && status.affinity_set);
                     "priority=high;affinity_mask=0x555".to_owned()
