@@ -105,22 +105,41 @@ fn parse_config(profile: &str, initial_population: i64) -> SimConfig {
 }
 
 fn make_checkpoint(config: &SimConfig) -> M3pReferenceState {
+    let checkpoint_cursor = std::env::var("SIMCIV_M5_05_CHECKPOINT_CURSOR")
+        .ok()
+        .map(|value| value.parse::<u32>().expect("checkpoint cursor is a u32"))
+        .unwrap_or(400);
     let world = initialize_world(config).expect("M3P world initializes");
     let mut hybrid = HybridWorldState::hybrid(world);
     let run_context = M0RunContext::new(SEED, REPLICATE);
     let mut context = M3pStorageRunContext::new(&hybrid, config, &run_context)
         .expect("M3P storage context initializes");
-    let _ = run_m3p_storage_days(&mut hybrid, config, &mut context, 399, &options(false))
-        .expect("M3P checkpoint warm-up");
+    let warm_days = checkpoint_cursor
+        .checked_sub(1)
+        .expect("checkpoint cursor must be positive");
+    let _ = run_m3p_storage_days(
+        &mut hybrid,
+        config,
+        &mut context,
+        warm_days,
+        &options(false),
+    )
+    .expect("M3P checkpoint warm-up");
     let outcome = run_m3p_storage_days(&mut hybrid, config, &mut context, 1, &options(true))
         .expect("M3P checkpoint boundary");
     let snapshot = outcome
         .last()
         .and_then(|day| day.snapshot.as_ref())
-        .expect("day-400 snapshot");
-    decode_m3p_snapshot(&snapshot.bytes, config)
+        .expect("checkpoint snapshot");
+    let state = decode_m3p_snapshot(&snapshot.bytes, config)
         .expect("M3P checkpoint restores")
-        .state
+        .state;
+    assert_eq!(
+        state.world().current_day.as_u32(),
+        checkpoint_cursor,
+        "snapshot cursor must match the requested next day"
+    );
+    state
 }
 
 fn prepare() -> Prepared {
@@ -131,8 +150,21 @@ fn prepare() -> Prepared {
     let live_population = m3_world.agents.len() as u64;
     let m3_config = parse_config("m3", live_population as i64);
 
+    let checkpoint_cursor = std::env::var("SIMCIV_M5_05_CHECKPOINT_CURSOR")
+        .ok()
+        .map(|value| value.parse::<u32>().expect("checkpoint cursor is a u32"))
+        .unwrap_or(400);
+    let checkpoint_scope = if checkpoint_cursor == 400 {
+        format!("checkpoint_day=400;days={DAYS}")
+    } else {
+        let timed_days = (checkpoint_cursor..checkpoint_cursor + DAYS)
+            .map(|day| day.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("checkpoint_cursor={checkpoint_cursor};timed_days={timed_days}")
+    };
     let options_record = format!(
-        "initial_population={N};settlements={K};k={DEGREE};p_local={LOCALITY};seed={SEED};replicate={REPLICATE};checkpoint_day=400;days={DAYS};metrics=true;events=true;snapshots=false;policy=serial;pool=0;chunk=256;propagation=false;live_population={live_population}"
+        "initial_population={N};settlements={K};k={DEGREE};p_local={LOCALITY};seed={SEED};replicate={REPLICATE};{checkpoint_scope};metrics=true;events=true;snapshots=false;policy=serial;pool=0;chunk=256;propagation=false;live_population={live_population}"
     );
 
     let (_, expected_m3p) = run_m3p(&m3p_config, &reference, false);

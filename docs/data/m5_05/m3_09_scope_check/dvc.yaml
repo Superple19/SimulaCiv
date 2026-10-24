@@ -1,0 +1,26 @@
+stages:
+  m3_09_scope_check:
+    wdir: ../../../..
+    cmd: uv run --directory analysis --project . python
+      crates/sim-model/examples/m5_05_m3_09_scope_check.py --plan
+      docs/reproducibility/m5_05_configs/m3_09_scope_check.toml --output-dir
+      docs/data/m5_05/m3_09_scope_check/raw --summary
+      docs/data/m5_05/m3_09_scope_check/summary.json
+    deps:
+    - Cargo.lock
+    - Cargo.toml
+    - analysis/simciv_analysis/io.py
+    - crates/sim-core/Cargo.toml
+    - crates/sim-core/src
+    - crates/sim-model/Cargo.toml
+    - crates/sim-model/examples/common/process_controls.rs
+    - crates/sim-model/examples/m5_05_m3_09_revision.rs
+    - crates/sim-model/examples/m5_05_m3_09_scope_check.py
+    - crates/sim-model/src
+    - crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
+    - docs/data/m5_05/m3_09_incremental_equal_live/summary.json
+    - docs/reproducibility/m5_05_conclusions.toml
+    - docs/reproducibility/m5_05_configs/m3_09_scope_check.toml
+    - rust-toolchain.toml
+    outs:
+    - docs/data/m5_05/m3_09_scope_check/raw

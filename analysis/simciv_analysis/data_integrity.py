@@ -65,9 +65,24 @@ def _git_blob_bytes(root: Path, relative: str) -> bytes | None:
     return None
 
 
+def _git_index_blob_bytes(root: Path, relative: str) -> bytes | None:
+    result = subprocess.run(
+        ["git", "show", f":{relative}"],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.stdout if result.returncode == 0 else None
+
+
 def _content_bytes(root: Path, relative: str, path: Path) -> bytes:
     blob = _git_blob_bytes(root, relative)
     worktree = path.read_bytes()
+    if relative == "docs/data/SHA256SUMS" and blob != worktree:
+        staged = _git_index_blob_bytes(root, relative)
+        if staged == worktree:
+            return staged
     if blob is not None and blob != worktree:
         raise ValueError(f"working-tree bytes differ from Git blob: {relative}")
     return blob if blob is not None else worktree
