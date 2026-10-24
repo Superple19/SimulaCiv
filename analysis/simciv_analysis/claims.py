@@ -26,6 +26,7 @@ M5_05_RESULTS = Path("docs") / "reproducibility" / "M5_05_M0_M3_REGENERATION_RES
 M5_05_LEGACY_RESULTS = Path("docs") / "data" / "m5_05" / "results.json"
 FIELDS = [
     "claim_id",
+    "claim_key",
     "report",
     "line",
     "section anchor",
@@ -366,6 +367,7 @@ def scan_documents(root: Path = ROOT) -> list[dict[str, object]]:
     candidates = sorted((root / "docs" / "reports").glob("*.md")) + sorted((root / "docs" / "contracts").glob("*.md"))
     candidates = [path for path in candidates if path.name.lower() not in {"readme.md", "renames.md"}]
     found: list[dict[str, object]] = []
+    ordinals: dict[tuple[str, str], int] = {}
     for path in candidates:
         contract = "contracts" in path.parts
         section = "document"
@@ -388,17 +390,22 @@ def scan_documents(root: Path = ROOT) -> list[dict[str, object]]:
                     continue
             else:
                 context_headers = None
-            found.extend(
-                _line_claims(
-                    path=path,
-                    line_number=line_number,
-                    line=line,
-                    section=section,
-                    headers=headers,
-                    context_headers=context_headers,
-                    contract=contract,
-                )
+            claims = _line_claims(
+                path=path,
+                line_number=line_number,
+                line=line,
+                section=section,
+                headers=headers,
+                context_headers=context_headers,
+                contract=contract,
             )
+            relative = path.relative_to(root).as_posix()
+            for claim in claims:
+                section_key = (relative, str(claim["section anchor"]))
+                ordinal = ordinals.get(section_key, 0) + 1
+                ordinals[section_key] = ordinal
+                claim["claim_key"] = f"{relative}#{section_key[1]}:{ordinal}"
+            found.extend(claims)
     return found
 
 

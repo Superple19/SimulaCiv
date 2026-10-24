@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from simciv_analysis.claims import _tier, _tokens, apply_m5_04_overrides, extract_claims, ledger_bytes, scan_documents
+from simciv_analysis.io import write_text_lf
 
 
 def test_claims_exclude_inputs_match_exact_metadata_and_pack_one_row_each(tmp_path):
@@ -174,3 +175,21 @@ def test_composite_table_claims_record_their_component_position(tmp_path):
 
     assert [claim["value"] for claim in frontier_claims] == ["3", "2"]
     assert [json.loads(claim["context"])["component_index"] for claim in frontier_claims] == [0, 1]
+
+
+def test_contract_claim_identity_is_stable_when_lines_are_inserted_above_it(tmp_path):
+    contract = tmp_path / "docs" / "contracts" / "sample.md"
+    contract.parent.mkdir(parents=True)
+    original = "# Sample\n\n## Current reproducibility state\n\nObserved value: 42.\n"
+    write_text_lf(contract, original)
+    before = scan_documents(tmp_path)
+
+    write_text_lf(contract, "A non-claim introduction.\n" + original)
+    after = scan_documents(tmp_path)
+
+    assert len(before) == len(after) == 1
+    assert before[0]["claim_key"] == after[0]["claim_key"]
+    assert {key: value for key, value in before[0].items() if key != "line"} == {
+        key: value for key, value in after[0].items() if key != "line"
+    }
+    assert after[0]["line"] == before[0]["line"] + 1

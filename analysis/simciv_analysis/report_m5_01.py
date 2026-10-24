@@ -27,7 +27,7 @@ QMD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.qmd"
 MD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.md"
 LEDGER_PATH = ROOT / "docs" / "reproducibility" / "claims.csv.gz"
 RECOVERED_STATUS_PATH = ROOT / "docs" / "reproducibility" / "recovered_claim_statuses.json.gz"
-REQUIRED_CLAIM_FIELDS = ["claim_id", "report", "line", "section anchor", "claim text (short)", "context", "value", "unit", "class", "tier", "source harness", "raw data", "status", "M5 stage", "notes"]
+REQUIRED_CLAIM_FIELDS = ["claim_id", "claim_key", "report", "line", "section anchor", "claim text (short)", "context", "value", "unit", "class", "tier", "source harness", "raw data", "status", "M5 stage", "notes"]
 
 
 def _milestone(report: str) -> str:
@@ -384,7 +384,7 @@ Which numeric statements in the existing M0–M4 performance reports and contrac
 
 ## Method
 
-The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree and assigns provenance from [`sources.toml`](sources.toml). Its tidy output [claims.csv.gz](claims.csv.gz) contains **{parts['total']}** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **{parts['old_count']}** expanded scalar values. M5-04 statuses are applied only to source-map entries assigned to that stage. {parts['input_rule']}
+The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree and assigns provenance from [`sources.toml`](sources.toml). `claim_key` (report path, section anchor, and in-section ordinal) is the stable identity; `claim_id` remains the compatibility key for existing status maps, and `line` is informational. Its tidy output [claims.csv.gz](claims.csv.gz) contains **{parts['total']}** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **{parts['old_count']}** expanded scalar values. M5-04 statuses are applied only to source-map entries assigned to that stage. {parts['input_rule']}
 
 ## Results
 
