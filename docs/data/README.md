@@ -37,4 +37,6 @@ Never stage or commit `.dvc/config.local`. After the corresponding Git commit ha
 
 New DVC-backed stage directories are indexed here after their measurement summaries are committed.
 
+The byte-exact recovered archive is indexed in [`m5_recovered/`](m5_recovered/README.md); its DVC payload remains in the maintainer’s local cache until upload.
+
 The M5-05 pipeline definition and lockfile live together in [`m5_05/dvc.yaml`](m5_05/dvc.yaml) and [`m5_05/dvc.lock`](m5_05/dvc.lock). DVC targets use that pipeline path, for example `dvc status docs/data/m5_05/dvc.yaml`.

@@ -687,6 +687,16 @@ enforced_by = []
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-24"
 
+[[decision]]
+id = "M5-RECOVERED-HISTORICAL-EVIDENCE"
+milestone = "M5"
+stage = "M5-01"
+status = "frozen"
+summary = "Recovered artifacts are immutable byte-exact historical evidence, and any rerun uses a separate documented output path."
+enforced_by = ["docs/data/m5_recovered/README.md", "docs/data/m5_recovered/MANIFEST.json", "docs/data/m5_recovered/recovered.dvc", "just:data-integrity-check"]
+doc = "docs/data/m5_recovered/README.md#immutability-and-reruns"
+date = "2026-10-24"
+
 [[stage]]
 id = "M0"
 milestone = "M0"
