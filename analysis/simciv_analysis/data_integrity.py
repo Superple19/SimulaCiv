@@ -76,10 +76,14 @@ def _git_index_blob_bytes(root: Path, relative: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def _is_dvc_metadata(relative: str) -> bool:
+    return relative.startswith("docs/data/") and Path(relative).name in {"dvc.yaml", "dvc.lock"}
+
+
 def _content_bytes(root: Path, relative: str, path: Path) -> bytes:
     blob = _git_blob_bytes(root, relative)
     worktree = path.read_bytes()
-    if relative == "docs/data/SHA256SUMS" and blob != worktree:
+    if (relative == "docs/data/SHA256SUMS" or _is_dvc_metadata(relative)) and blob != worktree:
         staged = _git_index_blob_bytes(root, relative)
         if staged == worktree:
             return staged
@@ -149,7 +153,12 @@ def check(root: Path = ROOT) -> list[str]:
     committed = _committed_manifest(root)
     for relative, digest in committed.items():
         if expected.get(relative) != digest:
-            return [f"committed checksum entry changed or removed: {relative}"]
+            if relative not in expected or not _is_dvc_metadata(relative):
+                return [f"committed checksum entry changed or removed: {relative}"]
+            staged = _git_index_blob_bytes(root, relative)
+            path = root / relative
+            if staged is None or not path.is_file() or staged != path.read_bytes():
+                return [f"DVC metadata checksum can change only when staged bytes match: {relative}"]
 
     files = data_files(root)
     tracked = _tracked_data_paths(root)
@@ -199,7 +208,12 @@ def write(root: Path = ROOT) -> None:
             else:
                 actual = _digest(root, relative, files[relative])
                 if actual != digest:
-                    raise ValueError(f"refusing to change existing data checksum: {relative}")
+                    if not _is_dvc_metadata(relative):
+                        raise ValueError(f"refusing to change existing data checksum: {relative}")
+                    staged = _git_index_blob_bytes(root, relative)
+                    if staged is None or staged != files[relative].read_bytes():
+                        raise ValueError(f"DVC metadata update must be staged byte-exactly: {relative}")
+                    digest = hashlib.sha256(staged).hexdigest()
                 entries[relative] = digest
     for relative, path in sorted(files.items()):
         if relative not in entries:

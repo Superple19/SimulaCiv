@@ -2,7 +2,7 @@ stages:
   m3_09_scope_check:
     wdir: ../../../..
     cmd: uv run --directory analysis --project . python
-      crates/sim-model/examples/m5_05_m3_09_scope_check.py --plan
+      ../crates/sim-model/examples/m5_05_m3_09_scope_check.py --plan
       docs/reproducibility/m5_05_configs/m3_09_scope_check.toml --output-dir
       docs/data/m5_05/m3_09_scope_check/raw --summary
       docs/data/m5_05/m3_09_scope_check/summary.json
