@@ -21,7 +21,8 @@ OUTPUT = ROOT / "docs" / "reproducibility" / "claims.csv.gz"
 OLD_LEDGER = ROOT / "docs" / "reproducibility" / "superseded" / "claims.csv"
 RENAMES = ROOT / "docs" / "reports" / "RENAMES.md"
 M5_04_OVERRIDES = Path("docs") / "data" / "m5_04" / "claim_statuses.json"
-M5_05_RESULTS = Path("docs") / "data" / "m5_05" / "results.json"
+M5_05_RESULTS = Path("docs") / "reproducibility" / "M5_05_M0_M3_REGENERATION_RESULTS.json"
+M5_05_LEGACY_RESULTS = Path("docs") / "data" / "m5_05" / "results.json"
 FIELDS = [
     "claim_id",
     "report",
@@ -475,6 +476,8 @@ def apply_m5_04_overrides(
 def apply_m5_05_results(claims: list[dict[str, object]], root: Path = ROOT) -> list[dict[str, object]]:
     """Apply recorded M5-05 conclusion outcomes to matching headline claims only."""
     path = root / M5_05_RESULTS
+    if not path.is_file():
+        path = root / M5_05_LEGACY_RESULTS
     if not path.is_file():
         return claims
     results = json.loads(path.read_text(encoding="utf-8"))

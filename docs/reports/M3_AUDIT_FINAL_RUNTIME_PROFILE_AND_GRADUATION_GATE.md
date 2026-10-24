@@ -90,3 +90,9 @@ The sustained M3P extension also measured a clear Phase 9c gain at one hundred t
 **Hosted CI record:** graduation commit `f568376c509040cda4cccdd87e888e739a5514dd` passed all three operating-system jobs in [Actions run 39194209453](https://github.com/Superple19/SimulaCiv/actions/runs/39194209453).
 
 Later update (2026-10-21): spatial migration was delivered as a registered system in M4-06; see [M4-06 report](M4_06_MIGRATION.md). The text above records the status at the time of this document.
+
+<!-- BEGIN GENERATED M5-05 M3-09 PROTOCOL UPDATE -->
+
+Later update (2026-10-24): the M3-09 follow-up's 1.49× value came from the equal-live rerun, not the separate Phase 9b profile on days 101–103. The protocol-matched 100k check measured 1.32× at the follow-up revision and 1.35× at HEAD, within the pre-registered 20% band; the M5-05 cursor-400 sample included compaction day 400 and measured 2.32×. Both protocols use one three-day public call per path. See the generated [M5-05 protocol-scope table](../reproducibility/M5_05_M0_M3_REGENERATION.md#m3-09-protocol-scope-recheck).
+
+<!-- END GENERATED M5-05 M3-09 PROTOCOL UPDATE -->

@@ -439,9 +439,9 @@ date = "2026-10-24"
 id = "M5-05-M3-09-PROTOCOL-RECHECK"
 milestone = "M5"
 stage = "M5-05"
-status = "draft"
-summary = "Test whether checkpoint, compaction, or runner rotation explains the M5-05 ratio; both protocols use one three-day public call per path, so validate_for frequency is equal per simulated day."
-enforced_by = ["docs/reproducibility/m5_05_conclusions.toml", "docs/reproducibility/m5_05_configs/m3_09_scope_check.toml"]
+status = "frozen"
+summary = "The protocol-matched 100k ratios fall within the registered band; the report separates the cursor-400 compaction-day M5-05 cell."
+enforced_by = ["docs/reproducibility/m5_05_conclusions.toml", "docs/reproducibility/m5_05_configs/m3_09_scope_check.toml", "docs/data/m5_05/m3_09_scope_check/summary.json", "analysis/simciv_analysis/report_m5_05.py", "docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md", "just:report-m5-05-check"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
 date = "2026-10-24"
 
@@ -765,8 +765,8 @@ doc = "docs/reproducibility/M5_04_M4_REGENERATION.md"
 [[stage]]
 id = "M5-05"
 milestone = "M5"
-status = "sessions 1–3 measured; M3-09 scope check pending"
-summary = "Measured sessions one through three; the M3-09 scope check remains pending."
+status = "complete"
+summary = "Measured sessions one through three and completed the M3-09 protocol-scope recheck."
 doc = "docs/reproducibility/M5_05_M0_M3_REGENERATION.md"
 
 [[stage]]

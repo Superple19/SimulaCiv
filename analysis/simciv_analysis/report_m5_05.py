@@ -6,9 +6,11 @@ import argparse
 import json
 import math
 import re
+import statistics
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -26,13 +28,18 @@ configure()
 import matplotlib.pyplot as plt
 
 
-RESULTS_PATH = ROOT / "docs" / "data" / "m5_05" / "results.json"
+RESULTS_PATH = ROOT / "docs" / "reproducibility" / "M5_05_M0_M3_REGENERATION_RESULTS.json"
 QMD_PATH = ROOT / "docs" / "reproducibility" / "M5_05_M0_M3_REGENERATION.qmd"
 MD_PATH = ROOT / "docs" / "reproducibility" / "M5_05_M0_M3_REGENERATION.md"
 FIGURE_PATH = ROOT / "docs" / "reproducibility" / "figures" / "m5_05_old_new_timing.svg"
 DETERMINISTIC_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "deterministic" / "summary.json"
 DIAGNOSIS_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "m3_09_diagnosis" / "summary.json"
 DIAGNOSIS_BISECT_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "m3_09_diagnosis" / "bisect_summary.json"
+M3_09_SCOPE_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "m3_09_scope_check" / "summary.json"
+M3_09_SCOPE_VALIDATION_SUMMARY = ROOT / "docs" / "data" / "m5_05" / "m3_09_scope_check" / "validate_for" / "summary.json"
+M3_09_SCOPE_PLAN = ROOT / "docs" / "reproducibility" / "m5_05_configs" / "m3_09_scope_check.toml"
+M3_09_REPORT = ROOT / "docs" / "reports" / "M3_09_INCREMENTAL_TOPOLOGY.md"
+M3_AUDIT_REPORT = ROOT / "docs" / "reports" / "M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
 
 
 def _summary(entry_id: str) -> dict[str, Any] | None:
@@ -52,6 +59,14 @@ def _diagnosis() -> dict[str, Any] | None:
         details["phase_attribution"] = bisect.get("phase_attribution")
         details["bisect_patch_has_phase9b_append"] = bisect.get("bisect_patch_has_phase9b_append", False)
     return details
+
+
+def _scope_check() -> dict[str, Any] | None:
+    if not M3_09_SCOPE_SUMMARY.is_file() or not M3_09_SCOPE_VALIDATION_SUMMARY.is_file():
+        return None
+    summary = json.loads(M3_09_SCOPE_SUMMARY.read_text(encoding="utf-8"))
+    validation = json.loads(M3_09_SCOPE_VALIDATION_SUMMARY.read_text(encoding="utf-8"))
+    return {"summary": summary, "validation": validation, "plan": tomllib.loads(M3_09_SCOPE_PLAN.read_text(encoding="utf-8"))}
 
 
 def _diagnosis_change_screen(details: dict[str, Any]) -> bool:
@@ -193,6 +208,114 @@ def _entry_cells(entry: dict[str, Any], summary: dict[str, Any] | None) -> list[
     return output
 
 
+def _scope_result() -> dict[str, Any] | None:
+    scope = _scope_check()
+    if scope is None:
+        return None
+    details = scope["summary"]["details"]
+    plan = scope["plan"]
+    cells = []
+    for item in details["cells"]:
+        historical = float(item["historical_ratio"])
+        ratio = float(item["m3p_incremental_over_m3"])
+        within = abs(ratio / historical - 1.0) <= float(plan["historical_ratio_tolerance"])
+        if within != bool(item["within_historical_tolerance"]):
+            raise ValueError(f"M3-09 scope classification differs from its measured ratio: {item}")
+        paths = item["paths"]
+        cells.append({
+            "N": int(item["initial_population"]), "revision": item["revision"],
+            "commit": item["commit"], "live": int(item["live_population"]),
+            "cursor": int(item["checkpoint_cursor"]),
+            "timed_internal_days": item["timed_internal_days"],
+            "compaction_days": item["compaction_days"],
+            "serial": paths["m3p_serial"], "incremental": paths["m3p_incremental"],
+            "m3": paths["m3"], "ratio": ratio, "historical_ratio": historical,
+            "within_20": within, "repetitions": int(item["repetitions_per_sample"]),
+            "valid": bool(item["path_spread_valid"]),
+            "state_digests": item["m3p_digests"],
+        })
+    primary = [row for row in cells if row["N"] == 100_000]
+    if len(primary) != 2 or not all(row["valid"] for row in primary):
+        raise ValueError("M3-09 protocol recheck requires both 100k revisions")
+    if len({row["state_digests"]["state"] for row in primary}) != 1:
+        raise ValueError("M3-09 protocol recheck 100k M3P state digests differ across revisions")
+    details_scope = details["scope"]
+    old_m5_summary = _summary("m3_09_incremental_equal_live")
+    if old_m5_summary is None:
+        raise ValueError("the committed M5-05 all-days summary is missing")
+    old_m5_result = old_m5_summary["details"]["cells_measured"][0]["result"]
+    return {
+        "cells": cells, "details": details, "plan": plan,
+        "primary_within_20": all(row["within_20"] for row in primary),
+        "validation": details["validate_for"],
+        "old_m5_result": old_m5_result,
+        "old_m5_ratio": float(old_m5_result["m3p_over_m3"]),
+        "scope_days": details_scope["reference_days"],
+        "scope_compaction_days": details_scope["reference_compaction"],
+        "reference_compaction_days": details_scope["reference_compaction"],
+        "m5_days": details_scope["m5_05_days"],
+        "m5_compaction_days": details_scope["m5_05_compaction"],
+    }
+
+
+def _m3_09_first_improvement(diagnosis: dict[str, Any] | None) -> dict[str, Any] | None:
+    if diagnosis is None:
+        return None
+    bisect = diagnosis.get("bisect_summary")
+    commit = diagnosis.get("bisect")
+    if bisect is None or not commit:
+        return None
+    candidate = next((item for item in bisect.get("tested_candidates", []) if item.get("commit") == commit), None)
+    baseline = diagnosis.get("revisions", {}).get("m3_09_followup")
+    if candidate is None or baseline is None:
+        return None
+    old = float(baseline["numerator_median_us_per_tick"])
+    new = float(candidate["numerator_median_us_per_tick"])
+    return {"commit": commit, "baseline_us": old, "candidate_us": new, "relative_change": new / old - 1.0}
+
+
+def _scope_later_update(scope: dict[str, Any], *, audit: bool) -> str:
+    rows = {(row["N"], row["revision"]): row for row in scope["cells"]}
+    followup = rows[(100_000, "m3_09_followup")]["ratio"]
+    head = rows[(100_000, "HEAD")]["ratio"]
+    all_days = scope["old_m5_ratio"]
+    within = "within the pre-registered 20% band" if scope["primary_within_20"] else "outside the pre-registered 20% band"
+    link = "[M5-05 protocol-scope table](../reproducibility/M5_05_M0_M3_REGENERATION.md#m3-09-protocol-scope-recheck)"
+    if audit:
+        return (
+            "Later update (2026-10-24): the M3-09 follow-up's 1.49× value came from the equal-live rerun, "
+            "not the separate Phase 9b profile on days 101–103. The protocol-matched 100k check measured "
+            f"{followup:.2f}× at the follow-up revision and {head:.2f}× at HEAD, {within}; the M5-05 cursor-400 "
+            f"sample included compaction day 400 and measured {all_days:.2f}×. Both protocols use one "
+            f"three-day public call per path. See the generated {link}."
+        )
+    return (
+        "Later update (2026-10-24): the days 101–103 values above are the Phase 9b diagnostic, not the "
+        "1.49× equal-live ratio. The follow-up used a checkpoint after executed day 400, two warm-ups, "
+        "11 samples, and a rotating M3P serial/incremental/M3 three-day-call schedule; its temporary driver "
+        "is missing, so cursor 401 is the recheck's interpretation of that boundary. The protocol-matched "
+        f"100k ratios were {followup:.2f}× at the follow-up revision and {head:.2f}× at HEAD, {within}. "
+        f"The separate M5-05 cursor-400 sample covered days 400–402, included compaction day 400, and measured "
+        f"{all_days:.2f}×. See the generated {link}."
+    )
+
+
+def _later_update_document(path: Path, note: str) -> bytes:
+    start = "<!-- BEGIN GENERATED M5-05 M3-09 PROTOCOL UPDATE -->"
+    end = "<!-- END GENERATED M5-05 M3-09 PROTOCOL UPDATE -->"
+    text = path.read_text(encoding="utf-8")
+    block = f"{start}\n\n{note}\n\n{end}"
+    if start in text or end in text:
+        if text.count(start) != 1 or text.count(end) != 1:
+            raise ValueError(f"expected one M5-05 update block in {path}")
+        text, count = re.subn(re.escape(start) + r"\n.*?\n" + re.escape(end), block, text, count=1, flags=re.DOTALL)
+        if count != 1:
+            raise ValueError(f"could not update M5-05 note in {path}")
+    else:
+        text = text.rstrip() + "\n\n" + block + "\n"
+    return text.encode("utf-8")
+
+
 def _status(entry_id: str, cells: list[dict[str, Any]]) -> tuple[str, str]:
     if not cells:
         return "inconclusive", "No recorded timing summary for this conclusion."
@@ -322,6 +445,7 @@ def _new_values_text(cells: list[dict[str, Any]]) -> str:
 def _build() -> dict[str, Any]:
     registry = _registry()
     deterministic = json.loads(DETERMINISTIC_SUMMARY.read_text(encoding="utf-8")) if DETERMINISTIC_SUMMARY.exists() else None
+    scope_result = _scope_result()
     rows = []
     measurement_rows = []
     ratio_measurements = []
@@ -342,6 +466,14 @@ def _build() -> dict[str, Any]:
             if measurement.get("ratio") is not None
         )
         status, note = _status(entry["id"], cells)
+        if entry["id"] == "m3_09_incremental_equal_live" and scope_result is not None:
+            status = "holds" if scope_result["primary_within_20"] else "does not hold"
+            matched = [cell for cell in scope_result["cells"] if cell["N"] == 100_000]
+            matched_text = ", ".join(f"{cell['revision']} {cell['ratio']:.3f}×" for cell in matched)
+            note = (
+                f"Protocol-matched cursor-401 ratios: {matched_text}; the separate M5-05 cursor-400 cell was "
+                f"{scope_result['old_m5_ratio']:.3f}× and includes a compaction day."
+            )
         raw = f"../data/m5_05/{entry['id']}/summary.json" if summary else "not recorded"
         harness_path = str(entry.get("harness", ""))
         measurement_harness = measurement_harness_by_session[int(entry["session"])]
@@ -432,6 +564,7 @@ def _build() -> dict[str, Any]:
         ),
         "sessions_not_run": sessions_not_run,
         "m3_09_diagnosis": _diagnosis(),
+        "m3_09_scope_check": scope_result,
     }
     conclusion_by_id = {row["conclusion"]: row for row in rows}
     unrun_ids = {row["conclusion"] for row in results["planned"] if row["status"] == "not run"}
@@ -472,15 +605,54 @@ def _build() -> dict[str, Any]:
     if diagnosis is not None:
         findings.append(Finding(
             "[exploratory]",
-            f"The M5-05 decomposition is {diagnosis['historical_decomposition']['dominant_component']} relative to the M3-09 follow-up paired result.",
-            "finding_m3_09_decomposition_matches_paths",
-            diagnosis["historical_decomposition"]["dominant_component"] in {"both, dominated by numerator", "numerator", "denominator", "neither"},
-        ))
-        findings.append(Finding(
-            "[exploratory]",
-            f"The M3-09 follow-up's recorded ratio did not reproduce at that revision in this session; the first pre-registered screen crossing is `{diagnosis.get('bisect')}` in Phase 9B. The historical timing discrepancy remains unexplained.",
+            f"The first pre-registered source change was `{diagnosis.get('bisect')}` in the Phase 9B incremental append path; see the cross-revision table.",
             "finding_m3_09_bisect_matches_candidate_and_phase_diff",
             _bisect_evidence_matches(diagnosis),
+        ))
+    if scope_result is not None:
+        scope_tag = "[pre-registered: M5-05-M3-09-PROTOCOL-RECHECK]"
+        historical_100k = float(scope_result["plan"]["historical_ratio_100k"])
+        all_days_differs = abs(scope_result["old_m5_ratio"] / historical_100k - 1.0) > float(scope_result["plan"]["historical_ratio_tolerance"])
+        findings.append(Finding(
+            scope_tag,
+            "The M5-05 cursor-400 all-days ratio differs by more than the registered 20% band from the historical 100k equal-live ratio; its protocol includes a compaction day.",
+            "finding_m3_09_all_days_ratio_outside_historical_band",
+            all_days_differs and scope_result["m5_compaction_days"] == [400],
+        ))
+        if scope_result["primary_within_20"]:
+            findings.append(Finding(
+                scope_tag,
+                "The protocol-matched 100k ratios fall within the pre-registered band around the M3-09 follow-up value; see the scope table.",
+                "finding_m3_09_protocol_ratio_within_band",
+                scope_result["primary_within_20"],
+            ))
+        else:
+            findings.append(Finding(
+                scope_tag,
+                "The protocol-matched 100k ratios fall outside the pre-registered band around the M3-09 follow-up value; see the scope table.",
+                "finding_m3_09_protocol_ratio_outside_band",
+                not scope_result["primary_within_20"],
+            ))
+        findings.append(Finding(
+            scope_tag,
+            "The committed M5-05 cursor sample includes a compaction day; see the scope table.",
+            "finding_m3_09_m5_cursor_includes_compaction",
+            scope_result["m5_days"] == [400, 401, 402] and scope_result["m5_compaction_days"] == [400],
+        ))
+        validation = scope_result["validation"]
+        internal = validation["internal_samples_us"]
+        internal_median = statistics.median(internal)
+        internal_mad = statistics.median(abs(value - internal_median) for value in internal)
+        public_samples = validation["public_call_samples_us"]
+        public_median = statistics.median(public_samples)
+        findings.append(Finding(
+            "[exploratory]",
+            "The validation method and zero-day public-call timings are reported separately from A-5 full-tick samples.",
+            "finding_m3_09_validate_for_samples_match_summary",
+            len(internal) == int(validation["calls"]) == 41
+            and abs(internal_median - float(validation["validate_for_median_us_per_call"])) < 1e-6
+            and abs(internal_mad - float(validation["validate_for_mad_us_per_call"])) < 1e-6
+            and abs(public_median - float(validation["public_zero_day_call_median_us"])) < 1e-6,
         ))
     findings_md, findings_checks_md = render_findings(findings)
     results["findings"] = findings_md
@@ -549,7 +721,89 @@ def _render_qmd(data: dict[str, Any]) -> str:
     deterministic_table = _table(deterministic_rows, ["target", "status", "harness", "summary"])
     completed = ", ".join(str(session) for session in data["sessions_complete"]) or "none"
     pending = ", ".join(str(session) for session in data["sessions_not_run"]) or "none"
-    status = f"Status: sessions complete {completed}; sessions pending {pending}"
+    scope_result = data.get("m3_09_scope_check")
+    scope_status = "not recorded" if scope_result is None else (
+        "within the protocol-matched range" if scope_result["primary_within_20"] else "outside the protocol-matched range"
+    )
+    status = f"Status: sessions complete {completed}; sessions pending {pending}; M3-09 protocol recheck {scope_status}"
+    if scope_result is None:
+        scope_section = "## M3-09 protocol scope recheck\n\nNo protocol-matched recheck has been recorded."
+    else:
+        plan = scope_result["plan"]
+        validation = scope_result["validation"]
+        old_result = scope_result["old_m5_result"]
+        followup_days = ", ".join(str(day) for day in plan["reference_timed_internal_days"])
+        current_days = ", ".join(str(day) for day in scope_result["m5_days"])
+        matched_rows = [
+            {
+                "N": cell["N"], "revision": cell["revision"], "commit": cell["commit"],
+                "live": cell["live"], "cursor": cell["cursor"],
+                "days": ", ".join(str(day) for day in cell["timed_internal_days"]),
+                "compaction": ", ".join(str(day) for day in cell["compaction_days"]) or "none",
+                "M3P serial median ± MAD µs/tick": f"{cell['serial']['median_us_per_tick']:.3f} ± {cell['serial']['mad_us_per_tick']:.3f}",
+                "M3P incremental median ± MAD µs/tick": f"{cell['incremental']['median_us_per_tick']:.3f} ± {cell['incremental']['mad_us_per_tick']:.3f}",
+                "M3 median ± MAD µs/tick": f"{cell['m3']['median_us_per_tick']:.3f} ± {cell['m3']['mad_us_per_tick']:.3f}",
+                "incremental / M3": cell["ratio"], "follow-up ratio": cell["historical_ratio"],
+                "within 20%": cell["within_20"], "r": cell["repetitions"], "valid": cell["valid"],
+            }
+            for cell in scope_result["cells"]
+        ]
+        protocol_rows = [
+            {
+                "measurement": "M3-09 follow-up as documented",
+                "checkpoint / timed days": "after executed day 400; internal IDs not listed",
+                "compaction": "original driver's exact day IDs unavailable",
+                "warmups / samples": f"{plan['reference_warmups']} / {plan['reference_samples']}",
+                "public calls / sample": f"one call per runner; {plan['days_per_public_call']} days each",
+                "timed runners": "M3P serial → M3P incremental → M3 (rotating)",
+                "context timing": "contexts built outside sample timer",
+            },
+            {
+                "measurement": "M5-05 selected cell",
+                "checkpoint / timed days": f"cursor {scope_result['details']['scope']['m5_05_cursor']}; {current_days}",
+                "compaction": ", ".join(str(day) for day in scope_result["m5_compaction_days"]) or "none",
+                "warmups / samples": f"{plan['m5_05_warmups']} / {plan['m5_05_samples']}",
+                "public calls / sample": f"{old_result['repetitions_per_sample']} repeated calls per runner; {old_result['days_per_operation']} days each",
+                "timed runners": "M3P incremental ↔ M3; M3P serial used only for parity",
+                "context timing": "contexts built before each call timer",
+            },
+            {
+                "measurement": "Protocol-matched A-5 recheck",
+                "checkpoint / timed days": f"cursor {plan['reference_checkpoint_cursor']}; {followup_days}",
+                "compaction": ", ".join(str(day) for day in scope_result["reference_compaction_days"]) or "none",
+                "warmups / samples": f"{plan['m5_05_warmups']} / {plan['m5_05_samples']}",
+                "public calls / sample": f"r calls per runner; {plan['days_per_public_call']} days each",
+                "timed runners": "M3P serial → M3P incremental → M3 (rotating)",
+                "context timing": "contexts built outside each call timer",
+            },
+        ]
+        validation_rows = [{
+            "measurement": "M3pStorageRunContext::validate_for",
+            "N": validation["population"], "calls": validation["calls"],
+            "median µs/call": validation["validate_for_median_us_per_call"],
+            "MAD µs/call": validation["validate_for_mad_us_per_call"],
+            "public zero-day median µs": validation["public_zero_day_call_median_us"],
+            "public zero-day MAD µs": validation["public_zero_day_call_mad_us"],
+        }]
+        scope_section = f'''## M3-09 protocol scope recheck
+
+The M3-09 follow-up report states exactly: “The checkpoint is after executed day 400, at 10,341 live agents for the 10k start and 103,241 for the 100k start. Each sample uses two warmups, 11 measured samples, and three consecutive days per sample; contexts are reconstructed from the same checkpoint outside each sample timer. The paired schedule rotates M3P serial, M3P incremental, and M3 order within each sample.” The temporary original driver is missing, and the report does not list its internal day IDs. The recheck interprets the checkpoint as the next-day cursor 401, so it measures internal days {followup_days}; this mapping is an inference from the runner's day cursor.
+
+The committed M5-05 driver constructs its checkpoint with `m3p_checkpoint` in [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs). Its cursor is 400, so its three-day call covers days {current_days} and includes compaction day {', '.join(str(day) for day in scope_result['m5_compaction_days'])}. For the 100k cell, the M5-05 timing protocol was: “2 warmups; 41 A-5 samples; three-day calls; {old_result['repetitions_per_sample']} repetitions per sample; M3P incremental/M3 pair only; contexts built outside each timer.” The 10k selected cell used {scope_result['cells'][0]['repetitions']} repetitions per sample. Both methods call each public runner once per three simulated days; M5-05 repeats that operation to meet A-5 sample duration, so validation cadence per simulated day is equal. Other differences are the checkpoint/day boundary and compaction, three-runner rotation versus a two-path pair, 11 versus 41 measured samples, and one operation versus repeated operations per sample. The historical report does not record process priority or affinity, so those controls cannot be compared. The configs, seed, replicate, metrics/events setting, snapshots-off setting, and serial execution mode match.
+{_table(protocol_rows, ["measurement", "checkpoint / timed days", "compaction", "warmups / samples", "public calls / sample", "timed runners", "context timing"])}
+
+The original equal-live definition is preserved: M3 starts from the same live M3P agent records and settlement state, while its graph is profile-specific. The matched data uses the same config, seed, replicate, action settings, metrics/events, and serial execution on both revisions. Harness: [m5_05_m3_09_scope_check.py](../../crates/sim-model/examples/m5_05_m3_09_scope_check.py) and [m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs); plan: [m3_09_scope_check.toml](m5_05_configs/m3_09_scope_check.toml); Git summary: [protocol-matched summary](../data/m5_05/m3_09_scope_check/summary.json); raw samples are DVC-managed at `docs/data/m5_05/m3_09_scope_check/raw/samples.jsonl`.
+
+{_table(matched_rows, ["N", "revision", "commit", "live", "cursor", "days", "compaction", "M3P serial median ± MAD µs/tick", "M3P incremental median ± MAD µs/tick", "M3 median ± MAD µs/tick", "incremental / M3", "follow-up ratio", "within 20%", "r", "valid"])}
+
+### Validation cost per public call
+
+The probe uses a temporary `Instant` timer inside `M3pStorageRunContext::validate_for`, enabled only during zero-day validation calls. That instrumentation was removed before the A-5 runner comparison. The public zero-day call also includes the empty registered-loop setup, shown as a separate upper-bound measurement.
+
+Harness: [scope-check worker](../../crates/sim-model/examples/m5_05_m3_09_revision.rs); summary: [validation probe](../data/m5_05/m3_09_scope_check/validate_for/summary.json); raw timing output is DVC-managed.
+
+{_table(validation_rows, ["measurement", "N", "calls", "median µs/call", "MAD µs/call", "public zero-day median µs", "public zero-day MAD µs"])}
+'''
     diagnosis = data.get("m3_09_diagnosis")
     if diagnosis is None:
         diagnosis_section = """## M3-09 ratio diagnosis
@@ -615,6 +869,11 @@ No cross-revision diagnosis has been recorded. The pre-registered plan is [m3_09
         phase_text = "Phase attribution: not run." if phase is None else (
             f"The example timer brackets the public three-day M3P incremental runner call; the changed source diff maps the first change to {phase}."
         )
+        improvement = _m3_09_first_improvement(diagnosis)
+        improvement_text = "" if improvement is None else (
+            f"The first changed commit was `{improvement['commit']}`; its Phase 9b incremental append path reduced the measured numerator by "
+            f"{-100.0 * improvement['relative_change']:.1f}% relative to the preceding candidate in that bisect."
+        )
         diagnosis_section = f"""## M3-09 ratio diagnosis
 
 ### Absolute numerator and denominator decomposition
@@ -635,7 +894,7 @@ The screen was fixed at {diagnosis['plan']['values']['change_screen_percent']:.0
 
 {_table(change_rows, ["before", "after", "numerator change", "denominator change", "ratio change", "step change", "valid"])}
 
-{step_text} {bisect_text} {phase_text}
+{step_text} {bisect_text} {phase_text} {improvement_text}
 
 The bisect harness is [m5_05_m3_09_bisect.py](../../crates/sim-model/examples/m5_05_m3_09_bisect.py); per-candidate raw samples are DVC-managed. The example timer includes the full public runner call, so the phase attribution below comes from the first changed commit's source diff, not an internal Phase 9B subphase stopwatch.
 
@@ -674,6 +933,8 @@ The frozen conclusion set is [`m5_05_conclusions.toml`](m5_05_conclusions.toml).
 {_table(cells, ["conclusion", "cell", "N", "K", "k", "p_local", "config overrides", "threads", "max hops", "time unit", "max frontier", "levels", "left median", "left MAD", "right median", "right MAD", "speedup", "paired delta", "paired delta MAD", "r", "minimum sample s"])}
 
 {diagnosis_section}
+
+{scope_section}
 
 ### Deterministic confirmations
 
@@ -720,11 +981,16 @@ def _render_quarto(qmd: Path, output_dir: Path) -> Path:
 
 def _outputs() -> dict[Path, bytes]:
     data = _build()
-    return {
+    outputs = {
         RESULTS_PATH: data["results_bytes"],
         FIGURE_PATH: data["figure"],
         QMD_PATH: data["qmd"],
     }
+    scope = data["results"]["m3_09_scope_check"]
+    if scope is not None:
+        outputs[M3_09_REPORT] = _later_update_document(M3_09_REPORT, _scope_later_update(scope, audit=False))
+        outputs[M3_AUDIT_REPORT] = _later_update_document(M3_AUDIT_REPORT, _scope_later_update(scope, audit=True))
+    return outputs
 
 
 def render_outputs() -> None:

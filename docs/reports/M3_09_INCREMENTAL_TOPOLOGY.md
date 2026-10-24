@@ -185,3 +185,9 @@ The M3-09 test matrix still covers all 36 configurations, all 300-day per-day co
 ## Later update (2026-10-22)
 
 The report cites a temporary m3p_09_measure example that is not present in this repository; its source and raw timing output were not recovered. See the [M5-01 reproducibility inventory](../reproducibility/M5_01_INVENTORY.md).
+
+<!-- BEGIN GENERATED M5-05 M3-09 PROTOCOL UPDATE -->
+
+Later update (2026-10-24): the days 101–103 values above are the Phase 9b diagnostic, not the 1.49× equal-live ratio. The follow-up used a checkpoint after executed day 400, two warm-ups, 11 samples, and a rotating M3P serial/incremental/M3 three-day-call schedule; its temporary driver is missing, so cursor 401 is the recheck's interpretation of that boundary. The protocol-matched 100k ratios were 1.32× at the follow-up revision and 1.35× at HEAD, within the pre-registered 20% band. The separate M5-05 cursor-400 sample covered days 400–402, included compaction day 400, and measured 2.32×. See the generated [M5-05 protocol-scope table](../reproducibility/M5_05_M0_M3_REGENERATION.md#m3-09-protocol-scope-recheck).
+
+<!-- END GENERATED M5-05 M3-09 PROTOCOL UPDATE -->

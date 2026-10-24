@@ -1,7 +1,8 @@
 # M5-05 M0–M3 Conclusion Regeneration
 
 
-Status: sessions complete 1, 2, 3; sessions pending none
+Status: sessions complete 1, 2, 3; sessions pending none; M3-09 protocol
+recheck within the protocol-matched range
 
 ## Question
 
@@ -34,7 +35,7 @@ and timing are collected in the summaries under `docs/data/m5_05/`.
 | M3 | m3_06_settlement_index | M3-indexed-N1000000-K5000-k8-p0.5-day0 indexed_before_us 491862.000 µs | M3-indexed-N1000000-K5000-k8-p0.5-day0 current indexed M3 serial storage 392992.733 µs/tick | M3-indexed-N1000000-K5000-k8-p0.5-day0 indexed M3 vs recorded pre-index baseline 0.799× | — | true | inconclusive | The current indexed path was measured, but the executable pre-index implementation is absent; the recorded before value is historical context only. | [m3_scale_limit_bench.rs](../../crates/sim-model/benches/m3_scale_limit_bench.rs) | [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs) | [summary](../data/m5_05/m3_06_settlement_index/summary.json) | [M3_06_SETTLEMENT_INDEX.md](../../docs/reports/M3_06_SETTLEMENT_INDEX.md) |
 | M3 | m3_07_reversed_slots | P4-selection-N1000000-K5000-k8-p0.5 reversed_over_normal 2.373 × | P4-selection-N1000000-K5000-k8-p0.5 normal slots 42293.027 µs/Phase4-selection; reversed slots 99267.500 µs/Phase4-selection | P4-selection-N1000000-K5000-k8-p0.5 reversed/normal P4 selection slowdown 0.989× | — | false | holds | The reversed/normal Phase 4 selection slowdown was 2.347×; canonical digest parity was asserted. | [m3_scale_limit_bench.rs](../../crates/sim-model/benches/m3_scale_limit_bench.rs) | [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs) | [summary](../data/m5_05/m3_07_reversed_slots/summary.json) | [M3_07_SCALE_RESIDUAL.md](../../docs/reports/M3_07_SCALE_RESIDUAL.md) |
 | M3 | m3_08_full_rebuild_equal_live | initial-N100000-live103241-k8-p0.5-day400 old_ratio 5.230 × | M3P-equal-live-day400-initialN100000-live103237-k8-p0.5 M3P full rebuild 121386.983 µs/tick; M3 serial storage equal-live 24785.917 µs/tick | M3P-equal-live-day400-initialN100000-live103237-k8-p0.5 M3P/M3 equal-live ratio 0.936× | — | false | holds | The equal-live ratio was 4.897× versus the recorded 5.230×; the sustained non-propagation workload was used. | source unavailable: `crates/sim-model/examples/m5_05_equal_live.rs` | [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs) | [summary](../data/m5_05/m3_08_full_rebuild_equal_live/summary.json) | [M3_08_POPULATION_DYNAMICS.md](../../docs/reports/M3_08_POPULATION_DYNAMICS.md) |
-| M3 | m3_09_incremental_equal_live | initial-N100000-live103241-k8-p0.5-day400 old_ratio 1.490 × | M3P-equal-live-day400-initialN100000-live103237-k8-p0.5 M3P incremental topology 57601.976 µs/tick; M3 serial storage equal-live 24816.181 µs/tick | M3P-equal-live-day400-initialN100000-live103237-k8-p0.5 M3P/M3 equal-live ratio 1.558× | — | true | does not hold | The equal-live ratio was 2.321× versus the recorded 1.490×; the sustained non-propagation workload was used. | source unavailable: `crates/sim-model/examples/m5_05_equal_live.rs` | [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs) | [summary](../data/m5_05/m3_09_incremental_equal_live/summary.json) | [M3_09_INCREMENTAL_TOPOLOGY.md](../../docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md) |
+| M3 | m3_09_incremental_equal_live | initial-N100000-live103241-k8-p0.5-day400 old_ratio 1.490 × | M3P-equal-live-day400-initialN100000-live103237-k8-p0.5 M3P incremental topology 57601.976 µs/tick; M3 serial storage equal-live 24816.181 µs/tick | M3P-equal-live-day400-initialN100000-live103237-k8-p0.5 M3P/M3 equal-live ratio 1.558× | — | true | holds | Protocol-matched cursor-401 ratios: m3_09_followup 1.322×, HEAD 1.352×; the separate M5-05 cursor-400 cell was 2.321× and includes a compaction day. | source unavailable: `crates/sim-model/examples/m5_05_equal_live.rs` | [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs) | [summary](../data/m5_05/m3_09_incremental_equal_live/summary.json) | [M3_09_INCREMENTAL_TOPOLOGY.md](../../docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md) |
 | M3 | m3_11_phase9c_speedup | M3PROP-P9c-N100000-k16-hops16-pool6 parallel_median_us 65283.000 µs; M3PROP-P9c-N100000-k16-hops16-pool6 serial_median_us 208693.000 µs | M3PROP-P9c-N100000-k16-hops16-pool6 M3PROP Phase9c serial 189620.729 µs/Phase9c; M3PROP Phase9c pool6/chunk256 59645.929 µs/Phase9c; max frontier 29753 | M3PROP-P9c-N100000-k16-hops16-pool6 serial 0.909×; M3PROP-P9c-N100000-k16-hops16-pool6 parallel 0.914× | — | false | holds | The selected Phase 9c serial/pool-6 speedup was 3.179×. | [m3_11_propagation_bench.rs](../../crates/sim-model/benches/m3_11_propagation_bench.rs) | [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs) | [summary](../data/m5_05/m3_11_phase9c_speedup/summary.json) | [M3_11_PROPAGATION.md](../../docs/reports/M3_11_PROPAGATION.md) |
 | M3 | m3_11_whole_tick_speedup | M3PROP-whole-tick-N100000-k16-hops16-pool6 interleaved_speedup 2.260 ×; M3PROP-whole-tick-N100000-k16-hops16-pool6 non_interleaved_speedup 2.290 × | M3PROP-N100000-k16-hops16-pool6 interleaved 159197.867/67904.556 µs/tick; non-interleaved 158759.244/67790.489 µs/tick | M3PROP-N100000-k16-hops16-pool6 whole-tick interleaved speedup 1.037×; M3PROP-N100000-k16-hops16-pool6 whole-tick non-interleaved speedup 1.023× | — | false | holds | Interleaved/non-interleaved speedups were 2.344×/2.342×. | [m3_11_propagation_bench.rs](../../crates/sim-model/benches/m3_11_propagation_bench.rs) | [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs) | [summary](../data/m5_05/m3_11_whole_tick_speedup/summary.json) | [M3_11_PROPAGATION.md](../../docs/reports/M3_11_PROPAGATION.md) |
 | M3 | m3_11_frontier_crossover | M3PROP-frontier-k8-N10000-hops8-16-transmit0.2 frontier_pool2_4 728.000 agents; M3PROP-frontier-k8-N10000-hops8-16-transmit0.2 frontier_pool6 852.000 agents | M3PROP-N10000-k8-hops8-pool2-transmit0.2 M3PROP Phase9c serial 2905.611 µs/Phase9c; M3PROP Phase9c pool2/chunk256 2815.974 µs/Phase9c; max frontier 728; M3PROP-N10000-k8-hops8-pool4-transmit0.2 M3PROP Phase9c serial 2900.207 µs/Phase9c; M3PROP Phase9c pool4/chunk256 2791.221 µs/Phase9c; max frontier 728; M3PROP-N10000-k8-hops16-pool6-transmit0.2 M3PROP Phase9c serial 5944.990 µs/Phase9c; M3PROP Phase9c pool6/chunk256 4623.150 µs/Phase9c; max frontier 852 | — | — | false | holds | Pool 2/4 at frontier 728 and pool 6 at frontier 852 were checked against the paired MAD sum and the recorded frontier size. | [m3_11_propagation_bench.rs](../../crates/sim-model/benches/m3_11_propagation_bench.rs) | [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs) | [summary](../data/m5_05/m3_11_frontier_crossover/summary.json) | [M3_11_PROPAGATION.md](../../docs/reports/M3_11_PROPAGATION.md) |
@@ -144,7 +145,10 @@ First screen-positive adjacent transition: `m3_09_followup` →
 The example timer brackets the public three-day M3P incremental runner
 call; the changed source diff maps the first change to Phase 9B
 incremental non-compaction append path
-(`apply_phase9b_storage_incremental_append`).
+(`apply_phase9b_storage_incremental_append`). The first changed commit
+was `78181e21aad0733189450b77eb07ee8bc4708377`; its Phase 9b incremental
+append path reduced the measured numerator by 21.4% relative to the
+preceding candidate in that bisect.
 
 The bisect harness is
 [m5_05_m3_09_bisect.py](../../crates/sim-model/examples/m5_05_m3_09_bisect.py);
@@ -164,6 +168,88 @@ Build/checkpoint time is outside the timed samples. Repetitions per
 sample were fixed at 3; total timing window 324.3 s; complete run 583.2
 s. Protocol and revision order are in
 [m3_09_diagnosis.toml](m5_05_configs/m3_09_diagnosis.toml).
+
+## M3-09 protocol scope recheck
+
+The M3-09 follow-up report states exactly: “The checkpoint is after
+executed day 400, at 10,341 live agents for the 10k start and 103,241
+for the 100k start. Each sample uses two warmups, 11 measured samples,
+and three consecutive days per sample; contexts are reconstructed from
+the same checkpoint outside each sample timer. The paired schedule
+rotates M3P serial, M3P incremental, and M3 order within each sample.”
+The temporary original driver is missing, and the report does not list
+its internal day IDs. The recheck interprets the checkpoint as the
+next-day cursor 401, so it measures internal days 401, 402, 403; this
+mapping is an inference from the runner’s day cursor.
+
+The committed M5-05 driver constructs its checkpoint with
+`m3p_checkpoint` in
+[m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs).
+Its cursor is 400, so its three-day call covers days 400, 401, 402 and
+includes compaction day 400. For the 100k cell, the M5-05 timing
+protocol was: “2 warmups; 41 A-5 samples; three-day calls; 7 repetitions
+per sample; M3P incremental/M3 pair only; contexts built outside each
+timer.” The 10k selected cell used 24 repetitions per sample. Both
+methods call each public runner once per three simulated days; M5-05
+repeats that operation to meet A-5 sample duration, so validation
+cadence per simulated day is equal. Other differences are the
+checkpoint/day boundary and compaction, three-runner rotation versus a
+two-path pair, 11 versus 41 measured samples, and one operation versus
+repeated operations per sample. The historical report does not record
+process priority or affinity, so those controls cannot be compared. The
+configs, seed, replicate, metrics/events setting, snapshots-off setting,
+and serial execution mode match. \| measurement \| checkpoint / timed
+days \| compaction \| warmups / samples \| public calls / sample \|
+timed runners \| context timing \| \| —————————– \| ———————————————– \|
+——————————————- \| —————– \| —————————————- \| —————————————————– \|
+————————————– \| \| M3-09 follow-up as documented \| after executed day
+400; internal IDs not listed \| original driver’s exact day IDs
+unavailable \| 2 / 11 \| one call per runner; 3 days each \| M3P serial
+→ M3P incremental → M3 (rotating) \| contexts built outside sample timer
+\| \| M5-05 selected cell \| cursor 400; 400, 401, 402 \| 400 \| 2 / 41
+\| 7 repeated calls per runner; 3 days each \| M3P incremental ↔ M3; M3P
+serial used only for parity \| contexts built before each call timer \|
+\| Protocol-matched A-5 recheck \| cursor 401; 401, 402, 403 \| none \|
+2 / 41 \| r calls per runner; 3 days each \| M3P serial → M3P
+incremental → M3 (rotating) \| contexts built outside each call timer \|
+
+The original equal-live definition is preserved: M3 starts from the same
+live M3P agent records and settlement state, while its graph is
+profile-specific. The matched data uses the same config, seed,
+replicate, action settings, metrics/events, and serial execution on both
+revisions. Harness:
+[m5_05_m3_09_scope_check.py](../../crates/sim-model/examples/m5_05_m3_09_scope_check.py)
+and
+[m5_05_m3_09_revision.rs](../../crates/sim-model/examples/m5_05_m3_09_revision.rs);
+plan: [m3_09_scope_check.toml](m5_05_configs/m3_09_scope_check.toml);
+Git summary: [protocol-matched
+summary](../data/m5_05/m3_09_scope_check/summary.json); raw samples are
+DVC-managed at `docs/data/m5_05/m3_09_scope_check/raw/samples.jsonl`.
+
+| N | revision | commit | live | cursor | days | compaction | M3P serial median ± MAD µs/tick | M3P incremental median ± MAD µs/tick | M3 median ± MAD µs/tick | incremental / M3 | follow-up ratio | within 20% | r | valid |
+|----|----|----|----|----|----|----|----|----|----|----|----|----|----|----|
+| 10,000 | m3_09_followup | 681bf296ea07d3ddc4391f5f1dfd49255876300c | 10,341 | 401 | 401, 402, 403 | none | 6982.819 ± 81.137 | 2707.547 ± 28.396 | 2178.889 ± 32.633 | 1.242627 | 1.21 | true | 24 | true |
+| 10,000 | HEAD | c857d51517bf8df2ff5f50c6cb035585fc4b549e | 10,341 | 401 | 401, 402, 403 | none | 6921.687 ± 93.058 | 2681.064 ± 37.293 | 2174.491 ± 38.433 | 1.232961 | 1.21 | true | 23 | true |
+| 100,000 | m3_09_followup | 681bf296ea07d3ddc4391f5f1dfd49255876300c | 103,241 | 401 | 401, 402, 403 | none | 121251.800 ± 1900.083 | 34285.017 ± 694.583 | 25927.400 ± 632.217 | 1.322347 | 1.49 | true | 2 | true |
+| 100,000 | HEAD | c857d51517bf8df2ff5f50c6cb035585fc4b549e | 103,241 | 401 | 401, 402, 403 | none | 121957.433 ± 1825.400 | 35008.283 ± 497.900 | 25893.000 ± 483.550 | 1.352037 | 1.49 | true | 2 | true |
+
+### Validation cost per public call
+
+The probe uses a temporary `Instant` timer inside
+`M3pStorageRunContext::validate_for`, enabled only during zero-day
+validation calls. That instrumentation was removed before the A-5 runner
+comparison. The public zero-day call also includes the empty
+registered-loop setup, shown as a separate upper-bound measurement.
+
+Harness: [scope-check
+worker](../../crates/sim-model/examples/m5_05_m3_09_revision.rs);
+summary: [validation
+probe](../data/m5_05/m3_09_scope_check/validate_for/summary.json); raw
+timing output is DVC-managed.
+
+| measurement | N | calls | median µs/call | MAD µs/call | public zero-day median µs | public zero-day MAD µs |
+|----|----|----|----|----|----|----|
+| M3pStorageRunContext::validate_for | 100,000 | 41 | 16,543.4 | 191.4 | 16,571.2 | 189.3 |
 
 ### Deterministic confirmations
 
@@ -197,12 +283,20 @@ statistics.
   confirmations](#deterministic-confirmations).
 - \[exploratory\] Every pre-registered timing stage has a recorded
   summary.
-- \[exploratory\] The M5-05 decomposition is both, dominated by
-  numerator relative to the M3-09 follow-up paired result.
-- \[exploratory\] The M3-09 follow-up’s recorded ratio did not reproduce
-  at that revision in this session; the first pre-registered screen
-  crossing is `78181e21aad0733189450b77eb07ee8bc4708377` in Phase 9B.
-  The historical timing discrepancy remains unexplained.
+- \[exploratory\] The first pre-registered source change was
+  `78181e21aad0733189450b77eb07ee8bc4708377` in the Phase 9B incremental
+  append path; see the cross-revision table.
+- \[pre-registered: M5-05-M3-09-PROTOCOL-RECHECK\] The M5-05 cursor-400
+  all-days ratio differs by more than the registered 20% band from the
+  historical 100k equal-live ratio; its protocol includes a compaction
+  day.
+- \[pre-registered: M5-05-M3-09-PROTOCOL-RECHECK\] The protocol-matched
+  100k ratios fall within the pre-registered band around the M3-09
+  follow-up value; see the scope table.
+- \[pre-registered: M5-05-M3-09-PROTOCOL-RECHECK\] The committed M5-05
+  cursor sample includes a compaction day; see the scope table.
+- \[exploratory\] The validation method and zero-day public-call timings
+  are reported separately from A-5 full-tick samples.
 
 ## Limits
 
@@ -220,5 +314,8 @@ statistics.
 | \[exploratory\] | `finding_ratio_flags_match_threshold` | `true` |
 | \[exploratory\] | `finding_deterministic_targets_passed` | `true` |
 | \[exploratory\] | `finding_all_timing_stages_recorded` | `true` |
-| \[exploratory\] | `finding_m3_09_decomposition_matches_paths` | `true` |
 | \[exploratory\] | `finding_m3_09_bisect_matches_candidate_and_phase_diff` | `true` |
+| \[pre-registered: M5-05-M3-09-PROTOCOL-RECHECK\] | `finding_m3_09_all_days_ratio_outside_historical_band` | `true` |
+| \[pre-registered: M5-05-M3-09-PROTOCOL-RECHECK\] | `finding_m3_09_protocol_ratio_within_band` | `true` |
+| \[pre-registered: M5-05-M3-09-PROTOCOL-RECHECK\] | `finding_m3_09_m5_cursor_includes_compaction` | `true` |
+| \[exploratory\] | `finding_m3_09_validate_for_samples_match_summary` | `true` |
