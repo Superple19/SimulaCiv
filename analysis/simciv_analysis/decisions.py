@@ -86,6 +86,15 @@ def _prek_hooks(root: Path) -> set[str]:
     }
 
 
+def _is_documentation_reference(reference: str) -> bool:
+    path = reference.partition("#")[0].replace("\\", "/")
+    return (
+        path.startswith("docs/")
+        or path in {"README.md", "AGENTS.md"}
+        or (path.startswith("contracts/") and path.endswith((".md", ".toml")))
+    )
+
+
 def validate_registry(
     registry: dict[str, Any],
     root: Path = ROOT,
@@ -94,7 +103,9 @@ def validate_registry(
     just_targets: set[str] | None = None,
     prek_hooks: set[str] | None = None,
 ) -> list[str]:
-    required_decision = {"id", "milestone", "stage", "status", "summary", "enforced_by", "doc", "date"}
+    required_decision = {
+        "id", "milestone", "stage", "status", "summary", "enforcement", "enforced_by", "doc", "date"
+    }
     required_stage = {"id", "milestone", "status", "summary", "doc"}
     decisions = registry.get("decision")
     stages = registry.get("stage")
@@ -114,12 +125,26 @@ def validate_registry(
             raise RegistryError(f"duplicate decision id: {item['id']}")
         if item["status"] not in {"draft", "frozen", "superseded"}:
             raise RegistryError(f"invalid status for {item['id']}: {item['status']}")
+        if item["enforcement"] not in {"verified", "exists", "documented", "none"}:
+            raise RegistryError(f"invalid enforcement level for {item['id']}: {item['enforcement']}")
         if not isinstance(item["summary"], str) or not item["summary"].strip():
             raise RegistryError(f"summary must be non-empty for {item['id']}")
         if not isinstance(item["enforced_by"], list) or not all(
             isinstance(ref, str) and ref.strip() for ref in item["enforced_by"]
         ):
             raise RegistryError(f"enforced_by must be a list of non-empty strings for {item['id']}")
+        if item["enforcement"] == "none" and item["enforced_by"]:
+            raise RegistryError(f"enforcement none requires an empty enforced_by list for {item['id']}")
+        if item["enforcement"] != "none" and not item["enforced_by"]:
+            raise RegistryError(f"enforcement {item['enforcement']} requires enforced_by references for {item['id']}")
+        if item["enforcement"] == "documented" and not all(
+            _is_documentation_reference(reference) for reference in item["enforced_by"]
+        ):
+            raise RegistryError(f"documented enforcement may cite only documentation for {item['id']}")
+        if item["enforcement"] == "verified" and not any(
+            reference.startswith("test:") for reference in item["enforced_by"]
+        ):
+            raise RegistryError(f"verified enforcement requires a named asserting test for {item['id']}")
         if not isinstance(item["date"], str):
             raise RegistryError(f"date must be an ISO date string for {item['id']}")
         try:
@@ -167,8 +192,6 @@ def validate_registry(
     just_targets = _just_targets(root) if just_targets is None else just_targets
     prek_hooks = _prek_hooks(root) if prek_hooks is None else prek_hooks
     for item in decisions:
-        if item["status"] != "frozen":
-            continue
         for reference in item["enforced_by"]:
             if reference.startswith("test:"):
                 target = reference.removeprefix("test:").replace("\\", "/")
@@ -185,7 +208,7 @@ def validate_registry(
             elif not _repo_path(root, reference).exists():
                 raise RegistryError(f"enforcement path does not exist for {item['id']}: {reference}")
 
-    return [item["id"] for item in decisions if item["status"] == "frozen" and not item["enforced_by"]]
+    return [item["id"] for item in decisions if item["status"] == "frozen" and item["enforcement"] == "none"]
 
 
 def _assert_supersession_acyclic(decisions: list[dict[str, Any]]) -> None:
@@ -223,8 +246,8 @@ def _markdown_link(doc: str, source: Path) -> str:
 
 def render_decision_table(decisions: list[dict[str, Any]], source: Path) -> str:
     lines = [
-        "| ID | Status | Summary | Enforced by | Date | Document |",
-        "|---|---|---|---|---|---|",
+        "| ID | Status | Enforcement | Summary | Enforced by | Date | Document |",
+        "|---|---|---|---|---|---|---|",
     ]
     for item in decisions:
         enforced = "<br>".join(f"`{_cell(ref)}`" for ref in item["enforced_by"]) or "—"
@@ -234,6 +257,7 @@ def render_decision_table(decisions: list[dict[str, Any]], source: Path) -> str:
                 (
                     f"`{_cell(item['id'])}`",
                     item["status"],
+                    item["enforcement"],
                     _cell(item["summary"]),
                     enforced,
                     item["date"],
