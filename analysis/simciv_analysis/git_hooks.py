@@ -16,7 +16,7 @@ MAX_FILE_BYTES = 1024 * 1024
 UTF8_BOM = b"\xef\xbb\xbf"
 MESSAGE_EXPECTATION = (
     "expected format: <type>: <subject> (<=72 characters)\n"
-    "optionally followed by one blank line and contiguous '- <bullet>' lines "
+    "followed by one blank line and at least one contiguous '- <bullet>' line "
     "(each <=100 characters); no prose, blank bullet lines, or trailing whitespace"
 )
 
@@ -108,7 +108,7 @@ def commit_message_error(message: str) -> str | None:
     if len(subject) > 72 or not re.fullmatch(r"(?:feat|fix|docs|perf|data|test|chore|ci): \S.*", subject):
         return "line 1 must be '<type>: <subject>' with an allowed type and at most 72 characters"
     if len(lines) == 1:
-        return None
+        return "a body with at least one bullet is required"
     if lines[1] != "":
         return "the body must start after exactly one blank line"
     body = lines[2:]

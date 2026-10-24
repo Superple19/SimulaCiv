@@ -40,7 +40,7 @@ Unless explicitly requested:
 - Never amend, rebase, reset, or force-push a commit that exists on `origin`; correct mistakes with a new commit.
 - Track new experiment raw outputs through DVC stages; keep summaries, specs, harnesses, reports, generated figures, and DVC pointers in Git. Never commit DVC credentials.
 - Install the repository Git hooks with `just hooks-install` before committing; never bypass them with `--no-verify`.
-- Write a UTF-8/LF commit-message file with `write_text_lf` or an editor and use `git commit -F <file>` only; never use `-m`. The `allowlist-commit-message` hook enforces message syntax.
+- Write a UTF-8/LF commit-message file with `write_text_lf` or an editor and use `git commit -F <file>` only; never use `-m`. The `allowlist-commit-message` hook requires a nonempty contiguous bullet body and enforces message syntax.
 - When writing repository files from PowerShell, use PowerShell 7 or `-Encoding utf8NoBOM`; never rely on Windows PowerShell 5.1 `Out-File` or `Set-Content` defaults.
 - Normal delivery is `just ship`, which pushes to `ci-check`; pre-push hooks run local checks, and the same successful CI run promotes the commit to `main` by fast-forward only. Never push directly to `main`.
 

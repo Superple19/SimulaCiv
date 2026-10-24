@@ -3,7 +3,7 @@ from pathlib import Path
 from simciv_analysis.git_hooks import commit_message_error, commit_range_violations, dvc_output_paths, large_file_violations
 
 
-def test_commit_message_accepts_known_ci_message_and_subject_only():
+def test_commit_message_accepts_messages_with_bullet_bodies():
     known = """ci: promote green ci-check commits to main
 
 - run CI on ci-check and fast-forward successful tested commits to main
@@ -12,12 +12,14 @@ def test_commit_message_accepts_known_ci_message_and_subject_only():
 - add just ship and document normal delivery and same-run promotion
 """
     assert commit_message_error(known) is None
-    assert commit_message_error("docs: short subject\n") is None
-    assert commit_message_error("docs: short subject\n# editor comment\n") is None
+    assert commit_message_error("docs: short subject\n\n- describe the documentation change\n") is None
+    assert commit_message_error("docs: short subject\n# editor comment\n\n- describe the change\n") is None
 
 
 def test_commit_message_rejects_everything_outside_the_allowlist():
     bad_messages = [
+        "docs: subject only\n",
+        "docs: subject with editor comment\n# comment\n",
         "docs: generated registry tables\n\n- generate contract and README tables\n\n- add generated-table checks\n",
         "fix: reject stray token\n\n- command used -m twice\n",
         "docs: explain result\n\nThis is prose, not a bullet.\n",

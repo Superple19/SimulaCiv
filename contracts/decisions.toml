@@ -469,8 +469,8 @@ id = "M5-INFRA-COMMIT-MESSAGE-ALLOWLIST"
 milestone = "M5"
 stage = "M5-03"
 status = "frozen"
-summary = "Commit messages follow the repository allowlist and are checked by the installed commit-msg hook."
-enforced_by = ["analysis/simciv_analysis/git_hooks.py", "test:analysis/tests/test_git_hooks.py::test_commit_message_rejects_everything_outside_the_allowlist", ".pre-commit-config.yaml", "prek:allowlist-commit-message"]
+summary = "Commit messages use the repository allowlist and require a nonempty body of contiguous '- ' bullets."
+enforced_by = ["analysis/simciv_analysis/git_hooks.py", "test:analysis/tests/test_git_hooks.py::test_commit_message_accepts_messages_with_bullet_bodies", "test:analysis/tests/test_git_hooks.py::test_commit_message_rejects_everything_outside_the_allowlist", ".pre-commit-config.yaml", "prek:allowlist-commit-message"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-24"
 
