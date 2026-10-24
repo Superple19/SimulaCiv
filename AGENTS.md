@@ -2,40 +2,33 @@
 
 These rules apply to all agents working in this repository.
 
-## 1. Task scope is a hard boundary
+## 1. Scope
 
-Do exactly the requested task and no more.
+Do exactly the requested task and no more. Interpret task wording strictly:
 
-- Do not start the next milestone unless explicitly instructed.
-- Do not infer permission from `Next Step`, `Next Milestone`, roadmap entries, TODOs, design documents, or obvious follow-up work.
-- Do not proactively implement, scaffold, refactor, create files, add dependencies, run benchmarks, or change architecture unless the current task explicitly requires it.
-- Prefer stopping after the requested deliverable over continuing helpfully.
-
-## 2. Respect task mode
-
-Interpret task wording strictly.
-
-- **Review / audit / inspect / analyze** → read and report only. Do not modify files.
+- **Review / audit / inspect / analyze** → read and report only; do not modify files.
 - **Edit / revise / fix** → modify only the explicitly requested files and scope.
 - **Implement** → code only the explicitly authorized implementation scope.
-- **Validate / test** → perform validation only. Do not fix unrelated findings unless instructed.
+- **Validate / test** → perform validation only; do not fix unrelated findings unless instructed.
+- Never convert a review into an edit, an edit into an implementation, or validation into a repair.
+- Do not start the next milestone unless explicitly instructed. `Next Step`, `Next Milestone`, roadmap entries, TODOs, design documents, and obvious follow-ups do not authorize it.
+- Do not proactively implement, scaffold, refactor, create files, add dependencies, run benchmarks, or change architecture unless the task explicitly requires it.
+- Preserve existing architecture, terminology, file layout, and accepted decisions. Prefer targeted edits; do not add speculative abstractions, solve deferred problems, broaden scope, or modify unrelated files for convenience.
+- Stop after the requested deliverable. Do not begin follow-up work or fix unrelated findings; wait for explicit instruction.
 
-Never convert:
+## 2. Commands
 
-- a review task into an edit task;
-- an edit task into an implementation task;
-- a validation task into a repair task.
+From the repository root:
 
-## 3. Make minimal changes
+- `just hooks-install` — install the repository Git hooks before committing.
+- `just ci` — run the local CI checks.
+- `just ci-linux` — run the CI Rust and analysis targets in the WSL Linux checkout.
+- `just ship` — run the standard delivery path to `ci-check`.
+- `just data-integrity-update` — register checksums for newly produced data files.
+- `just decisions` / `just decisions-check` — regenerate or verify registry tables.
+- `just report-m5-01`, `just report-m5-04`, `just report-m5-05` — regenerate the corresponding reports; matching `*-check` targets verify committed output.
 
-- Preserve existing architecture, terminology, file layout, and accepted decisions unless explicitly asked to change them.
-- Prefer targeted edits over whole-file rewrites.
-- Do not introduce speculative abstractions or future-facing infrastructure.
-- Do not solve deferred problems early.
-- Do not broaden the current scope because a future requirement appears obvious.
-- Do not modify unrelated files merely to make the requested change easier.
-
-## 4. Versioning and Git
+## 3. Versioning and Git
 
 Unless explicitly requested:
 
@@ -47,11 +40,11 @@ Unless explicitly requested:
 - Never amend, rebase, reset, or force-push a commit that exists on `origin`; correct mistakes with a new commit.
 - Track new experiment raw outputs through DVC stages; keep summaries, specs, harnesses, reports, generated figures, and DVC pointers in Git. Never commit DVC credentials.
 - Install the repository Git hooks with `just hooks-install` before committing; never bypass them with `--no-verify`.
-- Write every commit message to a UTF-8/LF file with `write_text_lf` or an editor, then use `git commit -F <file>` only; never use `-m`. Messages must pass the `allowlist-commit-message` hook: an allowed `<type>: <subject>` line and, optionally, one blank line followed only by contiguous `- ` bullets.
+- Write a UTF-8/LF commit-message file with `write_text_lf` or an editor and use `git commit -F <file>` only; never use `-m`. The `allowlist-commit-message` hook enforces message syntax.
 - When writing repository files from PowerShell, use PowerShell 7 or `-Encoding utf8NoBOM`; never rely on Windows PowerShell 5.1 `Out-File` or `Set-Content` defaults.
-- Normal delivery is `just ship`, which runs local checks and pushes to `ci-check`; the same successful CI run promotes that commit to `main` by fast-forward only. Never push directly to `main`.
+- Normal delivery is `just ship`, which pushes to `ci-check`; pre-push hooks run local checks, and the same successful CI run promotes the commit to `main` by fast-forward only. Never push directly to `main`.
 
-## 5. SimulaCiv development stages
+## 4. SimulaCiv development stages
 
 Semantics and contracts come before optimization.
 
@@ -71,7 +64,7 @@ Rules:
 - Keep semantic contracts separate from performance and storage optimizations.
 - A documented next milestone is not authorization to begin it.
 
-## 6. Do not silently resolve open decisions
+## 5. Do not silently resolve open decisions
 
 If the task exposes an unresolved architectural or semantic decision:
 
@@ -81,7 +74,7 @@ If the task exposes an unresolved architectural or semantic decision:
 
 When uncertainty affects correctness, stop at the current task boundary instead of guessing forward.
 
-## 7. Test integrity is part of the specification
+## 6. Test integrity is part of the specification
 
 Tests, fixtures, golden outputs, canonical hashes, snapshots, and CI validation rules are part of the project contract.
 
@@ -109,7 +102,7 @@ If an existing test appears incorrect or conflicts with the specification:
 
 Tests are not implementation suggestions. They are external acceptance constraints.
 
-## 8. Validation must use real production paths
+## 7. Validation must use real production paths
 
 When validating an implementation:
 
@@ -121,7 +114,7 @@ When validating an implementation:
 
 A passing test is not sufficient if the implementation violates the documented contract.
 
-## 9. Verify before reporting completion
+## 8. Verify before reporting completion
 
 Before claiming completion:
 
@@ -135,7 +128,7 @@ Before claiming completion:
 
 If tests fail, report the failure accurately. Do not hide or work around it unless explicitly instructed to investigate or fix it.
 
-## 10. Reporting
+## 9. Reporting
 
 Keep completion reports concise.
 
@@ -148,26 +141,16 @@ Report only:
 5. remaining blockers, failures, or open questions;
 6. nothing beyond the requested scope.
 
-## 11. Stop condition
+## 10. Standing research rules
 
-After completing the explicitly requested deliverable, stop.
-
-Do not begin follow-up work even if the next step appears obvious.
-
-Do not fix newly discovered unrelated issues unless explicitly instructed.
-
-Wait for explicit user instruction before proceeding.
-
-## 12. Standing research rules
-
-- Commit each experiment or measurement harness under `crates/sim-model/examples/` or `crates/sim-model/benches/`; do not delete it after measuring. Temporary instrumentation inside library code may be removed, but the driver that exercised it stays committed.
-- Track new full raw outputs under `docs/data/<stage>/` through DVC; commit a small summary (at most 1 MiB), specs, pointers, and reports in Git. Cite both the harness and its summary/raw data entry for every report table. Existing Git-tracked data stays in place.
+- Commit each experiment or measurement harness under `crates/sim-model/examples/` or `crates/sim-model/benches/` and keep it after measuring; temporary library instrumentation may be removed, but its driver stays committed.
+- Track full raw outputs under `docs/data/<stage>/` through DVC; keep specs, summaries (at most 1 MiB), pointers, and reports in Git. `prek:dvc-large-files` enforces the Git size limit. Cite the harness and summary/raw data entry for every report table; existing Git data stays in place.
 - Do not garbage-collect the local DVC cache until `dvc push --all-commits` has succeeded; DVC uploads remain deferred unless explicitly requested.
-- Never commit DVC credentials. Shared remote configuration may contain the URL only; tokens belong in ignored local config.
+- `.dvc/config` may contain the shared remote URL; keep credentials only in ignored `.dvc/config.local`, which `prek:forbid-dvc-local-config` blocks.
 - Choose thresholds and parameters from a measured effect distribution; record the choices before running the experiment.
 - Preserve historical documents, including frozen contracts and past audits. Add a dated **Later update** note instead of rewriting their historical wording.
 
-## 13. Documentation rules
+## 11. Documentation rules
 
 - Generate report numbers, tables, and figures from committed code and data. Do not hand-type measured or computed values into prose; cite the generated table or figure.
 - Keep experiment conditions in spec files and link to them from documentation instead of restating them.
@@ -176,11 +159,8 @@ Wait for explicit user instruction before proceeding.
 - Use this template for new reports: Status; Question; Method (links); Results (generated); Findings (at most five bullets, each citing a generated item); Limits (at most five bullets). Target one page of prose.
 - Do not duplicate content across the README, audits, and contracts; link to the single source.
 - Preserve existing historical reports. M5-08 may add summary-first headers.
-- All text files use UTF-8 with LF line endings except `.bat` and `.cmd` files, which use CRLF. Data files are byte-exact and are never normalized. Python analysis code writes text only through `simciv_analysis.io.write_text_lf`.
+- Follow `.editorconfig` and `.gitattributes`: text is UTF-8 without BOM and LF except `.bat`/`.cmd` CRLF, while data bytes are exact. `prek:forbid-utf8-bom`, `prek:trailing-whitespace`, `prek:end-of-file-fixer`, `prek:mixed-line-ending`, and `prek:data-integrity` enforce this; Python analysis writes go through `simciv_analysis.io.write_text_lf`.
 
 ### Findings integrity
 
-- Every Findings bullet in a generated report must be rendered together with a named predicate over its source data. The report generator must fail when any paired predicate is false and must render an appendix table listing every predicate and its value.
-- Numeric result values in finding prose must come from inline Quarto expressions, not hand-typed prose values.
-- Tag each finding `[pre-registered: <id>]` using an id from the stage conclusions/specification, or `[exploratory]` when it was not pre-registered.
-- Lint generated reports with Vale. Pin the latest stable Vale release; keep the project style under `analysis/vale/` and invoke Vale with `--config analysis/vale/.vale.ini`. Flag `prove`, `always`, `never`, `causes`, `in general`, `universally`, and `guarantees` unless the sentence has a `[pre-registered: <id>]` tag and the generator pairs it with a passing check. `just lint-prose` runs the lint, and `just check` includes it. The analysis CI job installs the pinned Vale release.
+Generated Findings require passing named predicates, inline Quarto values, `[pre-registered: <id>]` or `[exploratory]` tags, and a predicate appendix. Report tests, `just check`, `just lint-prose`, and `prek:vale-changed-docs` enforce these and Vale's overclaim exception rule. Keep the style under `analysis/vale/`, invoke it with `--config analysis/vale/.vale.ini`, and use the pinned version in CI.
