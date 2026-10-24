@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from simciv_analysis.claims import _tier, _tokens, apply_m5_04_overrides, extract_claims, ledger_bytes, scan_documents
-from simciv_analysis.io import write_text_lf
+from simciv_analysis.io import content_matches, write_text_lf
 
 
 def test_claims_exclude_inputs_match_exact_metadata_and_pack_one_row_each(tmp_path):
@@ -182,14 +182,24 @@ def test_contract_claim_identity_is_stable_when_lines_are_inserted_above_it(tmp_
     contract.parent.mkdir(parents=True)
     original = "# Sample\n\n## Current reproducibility state\n\nObserved value: 42.\n"
     write_text_lf(contract, original)
+    old = tmp_path / "old.csv"
+    write_text_lf(
+        old,
+        "claim_id,report,section anchor,claim text (short),value,unit,class,source harness,raw data,status,M5 stage,notes\n",
+    )
+    before_bytes = ledger_bytes(extract_claims(tmp_path, old))
+    committed_ledger = tmp_path / "docs" / "reproducibility" / "claims.csv.gz"
+    committed_ledger.parent.mkdir(parents=True)
+    committed_ledger.write_bytes(before_bytes)
     before = scan_documents(tmp_path)
 
     write_text_lf(contract, "A non-claim introduction.\n" + original)
+    after_bytes = ledger_bytes(extract_claims(tmp_path, old))
     after = scan_documents(tmp_path)
 
     assert len(before) == len(after) == 1
     assert before[0]["claim_key"] == after[0]["claim_key"]
-    assert {key: value for key, value in before[0].items() if key != "line"} == {
-        key: value for key, value in after[0].items() if key != "line"
-    }
+    assert after_bytes == committed_ledger.read_bytes() == before_bytes
+    assert content_matches(committed_ledger, after_bytes)
+    assert {key: value for key, value in before[0].items() if key != "line"} == {key: value for key, value in after[0].items() if key != "line"}
     assert after[0]["line"] == before[0]["line"] + 1

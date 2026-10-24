@@ -28,7 +28,6 @@ FIELDS = [
     "claim_id",
     "claim_key",
     "report",
-    "line",
     "section anchor",
     "claim text (short)",
     "context",
@@ -707,7 +706,7 @@ def ledger_bytes(claims: list[dict[str, object]]) -> bytes:
     writer = csv.DictWriter(text, fieldnames=FIELDS, lineterminator="\n")
     writer.writeheader()
     for claim in claims:
-        writer.writerow(claim)
+        writer.writerow({field: claim.get(field, "") for field in FIELDS})
     raw = io.BytesIO()
     with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9) as stream:
         stream.write(text.getvalue().encode("utf-8"))

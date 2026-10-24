@@ -16,9 +16,10 @@ The committed extractor
 report/contract source tree and assigns provenance from
 [`sources.toml`](sources.toml). `claim_key` (report path, section
 anchor, and in-section ordinal) is the stable identity; `claim_id`
-remains the compatibility key for existing status maps, and `line` is
-informational. Its tidy output [claims.csv.gz](claims.csv.gz) contains
-**32,465** rows; the prior packed ledger
+remains the compatibility key for existing status maps. Source line
+numbers are resolved only for this report and are omitted from the
+committed ledger. Its tidy output [claims.csv.gz](claims.csv.gz)
+contains **32,465** rows; the prior packed ledger
 [superseded/claims.csv](superseded/claims.csv) contains **37,612**
 expanded scalar values. M5-04 statuses are applied only to source-map
 entries assigned to that stage. Excluded inputs are table columns or

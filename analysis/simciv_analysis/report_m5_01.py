@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from simciv_analysis.claims import OLD_LEDGER, ROOT, expand_old_ledger, match_old_claims
+from simciv_analysis.claims import OLD_LEDGER, ROOT, expand_old_ledger, match_old_claims, scan_documents
 from simciv_analysis.findings import Finding, render_findings
 from simciv_analysis.io import load_data, write_text_lf
 from simciv_analysis.recovered_claim_audit import SUMMARY_PATH as RECOVERED_AUDIT_SUMMARY_PATH
@@ -27,7 +27,7 @@ QMD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.qmd"
 MD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.md"
 LEDGER_PATH = ROOT / "docs" / "reproducibility" / "claims.csv.gz"
 RECOVERED_STATUS_PATH = ROOT / "docs" / "reproducibility" / "recovered_claim_statuses.json.gz"
-REQUIRED_CLAIM_FIELDS = ["claim_id", "claim_key", "report", "line", "section anchor", "claim text (short)", "context", "value", "unit", "class", "tier", "source harness", "raw data", "status", "M5 stage", "notes"]
+REQUIRED_CLAIM_FIELDS = ["claim_id", "claim_key", "report", "section anchor", "claim text (short)", "context", "value", "unit", "class", "tier", "source harness", "raw data", "status", "M5 stage", "notes"]
 
 
 def _milestone(report: str) -> str:
@@ -59,9 +59,8 @@ def _grouped_counts(claims: pd.DataFrame) -> pd.DataFrame:
     return counts.sort_values(["milestone", "class", "status", "tier"], kind="stable").reset_index(drop=True)
 
 
-def _comparison(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _comparison(claims: pd.DataFrame, current: list[dict[str, object]]) -> tuple[pd.DataFrame, pd.DataFrame]:
     old = expand_old_ledger(OLD_LEDGER)
-    current = claims.to_dict(orient="records")
     matches, ambiguous = match_old_claims(old, current, ROOT)
     rename_path = ROOT / "docs" / "reports" / "RENAMES.md"
     renames: dict[str, str] = {}
@@ -251,7 +250,14 @@ def _report_parts() -> dict[str, str]:
     if list(claims.columns) != REQUIRED_CLAIM_FIELDS:
         raise ValueError(f"unexpected claim columns: {list(claims.columns)}")
     counts = _grouped_counts(claims)
-    comparison, comparison_reasons = _comparison(claims)
+    current_claim_records = claims.to_dict(orient="records")
+    source_lines = {
+        str(claim["claim_key"]): int(claim["line"])
+        for claim in scan_documents(ROOT)
+    }
+    for claim in current_claim_records:
+        claim["line"] = source_lines[str(claim["claim_key"])]
+    comparison, comparison_reasons = _comparison(claims, current_claim_records)
     headline_counts = (
         claims.loc[claims["tier"] == "headline"]
         .assign(milestone=lambda frame: frame["report"].map(_milestone))
@@ -261,12 +267,13 @@ def _report_parts() -> dict[str, str]:
         .reset_index()
     )
     old_claims = expand_old_ledger(OLD_LEDGER)
-    old_matches, _ = match_old_claims(old_claims, claims.to_dict(orient="records"), ROOT)
+    old_matches, _ = match_old_claims(old_claims, current_claim_records, ROOT)
     m1_indices = [
         index for index, old in old_matches.items()
         if str(old["report"]) == "M1_CONTRACT_FREEZE.md" and str(old["status"]) == "unrecoverable"
     ]
     m1 = claims.iloc[m1_indices].copy()
+    m1["line"] = m1["claim_key"].map(source_lines)
     m1 = m1.sort_values(["line", "claim_id"], kind="stable")
     m1 = m1[["claim_id", "line", "value", "class", "status", "notes"]]
     gaps = claims.loc[
@@ -384,7 +391,7 @@ Which numeric statements in the existing M0–M4 performance reports and contrac
 
 ## Method
 
-The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree and assigns provenance from [`sources.toml`](sources.toml). `claim_key` (report path, section anchor, and in-section ordinal) is the stable identity; `claim_id` remains the compatibility key for existing status maps, and `line` is informational. Its tidy output [claims.csv.gz](claims.csv.gz) contains **{parts['total']}** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **{parts['old_count']}** expanded scalar values. M5-04 statuses are applied only to source-map entries assigned to that stage. {parts['input_rule']}
+The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree and assigns provenance from [`sources.toml`](sources.toml). `claim_key` (report path, section anchor, and in-section ordinal) is the stable identity; `claim_id` remains the compatibility key for existing status maps. Source line numbers are resolved only for this report and are omitted from the committed ledger. Its tidy output [claims.csv.gz](claims.csv.gz) contains **{parts['total']}** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **{parts['old_count']}** expanded scalar values. M5-04 statuses are applied only to source-map entries assigned to that stage. {parts['input_rule']}
 
 ## Results
 
