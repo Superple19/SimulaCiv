@@ -175,10 +175,18 @@ pass_criterion = "Report the equal-live ratio and classify the historical 1.49x 
 estimate_minutes = 40
 session = 2
 tests = ["m3p_incremental_topology_tests"]
-scope_check_hypothesis = "The historical 1.49x ratio reflects non-compaction days; the M5-05 checkpoint-day-400 sample includes compaction, while a days-101–103 scope-matched sample will be within 20% of 1.49x."
-scope_check_reference_days = [101, 102, 103]
-scope_check_current_cursor_days = [400, 401, 402]
+scope_check_hypothesis = "WITHDRAWN before timing: days 101–103 in M3-09 were the Phase 9b diagnostic profile, not the 1.49x equal-live measurement."
+scope_check_withdrawal_reason = "The M3-09 report's 1.49x value is from the equal-live follow-up after the day-400 checkpoint; the original temporary driver is missing."
+scope_check_protocol_hypothesis = "The M5-05 ratio is elevated by checkpoint/compaction or runner-order differences; code shows both protocols use one three-day public call per path, so validate_for frequency is equal per simulated day, though its per-call cost will be measured."
+scope_check_reference_commit = "681bf296ea07d3ddc4391f5f1dfd49255876300c"
+scope_check_reference_cursor = 401
+scope_check_reference_days = [401, 402, 403]
+scope_check_reference_runner_rotation = ["m3p_serial", "m3p_incremental", "m3"]
+scope_check_current_cursor = 400
+scope_check_current_days = [400, 401, 402]
+scope_check_current_runner_rotation = ["m3p_incremental", "m3"]
 scope_check_historical_ratio = 1.49
+scope_check_historical_10k_ratio = 1.21
 scope_check_tolerance = 0.20
 
 [[conclusion]]

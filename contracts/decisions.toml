@@ -418,9 +418,30 @@ date = "2026-10-23"
 id = "M5-05-M3-09-SCOPE-CHECK"
 milestone = "M5"
 stage = "M5-05"
-status = "draft"
-summary = "Test whether the historical 1.49x M3-09 ratio is specific to normal days by comparing days 101–103 with the M5-05 checkpoint sample that includes compaction."
+status = "superseded"
+summary = "Withdrawn before timing: the days 101–103 Phase 9b diagnostic scope was incorrectly treated as the scope of the 1.49x equal-live ratio."
 enforced_by = ["docs/reproducibility/m5_05_conclusions.toml"]
+superseded_by = "M5-05-M3-09-SCOPE-WITHDRAWAL"
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-05-M3-09-SCOPE-WITHDRAWAL"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+summary = "Withdraw the days 101–103 scope hypothesis because it referred to the Phase 9b diagnostic, not the 1.49x equal-live measurement."
+enforced_by = ["docs/reproducibility/m5_05_conclusions.toml", "docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-05-M3-09-PROTOCOL-RECHECK"
+milestone = "M5"
+stage = "M5-05"
+status = "draft"
+summary = "Test whether checkpoint, compaction, or runner rotation explains the M5-05 ratio; both protocols use one three-day public call per path, so validate_for frequency is equal per simulated day."
+enforced_by = ["docs/reproducibility/m5_05_conclusions.toml", "docs/reproducibility/m5_05_configs/m3_09_scope_check.toml"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#136-m5-05-decision-register-frozen"
 date = "2026-10-24"
 
