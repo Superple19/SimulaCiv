@@ -465,6 +465,36 @@ doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decisi
 date = "2026-10-23"
 
 [[decision]]
+id = "M5-INFRA-COMMIT-MESSAGE-ALLOWLIST"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Commit messages follow the repository allowlist and are checked by the installed commit-msg hook."
+enforced_by = ["analysis/simciv_analysis/git_hooks.py", "test:analysis/tests/test_git_hooks.py::test_commit_message_rejects_everything_outside_the_allowlist", ".pre-commit-config.yaml", "prek:allowlist-commit-message"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-QUARTO-PREFLIGHT"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "Report and check targets fail early unless the Quarto CLI matches the version pinned in tools.toml."
+enforced_by = ["analysis/simciv_analysis/quarto_check.py", "test:analysis/tests/test_quarto_check.py::test_quarto_preflight_rejects_missing_cli", "test:analysis/tests/test_quarto_check.py::test_quarto_preflight_rejects_wrong_version", "test:analysis/tests/test_quarto_check.py::test_quarto_preflight_accepts_pinned_version", "just:check-quarto", "tools.toml"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-SHIP-CLEAN-TREE"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "just ship refuses to push unless the tracked and untracked working tree is clean."
+enforced_by = ["analysis/simciv_analysis/ship.py", "test:analysis/tests/test_git_hooks.py::test_ship_refuses_dirty_trees_and_pushes_clean_trees", "just:ship"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
 id = "M5-INFRA-EXACT-ACTION-TAGS"
 milestone = "M5"
 stage = "M5-03"
