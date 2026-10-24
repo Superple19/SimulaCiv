@@ -36,6 +36,9 @@ check-quarto:
 tool-versions-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.tool_versions
 
+check-tools: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.check_tools
+
 commit-messages-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.git_hooks --check-commit-range
 
@@ -70,7 +73,7 @@ lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
     vale --config analysis/vale/.vale.ini docs/data/m5_05/STATUS.md docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
-check: check-quarto tool-versions-check analysis-test action-refs-check commit-messages-check decisions-check check-autocrlf data-integrity-check links claims-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
+check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check decisions-check check-autocrlf data-integrity-check links claims-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
 
 ci-analysis: check
     uv run --directory analysis --project . python -m simciv_analysis.ci_analysis
@@ -81,15 +84,14 @@ ci-rust:
     cargo test --workspace
 
 clippy-cross:
-    rustup target add x86_64-unknown-linux-gnu aarch64-apple-darwin
     cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
     cargo clippy --workspace --all-targets --target aarch64-apple-darwin -- -D warnings
 
 ci-clean: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.ci_clean
 
-ci-linux: analysis-sync
-    uv run --directory analysis --project . python -m simciv_analysis.ci_linux
+ci-linux:
+    mise exec -- uv run --directory analysis --project . python -m simciv_analysis.ci_linux
 
 provenance SUMMARY: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.provenance {{SUMMARY}}

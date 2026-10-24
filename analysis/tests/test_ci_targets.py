@@ -1,7 +1,6 @@
 from pathlib import Path
 import re
 
-from simciv_analysis.tool_versions import tool_version
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,7 +78,7 @@ def test_workflow_check_steps_are_single_just_targets():
         for line in (ROOT / "justfile").read_text(encoding="utf-8").splitlines()
         if line.startswith("check:")
     )
-    assert check_target.startswith("check: check-quarto tool-versions-check analysis-test")
+    assert check_target.startswith("check: check-quarto tool-versions-check check-tools analysis-test")
     assert "commit-messages-check" in check_target
     assert "fetch-depth: 0" in "\n".join(_steps(workflow, "analysis")[0])
 
@@ -130,18 +129,6 @@ def test_just_jobs_install_all_target_tools_before_running_them():
             jobs_with_just[job] = targets
     assert jobs_with_just == {"checks": ["just ci-rust"], "analysis": ["just ci-analysis"]}
 
-    required = {
-        "checks": {
-            "Install pinned Rust toolchain": "rustup component add rustfmt clippy",
-        },
-        "analysis": {
-            "Install pinned uv": "uses: astral-sh/setup-uv@v10.3.2",
-            "Install pinned Python": "uv python install",
-            "Install pinned Quarto": "quarto-dev/quarto-actions/setup@v2",
-            "Install pinned Vale": f"vale_{tool_version('vale')}_Linux_64-bit.tar.gz",
-            "Install pinned prek": f"releases/download/v{tool_version('prek')}/prek-x86_64-unknown-linux-gnu.tar.gz",
-        },
-    }
     for job in jobs_with_just:
         steps = _steps(workflow, job)
         names = [
@@ -153,22 +140,26 @@ def test_just_jobs_install_all_target_tools_before_running_them():
             name for name, command in _run_steps(steps) if command.startswith("just ci-")
         )
         target_index = names.index(target_name)
-        expected_steps = {"Install pinned just": "uses: extractions/setup-just@v4", **required[job]}
-        for name, expected in expected_steps.items():
-            index = names.index(name)
-            block = "\n".join(_step(steps, name))
-            assert expected in block
-            assert index < target_index
-    assert f'just-version: "{tool_version("just")}"' in "\n".join(_step(steps, "Install pinned just"))
+        mise_index = names.index("Install mise-managed tools")
+        assert "uses: jdx/mise-action@v5.2.2" in "\n".join(_step(steps, "Install mise-managed tools"))
+        assert mise_index < target_index
+        assert "version: ${{ env.MISE_VERSION }}" in "\n".join(_step(steps, "Install mise-managed tools"))
 
     analysis_steps = _steps(workflow, "analysis")
-    assert f'version: "{tool_version("uv")}"' in "\n".join(_step(analysis_steps, "Install pinned uv"))
-    assert f'version: "{tool_version("quarto")}"' in "\n".join(_step(analysis_steps, "Install pinned Quarto"))
-    assert "vale --version" in "\n".join(_step(analysis_steps, "Install pinned Vale"))
-    assert "prek --version" in "\n".join(_step(analysis_steps, "Install pinned prek"))
+    analysis_block = "\n".join("\n".join(step) for step in analysis_steps)
+    assert "uv python install" in analysis_block
+    assert "setup-uv" not in workflow
+    assert "quarto-actions" not in workflow
+    assert "curl -fsSL" not in workflow
 
-    rust_block = "\n".join(_step(_steps(workflow, "checks"), "Install pinned Rust toolchain"))
-    assert "rustup toolchain install" in rust_block
+    checks = _steps(workflow, "checks")
+    rust_setup = "\n".join(_step(checks, "Install pinned Rust toolchain"))
+    assert "rustup toolchain install" in rust_setup
+    assert "component add" not in workflow
+    assert "target add" not in workflow
+    rust_toolchain = (ROOT / "rust-toolchain.toml").read_text(encoding="utf-8")
+    assert 'components = ["rustfmt", "clippy"]' in rust_toolchain
+    assert 'targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]' in rust_toolchain
 
 
 def test_analysis_prek_helper_skips_only_cargo_format_hook(monkeypatch):

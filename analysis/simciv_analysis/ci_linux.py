@@ -75,13 +75,25 @@ git -C "$dest" clean -fdx -e target/
             'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"; '
             'cd "$HOME/simciv-ci"; '
         )
-        for name, command in (
-            ("just ci-rust", "just ci-rust"),
-            ("just ci-analysis", "just ci-analysis"),
-        ):
-            step(name, environment + command)
+        step("mise install --locked", environment + "mise trust --yes && mise install --locked")
+        if results[-1][1] == 0:
+            step("uv python install", environment + "mise exec -- uv python install")
+            if results[-1][1] == 0:
+                for name, command in (
+                    ("just ci-rust", "just ci-rust"),
+                    ("just ci-analysis", "just ci-analysis"),
+                ):
+                    step(name, environment + f"mise exec -- {command}")
+            else:
+                for name in ("just ci-rust", "just ci-analysis"):
+                    results.append((name, 125, 0.0))
+                    print(f"[SKIP] {name}: uv Python install failed", flush=True)
+        else:
+            for name in ("uv python install", "just ci-rust", "just ci-analysis"):
+                results.append((name, 125, 0.0))
+                print(f"[SKIP] {name}: mise install failed", flush=True)
     else:
-        for name in ("just ci-rust", "just ci-analysis"):
+        for name in ("mise install --locked", "uv python install", "just ci-rust", "just ci-analysis"):
             results.append((name, 125, 0.0))
             print(f"[SKIP] {name}: checkout preparation failed", flush=True)
 

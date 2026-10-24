@@ -1,10 +1,10 @@
 # SimulaCiv analysis
 
-The analysis environment uses the tool pins in [the repository tools.toml](../tools.toml): Python 3.15.1, uv 0.13.5, pandas 3.0.6, matplotlib 3.11.2, pytest 9.1.1, Quarto CLI 1.10.19, and Vale 3.25.1. The Python package requires Python >=3.11; the pinned version is for development and CI.
+Standalone tools are pinned in [mise.toml](../mise.toml) and locked in [mise.lock](../mise.lock). `uv.toml` and `.python-version` separately constrain uv and the analysis Python runtime; Python package versions are in `uv.lock`. The package supports Python >=3.11.
 
 ## Setup
 
-Install the tools at the versions listed in [tools.toml](../tools.toml) using their official installation instructions. From the repository root, install the Git hooks:
+Install mise as described below, activate it in the current shell, then run `mise trust --yes` and `mise install --locked` from the repository root. Install the Git hooks with:
 
 On Windows, disable Git's automatic EOL conversion for this checkout before working with repository data:
 
@@ -38,47 +38,53 @@ This regenerates the tidy claim ledger, `.qmd`, and rendered GitHub-flavored Mar
 
 Normal delivery is `just ship`: it runs local checks, then pushes the tested `HEAD` to `ci-check`. The same CI run promotes a successful commit to `main` automatically by fast-forward; no second CI run is dispatched. Never push directly to `main`.
 
+## Windows setup
+
+Install mise with WinGet, reopen PowerShell so the new command is on `PATH`, then update mise itself to the bootstrap pin in `mise.toml`, activate it, and install the locked tools:
+
+```powershell
+winget install --id jdx.mise --exact
+# Reopen PowerShell before continuing.
+$miseVersion = (Select-String -Path mise.toml -Pattern '^# mise-bootstrap-version = "([^\"]+)"$').Matches.Groups[1].Value
+mise self-update $miseVersion --yes --no-plugins
+mise activate pwsh | Out-String | Invoke-Expression
+mise trust --yes
+mise install --locked
+uv python install
+```
+
+Run the activation command in each new PowerShell session, or add it to your PowerShell profile.
+
+On Windows, disable Git's automatic EOL conversion for this checkout before working with repository data:
+
+```powershell
+git config --local core.autocrlf false
+```
+
 ## WSL (Linux) checks
 
 The default Ubuntu WSL distro runs Linux checks from `~/simciv-ci`. These user-home installs need no `sudo`; the distro must already have `build-essential`, `pkg-config`, `curl`, and `git`:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 cd /mnt/c/AI/SimulaCiv
+mise_version="$(sed -n 's/^# mise-bootstrap-version = "\([^"]*\)"$/\1/p' mise.toml)"
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+curl -fsSL https://mise.run | MISE_VERSION="v${mise_version}" sh
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+mise trust --yes
+mise install --locked
+eval "$(mise activate bash)"
+uv python install
 rustup toolchain install
-rustup component add rustfmt clippy
-
-mkdir -p "$HOME/.local/bin"
-curl -LsSf https://astral.sh/uv/0.13.5/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh
-
-curl -fSL https://github.com/quarto-dev/quarto-cli/releases/download/v1.10.19/quarto-1.10.19-linux-amd64.tar.gz -o /tmp/quarto-1.10.19-linux-amd64.tar.gz
-echo "8e38c2b2df6a6dbd369ea16e15acded6894545258d13a02f777f81ad18fd7973  /tmp/quarto-1.10.19-linux-amd64.tar.gz" | sha256sum --check
-tar -xzf /tmp/quarto-1.10.19-linux-amd64.tar.gz -C "$HOME/.local"
-ln -sfn "$HOME/.local/quarto-1.10.19/bin/quarto" "$HOME/.local/bin/quarto"
-
-cargo +1.98.1 install just --version 1.58.0 --locked
-
-curl -fsSL https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_64-bit.tar.gz -o /tmp/vale.tar.gz
-echo "4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182  /tmp/vale.tar.gz" | sha256sum --check
-tar -xzf /tmp/vale.tar.gz -C /tmp
-install -m 0755 /tmp/vale "$HOME/.local/bin/vale"
-
-curl -fsSL https://github.com/j178/prek/releases/download/v0.5.7/prek-x86_64-unknown-linux-gnu.tar.gz -o /tmp/prek.tar.gz
-echo "e238e5a6b4e384e8d18f33d3c3b1a329be0e1237f77ac6e021e641ddd3a2bab6  /tmp/prek.tar.gz" | sha256sum --check
-tar -xzf /tmp/prek.tar.gz -C /tmp
-install -m 0755 /tmp/prek-x86_64-unknown-linux-gnu/prek "$HOME/.local/bin/prek"
 ```
 
-Rust remains pinned in `rust-toolchain.toml`. From Windows, run `just ci-linux`; it clones the current commit once, then fetches and checks it out cleanly on later runs. The WSL clone preserves only its `target/` build cache between runs. WSL currently uses Ubuntu 24.04.3 LTS, while hosted CI uses the `ubuntu-26.04` x64 image; `just ci-linux` matches CI's commands, not its runner OS version.
+Run `eval "$(mise activate bash)"` in each WSL shell (or add it to `~/.bashrc`) before invoking tools directly; `just ci-linux` uses `mise exec` for its checks.
+
+Rust remains pinned in `rust-toolchain.toml`; the standalone tool versions and platform artifacts come from `mise.toml` and `mise.lock`. From Windows, run `just ci-linux`; it refreshes a clean WSL clone, installs the locked mise tools there, and runs `mise exec -- just ci-rust` and `mise exec -- just ci-analysis`, matching the hosted CI commands. The WSL clone preserves only its `target/` build cache between runs. WSL currently uses Ubuntu 24.04.3 LTS, while hosted CI uses the `ubuntu-26.04` x64 image; `just ci-linux` matches CI's commands, not its runner OS version.
 
 ## DVC experiment data
 
-DVC 3.67.1 is pinned in [tools.toml](../tools.toml). Its published Python classifiers include Python 3.14 but not 3.15, so install it as an isolated uv tool with Python 3.14; this does not change the analysis project's Python pin:
-
-```powershell
-uv tool install --python 3.14 dvc==3.67.1
-```
+DVC is pinned in `mise.toml` and installed in its own environment with a private Python runtime; this does not change the analysis project's `.python-version`.
 
 The shared DVC remote URL is in `.dvc/config`, but uploads are deferred and the remote currently has no raw outputs. Raw outputs exist only in the maintainer's local DVC cache until `dvc push --all-commits` is run. After upload, pull raw data with:
 

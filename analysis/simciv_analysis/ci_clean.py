@@ -23,8 +23,11 @@ def main() -> int:
         if added.returncode != 0:
             return added.returncode
         try:
-            print(f"Running just check in clean worktree: {worktree}", flush=True)
-            result_code = subprocess.run(["just", "check"], cwd=worktree, check=False).returncode
+            trusted = subprocess.run(["mise", "trust", "--yes"], cwd=worktree, check=False)
+            if trusted.returncode:
+                return trusted.returncode
+            print(f"Running mise exec -- just check in clean worktree: {worktree}", flush=True)
+            result_code = subprocess.run(["mise", "exec", "--", "just", "check"], cwd=worktree, check=False).returncode
         finally:
             removed = subprocess.run(
                 ["git", "worktree", "remove", "--force", str(worktree)],

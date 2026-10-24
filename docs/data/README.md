@@ -4,7 +4,7 @@ Specs, summaries, reports, generated tables/figures, golden files, and DVC point
 
 ## Pulling DVC data
 
-DVC uploads are deferred. Raw outputs currently exist only in the maintainer's local DVC cache until `dvc push --all-commits` is run; the remote has no raw outputs yet. After upload, install the DVC version listed in [tools.toml](../../tools.toml) and pull from the repository root with `dvc pull`. `just check` does not require DVC or `dvc pull`; reports read only Git-committed summary files.
+DVC uploads are deferred. Raw outputs currently exist only in the maintainer's local DVC cache until `dvc push --all-commits` is run; the remote has no raw outputs yet. After upload, install the DVC version listed in [mise.toml](../../mise.toml) with `mise install --locked` and pull from the repository root with `dvc pull`. `just check` does not require DVC or `dvc pull`; reports read only Git-committed summary files.
 
 ## Maintainer authentication
 
