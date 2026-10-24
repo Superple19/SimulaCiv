@@ -52,7 +52,7 @@ def worker_reply(process: subprocess.Popen[str], operation: str) -> list[str]:
     assert process.stdout is not None
     line = process.stdout.readline()
     fields = line.rstrip("\r\n").split("|")
-    expected = {"probe": "PROBE", "validate": "VALIDATE"}.get(operation, operation)
+    expected = {"ready": "READY", "probe": "PROBE", "validate": "VALIDATE"}.get(operation, operation)
     if not fields or fields[0] != expected:
         stderr = process.stderr.read() if process.stderr else ""
         raise RuntimeError(f"worker returned {line!r}, expected {expected}: {stderr}")
