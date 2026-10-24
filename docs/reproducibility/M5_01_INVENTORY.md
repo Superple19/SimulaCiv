@@ -85,7 +85,7 @@ verdicts remain in the `key` tier.
 | M3 | derived | missing-source | supporting | 618 |
 | M3 | derived | recovered-original-output | headline | 114 |
 | M3 | derived | recovered-original-output | supporting | 2,098 |
-| M3 | derived | recovered-output-mismatch | supporting | 842 |
+| M3 | derived | recovered-original-output (formatted) | supporting | 842 |
 | M3 | deterministic | missing-source | headline | 6 |
 | M3 | deterministic | missing-source | supporting | 131 |
 | M3 | deterministic | reproducible-now | supporting | 8 |
@@ -96,8 +96,8 @@ verdicts remain in the `key` tier.
 | M3 | timing | missing-data | supporting | 8,494 |
 | M3 | timing | missing-source | headline | 50 |
 | M3 | timing | missing-source | supporting | 72 |
-| M3 | timing | recovered-original-output | supporting | 345 |
-| M3 | timing | recovered-output-mismatch | supporting | 245 |
+| M3 | timing | recovered-original-output | supporting | 525 |
+| M3 | timing | recovered-original-output (formatted) | supporting | 65 |
 | M4 | derived | bit-exact | headline | 19 |
 | M4 | derived | bit-exact | key | 3 |
 | M4 | derived | bit-exact | supporting | 1,664 |
@@ -208,26 +208,25 @@ tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the
 | M3 | M3_11_PROPAGATION.md | missing-data | 1,835 |
 | M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | missing-data | 1,502 |
 | M3 | M3_05_SCALE_LIMIT.md | missing-data | 1,146 |
-| M3 | M3_11_PROPAGATION.md | recovered-output-mismatch | 666 |
 | M2 | M2_37_POST_P5_P6B_REPROFILING.md | missing-data | 663 |
 | M2 | M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | missing-data | 566 |
 | M3 | M3_07_SCALE_RESIDUAL.md | missing-data | 517 |
 | M3 | M3_01_SERIAL_BASELINE.md | missing-data | 512 |
+| M3 | M3_03_SEARCH_REDUCTION.md | missing-data | 496 |
 
 ### Recovered original-output matches
 
 The recovered-output matcher
 [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py)
-scanned **206** files. A match now requires the same structured output
-row, measurement field, and all recorded configuration dimensions.
-Prose-only claims and numeric parameter columns remain unchanged. It
-records **2,557** context-matched claims as `recovered-original-output`;
-**1,837** parameter values were excluded from measurement matching.
+scanned **206** files. A match requires the same structured output row,
+measurement field, and all recorded configuration dimensions. It records
+**3,644** claims as recovered evidence across exact, formatted,
+unit-converted, other-run, and derived statuses; **1,837** parameter
+values were excluded from measurement matching.
 
-The prior 144af62 rule was value-token membership anywhere in any output
-associated with the report; it did not compare row, label, or column
-context, and it did not check units. Among **24,236** claims it had
-moved, the type split was:
+The prior 144af62 rule matched value tokens without row, label, column,
+or unit context. Among **24,236** claims it had moved, the recorded type
+split was:
 
 | Value type       | Claims |
 |------------------|--------|
@@ -238,18 +237,20 @@ moved, the type split was:
 
 A fixed-seed sample (20261024; 50 headline/key and 100 other measured
 claims) found matching context for **35** of 150 value-only matches
-(**23.3%**). The full review records claim text, output line, and
-context decision in
+(**23.3%**). The full review is in
 [recovered_claim_precision_audit.csv](recovered_claim_precision_audit.csv).
 
 #### Claims moved from missing status
 
-| Report                        | Tier       | Prior status | Claims |
-|-------------------------------|------------|--------------|--------|
-| M3_01_SERIAL_BASELINE.md      | supporting | missing-data | 27     |
-| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | 16     |
-| M3_05_SCALE_LIMIT.md          | headline   | missing-data | 114    |
-| M3_11_PROPAGATION.md          | supporting | missing-data | 2,400  |
+| Report | Tier | Prior status | Resolution | Claims |
+|----|----|----|----|----|
+| M3_01_SERIAL_BASELINE.md | supporting | missing-data | recovered-original-output | 207 |
+| M3_01_SERIAL_BASELINE.md | supporting | missing-data | recovered-original-output (formatted) | 153 |
+| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | recovered-original-output | 16 |
+| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | recovered-original-output (formatted) | 88 |
+| M3_05_SCALE_LIMIT.md | headline | missing-data | recovered-original-output | 114 |
+| M3_11_PROPAGATION.md | supporting | missing-data | recovered-original-output | 2,400 |
+| M3_11_PROPAGATION.md | supporting | missing-data | recovered-original-output (formatted) | 666 |
 
 #### Claims without an exact context match
 
@@ -308,19 +309,73 @@ output—does not qualify as recovered evidence.
 | M4_07_MANY_BRANCH.md | headline | 1 |
 | M4_07_MANY_BRANCH.md | supporting | 50 |
 
-#### Confirmed output mismatches
+#### Recovered-output mismatch triage
 
-| Report                        | Mismatches |
-|-------------------------------|------------|
-| M3_01_SERIAL_BASELINE.md      | 339        |
-| M3_04_EQUILIBRIUM_WORKLOAD.md | 88         |
-| M3_11_PROPAGATION.md          | 3,944      |
+The baseline mismatch file recorded at commit `fddd9a9` contained
+**1,087** claims and **4,371** output records. After correcting
+graph/projection metric-field assignment, **180** claims (**184**
+records) matched the intended output field exactly; these are a matcher
+correction, not data discrepancies. Tier counts for that correction:
+headline **0**, key **0**, supporting **180**.
 
-Confirmed mismatches: **4,371**. Each has both expected and recorded
-values in
-[recovered_claim_mismatches.csv.gz](recovered_claim_mismatches.csv.gz).
-The matcher reports a mismatch only when row, configuration dimensions,
-and measurement field agree.
+The remaining **907** claims (**4,187** records) are classified in
+precedence order: printed formatting/rounding, unit conversion, a
+matching other run or aggregate, a derived value, then a genuine
+discrepancy. Statuses for the first four are distinct; only the last
+retains `recovered-output-mismatch`. The generated cause table uses
+**claims** and **baseline output records**, split by
+headline/key/supporting tier:
+
+| Cause               | claims | headline | key | Baseline records | supporting |
+|---------------------|--------|----------|-----|------------------|------------|
+| rounding/formatting | 907    | 0        | 0   | 4,187            | 907        |
+| unit conversion     | 0      | 0        | 0   | 0                | 0          |
+| different run       | 0      | 0        | 0   | 0                | 0          |
+| derived             | 0      | 0        | 0   | 0                | 0          |
+| genuine discrepancy | 0      | 0        | 0   | 0                | 0          |
+
+The detailed audit separates the earlier field-mapping correction from
+the cause categories, then splits composite-cell and printed-precision
+formatting:
+
+| Cause and classification detail | claims | Baseline records |
+|----|----|----|
+| context parser correction: correct measurement field now matches | 180 | 184 |
+| rounding/formatting: composite field component | 754 | 4,032 |
+| rounding/formatting: printed-precision rounding | 153 | 155 |
+
+Classification details are listed in
+[recovered_claim_mismatch_triage.csv.gz](recovered_claim_mismatch_triage.csv.gz),
+with its generated summary in
+[recovered_claim_mismatch_triage.json](recovered_claim_mismatch_triage.json).
+
+M3_11 accounts for **666** baseline mismatch claims and **3,944**
+records. The recovered output contains composite `frontiers` arrays and
+`levels_max` pairs; scalar claim extraction split their values into
+sibling claims, which the earlier matching pass counted as mismatch
+records. These are composite-cell formatting matches, not separate run
+disagreements:
+
+| M3_11 mismatch field | Candidate records |
+|----------------------|-------------------|
+| frontiers            | 3,776             |
+| levels_max           | 168               |
+
+#### Genuine discrepancies retained
+
+Current contextual matching leaves **0** genuine mismatch claims. The
+table lists all headline/key cases; **0** supporting cases remain. An
+empty table means no headline/key discrepancies were found.
+
+| Genuine discrepancies |
+|-----------------------|
+| none                  |
+
+The contextual-difference evidence file is
+[recovered_claim_mismatches.csv.gz](recovered_claim_mismatches.csv.gz);
+it contains **4,187** candidate records before triage. These candidates
+are not current mismatch statuses unless they remain after the ordered
+checks above.
 
 ## Findings
 

@@ -66,7 +66,8 @@ def test_recovered_output_matches_exact_result_column_and_skips_inputs(tmp_path)
 
     assert mapping["outputs_scanned"] == 1
     assert [row["claim_id"] for row in mapping["claims"]] == [1, 3, 6]
-    assert mapping["claims"][0]["status_after"] == "recovered-output-mismatch"
+    assert mapping["claims"][0]["status_after"] == "recovered-other-run"
+    assert mapping["claims"][0]["triage_cause"] == "different run"
     assert mapping["claims"][1]["status_after"] == "recovered-output-mismatch"
     assert mapping["claims"][2]["status_after"] == "recovered-original-output"
     assert mapping["confirmed_mismatches"][0]["expected"] == "1.25"

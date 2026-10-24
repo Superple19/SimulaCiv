@@ -1,0 +1,95 @@
+{
+  "cause_subcategories": {
+    "context parser correction: correct measurement field now matches": {
+      "claims": 180,
+      "mismatch_records": 184
+    },
+    "rounding/formatting: composite field component": {
+      "claims": 754,
+      "mismatch_records": 4032
+    },
+    "rounding/formatting: printed-precision rounding": {
+      "claims": 153,
+      "mismatch_records": 155
+    }
+  },
+  "causes": {
+    "derived": {
+      "claims": 0,
+      "headline": 0,
+      "key": 0,
+      "mismatch_records": 0,
+      "supporting": 0
+    },
+    "different run": {
+      "claims": 0,
+      "headline": 0,
+      "key": 0,
+      "mismatch_records": 0,
+      "supporting": 0
+    },
+    "genuine discrepancy": {
+      "claims": 0,
+      "headline": 0,
+      "key": 0,
+      "mismatch_records": 0,
+      "supporting": 0
+    },
+    "rounding/formatting": {
+      "claims": 907,
+      "headline": 0,
+      "key": 0,
+      "mismatch_records": 4187,
+      "supporting": 907
+    },
+    "unit conversion": {
+      "claims": 0,
+      "headline": 0,
+      "key": 0,
+      "mismatch_records": 0,
+      "supporting": 0
+    }
+  },
+  "classified_claims": 1087,
+  "context_parser_correction_records": 184,
+  "field_mapping_correction": {
+    "claims": 180,
+    "headline": 0,
+    "key": 0,
+    "mismatch_records": 184,
+    "supporting": 180
+  },
+  "genuine_headline_key": [],
+  "genuine_other_count": 0,
+  "m3_11": {
+    "claims": 666,
+    "claims_by_cause": {
+      "rounding/formatting": 666
+    },
+    "mismatch_records": 3944,
+    "records_by_field": {
+      "frontiers": 3776,
+      "levels_max": 168
+    }
+  },
+  "mismatch_baseline_commit": "fddd9a91b81841a1a2b1d7ddb5e999de20838cb3",
+  "mismatch_records": 4371,
+  "reports_by_cause": {
+    "M3_01_SERIAL_BASELINE.md: context parser correction": {
+      "claims": 180,
+      "mismatch_records": 184
+    },
+    "M3_01_SERIAL_BASELINE.md: rounding/formatting": {
+      "claims": 153,
+      "mismatch_records": 155
+    },
+    "M3_04_EQUILIBRIUM_WORKLOAD.md: rounding/formatting": {
+      "claims": 88,
+      "mismatch_records": 88
+    },
+    "M3_11_PROPAGATION.md: rounding/formatting": {
+      "claims": 666,
+      "mismatch_records": 3944
+    }
+  }
+}

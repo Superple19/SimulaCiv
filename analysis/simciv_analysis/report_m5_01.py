@@ -19,6 +19,7 @@ from simciv_analysis.findings import Finding, render_findings
 from simciv_analysis.io import load_data, write_text_lf
 from simciv_analysis.recovered_claim_audit import SUMMARY_PATH as RECOVERED_AUDIT_SUMMARY_PATH
 from simciv_analysis.recovered_claims import MISMATCH_OUTPUT
+from simciv_analysis.recovered_mismatch_triage import TRIAGE_OUTPUT, TRIAGE_SUMMARY
 from simciv_analysis.tables import dataframe_to_markdown
 
 
@@ -103,28 +104,43 @@ def _comparison(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return old_new_rows, reasons
 
 
-def _recovered_evidence(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int], str]:
+def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
     if not RECOVERED_STATUS_PATH.is_file():
-        return (
-            pd.DataFrame([{"Report": "none", "Tier": "—", "Prior status": "—", "Claims": 0}]),
-            pd.DataFrame([{"Report": "none", "Tier": "—", "Unmatched claims": 0}]),
-            {"outputs_scanned": 0, "exact_claim_matches": 0, "moved_from_missing": 0, "confirmed_mismatches": 0,
-             "config_values_unchanged": 0, "audit_precision": 0.0, "audit_yes": 0, "audit_no": 0, "audit_baseline_count": 0},
-            "No recovered-output mapping has been generated.",
-            _markdown(pd.DataFrame([{"Value type": "none", "Claims": 0}])),
-        )
+        none = pd.DataFrame([{"Report": "none", "Claims": 0}])
+        return {
+            "moved_table": _markdown(none),
+            "unmatched_table": _markdown(none),
+            "type_table": _markdown(pd.DataFrame([{"Value type": "none", "Claims": 0}])),
+            "cause_table": _markdown(pd.DataFrame([{"Cause": "none", "Claims": 0}])),
+            "m3_11_table": _markdown(none),
+            "subcategory_table": _markdown(none),
+            "genuine_table": _markdown(none),
+            "summary": {"outputs_scanned": 0, "recovered": 0, "baseline_mismatch_claims": 0,
+                        "baseline_mismatch_records": 0, "current_mismatch_records": 0, "genuine": 0,
+            "parser_corrected": 0, "parser_corrected_records": 0, "genuine_other": 0, "config_values_unchanged": 0, "audit_precision": 0.0,
+                        "parser_corrected_headline": 0, "parser_corrected_key": 0, "parser_corrected_supporting": 0,
+                        "m3_11_claims": 0, "m3_11_records": 0,
+                        "audit_yes": 0, "audit_no": 0, "audit_baseline_count": 0},
+        }
     with gzip.open(RECOVERED_STATUS_PATH, "rt", encoding="utf-8") as stream:
         mapping = json.load(stream)
     exact = pd.DataFrame(mapping.get("claims", []))
     if exact.empty:
         moved = pd.DataFrame([{"Report": "none", "Tier": "—", "Prior status": "—", "Claims": 0}])
     else:
+        recovered_statuses = {
+            "recovered-original-output",
+            "recovered-original-output (formatted)",
+            "recovered-original-output (unit-converted)",
+            "recovered-other-run",
+            "recovered-derived",
+        }
         moved = (
-            exact.loc[exact["status_after"] == "recovered-original-output"]
-            .groupby(["report", "tier", "status_before"], dropna=False)
+            exact.loc[exact["status_after"].isin(recovered_statuses)]
+            .groupby(["report", "tier", "status_before", "status_after"], dropna=False)
             .size().rename("Claims").reset_index()
-            .rename(columns={"report": "Report", "tier": "Tier", "status_before": "Prior status"})
-            .sort_values(["Report", "Tier", "Prior status"], kind="stable")
+            .rename(columns={"report": "Report", "tier": "Tier", "status_before": "Prior status", "status_after": "Resolution"})
+            .sort_values(["Report", "Tier", "Prior status", "Resolution"], kind="stable")
         )
         if moved.empty:
             moved = pd.DataFrame([{"Report": "none", "Tier": "—", "Prior status": "—", "Claims": 0}])
@@ -138,35 +154,77 @@ def _recovered_evidence(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFram
             .rename(columns={"report": "Report", "tier": "Tier"})
             .sort_values(["Report", "Tier"], kind="stable")
         )
-    if MISMATCH_OUTPUT.is_file():
-        mismatch_rows = pd.read_csv(MISMATCH_OUTPUT, compression="gzip")
-    else:
-        mismatch_rows = pd.DataFrame(columns=["report", "claim_id"])
-    if mismatch_rows.empty:
-        mismatch_table = pd.DataFrame([{"Report": "none", "Mismatches": 0}])
-    else:
-        mismatch_table = (
-            mismatch_rows.groupby("report", dropna=False).size().rename("Mismatches").reset_index()
-            .rename(columns={"report": "Report"}).sort_values("Report", kind="stable")
-        )
+    triage_path = ROOT / TRIAGE_OUTPUT
+    triage_summary_path = ROOT / TRIAGE_SUMMARY
+    triage = pd.read_csv(triage_path, compression="gzip") if triage_path.is_file() else pd.DataFrame()
+    triage_summary = json.loads(triage_summary_path.read_text(encoding="utf-8")) if triage_summary_path.is_file() else {}
+    causes = triage_summary.get("causes", {})
+    cause_order = ("rounding/formatting", "unit conversion", "different run", "derived", "genuine discrepancy")
+    cause_rows = [
+        {"Cause": cause, **{("Baseline records" if key == "mismatch_records" else key): value for key, value in causes[cause].items()}}
+        for cause in cause_order if cause in causes
+    ]
+    cause_table = pd.DataFrame(cause_rows) if cause_rows else pd.DataFrame([{"Cause": "none", "Claims": 0}])
+    adjustment = triage_summary.get("field_mapping_correction", {})
+    subcategories = triage_summary.get("cause_subcategories", {})
+    subcategory_rows = [
+        {"Cause and classification detail": cause, **{("Baseline records" if key == "mismatch_records" else key): value for key, value in counts.items()}}
+        for cause, counts in subcategories.items()
+    ]
+    subcategory_table = pd.DataFrame(subcategory_rows) if subcategory_rows else pd.DataFrame([{"Cause and classification detail": "none", "Claims": 0}])
+    m3_11 = triage_summary.get("m3_11", {})
+    m3_11_rows = [
+        {"M3_11 mismatch field": field, "Candidate records": count}
+        for field, count in m3_11.get("records_by_field", {}).items()
+    ]
+    m3_11_table = pd.DataFrame(m3_11_rows) if m3_11_rows else pd.DataFrame([{"M3_11 mismatch field": "none", "Candidate records": 0}])
+    genuine = (
+        triage.loc[(triage["cause"] == "genuine discrepancy") & triage["tier"].isin(["headline", "key"])]
+        if not triage.empty else pd.DataFrame()
+    )
+    genuine_columns = ["claim_id", "report", "tier", "expected", "closest_or_matching_value", "relative_difference", "evidence", "rationale"]
+    genuine_table = _markdown(genuine[genuine_columns]) if not genuine.empty else _markdown(pd.DataFrame([{"Genuine discrepancies": "none"}]))
+    current_mismatch_records = len(pd.read_csv(MISMATCH_OUTPUT, compression="gzip")) if MISMATCH_OUTPUT.is_file() else 0
     audit = json.loads(RECOVERED_AUDIT_SUMMARY_PATH.read_text(encoding="utf-8")) if RECOVERED_AUDIT_SUMMARY_PATH.is_file() else {}
     value_types = pd.DataFrame(
         [{"Value type": key, "Claims": value} for key, value in audit.get("value_type_counts", {}).items()]
     )
     if value_types.empty:
         value_types = pd.DataFrame([{"Value type": "none", "Claims": 0}])
+    statuses = exact["status_after"] if not exact.empty else pd.Series(dtype=str)
     summary = {
         "outputs_scanned": int(mapping.get("outputs_scanned", 0)),
-        "exact_claim_matches": int(sum(row.get("status_after") == "recovered-original-output" for row in mapping.get("claims", []))),
-        "moved_from_missing": int(sum(row.get("status_after") == "recovered-original-output" for row in mapping.get("claims", []))),
-        "confirmed_mismatches": len(mismatch_rows),
+        "recovered": int(statuses.isin(recovered_statuses).sum()),
+        "baseline_mismatch_claims": int(triage_summary.get("classified_claims", 0)),
+        "baseline_mismatch_records": int(triage_summary.get("mismatch_records", 0)),
+        "remaining_mismatch_claims": int(triage_summary.get("classified_claims", 0)) - int(adjustment.get("claims", 0)),
+        "remaining_mismatch_records": int(triage_summary.get("mismatch_records", 0)) - int(adjustment.get("mismatch_records", 0)),
+        "current_mismatch_records": current_mismatch_records,
+        "genuine": int((statuses == "recovered-output-mismatch").sum()),
+        "parser_corrected": int((triage["cause"] == "context parser correction").sum()) if not triage.empty else 0,
+        "parser_corrected_records": int(triage_summary.get("context_parser_correction_records", 0)),
+        "parser_corrected_headline": int(adjustment.get("headline", 0)),
+        "parser_corrected_key": int(adjustment.get("key", 0)),
+        "parser_corrected_supporting": int(adjustment.get("supporting", 0)),
+        "genuine_other": int(triage_summary.get("genuine_other_count", 0)),
+        "m3_11_claims": int(m3_11.get("claims", 0)),
+        "m3_11_records": int(m3_11.get("mismatch_records", 0)),
         "config_values_unchanged": len(mapping.get("config_value_claim_ids", [])),
         "audit_precision": float(audit.get("precision", 0.0)),
         "audit_yes": int(audit.get("context_corresponds", 0)),
         "audit_no": int(audit.get("context_does_not_correspond", 0)),
         "audit_baseline_count": int(audit.get("baseline_recovered_claims", 0)),
     }
-    return moved, unmatched_table, summary, _markdown(mismatch_table), _markdown(value_types)
+    return {
+        "moved_table": _markdown(moved),
+        "unmatched_table": _markdown(unmatched_table),
+        "type_table": _markdown(value_types),
+        "cause_table": _markdown(cause_table),
+        "subcategory_table": _markdown(subcategory_table),
+        "m3_11_table": _markdown(m3_11_table),
+        "genuine_table": genuine_table,
+        "summary": summary,
+    }
 
 
 def _report_parts() -> dict[str, str]:
@@ -202,6 +260,10 @@ def _report_parts() -> dict[str, str]:
             "bit-exact after documented normalization",
             "conclusion holds",
             "recovered-original-output",
+            "recovered-original-output (formatted)",
+            "recovered-original-output (unit-converted)",
+            "recovered-other-run",
+            "recovered-derived",
         ])
     ].copy()
     gaps["milestone"] = gaps["report"].map(_milestone)
@@ -225,7 +287,8 @@ def _report_parts() -> dict[str, str]:
         Finding("[exploratory]", "Top evidence-gap rows are ordered by claim count descending.", "finding_top_gaps_sorted_by_count", top_gaps.empty or top_gaps["claims"].is_monotonic_decreasing),
     ])
     new_ledger = comparison.loc[comparison["Ledger view"] == "new tidy records"].iloc[0]
-    recovered_moved, recovered_unmatched, recovered_summary, recovered_mismatches, recovered_value_types = _recovered_evidence(claims)
+    recovered = _recovered_evidence(claims)
+    recovered_summary = recovered["summary"]
     input_rule = (
         "Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, "
         "replicates, horizons/days, thread/chunk settings, and simulation parameter values. Free-text numbers are only extracted from "
@@ -240,10 +303,13 @@ def _report_parts() -> dict[str, str]:
         "comparison_reasons": _markdown(comparison_reasons),
         "m1_recheck": _markdown(m1),
         "gaps": _markdown(top_gaps),
-        "recovered_moved_table": _markdown(recovered_moved),
-        "recovered_unmatched_table": _markdown(recovered_unmatched),
-        "recovered_mismatches_table": recovered_mismatches,
-        "recovered_value_types": recovered_value_types,
+        "recovered_moved_table": str(recovered["moved_table"]),
+        "recovered_unmatched_table": str(recovered["unmatched_table"]),
+        "recovered_value_types": str(recovered["type_table"]),
+        "recovered_mismatch_causes": str(recovered["cause_table"]),
+        "recovered_mismatch_subcategories": str(recovered["subcategory_table"]),
+        "recovered_m3_11_fields": str(recovered["m3_11_table"]),
+        "recovered_genuine_discrepancies": str(recovered["genuine_table"]),
         "findings": findings_md,
         "findings_checks": findings_checks_md,
         "input_rule": input_rule,
@@ -258,9 +324,22 @@ def _report_parts() -> dict[str, str]:
         "unmapped_count": f"{int(new_ledger['unmatched old-ledger comparison']):,}",
         "old_count": f"{len(expand_old_ledger(OLD_LEDGER)):,}",
         "recovered_outputs": f"{recovered_summary['outputs_scanned']:,}",
-        "recovered_exact": f"{recovered_summary['exact_claim_matches']:,}",
-        "recovered_moved_count": f"{recovered_summary['moved_from_missing']:,}",
-        "recovered_mismatch_count": f"{recovered_summary['confirmed_mismatches']:,}",
+        "recovered_exact": f"{recovered_summary['recovered']:,}",
+        "recovered_moved_count": f"{recovered_summary['recovered']:,}",
+        "recovered_mismatch_count": f"{recovered_summary['genuine']:,}",
+        "recovered_baseline_mismatch_claims": f"{recovered_summary['baseline_mismatch_claims']:,}",
+        "recovered_baseline_mismatch_records": f"{recovered_summary['baseline_mismatch_records']:,}",
+        "recovered_remaining_mismatch_claims": f"{recovered_summary['remaining_mismatch_claims']:,}",
+        "recovered_remaining_mismatch_records": f"{recovered_summary['remaining_mismatch_records']:,}",
+        "recovered_current_mismatch_records": f"{recovered_summary['current_mismatch_records']:,}",
+        "recovered_parser_corrected": f"{recovered_summary['parser_corrected']:,}",
+        "recovered_parser_corrected_records": f"{recovered_summary['parser_corrected_records']:,}",
+        "recovered_parser_corrected_headline": f"{recovered_summary['parser_corrected_headline']:,}",
+        "recovered_parser_corrected_key": f"{recovered_summary['parser_corrected_key']:,}",
+        "recovered_parser_corrected_supporting": f"{recovered_summary['parser_corrected_supporting']:,}",
+        "recovered_genuine_other": f"{recovered_summary['genuine_other']:,}",
+        "recovered_m3_11_claims": f"{recovered_summary['m3_11_claims']:,}",
+        "recovered_m3_11_records": f"{recovered_summary['m3_11_records']:,}",
         "recovered_config_count": f"{recovered_summary['config_values_unchanged']:,}",
         "recovered_audit_yes": f"{recovered_summary['audit_yes']:,}",
         "recovered_audit_no": f"{recovered_summary['audit_no']:,}",
@@ -324,13 +403,13 @@ The **{parts['m1_count']}** previously unrecoverable M1 aggregate claims were re
 
 ### Recovered original-output matches
 
-The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** files. A match now requires the same structured output row, measurement field, and all recorded configuration dimensions. Prose-only claims and numeric parameter columns remain unchanged. It records **{parts['recovered_exact']}** context-matched claims as `recovered-original-output`; **{parts['recovered_config_count']}** parameter values were excluded from measurement matching.
+The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** files. A match requires the same structured output row, measurement field, and all recorded configuration dimensions. It records **{parts['recovered_exact']}** claims as recovered evidence across exact, formatted, unit-converted, other-run, and derived statuses; **{parts['recovered_config_count']}** parameter values were excluded from measurement matching.
 
-The prior 144af62 rule was value-token membership anywhere in any output associated with the report; it did not compare row, label, or column context, and it did not check units. Among **{parts['recovered_audit_baseline_count']}** claims it had moved, the type split was:
+The prior 144af62 rule matched value tokens without row, label, column, or unit context. Among **{parts['recovered_audit_baseline_count']}** claims it had moved, the recorded type split was:
 
 {parts['recovered_value_types']}
 
-A fixed-seed sample (20261024; 50 headline/key and 100 other measured claims) found matching context for **{parts['recovered_audit_yes']}** of 150 value-only matches (**{parts['recovered_audit_precision']}**). The full review records claim text, output line, and context decision in [recovered_claim_precision_audit.csv](recovered_claim_precision_audit.csv).
+A fixed-seed sample (20261024; 50 headline/key and 100 other measured claims) found matching context for **{parts['recovered_audit_yes']}** of 150 value-only matches (**{parts['recovered_audit_precision']}**). The full review is in [recovered_claim_precision_audit.csv](recovered_claim_precision_audit.csv).
 
 #### Claims moved from missing status
 
@@ -342,11 +421,31 @@ These claims retain their previous status. A value found only in a different row
 
 {parts['recovered_unmatched_table']}
 
-#### Confirmed output mismatches
+#### Recovered-output mismatch triage
 
-{parts['recovered_mismatches_table']}
+The baseline mismatch file recorded at commit `fddd9a9` contained **{parts['recovered_baseline_mismatch_claims']}** claims and **{parts['recovered_baseline_mismatch_records']}** output records. After correcting graph/projection metric-field assignment, **{parts['recovered_parser_corrected']}** claims (**{parts['recovered_parser_corrected_records']}** records) matched the intended output field exactly; these are a matcher correction, not data discrepancies. Tier counts for that correction: headline **{parts['recovered_parser_corrected_headline']}**, key **{parts['recovered_parser_corrected_key']}**, supporting **{parts['recovered_parser_corrected_supporting']}**.
 
-Confirmed mismatches: **{parts['recovered_mismatch_count']}**. Each has both expected and recorded values in [recovered_claim_mismatches.csv.gz](recovered_claim_mismatches.csv.gz). The matcher reports a mismatch only when row, configuration dimensions, and measurement field agree.
+The remaining **{parts['recovered_remaining_mismatch_claims']}** claims (**{parts['recovered_remaining_mismatch_records']}** records) are classified in precedence order: printed formatting/rounding, unit conversion, a matching other run or aggregate, a derived value, then a genuine discrepancy. Statuses for the first four are distinct; only the last retains `recovered-output-mismatch`. The generated cause table uses **claims** and **baseline output records**, split by headline/key/supporting tier:
+
+{parts['recovered_mismatch_causes']}
+
+The detailed audit separates the earlier field-mapping correction from the cause categories, then splits composite-cell and printed-precision formatting:
+
+{parts['recovered_mismatch_subcategories']}
+
+Classification details are listed in [recovered_claim_mismatch_triage.csv.gz](recovered_claim_mismatch_triage.csv.gz), with its generated summary in [recovered_claim_mismatch_triage.json](recovered_claim_mismatch_triage.json).
+
+M3_11 accounts for **{parts['recovered_m3_11_claims']}** baseline mismatch claims and **{parts['recovered_m3_11_records']}** records. The recovered output contains composite `frontiers` arrays and `levels_max` pairs; scalar claim extraction split their values into sibling claims, which the earlier matching pass counted as mismatch records. These are composite-cell formatting matches, not separate run disagreements:
+
+{parts['recovered_m3_11_fields']}
+
+#### Genuine discrepancies retained
+
+Current contextual matching leaves **{parts['recovered_mismatch_count']}** genuine mismatch claims. The table lists all headline/key cases; **{parts['recovered_genuine_other']}** supporting cases remain. An empty table means no headline/key discrepancies were found.
+
+{parts['recovered_genuine_discrepancies']}
+
+The contextual-difference evidence file is [recovered_claim_mismatches.csv.gz](recovered_claim_mismatches.csv.gz); it contains **{parts['recovered_current_mismatch_records']}** candidate records before triage. These candidates are not current mismatch statuses unless they remain after the ordered checks above.
 
 ## Findings
 

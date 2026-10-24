@@ -422,12 +422,12 @@ def _claim_context(claim: dict[str, Any]) -> dict[str, Any] | None:
         if re.fullmatch(r"\s*P\d+[A-Z]?\s*(?:[a-zA-Z /+-]+)?\s*", column) and subfield_key in {"median", "mad"}:
             dimensions["phase"] = column
             label = "mad_us" if subfield_key == "mad" else "median_us"
-        elif subfield_key in {"median", "mad"} and re.search(r"median\s*±\s*MAD|median\s*±\s*mad", column, re.IGNORECASE):
-            label = "mad_us_tick" if subfield_key == "mad" else "median_us_tick"
         elif subfield_key in {"median", "mad"} and "graph build" in column.casefold():
             label = "graph_mad_us" if subfield_key == "mad" else "graph_median_us"
         elif subfield_key in {"median", "mad"} and "projection build" in column.casefold():
             label = "projection_mad_us" if subfield_key == "mad" else "projection_median_us"
+        elif subfield_key in {"median", "mad"} and re.search(r"median\s*±\s*MAD|median\s*±\s*mad", column, re.IGNORECASE):
+            label = "mad_us_tick" if subfield_key == "mad" else "median_us_tick"
         elif pool := re.fullmatch(r"\s*pool\s*(\d+)\s*µ?s\s*", column, re.IGNORECASE):
             variant = "ni" if noninterleaved else "i"
             measure = "mad" if subfield_key == "mad" else "us"
@@ -688,7 +688,7 @@ def build_mapping(claims: list[dict[str, Any]], root: Path = ROOT) -> dict[str, 
         report: sorted({str(output["path"]) for output in report_items})
         for report, report_items in sorted(by_report.items())
     }
-    return {
+    mapping = {
         "schema_version": 1,
         "matching_rule": "A recovered measurement requires an exact decimal or SHA-256 value in the same output row, exact normalized measure field, and every row/config identity dimension present on either side. Prose-only claims and numeric configuration/input columns are not recovered measurements; a different value in the same context is a mismatch.",
         "stage_manifest_sha256": manifest_sha,
@@ -700,6 +700,9 @@ def build_mapping(claims: list[dict[str, Any]], root: Path = ROOT) -> dict[str, 
         "config_value_claim_ids": config_values,
         "confirmed_mismatches": mismatches,
     }
+    from .recovered_mismatch_triage import classify_mapping
+
+    return classify_mapping(mapping, claims, by_report, root)
 
 
 def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> list[dict[str, Any]]:
@@ -718,7 +721,14 @@ def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> 
         if row is None or str(claim.get("status", "")) != str(row.get("status_before", "")):
             continue
         after = str(row.get("status_after", row["status_before"]))
-        if after in {"recovered-original-output", "recovered-output-mismatch"}:
+        if after in {
+            "recovered-original-output",
+            "recovered-original-output (formatted)",
+            "recovered-original-output (unit-converted)",
+            "recovered-other-run",
+            "recovered-derived",
+            "recovered-output-mismatch",
+        }:
             claim["status"] = after
             evidence = row.get("mismatches") or row.get("output_matches") or []
             first = evidence[0] if evidence else {}
@@ -727,13 +737,20 @@ def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> 
                 if first
                 else ", ".join(mapping.get("report_outputs", {}).get(str(row.get("report", "")), []))
             )
-            detail = (
+            fallback = (
                 f"expected {first.get('expected')} but output recorded {first.get('actual')}"
                 if after == "recovered-output-mismatch"
                 else "exact value and context matched"
             )
+            detail = str(row.get("triage_rationale", fallback))
             claim["notes"] = "; ".join(
-                filter(None, [str(claim.get("notes", "")), f"M5 recovered: {detail} at {reference}"])
+                filter(
+                    None,
+                    [
+                        str(claim.get("notes", "")),
+                        f"M5 recovered ({row.get('triage_cause', 'exact context')}): {detail} at {reference}",
+                    ],
+                )
             )
     return claims
 
@@ -782,15 +799,23 @@ def main(argv: list[str] | None = None) -> int:
 
 def collections_summary(mapping: dict[str, Any]) -> dict[str, int]:
     rows = mapping["claims"]
+    recovered_statuses = {
+        "recovered-original-output",
+        "recovered-original-output (formatted)",
+        "recovered-original-output (unit-converted)",
+        "recovered-other-run",
+        "recovered-derived",
+    }
     return {
         "outputs_scanned": int(mapping["outputs_scanned"]),
-        "exact_claim_matches": sum(row["status_after"] == "recovered-original-output" for row in rows),
-        "moved_from_missing": sum(row["status_after"] == "recovered-original-output" for row in rows),
+        "exact_claim_matches": sum(row["status_after"] in recovered_statuses for row in rows),
+        "moved_from_missing": sum(row["status_after"] in recovered_statuses for row in rows),
         "recovered_output_mismatches": sum(row["status_after"] == "recovered-output-mismatch" for row in rows),
         "config_values_unchanged": len(mapping["config_value_claim_ids"]),
         "unmatched_claims": len(mapping["unmatched_claim_ids"]),
         "claims_without_output": len(mapping["claims_without_associated_output_ids"]),
-        "confirmed_mismatches": len(mapping["confirmed_mismatches"]),
+        "triage_candidate_records": len(mapping["confirmed_mismatches"]),
+        "genuine_discrepancy_claims": sum(row["status_after"] == "recovered-output-mismatch" for row in rows),
     }
 
 
