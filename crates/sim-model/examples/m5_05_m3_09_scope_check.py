@@ -10,15 +10,18 @@ import re
 import shutil
 import statistics
 import subprocess
+import sys
 import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "analysis"))
+
 from simciv_analysis.io import write_text_lf
 
 
-ROOT = Path(__file__).resolve().parents[3]
 WORKER = Path("crates/sim-model/examples/m5_05_m3_09_revision.rs")
 PROCESS_CONTROL = Path("crates/sim-model/examples/common/process_controls.rs")
 CONFIG = Path("crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml")
