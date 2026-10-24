@@ -326,8 +326,10 @@ def main() -> None:
     log: list[str] = []
 
     if args.mode == "validate":
+        print("TIMING RUN START validate_for N=100000", flush=True)
         with tempfile.TemporaryDirectory(prefix="validate-", dir=target) as temporary:
             data = validate_for_cost(Path(temporary))
+        print("TIMING RUN END validate_for N=100000", flush=True)
         header = {"type": "header", "mode": "validate_for_cost", "host": platform.platform(), "scope": plan}
         records = [header, {"type": "validation", **data}]
         summary = {
