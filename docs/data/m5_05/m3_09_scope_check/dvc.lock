@@ -67,3 +67,82 @@ stages:
       md5: 3d806e00db8234583277507bef7cc11c.dir
       size: 3821
       nfiles: 2
+  m3_09_scope_check:
+    cmd: uv run --directory analysis --project . python 
+      ../crates/sim-model/examples/m5_05_m3_09_scope_check.py --mode a5 --plan 
+      docs/reproducibility/m5_05_configs/m3_09_scope_check.toml --output-dir 
+      docs/data/m5_05/m3_09_scope_check/raw --summary 
+      docs/data/m5_05/m3_09_scope_check/summary.json
+    deps:
+    - path: Cargo.lock
+      hash: md5
+      md5: d1fb4588d9336d06a02fd3d85c39fc6b
+      size: 8630
+    - path: Cargo.toml
+      hash: md5
+      md5: b0918b36601df7a654498a7a456698f5
+      size: 181
+    - path: analysis/simciv_analysis/io.py
+      hash: md5
+      md5: 871b66e3a07eb771f6894a085b3b6d1a
+      size: 2342
+    - path: crates/sim-core/Cargo.toml
+      hash: md5
+      md5: 9b512fbb43a72e2775faab5c3b9295dc
+      size: 134
+    - path: crates/sim-core/src
+      hash: md5
+      md5: 6a9075a8073d6b50097209057693c361.dir
+      size: 7155
+      nfiles: 3
+    - path: crates/sim-model/Cargo.toml
+      hash: md5
+      md5: 7e66efee2589a237359ffbebb5490030
+      size: 801
+    - path: crates/sim-model/examples/common/process_controls.rs
+      hash: md5
+      md5: cf74a03dc4ba8677519a2e8eecfcb149
+      size: 3309
+    - path: crates/sim-model/examples/m5_05_m3_09_revision.rs
+      hash: md5
+      md5: 39c25bd7aa30aa95ccfb0fddfda9a046
+      size: 16800
+    - path: crates/sim-model/examples/m5_05_m3_09_scope_check.py
+      hash: md5
+      md5: bc48c6a95b9931541df99b1603c2c233
+      size: 21753
+    - path: crates/sim-model/src
+      hash: md5
+      md5: e8870b72f913405eca2cfb0300db7612.dir
+      size: 1494887
+      nfiles: 31
+    - path: crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
+      hash: md5
+      md5: c858684e065fd5dcd6a05964146573a7
+      size: 1517
+    - path: docs/data/m5_05/m3_09_incremental_equal_live/summary.json
+      hash: md5
+      md5: bef3c7f6d9147d255599bcfa4d2685b8
+      size: 5176
+    - path: docs/data/m5_05/m3_09_scope_check/validate_for/summary.json
+      hash: md5
+      md5: 634659160a93a198874ca954be747e33
+      size: 2193
+    - path: docs/reproducibility/m5_05_conclusions.toml
+      hash: md5
+      md5: 756c8b2d9bed3d13b001ee44f31ecdaf
+      size: 14296
+    - path: docs/reproducibility/m5_05_configs/m3_09_scope_check.toml
+      hash: md5
+      md5: ccda6d809e67e45e0e095318ff2304aa
+      size: 2553
+    - path: rust-toolchain.toml
+      hash: md5
+      md5: c6cf1aeb5aba83906b350a2199f2abf5
+      size: 129
+    outs:
+    - path: docs/data/m5_05/m3_09_scope_check/raw
+      hash: md5
+      md5: d95004b47c2406a7f6bf76906e085d63.dir
+      size: 36407
+      nfiles: 2

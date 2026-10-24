@@ -49,3 +49,4 @@ stages:
     - rust-toolchain.toml
     outs:
     - docs/data/m5_05/m3_09_scope_check/raw
+    frozen: true
