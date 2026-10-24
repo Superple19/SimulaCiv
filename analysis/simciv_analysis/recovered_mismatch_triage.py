@@ -26,6 +26,7 @@ BASELINE_MISMATCH_COMMIT = "fddd9a91b81841a1a2b1d7ddb5e999de20838cb3"
 STATUS_BY_CAUSE = {
     "context parser correction": "recovered-original-output",
     "rounding/formatting": "recovered-original-output (formatted)",
+    "composite field position mismatch": "recovered-weak (composite field)",
     "unit conversion": "recovered-original-output (unit-converted)",
     "different run": "recovered-other-run",
     "derived": "recovered-derived",
@@ -33,6 +34,7 @@ STATUS_BY_CAUSE = {
 }
 MISMATCH_CAUSES = (
     "rounding/formatting",
+    "composite field position mismatch",
     "unit conversion",
     "different run",
     "derived",
@@ -184,6 +186,11 @@ def _classify_one(
         good for good in exact
         if any(_same_record(good, bad) for bad in differing)
     ]
+    expected_component = context.get("component_index") if context else None
+    position_matched = [
+        good for good in same_record_exact
+        if expected_component is not None and int(good.get("component_index", -1)) == expected_component
+    ]
 
     rounded = [row for row in differing if _printed_equal(str(row["actual"]), expected)]
     if rounded:
@@ -193,11 +200,21 @@ def _classify_one(
                        f"{evidence['path']}:{evidence['line']}",
                        f"{actual} rounds to the report's {max(0, -(_decimal(expected) or Decimal(0)).as_tuple().exponent)} decimal places as {expected}.")
 
+    if position_matched:
+        evidence = position_matched[0]
+        return _result(claim, "rounding/formatting", "composite field component at matching position", expected, expected,
+                       f"{evidence['path']}:{evidence['line']}",
+                       f"The expected scalar matches component {expected_component} in the same output field and row.")
+
     if same_record_exact:
         evidence = same_record_exact[0]
+        if expected_component is not None:
+            return _result(claim, "composite field position mismatch", "composite field component at different or unknown position", expected, expected,
+                           f"{evidence['path']}:{evidence['line']}",
+                           f"The expected scalar occurs in the same output field and row, but not at the claimed component position {expected_component}.")
         return _result(claim, "rounding/formatting", "composite field component", expected, expected,
                        f"{evidence['path']}:{evidence['line']}",
-                       "The expected scalar is present in the same output field and row; other numbers from that list or pair were split into sibling claims and misread as mismatches.")
+                       "The expected scalar is present in the same output field and row.")
 
     unit = _unit_for_claim(claim, context)
     for row in differing:
@@ -319,19 +336,30 @@ def classify_mapping(
             raise ValueError(f"pre-triage mismatch claim disappeared from the current map: {claim_id}")
         if claim_id not in mismatch_by_claim:
             exact = current.get("output_matches", [])
-            if current.get("status_after") != "recovered-original-output" or not exact:
+            if current.get("status_after") == "recovered-weak (composite field)" and exact:
+                evidence = exact[0]
+                result = _result(
+                    claim,
+                    "composite field position mismatch",
+                    "composite field component at different or unknown position",
+                    str(claim.get("value", "")),
+                    str(evidence["actual"]),
+                    f"{evidence['path']}:{evidence['line']}",
+                    f"The expected scalar occurs at component {evidence.get('component_index', 'unknown')}, not claimed position {json.loads(str(claim.get('context', '{}'))).get('component_index', 'unknown')}.",
+                )
+            elif current.get("status_after") == "recovered-original-output" and exact:
+                evidence = exact[0]
+                result = _result(
+                    claim,
+                    "context parser correction",
+                    "correct measurement field now matches",
+                    str(claim.get("value", "")),
+                    str(evidence["actual"]),
+                    f"{evidence['path']}:{evidence['line']}",
+                    "The earlier matcher assigned this table column to the wrong output field; the corrected field map finds the exact value.",
+                )
+            else:
                 raise ValueError(f"pre-triage mismatch was not explained by a current exact match: {claim_id}")
-            evidence = exact[0]
-            result = _result(
-                claim,
-                "context parser correction",
-                "correct measurement field now matches",
-                str(claim.get("value", "")),
-                str(evidence["actual"]),
-                f"{evidence['path']}:{evidence['line']}",
-                "The earlier matcher assigned this table column to the wrong output field; the corrected field map finds the exact value.",
-            )
-            result["status_after"] = "recovered-original-output"
         else:
             result = _classify_one(claim, mismatch_by_claim[claim_id], by_report.get(report, []), record_by_path_line)
         result["mismatch_record_count"] = len(baseline_evidence)

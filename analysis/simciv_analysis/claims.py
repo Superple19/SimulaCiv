@@ -305,7 +305,8 @@ def _line_claims(
             header = headers[index] if index < len(headers) else ""
             if _input_header(header) or header.strip().lower() in DESCRIPTIVE_HEADERS:
                 continue
-            for value, unit, subfield in _tokens_with_context(cell):
+            cell_claims = list(_tokens_with_context(cell))
+            for component_index, (value, unit, subfield) in enumerate(cell_claims):
                 if unit == "" and not re.search(r"\d", value):
                     continue
                 unit = unit or _header_unit(header)
@@ -327,6 +328,11 @@ def _line_claims(
                         "table_header": context_headers[0] if context_headers else "",
                         "subfield": subfield,
                         "dimensions": dimensions,
+                        **(
+                            {"component_index": component_index}
+                            if len(cell_claims) > 1 and ("/" in cell or ("[" in cell and "]" in cell))
+                            else {}
+                        ),
                     },
                     ensure_ascii=False,
                     sort_keys=True,

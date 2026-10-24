@@ -1,5 +1,6 @@
 import csv
 import gzip
+import json
 from pathlib import Path
 
 from simciv_analysis.claims import _tier, _tokens, apply_m5_04_overrides, extract_claims, ledger_bytes, scan_documents
@@ -158,3 +159,18 @@ def test_m5_04_status_overrides_are_deterministic_and_preserve_prior_notes():
 
 def test_gate_amendment_labels_are_not_numeric_claims():
     assert list(_tokens("A-5 gate, 20% threshold")) == [("20", "%")]
+
+
+def test_composite_table_claims_record_their_component_position(tmp_path):
+    report = tmp_path / "docs" / "reports" / "sample.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        "# Sample\n\n## Findings\n\n| N | Frontier sizes |\n|---:|---|\n| 10 | [3, 2] |\n",
+        encoding="utf-8",
+    )
+
+    claims = scan_documents(tmp_path)
+    frontier_claims = [claim for claim in claims if claim["value"] in {"3", "2"}]
+
+    assert [claim["value"] for claim in frontier_claims] == ["3", "2"]
+    assert [json.loads(claim["context"])["component_index"] for claim in frontier_claims] == [0, 1]

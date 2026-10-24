@@ -32,7 +32,10 @@ def _mapping(tmp_path, name, content, claim):
     return build_mapping([claim], tmp_path)["claims"][0]
 
 
-def _claim(value, column, dimensions, unit=""):
+def _claim(value, column, dimensions, unit="", component_index=None):
+    context = {"kind": "table", "column": column, "column_is_parameter": False, "dimensions": dimensions}
+    if component_index is not None:
+        context["component_index"] = component_index
     return {
         "claim_id": 1,
         "report": "sample.md",
@@ -41,7 +44,7 @@ def _claim(value, column, dimensions, unit=""):
         "tier": "supporting",
         "status": "missing-data",
         "context": json.dumps(
-            {"kind": "table", "column": column, "column_is_parameter": False, "dimensions": dimensions}
+            context
         ),
     }
 
@@ -60,10 +63,25 @@ def test_rounding_and_composite_components_are_recovered_as_formatted(tmp_path):
         tmp_path / "component",
         "out.csv",
         b"N,gates\n10000,2/6\n",
-        _claim("2", "gates", {"population_n": "10000"}),
+        _claim("2", "gates", {"population_n": "10000"}, component_index=0),
     )
     assert component["status_after"] == "recovered-original-output (formatted)"
-    assert component["triage_subcategory"] == "composite field component"
+    assert component["triage_subcategory"] == "composite field component at matching position"
+    wrong_position = _mapping(
+        tmp_path / "wrong-position",
+        "out.csv",
+        b"N,gates\n10000,6/2\n",
+        _claim("2", "gates", {"population_n": "10000"}, component_index=0),
+    )
+    assert wrong_position["status_after"] == "recovered-weak (composite field)"
+    assert wrong_position["triage_subcategory"] == "composite field component at different or unknown position"
+    missing_position = _mapping(
+        tmp_path / "missing-position",
+        "out.csv",
+        b"N,gates\n10000,2\n",
+        _claim("2", "gates", {"population_n": "10000"}, component_index=1),
+    )
+    assert missing_position["status_after"] == "recovered-weak (composite field)"
     assert _printed_equal("+1,234.00%", "1234.0")
 
 

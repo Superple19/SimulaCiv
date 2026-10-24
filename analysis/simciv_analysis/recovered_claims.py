@@ -466,6 +466,7 @@ def _claim_context(claim: dict[str, Any]) -> dict[str, Any] | None:
         "label": label,
         "dimensions": dimensions,
         "section": section,
+        **({"component_index": int(context["component_index"])} if "component_index" in context else {}),
     }
 
 
@@ -549,12 +550,12 @@ def _identity_signature(dimensions: dict[str, str]) -> tuple[tuple[str, str], ..
     ))
 
 
-def _context_values(claim_context: dict[str, Any], record: dict[str, Any]) -> list[tuple[str, str, str]]:
+def _context_values(claim_context: dict[str, Any], record: dict[str, Any]) -> list[tuple[str, str, str, int]]:
     return [
-        (field, value, raw)
+        (field, value, raw, component_index)
         for field, values in record["measures"].items()
         if _field_matches(claim_context, field)
-        for value, raw in values
+        for component_index, (value, raw) in enumerate(values)
     ]
 
 
@@ -567,12 +568,13 @@ def _match_claim_context(claim: dict[str, Any], candidates: list[dict[str, Any]]
     mismatches: list[dict[str, Any]] = []
     for output in candidates:
         for record in _context_records(context, output):
-            for field, actual, raw in _context_values(context, record):
+            for field, actual, raw, component_index in _context_values(context, record):
                 result = {
                     "path": output["path"],
                     "line": record["line"],
                     "column": context["column"],
                     "output_field": field,
+                    "component_index": component_index,
                     "expected": str(claim.get("value", "")),
                     "actual": raw,
                     "line_text": record["text"],
@@ -670,6 +672,11 @@ def build_mapping(claims: list[dict[str, Any]], root: Path = ROOT) -> dict[str, 
             after = "recovered-output-mismatch"
         elif before.startswith("missing-"):
             after = "recovered-original-output"
+        component_index = source_context.get("component_index")
+        if component_index is not None and exact and not any(
+            int(row.get("component_index", -1)) == int(component_index) for row in exact
+        ):
+            after = "recovered-weak (composite field)"
         claim_row = {
             "claim_id": int(claim["claim_id"]),
             "report": report,
@@ -725,6 +732,7 @@ def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> 
             "recovered-original-output",
             "recovered-original-output (formatted)",
             "recovered-original-output (unit-converted)",
+            "recovered-weak (composite field)",
             "recovered-other-run",
             "recovered-derived",
             "recovered-output-mismatch",
@@ -767,7 +775,7 @@ def write_mapping(path: Path = OUTPUT, root: Path = ROOT) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(compressed.getvalue())
     mismatch_text = io.StringIO(newline="")
-    mismatch_fields = ["claim_id", "report", "context", "expected", "actual", "output_path", "line", "column", "output_field"]
+    mismatch_fields = ["claim_id", "report", "context", "expected", "actual", "output_path", "line", "column", "output_field", "component_index"]
     writer = csv.DictWriter(mismatch_text, fieldnames=mismatch_fields, lineterminator="\n")
     writer.writeheader()
     for row in mapping["confirmed_mismatches"]:
@@ -810,6 +818,7 @@ def collections_summary(mapping: dict[str, Any]) -> dict[str, int]:
         "outputs_scanned": int(mapping["outputs_scanned"]),
         "exact_claim_matches": sum(row["status_after"] in recovered_statuses for row in rows),
         "moved_from_missing": sum(row["status_after"] in recovered_statuses for row in rows),
+        "recovered_weak": sum(row["status_after"] == "recovered-weak (composite field)" for row in rows),
         "recovered_output_mismatches": sum(row["status_after"] == "recovered-output-mismatch" for row in rows),
         "config_values_unchanged": len(mapping["config_value_claim_ids"]),
         "unmatched_claims": len(mapping["unmatched_claim_ids"]),

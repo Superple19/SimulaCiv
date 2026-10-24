@@ -78,14 +78,16 @@ verdicts remain in the `key` tier.
 | M2 | timing | missing-data | headline | 44 |
 | M2 | timing | missing-data | key | 1 |
 | M2 | timing | missing-data | supporting | 686 |
-| M3 | derived | missing-data | headline | 173 |
+| M3 | derived | missing-data | headline | 181 |
 | M3 | derived | missing-data | key | 17 |
 | M3 | derived | missing-data | supporting | 10,006 |
 | M3 | derived | missing-source | headline | 20 |
 | M3 | derived | missing-source | supporting | 618 |
-| M3 | derived | recovered-original-output | headline | 114 |
-| M3 | derived | recovered-original-output | supporting | 2,098 |
+| M3 | derived | recovered-original-output | headline | 12 |
+| M3 | derived | recovered-original-output | supporting | 2,090 |
 | M3 | derived | recovered-original-output (formatted) | supporting | 842 |
+| M3 | derived | recovered-weak (composite field) | headline | 94 |
+| M3 | derived | recovered-weak (composite field) | supporting | 8 |
 | M3 | deterministic | missing-source | headline | 6 |
 | M3 | deterministic | missing-source | supporting | 131 |
 | M3 | deterministic | reproducible-now | supporting | 8 |
@@ -207,7 +209,7 @@ tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the
 | M3 | M3_04_SUSTAINED_WORKLOAD.md | missing-data | 2,222 |
 | M3 | M3_11_PROPAGATION.md | missing-data | 1,835 |
 | M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | missing-data | 1,502 |
-| M3 | M3_05_SCALE_LIMIT.md | missing-data | 1,146 |
+| M3 | M3_05_SCALE_LIMIT.md | missing-data | 1,154 |
 | M2 | M2_37_POST_P5_P6B_REPROFILING.md | missing-data | 663 |
 | M2 | M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | missing-data | 566 |
 | M3 | M3_07_SCALE_RESIDUAL.md | missing-data | 517 |
@@ -219,8 +221,10 @@ tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the
 The recovered-output matcher
 [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py)
 scanned **206** files. A match requires the same structured output row,
-measurement field, and all recorded configuration dimensions. It records
-**3,644** claims as recovered evidence across exact, formatted,
+measurement field, and all recorded configuration dimensions. Composite
+values also require the same component position; **102** same-field
+values at a different or unknown position remain `recovered-weak`. It
+records **3,534** claims as recovered evidence across exact, formatted,
 unit-converted, other-run, and derived statuses; **1,837** parameter
 values were excluded from measurement matching.
 
@@ -246,11 +250,21 @@ claims) found matching context for **35** of 150 value-only matches
 |----|----|----|----|----|
 | M3_01_SERIAL_BASELINE.md | supporting | missing-data | recovered-original-output | 207 |
 | M3_01_SERIAL_BASELINE.md | supporting | missing-data | recovered-original-output (formatted) | 153 |
-| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | recovered-original-output | 16 |
+| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | recovered-original-output | 8 |
 | M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | recovered-original-output (formatted) | 88 |
-| M3_05_SCALE_LIMIT.md | headline | missing-data | recovered-original-output | 114 |
+| M3_05_SCALE_LIMIT.md | headline | missing-data | recovered-original-output | 12 |
 | M3_11_PROPAGATION.md | supporting | missing-data | recovered-original-output | 2,400 |
 | M3_11_PROPAGATION.md | supporting | missing-data | recovered-original-output (formatted) | 666 |
+
+#### Weak composite matches
+
+These **102** values occur in the row and field but lack a same-position
+match, so they remain evidence gaps:
+
+| Report                        | Tier       | Claims |
+|-------------------------------|------------|--------|
+| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | 8      |
+| M3_05_SCALE_LIMIT.md          | headline   | 94     |
 
 #### Claims without an exact context match
 
@@ -282,7 +296,7 @@ output—does not qualify as recovered evidence.
 | M3_04_SUSTAINED_WORKLOAD.md | headline | 56 |
 | M3_04_SUSTAINED_WORKLOAD.md | supporting | 1,947 |
 | M3_05_SCALE_DIAGNOSIS.md | supporting | 232 |
-| M3_05_SCALE_LIMIT.md | headline | 58 |
+| M3_05_SCALE_LIMIT.md | headline | 66 |
 | M3_05_SCALE_LIMIT.md | supporting | 1,105 |
 | M3_06_SETTLEMENT_INDEX.md | supporting | 414 |
 | M3_07_SCALE_RESIDUAL.md | key | 12 |
@@ -326,22 +340,23 @@ retains `recovered-output-mismatch`. The generated cause table uses
 **claims** and **baseline output records**, split by
 headline/key/supporting tier:
 
-| Cause               | claims | headline | key | Baseline records | supporting |
-|---------------------|--------|----------|-----|------------------|------------|
-| rounding/formatting | 907    | 0        | 0   | 4,187            | 907        |
-| unit conversion     | 0      | 0        | 0   | 0                | 0          |
-| different run       | 0      | 0        | 0   | 0                | 0          |
-| derived             | 0      | 0        | 0   | 0                | 0          |
-| genuine discrepancy | 0      | 0        | 0   | 0                | 0          |
+| Cause | claims | headline | key | Baseline records | supporting |
+|----|----|----|----|----|----|
+| rounding/formatting | 907 | 0 | 0 | 4,187 | 907 |
+| composite field position mismatch | 0 | 0 | 0 | 0 | 0 |
+| unit conversion | 0 | 0 | 0 | 0 | 0 |
+| different run | 0 | 0 | 0 | 0 | 0 |
+| derived | 0 | 0 | 0 | 0 | 0 |
+| genuine discrepancy | 0 | 0 | 0 | 0 | 0 |
 
 The detailed audit separates the earlier field-mapping correction from
-the cause categories, then splits composite-cell and printed-precision
-formatting:
+the cause categories, including position-matched composite components,
+weak composite matches, and printed-precision formatting:
 
 | Cause and classification detail | claims | Baseline records |
 |----|----|----|
 | context parser correction: correct measurement field now matches | 180 | 184 |
-| rounding/formatting: composite field component | 754 | 4,032 |
+| rounding/formatting: composite field component at matching position | 754 | 4,032 |
 | rounding/formatting: printed-precision rounding | 153 | 155 |
 
 Classification details are listed in
@@ -350,11 +365,10 @@ with its generated summary in
 [recovered_claim_mismatch_triage.json](recovered_claim_mismatch_triage.json).
 
 M3_11 accounts for **666** baseline mismatch claims and **3,944**
-records. The recovered output contains composite `frontiers` arrays and
-`levels_max` pairs; scalar claim extraction split their values into
-sibling claims, which the earlier matching pass counted as mismatch
-records. These are composite-cell formatting matches, not separate run
-disagreements:
+records. Recovered `frontiers` arrays and `levels_max` pairs are now
+checked by component position: only matching positions count as
+formatted evidence; sibling values in the same field are listed as weak
+composite matches:
 
 | M3_11 mismatch field | Candidate records |
 |----------------------|-------------------|

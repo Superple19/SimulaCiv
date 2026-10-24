@@ -127,6 +127,7 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
     exact = pd.DataFrame(mapping.get("claims", []))
     if exact.empty:
         moved = pd.DataFrame([{"Report": "none", "Tier": "—", "Prior status": "—", "Claims": 0}])
+        weak = pd.DataFrame([{"Report": "none", "Tier": "—", "Claims": 0}])
     else:
         recovered_statuses = {
             "recovered-original-output",
@@ -144,6 +145,15 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
         )
         if moved.empty:
             moved = pd.DataFrame([{"Report": "none", "Tier": "—", "Prior status": "—", "Claims": 0}])
+        weak = (
+            exact.loc[exact["status_after"] == "recovered-weak (composite field)"]
+            .groupby(["report", "tier"], dropna=False)
+            .size().rename("Claims").reset_index()
+            .rename(columns={"report": "Report", "tier": "Tier"})
+            .sort_values(["Report", "Tier"], kind="stable")
+        )
+        if weak.empty:
+            weak = pd.DataFrame([{"Report": "none", "Tier": "—", "Claims": 0}])
     unmatched_ids = set(int(value) for value in mapping.get("unmatched_claim_ids", []))
     unmatched = claims.loc[claims["claim_id"].astype(int).isin(unmatched_ids)].copy()
     if unmatched.empty:
@@ -159,7 +169,14 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
     triage = pd.read_csv(triage_path, compression="gzip") if triage_path.is_file() else pd.DataFrame()
     triage_summary = json.loads(triage_summary_path.read_text(encoding="utf-8")) if triage_summary_path.is_file() else {}
     causes = triage_summary.get("causes", {})
-    cause_order = ("rounding/formatting", "unit conversion", "different run", "derived", "genuine discrepancy")
+    cause_order = (
+        "rounding/formatting",
+        "composite field position mismatch",
+        "unit conversion",
+        "different run",
+        "derived",
+        "genuine discrepancy",
+    )
     cause_rows = [
         {"Cause": cause, **{("Baseline records" if key == "mismatch_records" else key): value for key, value in causes[cause].items()}}
         for cause in cause_order if cause in causes
@@ -201,6 +218,7 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
         "remaining_mismatch_records": int(triage_summary.get("mismatch_records", 0)) - int(adjustment.get("mismatch_records", 0)),
         "current_mismatch_records": current_mismatch_records,
         "genuine": int((statuses == "recovered-output-mismatch").sum()),
+        "recovered_weak": int((statuses == "recovered-weak (composite field)").sum()),
         "parser_corrected": int((triage["cause"] == "context parser correction").sum()) if not triage.empty else 0,
         "parser_corrected_records": int(triage_summary.get("context_parser_correction_records", 0)),
         "parser_corrected_headline": int(adjustment.get("headline", 0)),
@@ -217,6 +235,7 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
     }
     return {
         "moved_table": _markdown(moved),
+        "weak_table": _markdown(weak),
         "unmatched_table": _markdown(unmatched_table),
         "type_table": _markdown(value_types),
         "cause_table": _markdown(cause_table),
@@ -304,6 +323,7 @@ def _report_parts() -> dict[str, str]:
         "m1_recheck": _markdown(m1),
         "gaps": _markdown(top_gaps),
         "recovered_moved_table": str(recovered["moved_table"]),
+        "recovered_weak_table": str(recovered["weak_table"]),
         "recovered_unmatched_table": str(recovered["unmatched_table"]),
         "recovered_value_types": str(recovered["type_table"]),
         "recovered_mismatch_causes": str(recovered["cause_table"]),
@@ -327,6 +347,7 @@ def _report_parts() -> dict[str, str]:
         "recovered_exact": f"{recovered_summary['recovered']:,}",
         "recovered_moved_count": f"{recovered_summary['recovered']:,}",
         "recovered_mismatch_count": f"{recovered_summary['genuine']:,}",
+        "recovered_weak_count": f"{recovered_summary['recovered_weak']:,}",
         "recovered_baseline_mismatch_claims": f"{recovered_summary['baseline_mismatch_claims']:,}",
         "recovered_baseline_mismatch_records": f"{recovered_summary['baseline_mismatch_records']:,}",
         "recovered_remaining_mismatch_claims": f"{recovered_summary['remaining_mismatch_claims']:,}",
@@ -403,7 +424,7 @@ The **{parts['m1_count']}** previously unrecoverable M1 aggregate claims were re
 
 ### Recovered original-output matches
 
-The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** files. A match requires the same structured output row, measurement field, and all recorded configuration dimensions. It records **{parts['recovered_exact']}** claims as recovered evidence across exact, formatted, unit-converted, other-run, and derived statuses; **{parts['recovered_config_count']}** parameter values were excluded from measurement matching.
+The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** files. A match requires the same structured output row, measurement field, and all recorded configuration dimensions. Composite values also require the same component position; **{parts['recovered_weak_count']}** same-field values at a different or unknown position remain `recovered-weak`. It records **{parts['recovered_exact']}** claims as recovered evidence across exact, formatted, unit-converted, other-run, and derived statuses; **{parts['recovered_config_count']}** parameter values were excluded from measurement matching.
 
 The prior 144af62 rule matched value tokens without row, label, column, or unit context. Among **{parts['recovered_audit_baseline_count']}** claims it had moved, the recorded type split was:
 
@@ -414,6 +435,12 @@ A fixed-seed sample (20261024; 50 headline/key and 100 other measured claims) fo
 #### Claims moved from missing status
 
 {parts['recovered_moved_table']}
+
+#### Weak composite matches
+
+These **{parts['recovered_weak_count']}** values occur in the row and field but lack a same-position match, so they remain evidence gaps:
+
+{parts['recovered_weak_table']}
 
 #### Claims without an exact context match
 
@@ -429,13 +456,13 @@ The remaining **{parts['recovered_remaining_mismatch_claims']}** claims (**{part
 
 {parts['recovered_mismatch_causes']}
 
-The detailed audit separates the earlier field-mapping correction from the cause categories, then splits composite-cell and printed-precision formatting:
+The detailed audit separates the earlier field-mapping correction from the cause categories, including position-matched composite components, weak composite matches, and printed-precision formatting:
 
 {parts['recovered_mismatch_subcategories']}
 
 Classification details are listed in [recovered_claim_mismatch_triage.csv.gz](recovered_claim_mismatch_triage.csv.gz), with its generated summary in [recovered_claim_mismatch_triage.json](recovered_claim_mismatch_triage.json).
 
-M3_11 accounts for **{parts['recovered_m3_11_claims']}** baseline mismatch claims and **{parts['recovered_m3_11_records']}** records. The recovered output contains composite `frontiers` arrays and `levels_max` pairs; scalar claim extraction split their values into sibling claims, which the earlier matching pass counted as mismatch records. These are composite-cell formatting matches, not separate run disagreements:
+M3_11 accounts for **{parts['recovered_m3_11_claims']}** baseline mismatch claims and **{parts['recovered_m3_11_records']}** records. Recovered `frontiers` arrays and `levels_max` pairs are now checked by component position: only matching positions count as formatted evidence; sibling values in the same field are listed as weak composite matches:
 
 {parts['recovered_m3_11_fields']}
 
