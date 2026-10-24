@@ -1,47 +1,68 @@
 # M2/M3 Evidence Reconstruction Inventory
 
-**Status:** generated from the committed claims ledger, current report sources, Git history, source map, recovered-evidence manifest, and M5-05 regeneration results. No timing or simulation harness was run.
+**Status:** generated planning inventory. No simulation or timing harness was run.
 
-## Scope and method
+## Scope and source method
 
-The source ledger filter selected **484** M2/M3 headline/key claims across **22** reports with status `missing-data` or `missing-source`. Table claims are grouped by source table within a section; prose claims are grouped by paragraph or list item. This inventory is a reconstruction plan, not a verification of the historical measurements.
+This inventory covers the 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source` in the recovered-mapped ledger. Table claims are grouped by table and prose claims by paragraph/list item. Each CSV row cites source report lines; timed cell counts additionally cite the table/method or benchmark loops used to derive the count.
 
-Report creation commits are the earliest additions found with `git log --follow --diff-filter=A`; report-era harness presence is checked in that commit tree and again at current HEAD. Recovered evidence cites exact `MANIFEST.json#/items/<index>` entries. M5-05 coverage is assigned only to a prose group at the exact report/anchor; representative M5-05 cells do not count as coverage for a full historical results table.
+A cell is one unique configuration/measurement family for A-5. A paired path comparison remains one cell. Summaries and inferences that reuse a measured matrix have zero additional cells and name their shared run ID. Non-timing records (tests, workload counts, schema facts, static analysis) have zero A-5 timing cells and remain linked to their output/configuration cell count where useful.
 
-Class labels: (a) deterministic replay at original revision; (b) timing with committed harness; (c) timing with complete recovered harness source; (d) reconstructed timing harness from a sufficiently specified report protocol; (e) protocol underspecified; (f) conclusion already covered by M5-05, with historical details excluded from that coverage.
+The A-5 floor is 43 seconds per unique timed cell: two warmups plus 41 timed samples, each at least one second. It excludes compilation, initialization, non-timed probes, and extra repetition factor `r`. This is a lower bound, not a wall-time prediction.
 
-A-5 lower bounds use 2 warmups plus 41 samples, with each sample at least 1 second: 43 seconds per inferred table row/cell. They exclude build/setup, repetitions within each sample beyond the 1-second floor, noise retries, and cells not enumerated as table rows; they are workload floors, not elapsed-time predictions. Deterministic replay is not an A-5 timing run.
+Revision policy: the default reproduction revision is the report's creation commit, answering historical-number reproduction; a separate HEAD run answers only whether the conclusion still holds. The CSV records each report commit and its `rust-toolchain.toml`; pinned toolchain channels found: 1.98.1.
 
-## Counts
+## Cell-count resolution and duplicate audit
 
-| Class | Experiments | Claims |
-|---|---:|---:|
-| (a) deterministic replay | 2 | 3 |
-| (b) committed harness | 69 | 402 |
-| (c) complete recovered source | 5 | 31 |
-| (d) reconstructable protocol | 2 | 26 |
-| (e) underspecified | 0 | 0 |
-| (f) M5-05 conclusion covered | 3 | 22 |
+All **61** groups that lacked a cell count in the previous inventory were assigned a report/harness-derived count, a zero-cell non-timing/shared designation, or a `needs-decision` status. `needs-decision` groups: **0**.
 
-Timing-class A-5 minimum for estimable (b)–(d) groups: **2,537 seconds (0.70 hours)**. This lower bound covers groups with an enumerated table-row or explicit-N cell count; **61** additional (b)–(d) groups have no defensible cell count and are unestimated. Class (e) is unestimated because the protocol is incomplete; class (a) deterministic replay has no A-5 duration estimate.
+M3-05 `#first-break-findings` was one section of one report, not two documents. It contains two distinct tables: the trigger-criteria table and the phase-alpha table. Their claim IDs are disjoint, so the inventory merges them into one 100-claim experiment group; a global assertion confirms each of the 484 claim IDs appears exactly once in the CSV.
 
-## Ten largest experiment groups
+## A-5 estimate by class
 
-| # | Report and anchor | Claims | Class |
-|---:|---|---:|---|
-| 1 | `M3_05_SCALE_LIMIT.md#first-break-findings` | 80 | b |
-| 2 | `M3_04_SUSTAINED_WORKLOAD.md#comparison-with-m3-02-interim-audit-findings` | 48 | b |
-| 3 | `M2_09_PHASE34_SCRATCH_BUFFER_ANALYSIS.md#3-allocation-inventory-summary` | 27 | b |
-| 4 | `M3_05_SCALE_LIMIT.md#first-break-findings` | 20 | b |
-| 5 | `M3_08_POPULATION_DYNAMICS.md#findings` | 19 | d |
-| 6 | `M3_11_PROPAGATION.md#summary` | 15 | f |
-| 7 | `M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary` | 13 | b |
-| 8 | `M3_09_INCREMENTAL_TOPOLOGY.md#findings` | 13 | c |
-| 9 | `M3_09_INCREMENTAL_TOPOLOGY.md#summary` | 12 | c |
-| 10 | `M2_37_POST_P5_P6B_REPROFILING.md#executive-summary` | 10 | b |
+| Class | Experiment groups | Claims | Unique A-5 cells | Lower-bound seconds |
+|---|---:|---:|---:|---:|
+| (a) deterministic replay | 2 | 3 | 0 | 0 |
+| (b) committed harness | 68 | 402 | 138 | 5,934 |
+| (c) complete recovered source | 5 | 31 | 6 | 258 |
+| (d) reconstructed protocol | 2 | 26 | 18 | 774 |
+| (e) underspecified | 0 | 0 | 0 | 0 |
+| (f) M5-05 conclusion covered | 3 | 22 | 0 | 0 |
+| **Total** | **80** | **484** | **162** | **6,966** |
 
-## Evidence notes
+The resulting A-5 floor is **6,966 seconds (1.94 hours)**. This sums unique cells; shared summaries contribute zero. `needs-decision` is currently zero, so no timing cells are hidden from the sum.
 
-- The CSV records the exact protocol excerpts with report line references, the report-creation commit, harness/test availability at that commit and HEAD, recovered manifest entries, and any M5-05 conclusion result.
-- A blank A-5 estimate means the group is not an A-5 timing task or is not estimable from the recorded protocol; it does not mean zero compute cost.
-- The recovered archive is evidence only. No recovered binary was executed and no recovered source was compiled in this inventory task.
+## Ten largest groups by A-5 runtime
+
+| # | Experiment group | Class | Cells | Lower-bound seconds |
+|---:|---|---|---:|---:|
+| 1 | `M3_05_SCALE_LIMIT.md#first-break-findings` (`M3-05-scale-matrix`) | b | 48 | 2,064 |
+| 2 | `M3_08_POPULATION_DYNAMICS.md#findings` (`M3-08-population-profile`) | d | 18 | 774 |
+| 3 | `M3_07_SCALE_RESIDUAL.md#inferences-by-phase` (`M3-07-residual`) | b | 13 | 559 |
+| 4 | `M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#15-alignment-and-gpu-status` (`M2-40-conclusion-cells`) | b | 12 | 516 |
+| 5 | `M3_03_SEARCH_REDUCTION.md#executive-summary` (`M3-03-day-grid`) | b | 12 | 516 |
+| 6 | `M3_04_SUSTAINED_WORKLOAD.md#comparison-with-m3-02-interim-audit-findings` (`M3-04-sustained-grid`) | b | 12 | 516 |
+| 7 | `M2_X_REBASELINE_REPORT.md#4-allocation-scratch-buffer-optimization-ledger-m2-02-to-m2-12` (`M2-X-optimization-ledger`) | b | 9 | 387 |
+| 8 | `M2_37_POST_P5_P6B_REPROFILING.md#executive-summary` (`M2-37-reprofile`) | b | 8 | 344 |
+| 9 | `M2_34_POST_ALGORITHM_REPROFILING.md#executive-summary` (`M2-34-reprofile`) | b | 6 | 258 |
+| 10 | `M3_09_INCREMENTAL_TOPOLOGY.md#findings` (`M3-09-incremental-profile`) | c | 6 | 258 |
+
+## M3-05 end-to-end pilot proposal
+
+Pilot: the merged M3-05 first-break/scale result group. It exercises the A-5 runner, phase profile, setup timing, digest/parity outputs, derived tables, and report path in one end-to-end reconstruction. The source scope is M2-40 with `base_metabolic_cost=0.3129`, M3 `k ∈ {8,16}`, `p_local=0.5`, four populations, and day-0/day-50 checkpoints; see the cited M3-05 method and benchmark source lines in the CSV.
+
+The existing legacy command is `cargo bench -p sim-model --bench m3_scale_limit_bench`; it uses the report's 2 warmups and 7 samples, so it is a protocol reference only and cannot pass the frozen A-5 criteria. The A-5 driver mode is not implemented in the current bench. After that mode is committed, the proposed exact invocation is:
+
+```powershell
+cargo bench -p sim-model --bench m3_scale_limit_bench -- --a5-reconstruction --output docs/data/m5_05/m3_05_pilot/m3_05_a5.jsonl
+```
+
+Expected records: host/config header; eight setup and memory configurations; 16 paired full-tick configurations; 16 serial phase-profile configurations; per-cell `r`, 2 warmups, 41 samples, medians/MADs, and parity digests; alpha/first-break summaries; completion record. The raw JSONL path is under `docs/data/m5_05/m3_05_pilot/`; register it in the M5-05 DVC stage before the run, with the summary and required manifest metadata in Git.
+
+A-5 floor: **48 timed series × 43 seconds = 2,064 seconds (34 minutes 24 seconds)**. Compilation, graph/world initialization, the non-timed memory probe, host setup, and any `r` above its one-second minimum make actual wall time longer; no wall-time run estimate is claimed.
+
+**Pilot precondition:** the current committed bench recognizes its default mode, `--residual`, and `--diagnose`; it does not recognize `--a5-reconstruction`. Commit the A-5 mode and its result schema before invoking the proposed command. No command was run in this inventory task.
+
+## Criteria and status
+
+Proposed acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md) and remain draft pending approval; no timing is authorized under the draft. They require exact deterministic values and preserve dimensionless timing ratios/rankings; absolute elapsed times are recorded but are not pass criteria.

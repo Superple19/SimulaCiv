@@ -882,3 +882,13 @@ milestone = "M5"
 status = "planned"
 summary = "Audit M5 reproducibility and research-hardening results."
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract"
+[[decision]]
+id = "M5-05-REPRODUCTION-CRITERIA"
+milestone = "M5"
+stage = "M5-05"
+status = "frozen"
+enforcement = "documented"
+summary = "Approved 2026-10-25: reproduce historical values exactly; grade timing ratios reproduced through 10 percent, loose through 20 percent, and not reproduced above 20 percent, with significance-aware rankings."
+enforced_by = ["docs/reproducibility/REPRODUCTION_CRITERIA.md"]
+doc = "docs/reproducibility/REPRODUCTION_CRITERIA.md#timing-evidence"
+date = "2026-10-25"
