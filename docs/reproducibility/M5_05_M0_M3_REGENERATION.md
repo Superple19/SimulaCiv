@@ -171,16 +171,19 @@ s. Protocol and revision order are in
 
 ## M3-09 protocol scope recheck
 
-The M3-09 follow-up report states exactly: “The checkpoint is after
-executed day 400, at 10,341 live agents for the 10k start and 103,241
-for the 100k start. Each sample uses two warmups, 11 measured samples,
-and three consecutive days per sample; contexts are reconstructed from
-the same checkpoint outside each sample timer. The paired schedule
-rotates M3P serial, M3P incremental, and M3 order within each sample.”
-The temporary original driver is missing, and the report does not list
-its internal day IDs. The recheck interprets the checkpoint as the
-next-day cursor 401, so it measures internal days 401, 402, 403; this
-mapping is an inference from the runner’s day cursor.
+The recovered helper source at
+`docs/data/m5_recovered/recovered/session-history/C/AI/SimulaCiv/crates/sim-model/examples/m3p_09_followup_measure.rs:16,309-478`
+confirms the checkpoint run executes 401 days from the initial state
+through day 400, then restores each runner from that checkpoint. Its
+sample function makes one public API call for three consecutive days
+(lines 343–428). The paired schedule runs 13 iterations, discards the
+first two as warmups, retains 11 samples, and rotates runner order
+(lines 431–456); the non-interleaved schedule runs runners sequentially
+(lines 459–478). Recovered command output at
+`docs/data/m5_recovered/recovered/session-extracts.jsonl:148-151`
+records paired and non-interleaved runner medians. The recovered output
+does not print a ratio field; the report ratios are calculated from
+those medians.
 
 The committed M5-05 driver constructs its checkpoint with
 `m3p_checkpoint` in
@@ -200,18 +203,18 @@ process priority or affinity, so those controls cannot be compared. The
 configs, seed, replicate, metrics/events setting, snapshots-off setting,
 and serial execution mode match. \| measurement \| checkpoint / timed
 days \| compaction \| warmups / samples \| public calls / sample \|
-timed runners \| context timing \| \| —————————– \| ———————————————– \|
-——————————————- \| —————– \| —————————————- \| —————————————————– \|
-————————————– \| \| M3-09 follow-up as documented \| after executed day
-400; internal IDs not listed \| original driver’s exact day IDs
-unavailable \| 2 / 11 \| one call per runner; 3 days each \| M3P serial
-→ M3P incremental → M3 (rotating) \| contexts built outside sample timer
-\| \| M5-05 selected cell \| cursor 400; 400, 401, 402 \| 400 \| 2 / 41
-\| 7 repeated calls per runner; 3 days each \| M3P incremental ↔ M3; M3P
-serial used only for parity \| contexts built before each call timer \|
-\| Protocol-matched A-5 recheck \| cursor 401; 401, 402, 403 \| none \|
-2 / 41 \| r calls per runner; 3 days each \| M3P serial → M3P
-incremental → M3 (rotating) \| contexts built outside each call timer \|
+timed runners \| context timing \| \| —————————– \| ————————————————— \|
+———- \| —————– \| —————————————- \| —————————————————– \| ————————————–
+\| \| M3-09 follow-up as documented \| executed days 0–400; cursor 401;
+timed days 401–403 \| none \| 2 / 11 \| one call per runner; 3 days each
+\| M3P serial → M3P incremental → M3 (rotating) \| contexts built
+outside sample timer \| \| M5-05 selected cell \| cursor 400; 400, 401,
+402 \| 400 \| 2 / 41 \| 7 repeated calls per runner; 3 days each \| M3P
+incremental ↔ M3; M3P serial used only for parity \| contexts built
+before each call timer \| \| Protocol-matched A-5 recheck \| cursor 401;
+401, 402, 403 \| none \| 2 / 41 \| r calls per runner; 3 days each \|
+M3P serial → M3P incremental → M3 (rotating) \| contexts built outside
+each call timer \|
 
 The original equal-live definition is preserved: M3 starts from the same
 live M3P agent records and settlement state, while its graph is

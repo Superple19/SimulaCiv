@@ -292,8 +292,13 @@ def _scope_later_update(scope: dict[str, Any], *, audit: bool) -> str:
     return (
         "Later update (2026-10-24): the days 101–103 values above are the Phase 9b diagnostic, not the "
         "1.49× equal-live ratio. The follow-up used a checkpoint after executed day 400, two warm-ups, "
-        "11 samples, and a rotating M3P serial/incremental/M3 three-day-call schedule; its temporary driver "
-        "is missing, so cursor 401 is the recheck's interpretation of that boundary. The protocol-matched "
+        "11 samples, and a rotating M3P serial/incremental/M3 three-day-call schedule. Recovered helper "
+        "source `docs/data/m5_recovered/recovered/session-history/C/AI/SimulaCiv/crates/sim-model/examples/"
+        "m3p_09_followup_measure.rs:16,309-478` confirms the checkpoint call through executed day 400, the "
+        "three-day public calls, two discarded warmups, 11 measured samples, and both schedules. Recovered "
+        "command output `docs/data/m5_recovered/recovered/session-extracts.jsonl:148-151` contains the "
+        "runner medians but no explicit ratio field; the ratio rows in the report are calculated from those "
+        "medians. The protocol-matched "
         f"100k ratios were {followup:.2f}× at the follow-up revision and {head:.2f}× at HEAD, {within}. "
         f"The separate M5-05 cursor-400 sample covered days 400–402, included compaction day 400, and measured "
         f"{all_days:.2f}×. See the generated {link}."
@@ -751,8 +756,8 @@ def _render_qmd(data: dict[str, Any]) -> str:
         protocol_rows = [
             {
                 "measurement": "M3-09 follow-up as documented",
-                "checkpoint / timed days": "after executed day 400; internal IDs not listed",
-                "compaction": "original driver's exact day IDs unavailable",
+                "checkpoint / timed days": "executed days 0–400; cursor 401; timed days 401–403",
+                "compaction": "none",
                 "warmups / samples": f"{plan['reference_warmups']} / {plan['reference_samples']}",
                 "public calls / sample": f"one call per runner; {plan['days_per_public_call']} days each",
                 "timed runners": "M3P serial → M3P incremental → M3 (rotating)",
@@ -787,7 +792,7 @@ def _render_qmd(data: dict[str, Any]) -> str:
         }]
         scope_section = f'''## M3-09 protocol scope recheck
 
-The M3-09 follow-up report states exactly: “The checkpoint is after executed day 400, at 10,341 live agents for the 10k start and 103,241 for the 100k start. Each sample uses two warmups, 11 measured samples, and three consecutive days per sample; contexts are reconstructed from the same checkpoint outside each sample timer. The paired schedule rotates M3P serial, M3P incremental, and M3 order within each sample.” The temporary original driver is missing, and the report does not list its internal day IDs. The recheck interprets the checkpoint as the next-day cursor 401, so it measures internal days {followup_days}; this mapping is an inference from the runner's day cursor.
+The recovered helper source at `docs/data/m5_recovered/recovered/session-history/C/AI/SimulaCiv/crates/sim-model/examples/m3p_09_followup_measure.rs:16,309-478` confirms the checkpoint run executes 401 days from the initial state through day 400, then restores each runner from that checkpoint. Its sample function makes one public API call for three consecutive days (lines 343–428). The paired schedule runs 13 iterations, discards the first two as warmups, retains 11 samples, and rotates runner order (lines 431–456); the non-interleaved schedule runs runners sequentially (lines 459–478). Recovered command output at `docs/data/m5_recovered/recovered/session-extracts.jsonl:148-151` records paired and non-interleaved runner medians. The recovered output does not print a ratio field; the report ratios are calculated from those medians.
 
 The committed M5-05 driver constructs its checkpoint with `m3p_checkpoint` in [m5_05_sessions23.rs](../../crates/sim-model/examples/m5_05_sessions23.rs). Its cursor is 400, so its three-day call covers days {current_days} and includes compaction day {', '.join(str(day) for day in scope_result['m5_compaction_days'])}. For the 100k cell, the M5-05 timing protocol was: “2 warmups; 41 A-5 samples; three-day calls; {old_result['repetitions_per_sample']} repetitions per sample; M3P incremental/M3 pair only; contexts built outside each timer.” The 10k selected cell used {scope_result['cells'][0]['repetitions']} repetitions per sample. Both methods call each public runner once per three simulated days; M5-05 repeats that operation to meet A-5 sample duration, so validation cadence per simulated day is equal. Other differences are the checkpoint/day boundary and compaction, three-runner rotation versus a two-path pair, 11 versus 41 measured samples, and one operation versus repeated operations per sample. The historical report does not record process priority or affinity, so those controls cannot be compared. The configs, seed, replicate, metrics/events setting, snapshots-off setting, and serial execution mode match.
 {_table(protocol_rows, ["measurement", "checkpoint / timed days", "compaction", "warmups / samples", "public calls / sample", "timed runners", "context timing"])}
