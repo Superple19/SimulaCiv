@@ -1,10 +1,10 @@
 # SimulaCiv analysis
 
-The analysis environment is pinned to Python 3.15.1, uv 0.13.5, pandas 3.0.6, matplotlib 3.11.2, pytest 9.1.1, Quarto CLI 1.10.19, and Vale 3.25.1 (released 2026-10-22). The Python package requires Python >=3.11; the pinned version is for development and CI.
+The analysis environment uses the tool pins in [the repository tools.toml](../tools.toml): Python 3.15.1, uv 0.13.5, pandas 3.0.6, matplotlib 3.11.2, pytest 9.1.1, Quarto CLI 1.10.19, and Vale 3.25.1. The Python package requires Python >=3.11; the pinned version is for development and CI.
 
 ## Setup
 
-Install prek 0.5.7, uv 0.13.5, Quarto CLI 1.10.19, Vale 3.25.1, and just 1.58.0 using their official installation instructions. From the repository root, install the Git hooks:
+Install the tools at the versions listed in [tools.toml](../tools.toml) using their official installation instructions. From the repository root, install the Git hooks:
 
 On Windows, disable Git's automatic EOL conversion for this checkout before working with repository data:
 
@@ -53,6 +53,7 @@ mkdir -p "$HOME/.local/bin"
 curl -LsSf https://astral.sh/uv/0.13.5/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" UV_NO_MODIFY_PATH=1 sh
 
 curl -fSL https://github.com/quarto-dev/quarto-cli/releases/download/v1.10.19/quarto-1.10.19-linux-amd64.tar.gz -o /tmp/quarto-1.10.19-linux-amd64.tar.gz
+echo "8e38c2b2df6a6dbd369ea16e15acded6894545258d13a02f777f81ad18fd7973  /tmp/quarto-1.10.19-linux-amd64.tar.gz" | sha256sum --check
 tar -xzf /tmp/quarto-1.10.19-linux-amd64.tar.gz -C "$HOME/.local"
 ln -sfn "$HOME/.local/quarto-1.10.19/bin/quarto" "$HOME/.local/bin/quarto"
 
@@ -69,11 +70,11 @@ tar -xzf /tmp/prek.tar.gz -C /tmp
 install -m 0755 /tmp/prek-x86_64-unknown-linux-gnu/prek "$HOME/.local/bin/prek"
 ```
 
-This pins Rust to the repository's `rust-toolchain.toml` (`1.98.1`), uv `0.13.5`, Quarto `1.10.19`, just `1.58.0`, Vale `3.25.1`, and prek `0.5.7`. From Windows, run `just ci-linux`; it clones the current commit once, then fetches and checks it out cleanly on later runs. The WSL clone preserves only its `target/` build cache between runs. WSL currently uses Ubuntu 24.04.3 LTS, while hosted CI uses the `ubuntu-26.04` x64 image; `just ci-linux` matches CI's commands, not its runner OS version.
+Rust remains pinned in `rust-toolchain.toml`. From Windows, run `just ci-linux`; it clones the current commit once, then fetches and checks it out cleanly on later runs. The WSL clone preserves only its `target/` build cache between runs. WSL currently uses Ubuntu 24.04.3 LTS, while hosted CI uses the `ubuntu-26.04` x64 image; `just ci-linux` matches CI's commands, not its runner OS version.
 
 ## DVC experiment data
 
-DVC 3.67.1 is the latest stable release checked for M5-05 (2026-03-31). Its published Python classifiers currently include Python 3.14 but not 3.15, so install it as an isolated uv tool with Python 3.14; this does not change the analysis project or its Python 3.15.1 pin:
+DVC 3.67.1 is pinned in [tools.toml](../tools.toml). Its published Python classifiers include Python 3.14 but not 3.15, so install it as an isolated uv tool with Python 3.14; this does not change the analysis project's Python pin:
 
 ```powershell
 uv tool install --python 3.14 dvc==3.67.1

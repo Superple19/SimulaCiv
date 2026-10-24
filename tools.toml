@@ -1,0 +1,23 @@
+[tools.uv]
+version = "0.13.5"
+
+[tools.python]
+version = "3.15.1"
+
+[tools.quarto]
+version = "1.10.19"
+linux_amd64_sha256 = "8e38c2b2df6a6dbd369ea16e15acded6894545258d13a02f777f81ad18fd7973"
+
+[tools.just]
+version = "1.58.0"
+
+[tools.vale]
+version = "3.25.1"
+linux_64_sha256 = "4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182"
+
+[tools.prek]
+version = "0.5.7"
+x86_64_unknown_linux_gnu_sha256 = "e238e5a6b4e384e8d18f33d3c3b1a329be0e1237f77ac6e021e641ddd3a2bab6"
+
+[tools.dvc]
+version = "3.67.1"

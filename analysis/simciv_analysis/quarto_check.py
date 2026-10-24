@@ -6,8 +6,10 @@ import shutil
 import subprocess
 import sys
 
+from simciv_analysis.tool_versions import tool_version
 
-PINNED_VERSION = "1.10.19"
+
+PINNED_VERSION = tool_version("quarto")
 
 
 def main() -> int:

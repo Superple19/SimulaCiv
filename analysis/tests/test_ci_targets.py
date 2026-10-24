@@ -1,6 +1,8 @@
 from pathlib import Path
 import re
 
+from simciv_analysis.tool_versions import tool_version
+
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
@@ -77,7 +79,7 @@ def test_workflow_check_steps_are_single_just_targets():
         for line in (ROOT / "justfile").read_text(encoding="utf-8").splitlines()
         if line.startswith("check:")
     )
-    assert check_target.startswith("check: check-quarto analysis-test")
+    assert check_target.startswith("check: check-quarto tool-versions-check analysis-test")
     assert "commit-messages-check" in check_target
     assert "fetch-depth: 0" in "\n".join(_steps(workflow, "analysis")[0])
 
@@ -136,8 +138,8 @@ def test_just_jobs_install_all_target_tools_before_running_them():
             "Install pinned uv": "uses: astral-sh/setup-uv@v10.3.2",
             "Install pinned Python": "uv python install",
             "Install pinned Quarto": "quarto-dev/quarto-actions/setup@v2",
-            "Install pinned Vale": "vale_3.25.1_Linux_64-bit.tar.gz",
-            "Install pinned prek": "releases/download/v0.5.7/prek-x86_64-unknown-linux-gnu.tar.gz",
+            "Install pinned Vale": f"vale_{tool_version('vale')}_Linux_64-bit.tar.gz",
+            "Install pinned prek": f"releases/download/v{tool_version('prek')}/prek-x86_64-unknown-linux-gnu.tar.gz",
         },
     }
     for job in jobs_with_just:
@@ -157,11 +159,11 @@ def test_just_jobs_install_all_target_tools_before_running_them():
             block = "\n".join(_step(steps, name))
             assert expected in block
             assert index < target_index
-        assert 'just-version: "1.58.0"' in "\n".join(_step(steps, "Install pinned just"))
+    assert f'just-version: "{tool_version("just")}"' in "\n".join(_step(steps, "Install pinned just"))
 
     analysis_steps = _steps(workflow, "analysis")
-    assert 'version: "0.13.5"' in "\n".join(_step(analysis_steps, "Install pinned uv"))
-    assert 'version: "1.10.19"' in "\n".join(_step(analysis_steps, "Install pinned Quarto"))
+    assert f'version: "{tool_version("uv")}"' in "\n".join(_step(analysis_steps, "Install pinned uv"))
+    assert f'version: "{tool_version("quarto")}"' in "\n".join(_step(analysis_steps, "Install pinned Quarto"))
     assert "vale --version" in "\n".join(_step(analysis_steps, "Install pinned Vale"))
     assert "prek --version" in "\n".join(_step(analysis_steps, "Install pinned prek"))
 
