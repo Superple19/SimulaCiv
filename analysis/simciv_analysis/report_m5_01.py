@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import gzip
+import json
 import re
 import subprocess
 import sys
@@ -21,6 +23,7 @@ from simciv_analysis.tables import dataframe_to_markdown
 QMD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.qmd"
 MD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.md"
 LEDGER_PATH = ROOT / "docs" / "reproducibility" / "claims.csv.gz"
+RECOVERED_STATUS_PATH = ROOT / "docs" / "reproducibility" / "recovered_claim_statuses.json.gz"
 REQUIRED_CLAIM_FIELDS = ["claim_id", "report", "line", "section anchor", "claim text (short)", "value", "unit", "class", "tier", "source harness", "raw data", "status", "M5 stage", "notes"]
 
 
@@ -98,6 +101,50 @@ def _comparison(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     return old_new_rows, reasons
 
 
+def _recovered_evidence(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int], str]:
+    if not RECOVERED_STATUS_PATH.is_file():
+        return (
+            pd.DataFrame([{"Report": "none", "Tier": "—", "Prior status": "—", "Claims": 0}]),
+            pd.DataFrame([{"Report": "none", "Tier": "—", "Unmatched claims": 0}]),
+            {"outputs_scanned": 0, "exact_claim_matches": 0, "moved_from_missing": 0, "confirmed_mismatches": 0},
+            "No recovered-output mapping has been generated.",
+        )
+    with gzip.open(RECOVERED_STATUS_PATH, "rt", encoding="utf-8") as stream:
+        mapping = json.load(stream)
+    exact = pd.DataFrame(mapping.get("claims", []))
+    if exact.empty:
+        moved = pd.DataFrame([{"Report": "none", "Tier": "—", "Prior status": "—", "Claims": 0}])
+    else:
+        moved = (
+            exact.loc[exact["status_after"] == "recovered-original-output"]
+            .groupby(["report", "tier", "status_before"], dropna=False)
+            .size().rename("Claims").reset_index()
+            .rename(columns={"report": "Report", "tier": "Tier", "status_before": "Prior status"})
+            .sort_values(["Report", "Tier", "Prior status"], kind="stable")
+        )
+        if moved.empty:
+            moved = pd.DataFrame([{"Report": "none", "Tier": "—", "Prior status": "—", "Claims": 0}])
+    unmatched_ids = set(int(value) for value in mapping.get("unmatched_claim_ids", []))
+    unmatched = claims.loc[claims["claim_id"].astype(int).isin(unmatched_ids)].copy()
+    if unmatched.empty:
+        unmatched_table = pd.DataFrame([{"Report": "none", "Tier": "—", "Unmatched claims": 0}])
+    else:
+        unmatched_table = (
+            unmatched.groupby(["report", "tier"], dropna=False).size().rename("Unmatched claims").reset_index()
+            .rename(columns={"report": "Report", "tier": "Tier"})
+            .sort_values(["Report", "Tier"], kind="stable")
+        )
+    confirmed = mapping.get("confirmed_mismatches", [])
+    mismatch_table = pd.DataFrame(confirmed) if confirmed else pd.DataFrame([{"Confirmed output mismatches": "none"}])
+    summary = {
+        "outputs_scanned": int(mapping.get("outputs_scanned", 0)),
+        "exact_claim_matches": len(exact),
+        "moved_from_missing": int(sum(row.get("status_after") == "recovered-original-output" for row in mapping.get("claims", []))),
+        "confirmed_mismatches": len(confirmed),
+    }
+    return moved, unmatched_table, summary, _markdown(mismatch_table)
+
+
 def _report_parts() -> dict[str, str]:
     claims = load_data("docs/reproducibility/claims.csv.gz")
     if list(claims.columns) != REQUIRED_CLAIM_FIELDS:
@@ -130,6 +177,7 @@ def _report_parts() -> dict[str, str]:
             "bit-exact",
             "bit-exact after documented normalization",
             "conclusion holds",
+            "recovered-original-output",
         ])
     ].copy()
     gaps["milestone"] = gaps["report"].map(_milestone)
@@ -153,6 +201,7 @@ def _report_parts() -> dict[str, str]:
         Finding("[exploratory]", "Top evidence-gap rows are ordered by claim count descending.", "finding_top_gaps_sorted_by_count", top_gaps.empty or top_gaps["claims"].is_monotonic_decreasing),
     ])
     new_ledger = comparison.loc[comparison["Ledger view"] == "new tidy records"].iloc[0]
+    recovered_moved, recovered_unmatched, recovered_summary, recovered_mismatches = _recovered_evidence(claims)
     input_rule = (
         "Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, "
         "replicates, horizons/days, thread/chunk settings, and simulation parameter values. Free-text numbers are only extracted from "
@@ -167,6 +216,9 @@ def _report_parts() -> dict[str, str]:
         "comparison_reasons": _markdown(comparison_reasons),
         "m1_recheck": _markdown(m1),
         "gaps": _markdown(top_gaps),
+        "recovered_moved_table": _markdown(recovered_moved),
+        "recovered_unmatched_table": _markdown(recovered_unmatched),
+        "recovered_mismatches_table": recovered_mismatches,
         "findings": findings_md,
         "findings_checks": findings_checks_md,
         "input_rule": input_rule,
@@ -180,6 +232,10 @@ def _report_parts() -> dict[str, str]:
         "mapped_count": f"{int(new_ledger['matched to old ledger (informational)']):,}",
         "unmapped_count": f"{int(new_ledger['unmatched old-ledger comparison']):,}",
         "old_count": f"{len(expand_old_ledger(OLD_LEDGER)):,}",
+        "recovered_outputs": f"{recovered_summary['outputs_scanned']:,}",
+        "recovered_exact": f"{recovered_summary['exact_claim_matches']:,}",
+        "recovered_moved_count": f"{recovered_summary['moved_from_missing']:,}",
+        "recovered_mismatch_count": f"{recovered_summary['confirmed_mismatches']:,}",
     }
 
 
@@ -235,6 +291,26 @@ The **{parts['m1_count']}** previously unrecoverable M1 aggregate claims were re
 ### Top evidence gaps
 
 {parts['gaps']}
+
+### Recovered original-output matches
+
+The recovered-output generator [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** output logs and data files. It records **{parts['recovered_exact']}** exact report-scoped numeric or SHA-256 token matches; **{parts['recovered_moved_count']}** claims with a prior `missing-*` status moved to `recovered-original-output`. The comparison excludes labeled input/configuration columns. A token match is report-scoped evidence, not row-level semantic identification.
+
+#### Claims moved from missing status
+
+{parts['recovered_moved_table']}
+
+#### Claims without an exact token match
+
+These claims retain their previous status. A report-level output association without a value match is not enough evidence to call the result contradictory.
+
+{parts['recovered_unmatched_table']}
+
+#### Confirmed output mismatches
+
+{parts['recovered_mismatches_table']}
+
+Confirmed mismatches: **{parts['recovered_mismatch_count']}**. No mismatch is inferred solely because a value was absent from a report-scoped output.
 
 ## Findings
 

@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from .io import content_matches
+from .recovered_claims import apply_recorded_statuses
 from .sources import load_sources, source_for_claim, validate_source_paths
 
 
@@ -509,7 +510,11 @@ def apply_m5_05_results(claims: list[dict[str, object]], root: Path = ROOT) -> l
 
 
 def extract_claims(
-    root: Path = ROOT, old_ledger: Path = OLD_LEDGER, *, apply_m5_04: bool = True
+    root: Path = ROOT,
+    old_ledger: Path = OLD_LEDGER,
+    *,
+    apply_m5_04: bool = True,
+    apply_recovered: bool = True,
 ) -> list[dict[str, object]]:
     current = scan_documents(root)
     sources = load_sources(root)
@@ -579,7 +584,8 @@ def extract_claims(
         )
     if apply_m5_04:
         output = apply_m5_04_overrides(output, root)
-    return apply_m5_05_results(output, root)
+    output = apply_m5_05_results(output, root)
+    return apply_recorded_statuses(output, root) if apply_recovered else output
 
 
 def ledger_bytes(claims: list[dict[str, object]]) -> bytes:
