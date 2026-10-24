@@ -227,6 +227,7 @@ def test_promotion_job_is_ci_check_push_only_fast_forward_and_needs_all_checks()
         ("git", "rev-parse"),
         ("git", "rev-parse"),
         ("git", "merge-base"),
+        ("git", "merge-base"),
         ("git", "push"),
     ]
     assert "gh workflow run" not in commands
@@ -234,3 +235,13 @@ def test_promotion_job_is_ci_check_push_only_fast_forward_and_needs_all_checks()
         commands = [command for _, command in _run_steps(_steps(workflow, job_name))]
         assert all(not re.search(r"\b(?:git|gh)\s+", command) for command in commands)
     assert "gh workflow run" not in workflow
+
+
+def test_promotion_job_skips_already_promoted_overlapping_runs():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    commands = _run_steps(_steps(workflow, "promote"))[0][1]
+    already_promoted = 'if git merge-base --is-ancestor "$tested_sha" "$main_sha"; then'
+    non_descendant = 'if ! git merge-base --is-ancestor "$main_sha" "$tested_sha"; then'
+    assert already_promoted in commands
+    assert 'skipping older overlapping run' in commands
+    assert commands.index(already_promoted) < commands.index(non_descendant) < commands.index("git push")

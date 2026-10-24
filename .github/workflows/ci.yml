@@ -120,6 +120,10 @@ jobs:
             echo "main already points to $tested_sha; no promotion needed"
             exit 0
           fi
+          if git merge-base --is-ancestor "$tested_sha" "$main_sha"; then
+            echo "tested commit $tested_sha is already an ancestor of origin/main ($main_sha); skipping older overlapping run"
+            exit 0
+          fi
           if ! git merge-base --is-ancestor "$main_sha" "$tested_sha"; then
             echo "::error::Refusing promotion: $tested_sha is not a descendant of origin/main ($main_sha); main was not changed" >&2
             exit 1
