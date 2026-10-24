@@ -1,6 +1,6 @@
 # SimulaCiv
 
-[![CI](https://github.com/Superple19/SimulaCiv/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Superple19/SimulaCiv/actions/workflows/ci.yml)
+[![CI](https://github.com/Superple19/SimulaCiv/actions/workflows/ci.yml/badge.svg)](https://github.com/Superple19/SimulaCiv/actions/workflows/ci.yml)
 
 **A deterministic, high-performance runtime for large-scale discrete simulation.**
 

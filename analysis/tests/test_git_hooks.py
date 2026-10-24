@@ -9,7 +9,7 @@ def test_commit_message_accepts_known_ci_message_and_subject_only():
 - run CI on ci-check and fast-forward successful tested commits to main
 - dispatch CI on main after promotion and guard against non-descendant SHAs
 - validate action tags and promotion workflow behavior in analysis checks
-- add just ship and document normal delivery plus one-time bootstrap
+- add just ship and document normal delivery and same-run promotion
 """
     assert commit_message_error(known) is None
     assert commit_message_error("docs: short subject\n") is None

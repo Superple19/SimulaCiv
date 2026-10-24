@@ -469,8 +469,8 @@ id = "M5-INFRA-EXACT-ACTION-TAGS"
 milestone = "M5"
 stage = "M5-03"
 status = "frozen"
-summary = "Every GitHub Actions reference uses an exact existing tag and action-ref validation checks both CI workflows."
-enforced_by = ["analysis/simciv_analysis/action_refs.py", "analysis/tests/test_action_refs.py", "just:action-refs-check", ".github/workflows/ci.yml", ".github/workflows/promote.yml"]
+summary = "Every GitHub Actions reference uses an exact existing tag and action-ref validation checks all workflows."
+enforced_by = ["analysis/simciv_analysis/action_refs.py", "analysis/tests/test_action_refs.py", "just:action-refs-check", ".github/workflows/ci.yml"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-24"
 
@@ -500,7 +500,7 @@ milestone = "M5"
 stage = "M5-03"
 status = "frozen"
 summary = "GitHub workflows pin the newest GA runner label per OS, and image updates are made by an explicit commit."
-enforced_by = [".github/workflows/ci.yml", ".github/workflows/promote.yml", "test:analysis/tests/test_ci_targets.py::test_workflows_use_current_ga_runner_images"]
+enforced_by = [".github/workflows/ci.yml", "test:analysis/tests/test_ci_targets.py::test_workflows_use_current_ga_runner_images"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-24"
 
@@ -528,9 +528,20 @@ date = "2026-10-24"
 id = "M5-INFRA-DELIVERY"
 milestone = "M5"
 stage = "M5-AUDIT"
+status = "superseded"
+summary = "just ship pushes the same commit to ci-check, and a successful workflow_run promotes it to main by fast-forward before dispatching a second CI run."
+enforced_by = []
+superseded_by = "M5-INFRA-SAME-RUN-DELIVERY"
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
+id = "M5-INFRA-SAME-RUN-DELIVERY"
+milestone = "M5"
+stage = "M5-AUDIT"
 status = "frozen"
-summary = "just ship runs local checks, pushes the same commit to ci-check, and green CI promotes it to main by fast-forward before dispatching main CI."
-enforced_by = ["justfile", ".github/workflows/promote.yml", "test:analysis/tests/test_ci_targets.py::test_promotion_workflow_is_push_only_fast_forward_and_dispatches_main_ci", "AGENTS.md", "analysis/README.md"]
+summary = "just ship pushes the same commit to ci-check and the successful CI workflow promotes it to main by fast-forward in that run without dispatching another run."
+enforced_by = ["justfile", ".github/workflows/ci.yml", "test:analysis/tests/test_ci_targets.py::test_promotion_job_is_ci_check_push_only_fast_forward_and_needs_all_checks", "AGENTS.md"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-24"
 

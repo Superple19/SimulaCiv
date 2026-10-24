@@ -36,9 +36,7 @@ This regenerates the tidy claim ledger, `.qmd`, and rendered GitHub-flavored Mar
 
 ## Delivery
 
-Normal delivery is `just ship`: it runs local checks, then pushes the tested `HEAD` to `ci-check`. A successful CI run is promoted to `main` automatically by a fast-forward-only workflow; a promoted commit then gets its own CI run on `main`. Never push directly to `main`.
-
-One-time bootstrap only: push the initial CI branch-trigger and promotion-workflow commits directly to `main`, because GitHub runs the `workflow_run` promotion workflow from the version on the default branch.
+Normal delivery is `just ship`: it runs local checks, then pushes the tested `HEAD` to `ci-check`. The same CI run promotes a successful commit to `main` automatically by fast-forward; no second CI run is dispatched. Never push directly to `main`.
 
 ## WSL (Linux) checks
 

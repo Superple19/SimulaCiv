@@ -35,7 +35,7 @@ steps:
 
 def test_action_workflows_are_discovered_by_glob_and_use_exact_tags():
     workflows = workflow_paths()
-    assert [path.name for path in workflows] == ["ci.yml", "promote.yml"]
+    assert [path.name for path in workflows] == ["ci.yml"]
     for workflow_path in workflows:
         assert ("actions/checkout", "v7.0.1") in action_refs(
             workflow_path.read_text(encoding="utf-8")

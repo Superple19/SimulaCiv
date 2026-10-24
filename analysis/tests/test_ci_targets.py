@@ -4,7 +4,6 @@ import re
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
-PROMOTE_WORKFLOW = ROOT / ".github" / "workflows" / "promote.yml"
 JUSTFILE = ROOT / "justfile"
 
 
@@ -85,13 +84,11 @@ def test_workflow_check_steps_are_single_just_targets():
 
 def test_workflows_use_current_ga_runner_images():
     ci = WORKFLOW.read_text(encoding="utf-8")
-    promote = PROMOTE_WORKFLOW.read_text(encoding="utf-8")
     assert "- ubuntu-26.04" in ci
     assert "- windows-2025" in ci
     assert "- macos-26" in ci
     assert "runs-on: ubuntu-26.04" in ci
-    assert "runs-on: ubuntu-26.04" in promote
-    assert all(label not in ci + promote for label in ("ubuntu-latest", "windows-latest", "macos-latest"))
+    assert all(label not in ci for label in ("ubuntu-latest", "windows-latest", "macos-latest"))
 
 
 def test_quarto_preflight_precedes_checks_and_report_commands():
@@ -191,45 +188,47 @@ def test_analysis_prek_helper_skips_only_cargo_format_hook(monkeypatch):
     assert captured["check"] is False
 
 
-def test_promotion_workflow_is_push_only_fast_forward_and_dispatches_main_ci():
-    workflow = PROMOTE_WORKFLOW.read_text(encoding="utf-8")
-    assert "workflows: [CI]" in workflow
-    assert "types: [completed]" in workflow
-    assert "branches: [ci-check]" in workflow
-    assert "conclusion == 'success'" in workflow
-    assert "workflow_run.event == 'push'" in workflow
-    assert "group: promote" in workflow
-    assert "cancel-in-progress: false" in workflow
-    assert "contents: write" in workflow
-    assert "actions: write" in workflow
+def test_promotion_job_is_ci_check_push_only_fast_forward_and_needs_all_checks():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert _job_names(workflow) == ["checks", "analysis", "promote"]
+    assert "permissions:\n  contents: read" in workflow
+    assert "workflow_run:" not in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "needs: [checks, analysis]" in workflow
+    assert "github.event_name == 'push'" in workflow
+    assert "github.ref == 'refs/heads/ci-check'" in workflow
+    assert "needs.checks.result == 'success'" in workflow
+    assert "needs.analysis.result == 'success'" in workflow
 
     steps = _steps(workflow, "promote")
+    job_start = workflow.index("  promote:")
+    job = workflow[job_start:]
+    assert "    concurrency:\n      group: promote\n      cancel-in-progress: false" in job
+    assert "    permissions:\n      contents: write" in job
+    assert "actions: write" not in workflow
     checkout = "\n".join(_step(steps, "Check out full history at tested commit"))
     assert "uses: actions/checkout@v7" in checkout
+    assert "ref: ${{ github.sha }}" in checkout
     assert "fetch-depth: 0" in checkout
     runs = _run_steps(steps)
-    assert [name for name, _ in runs] == ["Fast-forward main and dispatch its CI"]
+    assert [name for name, _ in runs] == ["Fast-forward main"]
     commands = runs[0][1]
     assert 'git merge-base --is-ancestor "$main_sha" "$tested_sha"' in commands
     assert 'git push origin "$tested_sha:refs/heads/main"' in commands
-    assert "gh workflow run ci.yml --ref main" in commands
     assert 'if [[ "$main_sha" == "$tested_sha" ]]' in commands
     assert commands.index("git merge-base") < commands.index("git push")
     assert commands.index('if [[ "$main_sha" == "$tested_sha" ]]') < commands.index("git push")
-    assert commands.index("git push") < commands.index("gh workflow run")
     assert "--force" not in commands
+    assert "gh " not in commands
     assert re.findall(r"\b(git|gh)\s+([\w-]+)", commands) == [
         ("git", "fetch"),
         ("git", "rev-parse"),
         ("git", "rev-parse"),
         ("git", "merge-base"),
         ("git", "push"),
-        ("gh", "workflow"),
     ]
-
-    ci_commands = [
-        command
-        for job in _job_names(WORKFLOW.read_text(encoding="utf-8"))
-        for _, command in _run_steps(_steps(WORKFLOW.read_text(encoding="utf-8"), job))
-    ]
-    assert all(not re.search(r"\b(?:git|gh)\s+", command) for command in ci_commands)
+    assert "gh workflow run" not in commands
+    for job_name in ("checks", "analysis"):
+        commands = [command for _, command in _run_steps(_steps(workflow, job_name))]
+        assert all(not re.search(r"\b(?:git|gh)\s+", command) for command in commands)
+    assert "gh workflow run" not in workflow
