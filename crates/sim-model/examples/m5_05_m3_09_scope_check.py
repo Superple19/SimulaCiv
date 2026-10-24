@@ -163,7 +163,8 @@ def alternate(workers: dict[str, subprocess.Popen[str]], index: int) -> list[tup
 
 
 def measure_population(
-    population: int, temporary_root: Path, log: list[str]
+    population: int, temporary_root: Path, log: list[str], historical_ratio: float,
+    historical_tolerance: float,
 ) -> tuple[list[dict[str, Any]], str]:
     settlements = population // 200
     ref_checkout = temporary_root / f"ref-{population}"
@@ -245,10 +246,9 @@ def measure_population(
                 break
         if not all(row["path_spread_valid"] for row in final.values()):
             raise RuntimeError(f"A-5 path spread exceeded 5% after one retry at N={population}")
-        historical = 1.49 if population == 100_000 else 1.21
         for row in final.values():
-            row["historical_ratio"] = historical
-            row["within_20_percent_of_historical_ratio"] = abs(row["m3p_incremental_over_m3"] / historical - 1.0) <= 0.20
+            row["historical_ratio"] = historical_ratio
+            row["within_historical_tolerance"] = abs(row["m3p_incremental_over_m3"] / historical_ratio - 1.0) <= historical_tolerance
         return list(final.values()), stderr_head
     finally:
         if head_process is not None:
@@ -304,7 +304,7 @@ def main() -> None:
     plan = tomllib.loads(plan_path.read_text(encoding="utf-8"))
     expected_plan = {
         "reference_commit": REFERENCE, "initial_populations": list(POPULATIONS),
-        "settlements_per_200_agents": True, "relationship_degree_k": 8, "p_local": 0.5,
+        "settlement_rule": "K = N / 200", "relationship_degree_k": 8, "p_local": 0.5,
         "master_seed": SEED, "replicate_id": REPLICATE, "reference_checkpoint_cursor": CURSOR,
         "reference_timed_internal_days": [401, 402, 403], "m5_05_checkpoint_cursor": 400,
         "m5_05_timed_internal_days": [400, 401, 402], "compaction_interval_days": 50,
@@ -312,6 +312,8 @@ def main() -> None:
         "reference_runner_rotation": ["m3p_serial", "m3p_incremental", "m3"],
         "m5_05_runner_rotation": ["m3p_incremental", "m3"], "reference_warmups": 2,
         "reference_samples": 11, "m5_05_warmups": WARMUPS, "m5_05_samples": SAMPLES,
+        "historical_ratio_100k": 1.49, "historical_ratio_10k": 1.21,
+        "historical_ratio_tolerance": 0.20,
         "calibration_probes": PROBES, "target_paired_sample_seconds": TARGET_SAMPLE_SECONDS,
         "minimum_paired_sample_seconds": MIN_SAMPLE_SECONDS,
         "maximum_path_mad_over_median": MAX_PATH_SPREAD, "invalid_cell_retries": 1,
@@ -357,7 +359,13 @@ def main() -> None:
         with tempfile.TemporaryDirectory(prefix="protocol-", dir=target) as temporary:
             temp_root = Path(temporary)
             for population in POPULATIONS:
-                values, _ = measure_population(population, temp_root, log)
+                historical_ratio = float(
+                    plan["historical_ratio_100k"] if population == 100_000 else plan["historical_ratio_10k"]
+                )
+                values, _ = measure_population(
+                    population, temp_root, log, historical_ratio,
+                    float(plan["historical_ratio_tolerance"]),
+                )
                 cells.extend(values)
         validation = json.loads((ROOT / "docs/data/m5_05/m3_09_scope_check/validate_for/summary.json").read_text(encoding="utf-8"))["details"]
         for row in cells:
