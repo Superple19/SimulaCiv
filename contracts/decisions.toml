@@ -495,6 +495,16 @@ doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decisi
 date = "2026-10-24"
 
 [[decision]]
+id = "M5-INFRA-RUNNER-IMAGES"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+summary = "GitHub workflows pin the newest GA runner label per OS, and image updates are made by an explicit commit."
+enforced_by = [".github/workflows/ci.yml", ".github/workflows/promote.yml", "test:analysis/tests/test_ci_targets.py::test_workflows_use_current_ga_runner_images"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-24"
+
+[[decision]]
 id = "M5-INFRA-CLEAN-CHECKOUT"
 milestone = "M5"
 stage = "M5-03"

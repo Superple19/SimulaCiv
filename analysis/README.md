@@ -71,7 +71,7 @@ tar -xzf /tmp/prek.tar.gz -C /tmp
 install -m 0755 /tmp/prek-x86_64-unknown-linux-gnu/prek "$HOME/.local/bin/prek"
 ```
 
-This pins Rust to the repository's `rust-toolchain.toml` (`1.98.1`), uv `0.13.5`, Quarto `1.10.19`, just `1.58.0`, Vale `3.25.1`, and prek `0.5.7`. From Windows, run `just ci-linux`; it clones the current commit once, then fetches and checks it out cleanly on later runs. The WSL clone preserves only its `target/` build cache between runs.
+This pins Rust to the repository's `rust-toolchain.toml` (`1.98.1`), uv `0.13.5`, Quarto `1.10.19`, just `1.58.0`, Vale `3.25.1`, and prek `0.5.7`. From Windows, run `just ci-linux`; it clones the current commit once, then fetches and checks it out cleanly on later runs. The WSL clone preserves only its `target/` build cache between runs. WSL currently uses Ubuntu 24.04.3 LTS, while hosted CI uses the `ubuntu-26.04` x64 image; `just ci-linux` matches CI's commands, not its runner OS version.
 
 ## DVC experiment data
 
