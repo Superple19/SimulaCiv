@@ -1,10 +1,10 @@
 stages:
   m3_09_validate_for_cost:
     wdir: ../../../..
-    cmd: uv run --directory analysis --project . python
-      ../crates/sim-model/examples/m5_05_m3_09_scope_check.py --mode validate
-      --plan docs/reproducibility/m5_05_configs/m3_09_scope_check.toml --output-dir
-      docs/data/m5_05/m3_09_scope_check/validate_for/raw --summary
+    cmd: uv run --directory analysis --project . python 
+      ../crates/sim-model/examples/m5_05_m3_09_scope_check.py --mode validate 
+      --plan docs/reproducibility/m5_05_configs/m3_09_scope_check.toml 
+      --output-dir docs/data/m5_05/m3_09_scope_check/validate_for/raw --summary 
       docs/data/m5_05/m3_09_scope_check/validate_for/summary.json
     deps:
     - Cargo.lock
@@ -22,12 +22,13 @@ stages:
     - rust-toolchain.toml
     outs:
     - docs/data/m5_05/m3_09_scope_check/validate_for/raw
+    frozen: true
   m3_09_scope_check:
     wdir: ../../../..
-    cmd: uv run --directory analysis --project . python
-      ../crates/sim-model/examples/m5_05_m3_09_scope_check.py --mode a5 --plan
-      docs/reproducibility/m5_05_configs/m3_09_scope_check.toml --output-dir
-      docs/data/m5_05/m3_09_scope_check/raw --summary
+    cmd: uv run --directory analysis --project . python 
+      ../crates/sim-model/examples/m5_05_m3_09_scope_check.py --mode a5 --plan 
+      docs/reproducibility/m5_05_configs/m3_09_scope_check.toml --output-dir 
+      docs/data/m5_05/m3_09_scope_check/raw --summary 
       docs/data/m5_05/m3_09_scope_check/summary.json
     deps:
     - Cargo.lock
