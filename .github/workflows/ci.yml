@@ -17,6 +17,8 @@ jobs:
   checks:
     name: Checks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      MISE_ENABLE_TOOLS: "aqua:casey/just"
     strategy:
       fail-fast: false
       matrix:

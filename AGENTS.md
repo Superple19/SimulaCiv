@@ -21,6 +21,8 @@ Do exactly the requested task and no more. Interpret task wording strictly:
 From the repository root:
 
 - `just hooks-install` — install the repository Git hooks before committing.
+- `mise install` — install the pinned repository tools from `mise.toml`.
+- `just check-tools` — verify that the active tools match the repository pins.
 - `just ci` — run the local CI checks.
 - `just ci-linux` — run the CI Rust and analysis targets in the WSL Linux checkout.
 - `just ship` — run the standard delivery path to `ci-check`.

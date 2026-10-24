@@ -121,6 +121,12 @@ def test_ship_only_checks_cleanliness_and_pushes_to_ci_check():
 
 def test_just_jobs_install_all_target_tools_before_running_them():
     workflow = WORKFLOW.read_text(encoding="utf-8")
+    checks_start = workflow.index("  checks:")
+    analysis_start = workflow.index("  analysis:")
+    checks_job = workflow[checks_start:analysis_start]
+    analysis_job = workflow[analysis_start:]
+    assert 'MISE_ENABLE_TOOLS: "aqua:casey/just"' in checks_job
+    assert "MISE_ENABLE_TOOLS" not in analysis_job
     jobs_with_just = {}
     for job in _job_names(workflow):
         steps = _steps(workflow, job)
