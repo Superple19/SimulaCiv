@@ -1,0 +1,21 @@
+{
+  "baseline_commit": "144af62cd266764f6be1b3b32211f13d5d125804",
+  "baseline_recovered_claims": 24236,
+  "context_corresponds": 35,
+  "context_does_not_correspond": 115,
+  "headline_key_measured_pool": 271,
+  "measured_claims": 20253,
+  "other_measured_pool": 19982,
+  "precision": 0.23333333333333334,
+  "sample_headline_key": 50,
+  "sample_other": 100,
+  "sample_path": "docs/reproducibility/recovered_claim_precision_audit.csv",
+  "sample_size": 150,
+  "seed": 20261024,
+  "value_type_counts": {
+    "config/parameter": 1793,
+    "measured value": 20253,
+    "other": 510,
+    "small integer": 1680
+  }
+}

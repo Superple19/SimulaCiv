@@ -30,6 +30,7 @@ FIELDS = [
     "line",
     "section anchor",
     "claim text (short)",
+    "context",
     "value",
     "unit",
     "class",
@@ -88,6 +89,18 @@ INPUT_HEADERS = {
     "rank",
     "claim id",
 }
+CONTEXT_DIMENSION_HEADERS = {
+    "n range", "population range", "interval", "checkpoint", "phase", "stage", "profile",
+    "runner", "path", "workload", "scenario", "mode", "action", "family", "layout", "case",
+    "system", "schedule", "target", "pool", "thread count", "threads", "chunk", "chunk size",
+    "horizon", "max hops", "max_hops", "transmit", "transmit probability", "transmit_probability",
+    "frontier sizes by level", "levels/max", "locality", "grouping", "authority", "candidate",
+}
+PARAMETER_HEADERS = {
+    "checkpoint", "interval", "n range", "population range", "transmit", "transmit probability",
+    "transmit_probability", "max hops", "max_hops", "sample count", "samples", "warmups",
+    "repetitions", "thread count", "pool size", "pool sizes", "phase", "phase id", "candidate",
+}
 DESCRIPTIVE_HEADERS = {"test target / gate", "test target/gate", "claim text", "report"}
 OLD_META_FIELDS = [
     "report",
@@ -121,6 +134,43 @@ def _input_header(header: str) -> bool:
     return normalized in INPUT_HEADERS
 
 
+def _context_dimension_header(header: str) -> bool:
+    normalized = re.sub(r"[`*]", "", header).strip().lower()
+    if normalized.startswith("phase ("):
+        return True
+    normalized = re.sub(r"[_-]+", " ", normalized)
+    return normalized in {_normalize_header(value) for value in INPUT_HEADERS | CONTEXT_DIMENSION_HEADERS}
+
+
+def _parameter_header(header: str) -> bool:
+    normalized = _normalize_header(header)
+    return normalized in {_normalize_header(value) for value in INPUT_HEADERS | PARAMETER_HEADERS}
+
+
+def _normalize_header(header: str) -> str:
+    return re.sub(r"[_-]+", " ", re.sub(r"[`*]", "", header).strip().lower())
+
+
+def _context_key(header: str) -> str:
+    raw = re.sub(r"[`*]", "", header).strip()
+    if raw.casefold().startswith("phase ("):
+        return "phase"
+    if raw == "K":
+        return "settlement_count"
+    if raw == "k":
+        return "relationship_degree_k"
+    if raw.casefold() == "n":
+        return "population_n"
+    return re.sub(r"[\s-]+", "_", _normalize_header(raw))
+
+
+def _profile_column_dimensions(header: str) -> dict[str, str]:
+    match = re.fullmatch(r"\s*([0-9][0-9,]*(?:\.[0-9]+)?\s*[kKmM]?)\s*/\s*([0-9.]+)\s*", header)
+    if not match:
+        return {}
+    return {"population_n": match.group(1).replace(" ", ""), "p_local": match.group(2)}
+
+
 def _input_context(text: str, start: int) -> bool:
     before = text[max(0, start - 100) : start]
     if INPUT_ASSIGNMENT.search(before):
@@ -141,6 +191,11 @@ def _header_unit(header: str) -> str:
 
 
 def _tokens(text: str) -> Iterator[tuple[str, str]]:
+    for value, unit, _ in _tokens_with_context(text):
+        yield value, unit
+
+
+def _tokens_with_context(text: str) -> Iterator[tuple[str, str, str]]:
     masked = DATE.sub(" ", text)
     masked = VERSION.sub(" ", masked)
     masked = MILESTONE.sub(" ", masked)
@@ -148,7 +203,7 @@ def _tokens(text: str) -> Iterator[tuple[str, str]]:
     spans: list[tuple[int, int]] = []
     for match in HASH.finditer(masked):
         spans.append(match.span())
-        yield match.group(0).lower(), "sha256"
+        yield match.group(0).lower(), "sha256", ""
     for match in NUMBER.finditer(masked):
         if any(match.start() < end and match.end() > start for start, end in spans):
             continue
@@ -156,7 +211,15 @@ def _tokens(text: str) -> Iterator[tuple[str, str]]:
             continue
         value = match.group("number").replace(",", "")
         unit = match.group("suffix") or _unit_after(masked, match.end())
-        yield value, unit
+        preceding = masked[: match.start()]
+        local = re.split(r"[,;|]", preceding)[-1]
+        local = re.sub(r"\b[+-]?(?:\d+(?:\.\d*)?|\.\d+)\b", " ", local)
+        local = re.sub(r"[\s\[\]()*`]+$", "", local).strip()
+        if "±" in local:
+            local = "MAD"
+        elif "±" in text[match.end() :]:
+            local = "median"
+        yield value, unit, local[-80:]
 
 
 def _tier(section: str, line: str, *, header: str = "", table_row: bool = False, contract: bool = False) -> str:
@@ -216,6 +279,7 @@ def _line_claims(
     line: str,
     section: str,
     headers: list[str] | None,
+    context_headers: list[str] | None,
     contract: bool,
 ) -> list[dict[str, object]]:
     measured_contract_section = any(
@@ -231,19 +295,43 @@ def _line_claims(
         "line": line_number,
         "section anchor": _slug(section),
         "claim text (short)": line.strip()[:240],
+        "context": "",
     }
     output: list[dict[str, object]] = []
     if line.lstrip().startswith("|") and headers is not None and not _is_separator(_split_cells(line)):
         cells = _split_cells(line)
+        context_headers = context_headers or headers
         for index, cell in enumerate(cells):
             header = headers[index] if index < len(headers) else ""
             if _input_header(header) or header.strip().lower() in DESCRIPTIVE_HEADERS:
                 continue
-            for value, unit in _tokens(cell):
+            for value, unit, subfield in _tokens_with_context(cell):
                 if unit == "" and not re.search(r"\d", value):
                     continue
                 unit = unit or _header_unit(header)
                 row = dict(base)
+                dimensions = {
+                    _context_key(context_headers[dimension_index]): cells[dimension_index].strip()
+                    for dimension_index in range(min(len(context_headers), len(cells)))
+                    if dimension_index != index
+                    and _context_dimension_header(context_headers[dimension_index])
+                }
+                current_context_header = context_headers[index] if index < len(context_headers) else header
+                dimensions.update(_profile_column_dimensions(current_context_header))
+                row["context"] = json.dumps(
+                    {
+                        "kind": "table",
+                        "section": section,
+                        "column": current_context_header,
+                        "column_is_parameter": _parameter_header(current_context_header),
+                        "table_header": context_headers[0] if context_headers else "",
+                        "subfield": subfield,
+                        "dimensions": dimensions,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
                 row.update(
                     value=value,
                     unit=unit,
@@ -254,8 +342,14 @@ def _line_claims(
         return output
 
     if _eligible_text(line, section, contract=contract):
-        for value, unit in _tokens(line):
+        for value, unit, label in _tokens_with_context(line):
             row = dict(base)
+            row["context"] = json.dumps(
+                {"kind": "prose", "section": section, "label": label},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             row.update(value=value, unit=unit, tier=_tier(section, line, contract=contract), **{"class": _class(value, unit, context)})
             output.append(row)
     return output
@@ -270,18 +364,24 @@ def scan_documents(root: Path = ROOT) -> list[dict[str, object]]:
         contract = "contracts" in path.parts
         section = "document"
         headers: list[str] | None = None
+        context_headers: list[str] | None = None
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             heading = HEADING.match(line)
             if heading:
                 section = heading.group(1)
                 headers = None
+                context_headers = None
             if line.lstrip().startswith("|"):
                 cells = _split_cells(line)
+                if context_headers is None and cells and not _is_separator(cells):
+                    context_headers = cells
                 if headers is None and cells and not _is_separator(cells):
                     headers = cells
                     continue
                 if _is_separator(cells):
                     continue
+            else:
+                context_headers = None
             found.extend(
                 _line_claims(
                     path=path,
@@ -289,6 +389,7 @@ def scan_documents(root: Path = ROOT) -> list[dict[str, object]]:
                     line=line,
                     section=section,
                     headers=headers,
+                    context_headers=context_headers,
                     contract=contract,
                 )
             )

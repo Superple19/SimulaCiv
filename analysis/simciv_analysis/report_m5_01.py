@@ -17,6 +17,8 @@ import pandas as pd
 from simciv_analysis.claims import OLD_LEDGER, ROOT, expand_old_ledger, match_old_claims
 from simciv_analysis.findings import Finding, render_findings
 from simciv_analysis.io import load_data, write_text_lf
+from simciv_analysis.recovered_claim_audit import SUMMARY_PATH as RECOVERED_AUDIT_SUMMARY_PATH
+from simciv_analysis.recovered_claims import MISMATCH_OUTPUT
 from simciv_analysis.tables import dataframe_to_markdown
 
 
@@ -24,7 +26,7 @@ QMD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.qmd"
 MD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.md"
 LEDGER_PATH = ROOT / "docs" / "reproducibility" / "claims.csv.gz"
 RECOVERED_STATUS_PATH = ROOT / "docs" / "reproducibility" / "recovered_claim_statuses.json.gz"
-REQUIRED_CLAIM_FIELDS = ["claim_id", "report", "line", "section anchor", "claim text (short)", "value", "unit", "class", "tier", "source harness", "raw data", "status", "M5 stage", "notes"]
+REQUIRED_CLAIM_FIELDS = ["claim_id", "report", "line", "section anchor", "claim text (short)", "context", "value", "unit", "class", "tier", "source harness", "raw data", "status", "M5 stage", "notes"]
 
 
 def _milestone(report: str) -> str:
@@ -106,8 +108,10 @@ def _recovered_evidence(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFram
         return (
             pd.DataFrame([{"Report": "none", "Tier": "—", "Prior status": "—", "Claims": 0}]),
             pd.DataFrame([{"Report": "none", "Tier": "—", "Unmatched claims": 0}]),
-            {"outputs_scanned": 0, "exact_claim_matches": 0, "moved_from_missing": 0, "confirmed_mismatches": 0},
+            {"outputs_scanned": 0, "exact_claim_matches": 0, "moved_from_missing": 0, "confirmed_mismatches": 0,
+             "config_values_unchanged": 0, "audit_precision": 0.0, "audit_yes": 0, "audit_no": 0, "audit_baseline_count": 0},
             "No recovered-output mapping has been generated.",
+            _markdown(pd.DataFrame([{"Value type": "none", "Claims": 0}])),
         )
     with gzip.open(RECOVERED_STATUS_PATH, "rt", encoding="utf-8") as stream:
         mapping = json.load(stream)
@@ -134,15 +138,35 @@ def _recovered_evidence(claims: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFram
             .rename(columns={"report": "Report", "tier": "Tier"})
             .sort_values(["Report", "Tier"], kind="stable")
         )
-    confirmed = mapping.get("confirmed_mismatches", [])
-    mismatch_table = pd.DataFrame(confirmed) if confirmed else pd.DataFrame([{"Confirmed output mismatches": "none"}])
+    if MISMATCH_OUTPUT.is_file():
+        mismatch_rows = pd.read_csv(MISMATCH_OUTPUT, compression="gzip")
+    else:
+        mismatch_rows = pd.DataFrame(columns=["report", "claim_id"])
+    if mismatch_rows.empty:
+        mismatch_table = pd.DataFrame([{"Report": "none", "Mismatches": 0}])
+    else:
+        mismatch_table = (
+            mismatch_rows.groupby("report", dropna=False).size().rename("Mismatches").reset_index()
+            .rename(columns={"report": "Report"}).sort_values("Report", kind="stable")
+        )
+    audit = json.loads(RECOVERED_AUDIT_SUMMARY_PATH.read_text(encoding="utf-8")) if RECOVERED_AUDIT_SUMMARY_PATH.is_file() else {}
+    value_types = pd.DataFrame(
+        [{"Value type": key, "Claims": value} for key, value in audit.get("value_type_counts", {}).items()]
+    )
+    if value_types.empty:
+        value_types = pd.DataFrame([{"Value type": "none", "Claims": 0}])
     summary = {
         "outputs_scanned": int(mapping.get("outputs_scanned", 0)),
-        "exact_claim_matches": len(exact),
+        "exact_claim_matches": int(sum(row.get("status_after") == "recovered-original-output" for row in mapping.get("claims", []))),
         "moved_from_missing": int(sum(row.get("status_after") == "recovered-original-output" for row in mapping.get("claims", []))),
-        "confirmed_mismatches": len(confirmed),
+        "confirmed_mismatches": len(mismatch_rows),
+        "config_values_unchanged": len(mapping.get("config_value_claim_ids", [])),
+        "audit_precision": float(audit.get("precision", 0.0)),
+        "audit_yes": int(audit.get("context_corresponds", 0)),
+        "audit_no": int(audit.get("context_does_not_correspond", 0)),
+        "audit_baseline_count": int(audit.get("baseline_recovered_claims", 0)),
     }
-    return moved, unmatched_table, summary, _markdown(mismatch_table)
+    return moved, unmatched_table, summary, _markdown(mismatch_table), _markdown(value_types)
 
 
 def _report_parts() -> dict[str, str]:
@@ -201,7 +225,7 @@ def _report_parts() -> dict[str, str]:
         Finding("[exploratory]", "Top evidence-gap rows are ordered by claim count descending.", "finding_top_gaps_sorted_by_count", top_gaps.empty or top_gaps["claims"].is_monotonic_decreasing),
     ])
     new_ledger = comparison.loc[comparison["Ledger view"] == "new tidy records"].iloc[0]
-    recovered_moved, recovered_unmatched, recovered_summary, recovered_mismatches = _recovered_evidence(claims)
+    recovered_moved, recovered_unmatched, recovered_summary, recovered_mismatches, recovered_value_types = _recovered_evidence(claims)
     input_rule = (
         "Excluded inputs are table columns or labeled assignments for population/workload sizes, group and neighbor counts, seeds, "
         "replicates, horizons/days, thread/chunk settings, and simulation parameter values. Free-text numbers are only extracted from "
@@ -219,6 +243,7 @@ def _report_parts() -> dict[str, str]:
         "recovered_moved_table": _markdown(recovered_moved),
         "recovered_unmatched_table": _markdown(recovered_unmatched),
         "recovered_mismatches_table": recovered_mismatches,
+        "recovered_value_types": recovered_value_types,
         "findings": findings_md,
         "findings_checks": findings_checks_md,
         "input_rule": input_rule,
@@ -236,6 +261,11 @@ def _report_parts() -> dict[str, str]:
         "recovered_exact": f"{recovered_summary['exact_claim_matches']:,}",
         "recovered_moved_count": f"{recovered_summary['moved_from_missing']:,}",
         "recovered_mismatch_count": f"{recovered_summary['confirmed_mismatches']:,}",
+        "recovered_config_count": f"{recovered_summary['config_values_unchanged']:,}",
+        "recovered_audit_yes": f"{recovered_summary['audit_yes']:,}",
+        "recovered_audit_no": f"{recovered_summary['audit_no']:,}",
+        "recovered_audit_precision": f"{recovered_summary['audit_precision']:.1%}",
+        "recovered_audit_baseline_count": f"{recovered_summary['audit_baseline_count']:,}",
     }
 
 
@@ -294,15 +324,21 @@ The **{parts['m1_count']}** previously unrecoverable M1 aggregate claims were re
 
 ### Recovered original-output matches
 
-The recovered-output generator [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** output logs and data files. It records **{parts['recovered_exact']}** exact report-scoped numeric or SHA-256 token matches; **{parts['recovered_moved_count']}** claims with a prior `missing-*` status moved to `recovered-original-output`. The comparison excludes labeled input/configuration columns. A token match is report-scoped evidence, not row-level semantic identification.
+The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** files. A match now requires the same structured output row, measurement field, and all recorded configuration dimensions. Prose-only claims and numeric parameter columns remain unchanged. It records **{parts['recovered_exact']}** context-matched claims as `recovered-original-output`; **{parts['recovered_config_count']}** parameter values were excluded from measurement matching.
+
+The prior 144af62 rule was value-token membership anywhere in any output associated with the report; it did not compare row, label, or column context, and it did not check units. Among **{parts['recovered_audit_baseline_count']}** claims it had moved, the type split was:
+
+{parts['recovered_value_types']}
+
+A fixed-seed sample (20261024; 50 headline/key and 100 other measured claims) found matching context for **{parts['recovered_audit_yes']}** of 150 value-only matches (**{parts['recovered_audit_precision']}**). The full review records claim text, output line, and context decision in [recovered_claim_precision_audit.csv](recovered_claim_precision_audit.csv).
 
 #### Claims moved from missing status
 
 {parts['recovered_moved_table']}
 
-#### Claims without an exact token match
+#### Claims without an exact context match
 
-These claims retain their previous status. A report-level output association without a value match is not enough evidence to call the result contradictory.
+These claims retain their previous status. A value found only in a different row, configuration, or measure column—or only in unstructured output—does not qualify as recovered evidence.
 
 {parts['recovered_unmatched_table']}
 
@@ -310,7 +346,7 @@ These claims retain their previous status. A report-level output association wit
 
 {parts['recovered_mismatches_table']}
 
-Confirmed mismatches: **{parts['recovered_mismatch_count']}**. No mismatch is inferred solely because a value was absent from a report-scoped output.
+Confirmed mismatches: **{parts['recovered_mismatch_count']}**. Each has both expected and recorded values in [recovered_claim_mismatches.csv.gz](recovered_claim_mismatches.csv.gz). The matcher reports a mismatch only when row, configuration dimensions, and measurement field agree.
 
 ## Findings
 

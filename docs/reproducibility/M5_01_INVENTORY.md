@@ -61,12 +61,9 @@ verdicts remain in the `key` tier.
 | M2 | derived | analysis-only | headline | 67 |
 | M2 | derived | analysis-only | key | 9 |
 | M2 | derived | analysis-only | supporting | 204 |
-| M2 | derived | missing-data | headline | 92 |
-| M2 | derived | missing-data | key | 5 |
-| M2 | derived | missing-data | supporting | 760 |
-| M2 | derived | recovered-original-output | headline | 36 |
-| M2 | derived | recovered-original-output | key | 2 |
-| M2 | derived | recovered-original-output | supporting | 2,371 |
+| M2 | derived | missing-data | headline | 128 |
+| M2 | derived | missing-data | key | 7 |
+| M2 | derived | missing-data | supporting | 3,131 |
 | M2 | deterministic | analysis-only | headline | 7 |
 | M2 | deterministic | analysis-only | supporting | 32 |
 | M2 | deterministic | missing-source | headline | 2 |
@@ -78,34 +75,29 @@ verdicts remain in the `key` tier.
 | M2 | timing | analysis-only | headline | 14 |
 | M2 | timing | analysis-only | key | 9 |
 | M2 | timing | analysis-only | supporting | 205 |
-| M2 | timing | missing-data | headline | 18 |
+| M2 | timing | missing-data | headline | 44 |
 | M2 | timing | missing-data | key | 1 |
-| M2 | timing | missing-data | supporting | 397 |
-| M2 | timing | recovered-original-output | headline | 26 |
-| M2 | timing | recovered-original-output | supporting | 289 |
-| M3 | derived | missing-data | headline | 45 |
-| M3 | derived | missing-data | key | 4 |
-| M3 | derived | missing-data | supporting | 909 |
-| M3 | derived | missing-source | headline | 8 |
-| M3 | derived | missing-source | supporting | 152 |
-| M3 | derived | recovered-original-output | headline | 254 |
-| M3 | derived | recovered-original-output | key | 13 |
-| M3 | derived | recovered-original-output | supporting | 12,503 |
-| M3 | deterministic | missing-source | headline | 1 |
-| M3 | deterministic | missing-source | supporting | 18 |
-| M3 | deterministic | recovered-original-output | headline | 5 |
-| M3 | deterministic | recovered-original-output | supporting | 113 |
+| M2 | timing | missing-data | supporting | 686 |
+| M3 | derived | missing-data | headline | 173 |
+| M3 | derived | missing-data | key | 17 |
+| M3 | derived | missing-data | supporting | 10,006 |
+| M3 | derived | missing-source | headline | 20 |
+| M3 | derived | missing-source | supporting | 618 |
+| M3 | derived | recovered-original-output | headline | 114 |
+| M3 | derived | recovered-original-output | supporting | 2,098 |
+| M3 | derived | recovered-output-mismatch | supporting | 842 |
+| M3 | deterministic | missing-source | headline | 6 |
+| M3 | deterministic | missing-source | supporting | 131 |
 | M3 | deterministic | reproducible-now | supporting | 8 |
 | M3 | timing | conclusion holds | headline | 22 |
 | M3 | timing | inconclusive | headline | 12 |
-| M3 | timing | missing-data | headline | 5 |
-| M3 | timing | missing-data | key | 5 |
-| M3 | timing | missing-data | supporting | 599 |
-| M3 | timing | missing-source | headline | 10 |
-| M3 | timing | missing-source | supporting | 33 |
-| M3 | timing | recovered-original-output | headline | 50 |
-| M3 | timing | recovered-original-output | key | 3 |
-| M3 | timing | recovered-original-output | supporting | 8,524 |
+| M3 | timing | missing-data | headline | 15 |
+| M3 | timing | missing-data | key | 8 |
+| M3 | timing | missing-data | supporting | 8,494 |
+| M3 | timing | missing-source | headline | 50 |
+| M3 | timing | missing-source | supporting | 72 |
+| M3 | timing | recovered-original-output | supporting | 345 |
+| M3 | timing | recovered-output-mismatch | supporting | 245 |
 | M4 | derived | bit-exact | headline | 19 |
 | M4 | derived | bit-exact | key | 3 |
 | M4 | derived | bit-exact | supporting | 1,664 |
@@ -117,9 +109,8 @@ verdicts remain in the `key` tier.
 | M4 | derived | historical-protocol | headline | 46 |
 | M4 | derived | historical-protocol | key | 216 |
 | M4 | derived | historical-protocol | supporting | 102 |
-| M4 | derived | missing-source | key | 5 |
+| M4 | derived | missing-source | key | 25 |
 | M4 | derived | missing-source | supporting | 44 |
-| M4 | derived | recovered-original-output | key | 20 |
 | M4 | derived | unrecoverable | supporting | 7 |
 | M4 | deterministic | historical-protocol | key | 24 |
 | M4 | deterministic | historical-protocol | supporting | 25 |
@@ -129,9 +120,8 @@ verdicts remain in the `key` tier.
 | M4 | timing | historical-protocol | headline | 9 |
 | M4 | timing | historical-protocol | key | 266 |
 | M4 | timing | historical-protocol | supporting | 110 |
-| M4 | timing | missing-source | key | 47 |
+| M4 | timing | missing-source | key | 74 |
 | M4 | timing | missing-source | supporting | 5 |
-| M4 | timing | recovered-original-output | key | 27 |
 | M4 | timing | reproducible-now | supporting | 20 |
 | M5 | derived | missing-source | key | 6 |
 | M5 | derived | missing-source | supporting | 21 |
@@ -213,129 +203,124 @@ tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the
 
 | milestone | report | status | claims |
 |----|----|----|----|
-| M3 | M3_01_SERIAL_BASELINE.md | missing-data | 384 |
-| M3 | M3_02_PARALLEL_PHASE6B.md | missing-data | 340 |
-| M3 | M3_11_PROPAGATION.md | missing-data | 304 |
-| M2 | M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md | missing-data | 275 |
-| M2 | M2_X_REBASELINE_REPORT.md | missing-data | 243 |
-| M2 | M2_06_BASELINE_REPORT.md | missing-data | 231 |
-| M3 | M3_04_SUSTAINED_WORKLOAD.md | missing-data | 217 |
-| M3 | M3_06_SETTLEMENT_INDEX.md | missing-data | 113 |
-| M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | missing-data | 112 |
-| M2 | M2_34_POST_ALGORITHM_REPROFILING.md | missing-data | 111 |
+| M3 | M3_02_PARALLEL_PHASE6B.md | missing-data | 10,910 |
+| M3 | M3_04_SUSTAINED_WORKLOAD.md | missing-data | 2,222 |
+| M3 | M3_11_PROPAGATION.md | missing-data | 1,835 |
+| M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | missing-data | 1,502 |
+| M3 | M3_05_SCALE_LIMIT.md | missing-data | 1,146 |
+| M3 | M3_11_PROPAGATION.md | recovered-output-mismatch | 666 |
+| M2 | M2_37_POST_P5_P6B_REPROFILING.md | missing-data | 663 |
+| M2 | M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | missing-data | 566 |
+| M3 | M3_07_SCALE_RESIDUAL.md | missing-data | 517 |
+| M3 | M3_01_SERIAL_BASELINE.md | missing-data | 512 |
 
 ### Recovered original-output matches
 
-The recovered-output generator
+The recovered-output matcher
 [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py)
-scanned **206** output logs and data files. It records **27,845** exact
-report-scoped numeric or SHA-256 token matches; **24,236** claims with a
-prior `missing-*` status moved to `recovered-original-output`. The
-comparison excludes labeled input/configuration columns. A token match
-is report-scoped evidence, not row-level semantic identification.
+scanned **206** files. A match now requires the same structured output
+row, measurement field, and all recorded configuration dimensions.
+Prose-only claims and numeric parameter columns remain unchanged. It
+records **2,557** context-matched claims as `recovered-original-output`;
+**1,837** parameter values were excluded from measurement matching.
+
+The prior 144af62 rule was value-token membership anywhere in any output
+associated with the report; it did not compare row, label, or column
+context, and it did not check units. Among **24,236** claims it had
+moved, the type split was:
+
+| Value type       | Claims |
+|------------------|--------|
+| config/parameter | 1,793  |
+| measured value   | 20,253 |
+| other            | 510    |
+| small integer    | 1,680  |
+
+A fixed-seed sample (20261024; 50 headline/key and 100 other measured
+claims) found matching context for **35** of 150 value-only matches
+(**23.3%**). The full review records claim text, output line, and
+context decision in
+[recovered_claim_precision_audit.csv](recovered_claim_precision_audit.csv).
 
 #### Claims moved from missing status
 
-| Report | Tier | Prior status | Claims |
-|----|----|----|----|
-| M2_34_POST_ALGORITHM_REPROFILING.md | headline | missing-data | 6 |
-| M2_34_POST_ALGORITHM_REPROFILING.md | key | missing-data | 2 |
-| M2_34_POST_ALGORITHM_REPROFILING.md | supporting | missing-data | 213 |
-| M2_37_POST_P5_P6B_REPROFILING.md | headline | missing-data | 17 |
-| M2_37_POST_P5_P6B_REPROFILING.md | supporting | missing-data | 579 |
-| M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | supporting | missing-data | 517 |
-| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | headline | missing-data | 39 |
-| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | supporting | missing-data | 1,351 |
-| M3_01_SERIAL_BASELINE.md | headline | missing-source | 3 |
-| M3_01_SERIAL_BASELINE.md | supporting | missing-data | 488 |
-| M3_01_SERIAL_BASELINE.md | supporting | missing-source | 6 |
-| M3_02_PARALLEL_PHASE6B.md | headline | missing-data | 3 |
-| M3_02_PARALLEL_PHASE6B.md | key | missing-data | 6 |
-| M3_02_PARALLEL_PHASE6B.md | supporting | missing-data | 10,561 |
-| M3_02_PARALLEL_PHASE6B.md | supporting | missing-source | 24 |
-| M3_03_SEARCH_REDUCTION.md | headline | missing-data | 9 |
-| M3_03_SEARCH_REDUCTION.md | key | missing-data | 3 |
-| M3_03_SEARCH_REDUCTION.md | supporting | missing-data | 470 |
-| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | 486 |
-| M3_04_SUSTAINED_WORKLOAD.md | headline | missing-data | 46 |
-| M3_04_SUSTAINED_WORKLOAD.md | supporting | missing-data | 1,959 |
-| M3_05_SCALE_DIAGNOSIS.md | supporting | missing-data | 230 |
-| M3_05_SCALE_LIMIT.md | headline | missing-data | 181 |
-| M3_05_SCALE_LIMIT.md | headline | missing-source | 1 |
-| M3_05_SCALE_LIMIT.md | supporting | missing-data | 991 |
-| M3_05_SCALE_LIMIT.md | supporting | missing-source | 64 |
-| M3_06_SETTLEMENT_INDEX.md | supporting | missing-data | 295 |
-| M3_07_SCALE_RESIDUAL.md | key | missing-data | 7 |
-| M3_07_SCALE_RESIDUAL.md | supporting | missing-data | 458 |
-| M3_07_SCALE_RESIDUAL.md | supporting | missing-source | 17 |
-| M3_08_POPULATION_DYNAMICS.md | headline | missing-source | 25 |
-| M3_08_POPULATION_DYNAMICS.md | supporting | missing-source | 290 |
-| M3_09_INCREMENTAL_TOPOLOGY.md | headline | missing-source | 24 |
-| M3_09_INCREMENTAL_TOPOLOGY.md | supporting | missing-source | 212 |
-| M3_11_PROPAGATION.md | headline | missing-data | 13 |
-| M3_11_PROPAGATION.md | supporting | missing-data | 4,584 |
-| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | headline | missing-source | 4 |
-| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | supporting | missing-source | 5 |
-| M4_01_SYSTEM_REGISTRY.md | key | missing-source | 47 |
+| Report                        | Tier       | Prior status | Claims |
+|-------------------------------|------------|--------------|--------|
+| M3_01_SERIAL_BASELINE.md      | supporting | missing-data | 27     |
+| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | 16     |
+| M3_05_SCALE_LIMIT.md          | headline   | missing-data | 114    |
+| M3_11_PROPAGATION.md          | supporting | missing-data | 2,400  |
 
-#### Claims without an exact token match
+#### Claims without an exact context match
 
-These claims retain their previous status. A report-level output
-association without a value match is not enough evidence to call the
-result contradictory.
+These claims retain their previous status. A value found only in a
+different row, configuration, or measure column—or only in unstructured
+output—does not qualify as recovered evidence.
 
 | Report | Tier | Unmatched claims |
 |----|----|----|
-| M2_34_POST_ALGORITHM_REPROFILING.md | headline | 2 |
-| M2_34_POST_ALGORITHM_REPROFILING.md | supporting | 111 |
-| M2_37_POST_P5_P6B_REPROFILING.md | headline | 1 |
-| M2_37_POST_P5_P6B_REPROFILING.md | supporting | 66 |
-| M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | supporting | 49 |
-| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | headline | 2 |
-| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | supporting | 110 |
-| M3_01_SERIAL_BASELINE.md | headline | 10 |
-| M3_01_SERIAL_BASELINE.md | supporting | 384 |
-| M3_02_PARALLEL_PHASE6B.md | headline | 5 |
-| M3_02_PARALLEL_PHASE6B.md | supporting | 340 |
-| M3_03_SEARCH_REDUCTION.md | key | 4 |
-| M3_03_SEARCH_REDUCTION.md | supporting | 10 |
-| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | 53 |
-| M3_04_SUSTAINED_WORKLOAD.md | headline | 10 |
-| M3_04_SUSTAINED_WORKLOAD.md | supporting | 207 |
-| M3_05_SCALE_DIAGNOSIS.md | supporting | 2 |
-| M3_05_SCALE_LIMIT.md | headline | 38 |
-| M3_05_SCALE_LIMIT.md | supporting | 50 |
-| M3_06_SETTLEMENT_INDEX.md | supporting | 115 |
-| M3_07_SCALE_RESIDUAL.md | key | 5 |
-| M3_07_SCALE_RESIDUAL.md | supporting | 57 |
-| M3_08_POPULATION_DYNAMICS.md | headline | 1 |
-| M3_08_POPULATION_DYNAMICS.md | supporting | 61 |
-| M3_09_INCREMENTAL_TOPOLOGY.md | headline | 6 |
-| M3_09_INCREMENTAL_TOPOLOGY.md | supporting | 96 |
-| M3_11_PROPAGATION.md | headline | 4 |
-| M3_11_PROPAGATION.md | supporting | 302 |
-| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | headline | 4 |
-| M4_01_SYSTEM_REGISTRY.md | key | 43 |
-| M4_02_BRANCHING.md | headline | 13 |
-| M4_02_BRANCHING.md | key | 353 |
-| M4_02_BRANCHING.md | supporting | 55 |
-| M4_03_DIVERGENCE.md | headline | 8 |
-| M4_03_DIVERGENCE.md | key | 36 |
-| M4_03_DIVERGENCE.md | supporting | 63 |
-| M4_05_MINIMAL_CAUSE.md | headline | 2 |
-| M4_05_MINIMAL_CAUSE.md | key | 10 |
-| M4_05_MINIMAL_CAUSE.md | supporting | 14 |
+| M2_34_POST_ALGORITHM_REPROFILING.md | headline | 14 |
+| M2_34_POST_ALGORITHM_REPROFILING.md | key | 2 |
+| M2_34_POST_ALGORITHM_REPROFILING.md | supporting | 324 |
+| M2_37_POST_P5_P6B_REPROFILING.md | headline | 18 |
+| M2_37_POST_P5_P6B_REPROFILING.md | supporting | 645 |
+| M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | supporting | 569 |
+| M2_39_RAYON_PRODUCTION_POLICY_GATE.md | supporting | 75 |
+| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | headline | 57 |
+| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | key | 3 |
+| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | supporting | 1,529 |
+| M3_01_SERIAL_BASELINE.md | headline | 16 |
+| M3_01_SERIAL_BASELINE.md | supporting | 368 |
+| M3_02_PARALLEL_PHASE6B.md | headline | 23 |
+| M3_02_PARALLEL_PHASE6B.md | key | 6 |
+| M3_02_PARALLEL_PHASE6B.md | supporting | 10,448 |
+| M3_03_SEARCH_REDUCTION.md | headline | 9 |
+| M3_03_SEARCH_REDUCTION.md | key | 6 |
+| M3_03_SEARCH_REDUCTION.md | supporting | 434 |
+| M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | 434 |
+| M3_04_SUSTAINED_WORKLOAD.md | headline | 56 |
+| M3_04_SUSTAINED_WORKLOAD.md | supporting | 1,947 |
+| M3_05_SCALE_DIAGNOSIS.md | supporting | 232 |
+| M3_05_SCALE_LIMIT.md | headline | 58 |
+| M3_05_SCALE_LIMIT.md | supporting | 1,105 |
+| M3_06_SETTLEMENT_INDEX.md | supporting | 414 |
+| M3_07_SCALE_RESIDUAL.md | key | 12 |
+| M3_07_SCALE_RESIDUAL.md | supporting | 520 |
+| M3_08_POPULATION_DYNAMICS.md | headline | 26 |
+| M3_08_POPULATION_DYNAMICS.md | supporting | 331 |
+| M3_09_INCREMENTAL_TOPOLOGY.md | headline | 30 |
+| M3_09_INCREMENTAL_TOPOLOGY.md | supporting | 294 |
+| M3_11_PROPAGATION.md | headline | 17 |
+| M3_11_PROPAGATION.md | supporting | 992 |
+| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | headline | 8 |
+| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | supporting | 5 |
+| M4_01_SYSTEM_REGISTRY.md | key | 90 |
+| M4_02_BRANCHING.md | headline | 55 |
+| M4_02_BRANCHING.md | key | 581 |
+| M4_02_BRANCHING.md | supporting | 138 |
+| M4_03_DIVERGENCE.md | headline | 18 |
+| M4_03_DIVERGENCE.md | key | 66 |
+| M4_03_DIVERGENCE.md | supporting | 1,733 |
+| M4_04_CRN_EFFICIENCY.md | supporting | 1,067 |
+| M4_05_MINIMAL_CAUSE.md | headline | 9 |
+| M4_05_MINIMAL_CAUSE.md | key | 11 |
+| M4_05_MINIMAL_CAUSE.md | supporting | 267 |
 | M4_07_MANY_BRANCH.md | headline | 1 |
-| M4_07_MANY_BRANCH.md | supporting | 46 |
+| M4_07_MANY_BRANCH.md | supporting | 50 |
 
 #### Confirmed output mismatches
 
-| Confirmed output mismatches |
-|-----------------------------|
-| none                        |
+| Report                        | Mismatches |
+|-------------------------------|------------|
+| M3_01_SERIAL_BASELINE.md      | 339        |
+| M3_04_EQUILIBRIUM_WORKLOAD.md | 88         |
+| M3_11_PROPAGATION.md          | 3,944      |
 
-Confirmed mismatches: **0**. No mismatch is inferred solely because a
-value was absent from a report-scoped output.
+Confirmed mismatches: **4,371**. Each has both expected and recorded
+values in
+[recovered_claim_mismatches.csv.gz](recovered_claim_mismatches.csv.gz).
+The matcher reports a mismatch only when row, configuration dimensions,
+and measurement field agree.
 
 ## Findings
 

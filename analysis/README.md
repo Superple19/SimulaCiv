@@ -55,6 +55,18 @@ uv python install
 
 Run the activation command in each new PowerShell session, or add it to your PowerShell profile.
 
+For non-interactive PowerShell sessions, add mise's shims directory to the **user** PATH (do not add individual install directories):
+
+```powershell
+mise reshim
+$miseShims = Join-Path $env:LOCALAPPDATA 'mise\shims'
+$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if (($userPath -split ';') -notcontains $miseShims) {
+    [Environment]::SetEnvironmentVariable('Path', "$userPath;$miseShims", 'User')
+}
+# Open a new shell for the PATH change to take effect.
+```
+
 On Windows, disable Git's automatic EOL conversion for this checkout before working with repository data:
 
 ```powershell
@@ -78,7 +90,15 @@ uv python install
 rustup toolchain install
 ```
 
-Run `eval "$(mise activate bash)"` in each WSL shell (or add it to `~/.bashrc`) before invoking tools directly; `just ci-linux` uses `mise exec` for its checks.
+For fresh non-interactive login shells, add mise's shims directory to `~/.profile`; this avoids requiring `mise activate` in each command:
+
+```bash
+mise reshim
+grep -Fq 'mise/shims' ~/.profile || printf '%s\n' 'export PATH="$HOME/.local/share/mise/shims:$PATH"' >> ~/.profile
+bash --login -c 'command -v mise just uv prek'
+```
+
+`just ci-linux` uses `mise exec` for its checks, while the shims make the same pinned tools available to other non-interactive login commands.
 
 Rust remains pinned in `rust-toolchain.toml`; the standalone tool versions and platform artifacts come from `mise.toml` and `mise.lock`. From Windows, run `just ci-linux`; it refreshes a clean WSL clone, installs the locked mise tools there, and runs `mise exec -- just ci-rust` and `mise exec -- just ci-analysis`, matching the hosted CI commands. The WSL clone preserves only its `target/` build cache between runs. WSL currently uses Ubuntu 24.04.3 LTS, while hosted CI uses the `ubuntu-26.04` x64 image; `just ci-linux` matches CI's commands, not its runner OS version.
 
