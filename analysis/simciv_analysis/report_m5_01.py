@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from simciv_analysis.claims import OLD_LEDGER, ROOT, expand_old_ledger, match_old_claims, scan_documents
+from simciv_analysis.claims import OLD_LEDGER, ROOT, _normalize_source, expand_old_ledger, match_old_claims
 from simciv_analysis.findings import Finding, render_findings
 from simciv_analysis.io import load_data, write_text_lf
 from simciv_analysis.recovered_claim_audit import SUMMARY_PATH as RECOVERED_AUDIT_SUMMARY_PATH
@@ -69,9 +69,19 @@ def _comparison(claims: pd.DataFrame, current: list[dict[str, object]]) -> tuple
             match = re.match(r"^\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|", line)
             if match:
                 renames[Path(match.group(1)).name] = Path(match.group(2)).name
-    new_exact = Counter((str(row["report"]), int(row["line"]), str(row["value"])) for row in current)
-    old_exact = Counter((str(row["report"]), int(row["line"]), str(row["value"])) for row in old)
-    previous_exact = sum(count for key, count in old_exact.items() if key in new_exact)
+    new_exact = Counter(
+        (str(row["report"]), _normalize_source(str(row["claim text (short)"])), str(row["value"]))
+        for row in current
+    )
+    old_exact = Counter(
+        (
+            renames.get(str(row["report"]), str(row["report"])),
+            _normalize_source(str(row["source text"])),
+            str(row["value"]),
+        )
+        for row in old
+    )
+    previous_exact = sum((old_exact & new_exact).values())
     mapped_old = len({int(row["old_claim_id"]) for row in matches.values()})
     mapped_new = len(matches)
     mapped_old_names = sum(str(row["report"]) in renames for row in old)
@@ -86,17 +96,17 @@ def _comparison(claims: pd.DataFrame, current: list[dict[str, object]]) -> tuple
 
     old_new_rows = pd.DataFrame(
         [
-            {"Ledger view": "old packed records", "rows": len(old), "mapped before (exact name/line/value)": previous_exact, "matched after (informational)": mapped_old, "unmatched old rows": len(old) - mapped_old, "reason": "RENAMES.md report mapping; normalized source text and value; line only breaks ties"},
+            {"Ledger view": "old packed records", "rows": len(old), "mapped before (exact report/source/value)": previous_exact, "matched after (informational)": mapped_old, "unmatched old rows": len(old) - mapped_old, "reason": "RENAMES.md report mapping; normalized source text and value"},
             {"Ledger view": "new tidy records", "rows": len(current), "matched to old ledger (informational)": mapped_new, "unmatched old-ledger comparison": len(current) - mapped_new, "reason": "sources.toml and regeneration results supply provenance; old matches are diagnostics only"},
         ]
     )
     reasons = pd.DataFrame(
         [
-            {"old record disposition": "old rows matched (informational)", "records": mapped_old, "rule": "RENAMES.md plus normalized source/value; line breaks ties; does not assign new provenance"},
+            {"old record disposition": "old rows matched (informational)", "records": mapped_old, "rule": "RENAMES.md plus normalized source/value; does not assign new provenance"},
             {"old record disposition": "old rows unmatched", "records": source_unmatched + missing_report, "rule": "includes excluded inputs, changed/unselected text, and ambiguous old matches"},
             {"old record disposition": "new rows ambiguous", "records": len(ambiguous), "rule": "current claims with conflicting metadata or tied candidates; these are new-row counts"},
             {"old record disposition": "historical-log subset of transferred rows", "records": historical_log, "rule": "M1 aggregate runs are not regeneration gaps"},
-            {"old record disposition": "previous exact-name/line/value baseline", "records": previous_exact, "rule": "old rows matched before the correction; diagnostic baseline"},
+            {"old record disposition": "previous exact-report/source/value baseline", "records": previous_exact, "rule": "old rows with exact normalized source text and value; line-independent diagnostic baseline"},
             {"old record disposition": "old report basenames in RENAMES.md", "records": mapped_old_names, "rule": "diagnostic count; this may overlap matched and unmatched rows"},
         ]
     )
@@ -251,12 +261,6 @@ def _report_parts() -> dict[str, str]:
         raise ValueError(f"unexpected claim columns: {list(claims.columns)}")
     counts = _grouped_counts(claims)
     current_claim_records = claims.to_dict(orient="records")
-    source_lines = {
-        str(claim["claim_key"]): int(claim["line"])
-        for claim in scan_documents(ROOT)
-    }
-    for claim in current_claim_records:
-        claim["line"] = source_lines[str(claim["claim_key"])]
     comparison, comparison_reasons = _comparison(claims, current_claim_records)
     headline_counts = (
         claims.loc[claims["tier"] == "headline"]
@@ -273,9 +277,11 @@ def _report_parts() -> dict[str, str]:
         if str(old["report"]) == "M1_CONTRACT_FREEZE.md" and str(old["status"]) == "unrecoverable"
     ]
     m1 = claims.iloc[m1_indices].copy()
-    m1["line"] = m1["claim_key"].map(source_lines)
-    m1 = m1.sort_values(["line", "claim_id"], kind="stable")
-    m1 = m1[["claim_id", "line", "value", "class", "status", "notes"]]
+    m1["section"] = m1["section anchor"].map(
+        lambda anchor: f"[{anchor}](../contracts/M1_CONTRACT_FREEZE.md#{anchor})"
+    )
+    m1 = m1.sort_values(["claim_key", "claim_id"], kind="stable")
+    m1 = m1[["claim_id", "claim_key", "section", "value", "class", "status", "notes"]]
     gaps = claims.loc[
         ~claims["status"].isin([
             "reproducible-now",
@@ -391,7 +397,7 @@ Which numeric statements in the existing M0–M4 performance reports and contrac
 
 ## Method
 
-The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree and assigns provenance from [`sources.toml`](sources.toml). `claim_key` (report path, section anchor, and in-section ordinal) is the stable identity; `claim_id` remains the compatibility key for existing status maps. Source line numbers are resolved only for this report and are omitted from the committed ledger. Its tidy output [claims.csv.gz](claims.csv.gz) contains **{parts['total']}** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **{parts['old_count']}** expanded scalar values. M5-04 statuses are applied only to source-map entries assigned to that stage. {parts['input_rule']}
+The committed extractor [claims.py](../../analysis/simciv_analysis/claims.py) reads the report/contract source tree and assigns provenance from [`sources.toml`](sources.toml). `claim_key` (report path, section anchor, and in-section ordinal) is the stable identity; `claim_id` remains the compatibility key for existing status maps. Source lines are absent from the ledger; use `just claims-locate <claim_key>` for current line lookup. Its tidy output [claims.csv.gz](claims.csv.gz) contains **{parts['total']}** rows; the prior packed ledger [superseded/claims.csv](superseded/claims.csv) contains **{parts['old_count']}** expanded scalar values. M5-04 statuses are applied only to source-map entries assigned to that stage. {parts['input_rule']}
 
 ## Results
 

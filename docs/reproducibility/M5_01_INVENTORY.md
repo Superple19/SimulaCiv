@@ -16,10 +16,10 @@ The committed extractor
 report/contract source tree and assigns provenance from
 [`sources.toml`](sources.toml). `claim_key` (report path, section
 anchor, and in-section ordinal) is the stable identity; `claim_id`
-remains the compatibility key for existing status maps. Source line
-numbers are resolved only for this report and are omitted from the
-committed ledger. Its tidy output [claims.csv.gz](claims.csv.gz)
-contains **32,465** rows; the prior packed ledger
+remains the compatibility key for existing status maps. Source lines are
+absent from the ledger; use `just claims-locate <claim_key>` for current
+line lookup. Its tidy output [claims.csv.gz](claims.csv.gz) contains
+**32,465** rows; the prior packed ledger
 [superseded/claims.csv](superseded/claims.csv) contains **37,612**
 expanded scalar values. M5-04 statuses are applied only to source-map
 entries assigned to that stage. Excluded inputs are table columns or
@@ -134,20 +134,20 @@ verdicts remain in the `key` tier.
 
 ### Old and tidy ledger comparison
 
-| Ledger view | rows | mapped before (exact name/line/value) | matched after (informational) | unmatched old rows | reason | matched to old ledger (informational) | unmatched old-ledger comparison |
+| Ledger view | rows | mapped before (exact report/source/value) | matched after (informational) | unmatched old rows | reason | matched to old ledger (informational) | unmatched old-ledger comparison |
 |----|----|----|----|----|----|----|----|
-| old packed records | 37,612 | 653 | 1,988 | 35,624 | RENAMES.md report mapping; normalized source text and value; line only breaks ties |  |  |
+| old packed records | 37,612 | 3 | 1,988 | 35,624 | RENAMES.md report mapping; normalized source text and value |  |  |
 | new tidy records | 32,465 |  |  |  | sources.toml and regeneration results supply provenance; old matches are diagnostics only | 3,695 | 28,770 |
 
 #### Match and unmapped reasons
 
 | old record disposition | records | rule |
 |----|----|----|
-| old rows matched (informational) | 1,988 | RENAMES.md plus normalized source/value; line breaks ties; does not assign new provenance |
+| old rows matched (informational) | 1,988 | RENAMES.md plus normalized source/value; does not assign new provenance |
 | old rows unmatched | 35,624 | includes excluded inputs, changed/unselected text, and ambiguous old matches |
 | new rows ambiguous | 731 | current claims with conflicting metadata or tied candidates; these are new-row counts |
 | historical-log subset of transferred rows | 29 | M1 aggregate runs are not regeneration gaps |
-| previous exact-name/line/value baseline | 653 | old rows matched before the correction; diagnostic baseline |
+| previous exact-report/source/value baseline | 3 | old rows with exact normalized source text and value; line-independent diagnostic baseline |
 | old report basenames in RENAMES.md | 29,669 | diagnostic count; this may overlap matched and unmatched rows |
 
 The old ledger text-matches **3,695** new claims for comparison;
@@ -173,37 +173,37 @@ gate](../../crates/sim-model/tests/m0_determinism_gate_tests.rs),
 tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the
 [M1 manifest](../../contracts/m1_contract.toml).
 
-| claim_id | line | value | class | status | notes |
-|----|----|----|----|----|----|
-| 32,295 | 6 | 521 | derived | historical-log | The recorded M1 validation aggregate is a historical test-run log, not a regeneration target. |
-| 32,296 | 6 | 521 | derived | historical-log | The recorded M1 validation aggregate is a historical test-run log, not a regeneration target. |
-| 32,297 | 6 | 500 | derived | historical-log | The recorded M1 validation aggregate is a historical test-run log, not a regeneration target. |
-| 32,299 | 37 | 0 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,300 | 38 | 7 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,301 | 39 | 1 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,302 | 40 | 15 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,303 | 41 | 8 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,304 | 42 | 12 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,307 | 43 | 10 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,308 | 44 | 12 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,309 | 45 | 13 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,310 | 46 | 12 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,311 | 47 | 11 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,313 | 48 | 27 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,315 | 49 | 36 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,316 | 50 | 37 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,317 | 51 | 30 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,318 | 52 | 41 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,319 | 53 | 50 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,320 | 54 | 47 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,321 | 55 | 66 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,322 | 55 | 256 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,323 | 56 | 50 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,324 | 56 | 1 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,325 | 56 | 11 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,326 | 57 | 36 | deterministic | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,327 | 57 | 500 | deterministic | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
-| 32,328 | 58 | 521 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| claim_id | claim_key | section | value | class | status | notes |
+|----|----|----|----|----|----|----|
+| 32,298 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:1 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 521 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,307 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:10 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 10 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,308 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:11 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 12 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,309 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:12 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 13 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,310 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:13 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 12 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,311 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:14 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 11 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,313 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:16 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 27 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,315 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:18 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 36 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,316 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:19 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 37 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,299 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:2 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 0 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,317 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:20 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 30 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,318 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:21 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 41 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,319 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:22 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 50 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,320 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:23 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 47 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,321 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:24 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 66 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,322 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:25 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 256 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,323 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:26 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 50 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,324 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:27 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 1 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,325 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:28 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 11 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,326 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:29 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 36 | deterministic | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,300 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:3 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 7 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,327 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:30 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 500 | deterministic | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,301 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:4 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 1 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,302 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:5 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 15 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,303 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:6 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 8 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,304 | docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary:7 | [2-m0-empirical-validation-evidence-summary](../contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary) | 12 | derived | historical-log | M1 aggregate test-run counts are preserved historical logs, not regeneration targets. |
+| 32,295 | docs/contracts/M1_CONTRACT_FREEZE.md#m1-contract-freeze-specification-contracts-c01-c10:1 | [m1-contract-freeze-specification-contracts-c01-c10](../contracts/M1_CONTRACT_FREEZE.md#m1-contract-freeze-specification-contracts-c01-c10) | 521 | derived | historical-log | The recorded M1 validation aggregate is a historical test-run log, not a regeneration target. |
+| 32,296 | docs/contracts/M1_CONTRACT_FREEZE.md#m1-contract-freeze-specification-contracts-c01-c10:2 | [m1-contract-freeze-specification-contracts-c01-c10](../contracts/M1_CONTRACT_FREEZE.md#m1-contract-freeze-specification-contracts-c01-c10) | 521 | derived | historical-log | The recorded M1 validation aggregate is a historical test-run log, not a regeneration target. |
+| 32,297 | docs/contracts/M1_CONTRACT_FREEZE.md#m1-contract-freeze-specification-contracts-c01-c10:3 | [m1-contract-freeze-specification-contracts-c01-c10](../contracts/M1_CONTRACT_FREEZE.md#m1-contract-freeze-specification-contracts-c01-c10) | 500 | derived | historical-log | The recorded M1 validation aggregate is a historical test-run log, not a regeneration target. |
 
 ### Top evidence gaps
 

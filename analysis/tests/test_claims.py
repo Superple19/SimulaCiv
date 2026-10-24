@@ -3,7 +3,7 @@ import gzip
 import json
 from pathlib import Path
 
-from simciv_analysis.claims import _tier, _tokens, apply_m5_04_overrides, extract_claims, ledger_bytes, scan_documents
+from simciv_analysis.claims import _tier, _tokens, apply_m5_04_overrides, extract_claims, ledger_bytes, locate_claim, scan_documents
 from simciv_analysis.io import content_matches, write_text_lf
 
 
@@ -203,3 +203,37 @@ def test_contract_claim_identity_is_stable_when_lines_are_inserted_above_it(tmp_
     assert content_matches(committed_ledger, after_bytes)
     assert {key: value for key, value in before[0].items() if key != "line"} == {key: value for key, value in after[0].items() if key != "line"}
     assert after[0]["line"] == before[0]["line"] + 1
+
+
+def test_claims_locate_resolves_current_line_from_stable_key(tmp_path):
+    contract = tmp_path / "docs" / "contracts" / "sample.md"
+    contract.parent.mkdir(parents=True)
+    write_text_lf(contract, "# Sample\n\n## Current reproducibility state\n\nObserved value: 42.\n")
+    claim = scan_documents(tmp_path)[0]
+
+    located = locate_claim(str(claim["claim_key"]), tmp_path)
+
+    assert located is not None
+    assert located["line"] == claim["line"]
+    assert located["section anchor"] == claim["section anchor"]
+
+
+def test_source_line_insert_keeps_committed_ledger_and_report_bytes_unchanged():
+    from simciv_analysis.claims import OUTPUT, ROOT, main as claims_main
+    from simciv_analysis.report_m5_01 import MD_PATH, QMD_PATH, check_outputs
+
+    contract = ROOT / "docs" / "contracts" / "M1_CONTRACT_FREEZE.md"
+    original_contract = contract.read_bytes()
+    original_ledger = OUTPUT.read_bytes()
+    original_qmd = QMD_PATH.read_bytes()
+    original_report = MD_PATH.read_bytes()
+    try:
+        contract.write_bytes(b"<!-- temporary line stability test -->\n" + original_contract)
+        assert claims_main(["--check"]) == 0
+        assert OUTPUT.read_bytes() == original_ledger
+        assert check_outputs()
+        assert QMD_PATH.read_bytes() == original_qmd
+        assert MD_PATH.read_bytes() == original_report
+    finally:
+        contract.write_bytes(original_contract)
+    assert contract.read_bytes() == original_contract

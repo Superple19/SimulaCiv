@@ -28,6 +28,7 @@ From the repository root:
 - `just ship` — run the standard delivery path to `ci-check`.
 - `just data-integrity-update` — register checksums for newly produced data files.
 - `just decisions` / `just decisions-check` — regenerate or verify registry tables.
+- `just claims-locate <claim_key>` — print the current source section and line for a ledger claim.
 - `just report-m5-01`, `just report-m5-04`, `just report-m5-05` — regenerate the corresponding reports; matching `*-check` targets verify committed output.
 
 ## 3. Versioning and Git

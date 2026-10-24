@@ -18,6 +18,9 @@ claims: analysis-sync
 claims-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.claims --check
 
+claims-locate KEY: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.claims --locate {{KEY}}
+
 data-integrity-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.data_integrity --check
 
