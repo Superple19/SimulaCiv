@@ -79,7 +79,7 @@ DVC 3.67.1 is the latest stable release checked for M5-05 (2026-03-31). Its publ
 uv tool install --python 3.14 dvc==3.67.1
 ```
 
-The shared DVC remote URL is in `.dvc/config`; the DagsHub DVC remote is public-read. Pull raw data when needed with:
+The shared DVC remote URL is in `.dvc/config`, but uploads are deferred and the remote currently has no raw outputs. Raw outputs exist only in the maintainer's local DVC cache until `dvc push --all-commits` is run. After upload, pull raw data with:
 
 ```powershell
 dvc pull docs/data/m5_05/dvc.yaml
