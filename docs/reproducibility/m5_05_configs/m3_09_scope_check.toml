@@ -42,4 +42,7 @@ historical_ratio_10k = 1.21
 historical_ratio_tolerance = 0.20
 measure_validate_for = true
 validate_for_population = 100000
+validate_for_warmups = 2
 validate_for_calls = 41
+validate_for_probe = "Run a zero-day M3P public call from the same cursor-401 checkpoint; a temporary env-gated Instant inside M3pStorageRunContext::validate_for records the method's own duration."
+timer_is_removed_before_a5_cells = true

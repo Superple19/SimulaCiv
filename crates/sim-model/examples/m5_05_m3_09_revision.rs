@@ -75,13 +75,13 @@ fn fixture_path() -> PathBuf {
         .join("m3p_propagation_sustained.toml")
 }
 
-fn parse_config(profile: &str, initial_population: i64) -> SimConfig {
+fn parse_config(profile: &str, initial_population: i64, settlement_count: i64) -> SimConfig {
     let source =
         std::fs::read_to_string(fixture_path()).expect("read frozen M3P sustained fixture");
     let mut value: toml::Value = toml::from_str(&source).expect("M3P fixture parses");
     value["profile"] = toml::Value::String(profile.to_owned());
     value["world"]["initial_population"] = toml::Value::Integer(initial_population);
-    value["world"]["settlement_count"] = toml::Value::Integer(K);
+    value["world"]["settlement_count"] = toml::Value::Integer(settlement_count);
     value["world"]["master_seed"] = toml::Value::Integer(SEED as i64);
     value["world"]["replicate_id"] = toml::Value::Integer(i64::from(REPLICATE));
     value["interaction"]["relationship_degree_k"] = toml::Value::Integer(DEGREE);
@@ -143,18 +143,26 @@ fn make_checkpoint(config: &SimConfig) -> M3pReferenceState {
 }
 
 fn prepare() -> Prepared {
-    let m3p_config = parse_config("m3p", N);
+    let initial_population = std::env::var("SIMCIV_M5_05_N")
+        .ok()
+        .map(|value| value.parse::<i64>().expect("population is an i64"))
+        .unwrap_or(N);
+    let settlement_count = std::env::var("SIMCIV_M5_05_K")
+        .ok()
+        .map(|value| value.parse::<i64>().expect("settlement count is an i64"))
+        .unwrap_or(K);
+    let m3p_config = parse_config("m3p", initial_population, settlement_count);
     let reference = make_checkpoint(&m3p_config);
     let mut m3_world = reference.world().clone();
     m3_world.agents.retain(|agent| agent.alive);
     let live_population = m3_world.agents.len() as u64;
-    let m3_config = parse_config("m3", live_population as i64);
+    let m3_config = parse_config("m3", live_population as i64, settlement_count);
 
     let checkpoint_cursor = std::env::var("SIMCIV_M5_05_CHECKPOINT_CURSOR")
         .ok()
         .map(|value| value.parse::<u32>().expect("checkpoint cursor is a u32"))
         .unwrap_or(400);
-    let checkpoint_scope = if checkpoint_cursor == 400 {
+    let checkpoint_scope = if checkpoint_cursor == 400 && initial_population == N {
         format!("checkpoint_day=400;days={DAYS}")
     } else {
         let timed_days = (checkpoint_cursor..checkpoint_cursor + DAYS)
@@ -164,7 +172,7 @@ fn prepare() -> Prepared {
         format!("checkpoint_cursor={checkpoint_cursor};timed_days={timed_days}")
     };
     let options_record = format!(
-        "initial_population={N};settlements={K};k={DEGREE};p_local={LOCALITY};seed={SEED};replicate={REPLICATE};{checkpoint_scope};metrics=true;events=true;snapshots=false;policy=serial;pool=0;chunk=256;propagation=false;live_population={live_population}"
+        "initial_population={initial_population};settlements={settlement_count};k={DEGREE};p_local={LOCALITY};seed={SEED};replicate={REPLICATE};{checkpoint_scope};metrics=true;events=true;snapshots=false;policy=serial;pool=0;chunk=256;propagation=false;live_population={live_population}"
     );
 
     let (_, expected_m3p) = run_m3p(&m3p_config, &reference, false);
@@ -324,30 +332,51 @@ fn run_m3(config: &SimConfig, world: &WorldState) -> (f64, Digests) {
     (elapsed, hashes)
 }
 
-fn pair_once(prepared: &Prepared, numerator_first: bool) -> (f64, f64, f64) {
-    let started = Instant::now();
-    let (numerator_us, numerator_hash, denominator_us, denominator_hash) = if numerator_first {
-        let (num_us, num_hash) = run_m3p(&prepared.m3p_config, &prepared.reference, true);
-        let (den_us, den_hash) = run_m3(&prepared.m3_config, &prepared.m3_world);
-        (num_us, num_hash, den_us, den_hash)
-    } else {
-        let (den_us, den_hash) = run_m3(&prepared.m3_config, &prepared.m3_world);
-        let (num_us, num_hash) = run_m3p(&prepared.m3p_config, &prepared.reference, true);
-        (num_us, num_hash, den_us, den_hash)
-    };
-    assert_eq!(
-        numerator_hash, prepared.expected_m3p,
-        "M3P numerator repeat digest"
-    );
-    assert_eq!(
-        denominator_hash, prepared.expected_m3,
-        "M3 denominator repeat digest"
-    );
-    (
-        numerator_us,
-        denominator_us,
-        started.elapsed().as_secs_f64() * 1_000_000.0,
+fn validate_m3p_call(prepared: &Prepared) -> f64 {
+    let mut hybrid = HybridWorldState::hybrid(prepared.reference.world().clone());
+    let run_context = M0RunContext::new(SEED, REPLICATE);
+    let mut context = M3pStorageRunContext::from_reference_state(
+        &hybrid,
+        &prepared.m3p_config,
+        &run_context,
+        &prepared.reference,
     )
+    .expect("M3P validation context");
+    let started = Instant::now();
+    let _ = run_m3p_storage_days(
+        &mut hybrid,
+        &prepared.m3p_config,
+        &mut context,
+        0,
+        &options(false),
+    )
+    .expect("zero-day M3P validation call");
+    started.elapsed().as_secs_f64() * 1_000_000.0
+}
+
+fn pair_once(prepared: &Prepared, rotation: usize) -> ([f64; 3], f64) {
+    let started = Instant::now();
+    let order = match rotation % 3 {
+        0 => [0, 1, 2],
+        1 => [1, 2, 0],
+        _ => [2, 0, 1],
+    };
+    let mut timings = [0.0; 3];
+    for path in order {
+        let (elapsed, digests) = match path {
+            0 => run_m3p(&prepared.m3p_config, &prepared.reference, false),
+            1 => run_m3p(&prepared.m3p_config, &prepared.reference, true),
+            _ => run_m3(&prepared.m3_config, &prepared.m3_world),
+        };
+        let expected = if path < 2 {
+            &prepared.expected_m3p
+        } else {
+            &prepared.expected_m3
+        };
+        assert_eq!(digests, *expected, "equal-live runner repeat digest");
+        timings[path] = elapsed;
+    }
+    (timings, started.elapsed().as_secs_f64() * 1_000_000.0)
 }
 
 fn reply(writer: &mut BufWriter<io::StdoutLock<'_>>, value: &str) {
@@ -400,21 +429,33 @@ fn server() {
             break;
         }
         if op == "probe" {
-            let (num, den, wall) = pair_once(&prepared, sample % 2 == 0);
+            let (times, wall) = pair_once(&prepared, sample as usize);
             reply(
                 &mut writer,
-                &format!("PROBE|{sample}|{num:.6}|{den:.6}|{:.6}", wall / 1_000_000.0),
+                &format!(
+                    "PROBE|{sample}|{:.6}|{:.6}|{:.6}|{:.6}",
+                    times[0],
+                    times[1],
+                    times[2],
+                    wall / 1_000_000.0
+                ),
             );
+            continue;
+        }
+        if op == "validate" {
+            eprintln!("M5_VALIDATE_REQUEST={sample}");
+            let elapsed = validate_m3p_call(&prepared);
+            reply(&mut writer, &format!("VALIDATE|{sample}|{elapsed:.6}"));
             continue;
         }
         assert!(op == "warmup" || op == "sample", "unknown operation {op}");
         let started = Instant::now();
-        let mut numerator_sum = 0.0;
-        let mut denominator_sum = 0.0;
+        let mut path_sums = [0.0; 3];
         for repeat in 0..repetitions {
-            let (numerator, denominator, _) = pair_once(&prepared, (sample + repeat) % 2 == 0);
-            numerator_sum += numerator;
-            denominator_sum += denominator;
+            let (times, _) = pair_once(&prepared, (sample + repeat) as usize);
+            for (sum, time) in path_sums.iter_mut().zip(times) {
+                *sum += time;
+            }
         }
         let wall_seconds = started.elapsed().as_secs_f64();
         assert!(
@@ -424,12 +465,13 @@ fn server() {
         reply(
             &mut writer,
             &format!(
-                "{}|{}|{}|{:.6}|{:.6}|{:.6}",
+                "{}|{}|{}|{:.6}|{:.6}|{:.6}|{:.6}",
                 op,
                 sample,
                 repetitions,
-                numerator_sum / repetitions as f64 / f64::from(DAYS),
-                denominator_sum / repetitions as f64 / f64::from(DAYS),
+                path_sums[0] / repetitions as f64 / f64::from(DAYS),
+                path_sums[1] / repetitions as f64 / f64::from(DAYS),
+                path_sums[2] / repetitions as f64 / f64::from(DAYS),
                 wall_seconds
             ),
         );
