@@ -5,6 +5,8 @@ from simciv_analysis.report_m5_04 import (
     _timing_source,
 )
 from simciv_analysis.claims import apply_m5_04_overrides
+from simciv_analysis.claims import extract_claims, ledger_bytes
+from simciv_analysis.report_m5_04 import CLAIMS_PATH, _outputs
 
 
 def test_a5_gate_classification_uses_spread_then_bootstrap_bound():
@@ -42,3 +44,7 @@ def test_m5_04_ledger_override_is_idempotent():
     twice = apply_m5_04_overrides([dict(once[0])], overrides=overrides)
 
     assert once == twice
+
+
+def test_m5_04_ledger_output_matches_the_canonical_claim_generator():
+    assert _outputs()[CLAIMS_PATH] == ledger_bytes(extract_claims())
