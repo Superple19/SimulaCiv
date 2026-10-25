@@ -1077,7 +1077,7 @@ mod scale {
             .find(|row| json_field(row, "record") == Some("SCALE_HOST"))
             .and_then(|row| json_field(row, "host_ram_bytes"))
             .and_then(|value| value.parse::<u64>().ok())
-            .or_else(|| host_ram_bytes());
+            .or_else(host_ram_bytes);
         let mut setups = Vec::new();
         let mut results = Vec::new();
         let mut completed_series = 0;
@@ -1108,12 +1108,9 @@ mod scale {
             });
             if args.skip_series.contains(&graph_id)
                 && args.skip_series.contains(&projection_id)
-                && setup_saved.is_some()
-                && memory_saved.is_some()
                 && !any_cell_missing
+                && let (Some(setup), Some(memory)) = (setup_saved, memory_saved)
             {
-                let setup = setup_saved.expect("checked setup record");
-                let memory = memory_saved.expect("checked memory record");
                 setups.push((population, degree, setup, memory));
                 for horizon in horizons {
                     let (serial, parallel) =
@@ -1132,10 +1129,9 @@ mod scale {
             }
             let config = config_for_cell(population, settlements, degree);
             let (base, initialization) = initialize(&config);
-            let probe = if setup_saved.is_some() && memory_saved.is_some() {
-                setup_saved.expect("setup record exists")
-            } else {
-                measure_setup(&config, &base, initialization)
+            let probe = match (setup_saved, memory_saved) {
+                (Some(setup), Some(_)) => setup,
+                _ => measure_setup(&config, &base, initialization),
             };
             let graph = if args.skip_series.contains(&graph_id) {
                 resume_setup_summary(&resume_records, population, degree, "graph")
