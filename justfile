@@ -123,3 +123,15 @@ ci: check-quarto
 
 ship: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.ship
+
+m3-05-pilot-classify:
+    uv run --directory analysis --project . python -m simciv_analysis.m3_05_pilot_results
+
+m3-05-pilot-classify-check:
+    uv run --directory analysis --project . python -m simciv_analysis.m3_05_pilot_results --check
+
+m3-05-pilot-runtime:
+    uv run --directory analysis --project . python -m simciv_analysis.m3_05_pilot_runtime
+
+m3-05-pilot-runtime-check:
+    uv run --directory analysis --project . python -m simciv_analysis.m3_05_pilot_runtime --check

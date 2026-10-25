@@ -1,10 +1,10 @@
 # M2/M3 Evidence Reconstruction Inventory
 
-**Status:** generated planning inventory. No simulation or timing harness was run.
+**Status:** generated inventory updated after the M3-05 pilot; no other reconstruction experiment was run.
 
 ## Scope and source method
 
-This inventory covers the 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source` in the recovered-mapped ledger. Table claims are grouped by table and prose claims by paragraph/list item. Each CSV row cites source report lines; timed cell counts additionally cite the table/method or benchmark loops used to derive the count.
+At initial generation this inventory covered 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source`; the M3-05 pilot outcomes below update that group's current claim statuses. Table claims are grouped by table and prose claims by paragraph/list item. Each CSV row cites source report lines; timed cell counts additionally cite the table/method or benchmark loops used to derive the count.
 
 A cell is one unique configuration/measurement family for A-5. A paired path comparison remains one cell. Summaries and inferences that reuse a measured matrix have zero additional cells and name their shared run ID. Non-timing records (tests, workload counts, schema facts, static analysis) have zero A-5 timing cells and remain linked to their output/configuration cell count where useful.
 
@@ -18,7 +18,7 @@ All **61** groups that lacked a cell count in the previous inventory were assign
 
 M3-05 `#first-break-findings` was one section of one report, not two documents. It contains two distinct tables: the trigger-criteria table and the phase-alpha table. Their claim IDs are disjoint, so the inventory merges them into one 100-claim experiment group; a global assertion confirms each of the 484 claim IDs appears exactly once in the CSV.
 
-## A-5 estimate by class
+## Original pre-pilot A-5 estimate by class (historical)
 
 | Class | Experiment groups | Claims | Unique A-5 cells | Lower-bound seconds |
 |---|---:|---:|---:|---:|
@@ -32,7 +32,7 @@ M3-05 `#first-break-findings` was one section of one report, not two documents. 
 
 The resulting A-5 floor is **6,966 seconds (1.94 hours)**. This sums unique cells; shared summaries contribute zero. `needs-decision` is currently zero, so no timing cells are hidden from the sum.
 
-## Ten largest groups by A-5 runtime
+## Ten largest groups in the original pre-pilot plan
 
 | # | Experiment group | Class | Cells | Lower-bound seconds |
 |---:|---|---|---:|---:|
@@ -47,22 +47,60 @@ The resulting A-5 floor is **6,966 seconds (1.94 hours)**. This sums unique cell
 | 9 | `M2_34_POST_ALGORITHM_REPROFILING.md#executive-summary` (`M2-34-reprofile`) | b | 6 | 258 |
 | 10 | `M3_09_INCREMENTAL_TOPOLOGY.md#findings` (`M3-09-incremental-profile`) | c | 6 | 258 |
 
-## M3-05 end-to-end pilot proposal
+## M3-05 end-to-end pilot outcome
 
-Pilot: the merged M3-05 first-break/scale result group. It exercises the A-5 runner, phase profile, setup timing, digest/parity outputs, derived tables, and report path in one end-to-end reconstruction. The source scope is M2-40 with `base_metabolic_cost=0.3129`, M3 `k ∈ {8,16}`, `p_local=0.5`, four populations, and day-0/day-50 checkpoints; see the cited M3-05 method and benchmark source lines in the CSV.
+The completed A-5 pilot covers 48 series across 16 cells. Its 100-claim missing-data group records 80 reproduced, 7 reproduced (loose), 11 not reproduced, and 2 inconclusive (validity) claims. Two additional recovered P4 headline claims have pilot status `inconclusive (validity)`. See the [generated claim results](M3_05_PILOT_CLAIMS.csv) and the [pilot raw output instructions](../data/m5_05/m3_05_pilot/README.md).
 
-The existing legacy command is `cargo bench -p sim-model --bench m3_scale_limit_bench`; it uses the report's 2 warmups and 7 samples, so it is a protocol reference only and cannot pass the frozen A-5 criteria. The A-5 driver mode is not implemented in the current bench. After that mode is committed, the proposed exact invocation is:
+Recorded sample-timer durations sum to 4,938.605 s. The JSONL has no wall-clock timestamps or elapsed time for calibration and warmups; see the runtime breakdown below for the estimates and unrecorded preparation components.
 
-```powershell
-cargo bench -p sim-model --bench m3_scale_limit_bench -- --a5-reconstruction --output docs/data/m5_05/m3_05_pilot/m3_05_a5.jsonl
-```
-
-Expected records: host/config header; eight setup and memory configurations; 16 paired full-tick configurations; 16 serial phase-profile configurations; per-cell `r`, 2 warmups, 41 samples, medians/MADs, and parity digests; alpha/first-break summaries; completion record. The raw JSONL path is under `docs/data/m5_05/m3_05_pilot/`; register it in the M5-05 DVC stage before the run, with the summary and required manifest metadata in Git.
-
-A-5 floor: **48 timed series × 43 seconds = 2,064 seconds (34 minutes 24 seconds)**. Compilation, graph/world initialization, the non-timed memory probe, host setup, and any `r` above its one-second minimum make actual wall time longer; no wall-time run estimate is claimed.
-
-**Pilot precondition:** the current committed bench recognizes its default mode, `--residual`, and `--diagnose`; it does not recognize `--a5-reconstruction`. Commit the A-5 mode and its result schema before invoking the proposed command. No command was run in this inventory task.
-
+The frozen report's first-break claims are classified from the completed pilot; invalid paths remain inconclusive and are not silently re-tolerated.
 ## Criteria and status
 
-Proposed acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md) and remain draft pending approval; no timing is authorized under the draft. They require exact deterministic values and preserve dimensionless timing ratios/rankings; absolute elapsed times are recorded but are not pass criteria.
+The frozen acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md). The M3-05 pilot applies exact checks to metadata and the frozen ratio bands to valid timing paths; invalid paths remain inconclusive. No additional experiment was run for this inventory update.
+
+<!-- BEGIN GENERATED M3-05 RUNTIME UPDATE -->
+## M3-05 pilot status and remaining runtime estimate
+
+Generated by [m3_05_pilot_runtime.py](../../analysis/simciv_analysis/m3_05_pilot_runtime.py) from [M3-05 A-5 harness](../../crates/sim-model/examples/m3_05_a5_reconstruction.rs) and `docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl`. The raw JSONL contains per-sample `sample_seconds` but no wall-clock timestamps, warmup durations, calibration-batch durations, or checkpoint/context-preparation durations. The timed sample sum is recorded; calibration and warmup components below are estimates; preparation fields are partial where stated.
+
+### Elapsed components
+
+| Component | Seconds | Basis |
+|---|---:|---|
+| initialization + graph + projection | 10.362660 | measured fields in 8 SCALE_SETUP rows |
+| checkpoint/context preparation | not recorded | not recorded |
+| calibration probes | 268.065310 | estimated from 3 × recorded probe median per series |
+| warmups | 240.907548 | estimated as warmup count × timed sample mean per series |
+| timed samples | 4938.604737 | sum of recorded sample_seconds |
+| known component subtotal | 5457.940255 | setup + estimated calibration/warmups + recorded timed samples |
+
+### Per-N runtime model
+
+| N | series | setup series mean (s) | full-tick series mean (s) | phase-profile series mean (s) | observed known elapsed / series (s) | fitted (s/series) |
+|---:|---:|---:|---:|---:|---:|---:|
+| 100,000 | 12 | 56.488 | 57.368 | 67.110 | 60.322 | 53.726 |
+| 250,000 | 12 | 59.095 | 68.669 | 91.994 | 73.253 | 87.157 |
+| 500,000 | 12 | 64.184 | 103.151 | 195.960 | 121.098 | 125.675 |
+| 1,000,000 | 12 | 93.200 | 111.010 | 393.663 | 199.291 | 181.214 |
+
+The original 162-cell plan included the completed 48-cell M3-05 pilot, leaving **114 cells** for other experiments. Their A-5 floor is **4,902 s**; the per-N model estimates **8,884.0 s** for timed samples plus estimated calibration and warmups. The model uses the per-series M3-05 aggregate and equal weights across each group's listed N values; groups without parseable N use 1M conservatively (6 groups). It excludes unrecorded checkpoint/context preparation and compilation, so it is not a wall-time prediction.
+The fitted observed-series model is `T(N) = 0.123074 × N^0.5280` seconds, where T includes the recorded timed sample duration plus estimated warmups and calibration probes.
+
+### Validity exceptions
+
+4 claim result rows are marked `inconclusive (validity)` because one or more source paths exceeded the 5% MAD/median limit; the two P4 claims are supplemental headline claims already present in the same report section.
+
+| Experiment | Cells remaining | N values | Modeled seconds | A-5 floor seconds |
+|---|---:|---|---:|---:|
+| `E068` | 13 | 1000000 | 2,355.8 | 559 |
+| `E058` | 12 | 1000000 | 2,174.6 | 516 |
+| `E049` | 8 | 1000000 | 1,449.7 | 344 |
+| `E002` | 4 | 1000000 | 724.9 | 172 |
+| `E069` | 18 | 10000;100000 | 626.9 | 774 |
+| `E045` | 2 | 1000000 | 362.4 | 86 |
+| `E071` | 6 | 10000;100000 | 209.0 | 258 |
+| `E056` | 12 | 10000 | 191.1 | 516 |
+| `E020` | 1 | 1000000 | 181.2 | 43 |
+| `E041` | 6 | 10000;50000 | 159.6 | 258 |
+
+<!-- END GENERATED M3-05 RUNTIME UPDATE -->
