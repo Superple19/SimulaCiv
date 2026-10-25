@@ -284,6 +284,40 @@ impl<'de> Deserialize<'de> for SegmentedAgentStorage {
         D: Deserializer<'de>,
     {
         let fields = SegmentedAgentStorageFields::deserialize(deserializer)?;
+        let expected_len = fields.agent_ids.len();
+        let column_lengths = [
+            ("demography.alive", fields.demography.alive.len()),
+            ("demography.birth_day", fields.demography.birth_day.len()),
+            ("demography.health", fields.demography.health.len()),
+            ("economy.food", fields.economy.food.len()),
+            ("economy.wealth", fields.economy.wealth.len()),
+            ("economy.group_id", fields.economy.group_id.len()),
+            (
+                "personality.productivity",
+                fields.personality.productivity.len(),
+            ),
+            (
+                "personality.cooperation",
+                fields.personality.cooperation.len(),
+            ),
+            (
+                "personality.aggression",
+                fields.personality.aggression.len(),
+            ),
+            (
+                "personality.risk_tolerance",
+                fields.personality.risk_tolerance.len(),
+            ),
+            ("dense_slots", fields.dense_slots.len()),
+        ];
+        if let Some((name, actual_len)) = column_lengths
+            .into_iter()
+            .find(|(_, actual_len)| *actual_len != expected_len)
+        {
+            return Err(D::Error::custom(format!(
+                "column `{name}` has length {actual_len}, expected {expected_len}"
+            )));
+        }
         let mut slot_map = HashMap::with_capacity(fields.agent_ids.len());
         for (slot, &agent_id) in fields.agent_ids.iter().enumerate() {
             if slot_map.insert(agent_id, slot).is_some() {

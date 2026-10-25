@@ -50,3 +50,21 @@ fn deserialize_rejects_duplicate_agent_ids() {
         .expect_err("duplicate AgentIds cannot form a consistent slot map");
     assert!(error.to_string().contains("duplicate AgentId 7"));
 }
+
+#[test]
+fn deserialize_rejects_mismatched_column_lengths() {
+    let storage = SegmentedAgentStorage::from_agents(&[agent(7, 0), agent(3, 1)]);
+    let mut serialized = serde_json::to_value(&storage).expect("storage serializes");
+    serialized["demography"]["health"]
+        .as_array_mut()
+        .expect("health serializes as an array")
+        .pop();
+
+    let error = serde_json::from_value::<SegmentedAgentStorage>(serialized)
+        .expect_err("every storage column must align with agent_ids");
+    assert!(
+        error
+            .to_string()
+            .contains("column `demography.health` has length 1, expected 2")
+    );
+}
