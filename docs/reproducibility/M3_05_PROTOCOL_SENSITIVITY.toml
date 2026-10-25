@@ -1,0 +1,134 @@
+schema_version = 1
+id = "M3-05-PROTOCOL-SENSITIVITY-01"
+status = "pre-registered"
+registered_on = "2026-10-25"
+report = "docs/reports/M3_05_SCALE_LIMIT.md"
+report_revision = "5df006c150179f67078588dfaf83a355a81d5f9f"
+rust_toolchain = "1.98.1"
+historical_bench = "crates/sim-model/benches/m3_scale_limit_bench.rs"
+driver = "crates/sim-model/examples/m3_05_protocol_sensitivity.rs"
+raw_output = "docs/data/m2_m3_reconstruction/m3_05_protocol_sensitivity/raw/records.jsonl"
+config = "M3 equilibrium at the report revision; K=N/200, p_local=0.5, seed=81985529216486895, replicate_id=7"
+warmups = 2
+samples = 7
+days_per_sample = 3
+process_priority = "normal"
+process_affinity = "not pinned"
+measurement = "Serial per-phase medians and alpha = ln(T_high/T_low)/ln(N_high/N_low); keep the report's >1.15 threshold and first-crossing rule."
+status_note = "No timing run has been performed."
+hypothesis = "The historical 2-warmup/7-sample protocol without priority or affinity produces larger large-N phase alphas than the A-5 pilot. Treat as exploratory unless this registration predates the first timing run."
+
+[[first_break_change]]
+phase = "P5_partition"
+k = 8
+day = 0
+historical_first_interval = "250k->500k"
+pilot_first_interval = "none"
+
+[[first_break_change]]
+phase = "P5_partition"
+k = 16
+day = 0
+historical_first_interval = "250k->500k"
+pilot_first_interval = "none"
+
+[[first_break_change]]
+phase = "P2_degradation"
+k = 16
+day = 50
+historical_first_interval = "250k->500k"
+pilot_first_interval = "none"
+
+[[first_break_change]]
+phase = "P8_welfare"
+k = 16
+day = 50
+historical_first_interval = "250k->500k"
+pilot_first_interval = "100k->250k"
+
+[[first_break_change]]
+phase = "P9_mortality"
+k = 16
+day = 50
+historical_first_interval = "250k->500k"
+pilot_first_interval = "100k->250k"
+
+[[not_reproduced_alpha]]
+claim_id = 21130
+phase = "P5_partition"
+k = 8
+day = 0
+from_N = 250000
+to_N = 500000
+
+[[not_reproduced_alpha]]
+claim_id = 21159
+phase = "P6A_work_resolution"
+k = 8
+day = 50
+from_N = 100000
+to_N = 250000
+
+[[not_reproduced_alpha]]
+claim_id = 21184
+phase = "P2_degradation"
+k = 8
+day = 50
+from_N = 500000
+to_N = 1000000
+
+[[not_reproduced_alpha]]
+claim_id = 21205
+phase = "P6A_work_resolution"
+k = 16
+day = 0
+from_N = 100000
+to_N = 250000
+
+[[not_reproduced_alpha]]
+claim_id = 21219
+phase = "P5_partition"
+k = 16
+day = 0
+from_N = 250000
+to_N = 500000
+
+[[not_reproduced_alpha]]
+claim_id = 21220
+phase = "P6A_work_resolution"
+k = 16
+day = 0
+from_N = 250000
+to_N = 500000
+
+[[not_reproduced_alpha]]
+claim_id = 21238
+phase = "P6A_work_resolution"
+k = 16
+day = 0
+from_N = 500000
+to_N = 1000000
+
+[[not_reproduced_alpha]]
+claim_id = 21245
+phase = "P6B_key_generation"
+k = 16
+day = 0
+from_N = 500000
+to_N = 1000000
+
+[[not_reproduced_alpha]]
+claim_id = 21265
+phase = "P2_degradation"
+k = 16
+day = 50
+from_N = 250000
+to_N = 500000
+
+[[not_reproduced_alpha]]
+claim_id = 21284
+phase = "P6A_work_resolution"
+k = 16
+day = 50
+from_N = 500000
+to_N = 1000000
