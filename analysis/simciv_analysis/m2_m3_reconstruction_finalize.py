@@ -6,7 +6,6 @@ import io
 import json
 import re
 import subprocess
-import tomllib
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -17,8 +16,6 @@ from .provenance import ROOT
 CSV_PATH = ROOT / "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.csv"
 MD_PATH = ROOT / "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.md"
 LEDGER_PATH = ROOT / "docs/reproducibility/claims.csv.gz"
-CRITERIA_PATH = ROOT / "docs/reproducibility/REPRODUCTION_CRITERIA.md"
-DECISIONS_PATH = ROOT / "contracts/decisions.toml"
 
 # tuple: represented config cells, new A-5 cells, run key, status, rationale, extra evidence
 PLAN: dict[str, tuple[int, int, str, str, str, str]] = {
@@ -325,94 +322,6 @@ def main() -> None:
         "",
     ])
     write_text_lf(MD_PATH, "\n".join(report))
-
-    criteria = """# M2/M3 Reproduction Criteria
-
-Status: DRAFT — NOT FROZEN (user approval pending)
-
-Draft revision date: 2026-10-25
-
-## Scope and change reason
-
-This draft governs the M2/M3 evidence-reconstruction inventory in [M2_M3_EVIDENCE_RECONSTRUCTION.md](M2_M3_EVIDENCE_RECONSTRUCTION.md). It revises the earlier 2026-10-25 criteria before any timing run: run-to-run spread was not cited, ranking ties were treated as strict, and the default report-revision versus HEAD question was unspecified. The previous decision entry remains in `contracts/decisions.toml` as draft until approval.
-
-## Revision selection by class
-
-| Class | What is measured | Default revision | Question answered |
-|---|---|---|---|
-| (a) deterministic replay | Hashes, exact fields, ordering, errors, and test outcomes | Original report-creation commit; use that commit's `rust-toolchain.toml` | Do the historical deterministic values reproduce? |
-| (b) committed harness | The cited bench or example and its reported ratios/rankings | Original report-creation commit; use its pinned toolchain and harness | Do the historical timing numbers reproduce? |
-| (c) complete recovered source | The recovered driver against the historical API, without running recovered binaries | Original report-creation commit; use its pinned toolchain; place the driver under `crates/sim-model/examples/` and copy it as untracked into the historical worktree | Do the historical timing numbers reproduce? |
-| (d) reconstructed protocol | A new committed driver calling APIs available at the historical revision | Original report-creation commit and its pinned toolchain; no edits to historical tracked source | Do the historical timing numbers reproduce? |
-| (e) underspecified | No run until missing configuration, timer boundary, or cell set is resolved | None | Not evaluated until the protocol is decided |
-| (f) M5-05 conclusion covered | The already recorded M5-05 conclusion rerun | Revision and toolchain recorded in the M5-05 summary/provenance | Does the conclusion still hold? This does not establish historical-number reproduction. |
-
-The CSV records each report-creation commit and the `rust-toolchain.toml` channel read from that commit. All report revisions currently listed in this inventory pin Rust `1.98.1`. A HEAD rerun is a separate result answering only whether the conclusion still holds; it does not replace the default historical-reproduction run. If the original commit has no toolchain pin, use the compiler version recorded in the report or mark the row `needs-decision` before running.
-
-## Deterministic evidence
-
-- Canonical digests must match exactly. Other deterministic outputs must match their recorded field values exactly, including ordering and errors when those are the claim.
-- Do not change a golden, snapshot, fixture, or historical value to make a rerun pass.
-
-## Timing evidence
-
-- Record absolute medians and MADs for context, but do not compare absolute elapsed times for pass/fail.
-- Predeclare the dimensionless effect that supports the historical conclusion: a speedup/ratio, scaling alpha, phase share, crossover, or ranking. If no historical denominator or ordering exists, mark the claim `needs-decision` before running. A zero historical denominator or undefined ratio also requires `needs-decision`.
-- For a historical ratio `q_old` and rerun ratio `q_new`, the numeric ratio passes when `abs(q_new / q_old - 1) <= 0.20`. Report both values and the relative deviation. This 20% band is the M5-00 timing-drift threshold checked against the repeat evidence below; it is not an absolute-time tolerance.
-- Enforce a historical ordering only when the original pair was distinguishable: either its absolute gap exceeded `2 * max(MAD_a, MAD_b)`, or its relative ratio gap exceeded 20%. If neither condition holds, record the original and rerun ordering but do not make it pass/fail. For significant original orderings, require the same order. Crossover endpoints and gate verdicts remain exact when the original endpoints/verdict were outside the noise band.
-- Use the reference Ryzen 5 9600X Windows host and its A-5 protocol: two warmups, 41 paired samples, and a per-cell repetition factor `r` chosen in warmup and fixed so every timed sample is at least one second; preserve pair alternation. A cell failing A-5 validity is inconclusive, not a pass.
-
-## Measured ratio-spread basis for 20%
-
-The committed M5-05 summaries contain one exact repeated configuration/path pair: M2-40 workload B, N=100,000/K=500, Serial versus Explicit Rayon 6/256, three days per operation, with the same config digest `sha256:ad4426ef75da87d2c809acd1cbee364d3981f796b0776f2c97e5c542e79ab691`. Its recorded ratios are 1.253153606 in `docs/data/m5_05/m2_near_linear/summary.json` and 1.278693533 in `docs/data/m5_05/m2_final_tick/summary.json`; max/min − 1 is **2.04%**.
-
-The protocol-matched M3-09 scope check also reports 10k ratios 1.242627486/1.232961366 (0.78% spread) and 100k ratios 1.322346887/1.352036586 (2.25% spread) between the follow-up revision and HEAD. Because those are different code revisions, they are supplementary rather than pure run-to-run noise. The 20% band is about 9.8 times the exact repeated M2-40 spread and 8.9 times the largest M3-09 cross-revision spread. This supports retaining the conservative 20% band for this plan, with limited calibration evidence: only one exact repeated M2-40 cell was found.
-
-## Failure record
-
-For each failed or inconclusive cell, preserve the old and new value, derived ratio/rank, A-5 median/MAD/validity, configuration, command, revision/toolchain, and raw-output checksum. Mark it `not reproduced` or `inconclusive`; do not silently widen the tolerance, remove a cell, or replace an expected value. Any later criteria change requires a separate reviewed amendment before rerunning, and the earlier result remains in the record.
-
-## M3-05 pilot procedure
-
-The pilot is the merged M3-05 first-break group. Its historical report was written at commit `5df006c150179f67078588dfaf83a355a81d5f9f`, whose `rust-toolchain.toml` pins Rust `1.98.1`. Do not edit tracked files in that historical tree. Once a dedicated driver has been committed at `crates/sim-model/examples/m3_05_a5_reconstruction.rs`, use a detached worktree at the report commit and copy the driver into it as an untracked file:
-
-```powershell
-git worktree add --detach target/m3-05-pilot 5df006c150179f67078588dfaf83a355a81d5f9f
-Copy-Item crates/sim-model/examples/m3_05_a5_reconstruction.rs target/m3-05-pilot/crates/sim-model/examples/
-Push-Location target/m3-05-pilot
-cargo check --release -p sim-model --example m3_05_a5_reconstruction
-cargo run --release -p sim-model --example m3_05_a5_reconstruction -- --output target/m3_05_a5.jsonl
-Pop-Location
-Copy-Item target/m3-05-pilot/target/m3_05_a5.jsonl docs/data/m5_05/m3_05_pilot/m3_05_a5.jsonl
-dvc add docs/data/m5_05/m3_05_pilot/m3_05_a5.jsonl
-```
-
-The driver must use the historical public API, emit the existing scale record families plus `r`, A-5 medians/MADs and parity digests, and write the raw JSONL to the DVC stage. Its output covers 16 paired full-tick configurations, 16 phase-profile configurations, and 16 one-time graph/projection series (eight configurations times two construction measurements): 48 A-5 series. The lower-bound runtime is **2,064 seconds (34 minutes 24 seconds)**; compilation, initialization, memory probes, and `r` above the one-second floor add time.
-
-The existing `cargo bench -p sim-model --bench m3_scale_limit_bench` command uses seven samples, not A-5. The bench has no `--a5-reconstruction` mode today. The worktree-and-driver procedure above is the selected alternative; commit and compile the separate driver before any timing. This draft is not approval to start the pilot.
-"""
-    write_text_lf(CRITERIA_PATH, criteria)
-
-    # Register the freeze as a documented M5 decision. It lives in this standalone criteria
-    # record, so the existing frozen M5 contract tables are not edited.
-    registry_text = DECISIONS_PATH.read_text(encoding="utf-8")
-    entry = '''\n[[decision]]
-id = "M5-05-REPRODUCTION-CRITERIA"
-milestone = "M5"
-stage = "M5-05"
-status = "draft"
-enforcement = "documented"
-summary = "After the repeated-cell spread audit, the proposed reproduction rule uses original report revisions, significance-aware rankings, and a 20 percent ratio band; approval is pending."
-enforced_by = ["docs/reproducibility/REPRODUCTION_CRITERIA.md"]
-doc = "docs/reproducibility/REPRODUCTION_CRITERIA.md#timing-evidence"
-date = "2026-10-25"
-'''
-    decision_pattern = re.compile(r'(?ms)^\[\[decision\]\]\nid = "M5-05-REPRODUCTION-CRITERIA"\n.*?(?=^\[\[decision\]\]|\Z)')
-    if decision_pattern.search(registry_text):
-        registry_text = decision_pattern.sub(entry.lstrip("\n"), registry_text, count=1)
-    else:
-        registry_text = registry_text.rstrip() + entry
-    write_text_lf(DECISIONS_PATH, registry_text)
 
     print(f"groups={len(rows)} claims={len(all_ids)} unique_claim_ids={len(set(all_ids))}")
     print(f"previously_unestimated_groups={previously_unestimated_count} needs_decision={len(needs_decision)}")

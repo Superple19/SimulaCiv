@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import pytest
 
+from simciv_analysis import io
 from simciv_analysis.io import content_matches, load_data, write_text_lf
 
 
@@ -12,6 +13,29 @@ def test_write_text_lf_creates_parents_and_normalizes_newlines(tmp_path):
     write_text_lf(target, "한글\r\ntwo\rthree\n")
 
     assert target.read_bytes() == "한글\ntwo\nthree\n".encode("utf-8")
+
+
+def test_write_text_lf_blocks_decision_status_and_frozen_document_edits(tmp_path, monkeypatch):
+    monkeypatch.setattr(io, "REPOSITORY_ROOT", tmp_path)
+    decisions = tmp_path / "contracts/decisions.toml"
+    decisions.parent.mkdir()
+    original_decisions = b'[[decision]]\nid = "D-1"\nstatus = "draft"\napproved = false\n'
+    decisions.write_bytes(original_decisions)
+    with pytest.raises(PermissionError, match="status/approval"):
+        write_text_lf(decisions, '[[decision]]\nid = "D-1"\nstatus = "draft"\napproved = true\n')
+    assert decisions.read_bytes() == original_decisions
+
+    with pytest.raises(PermissionError, match="status/approval"):
+        write_text_lf(decisions, '[[decision]]\nid = "D-1"\nstatus = "frozen"\napproved = false\n')
+    assert decisions.read_bytes() == original_decisions
+
+    frozen = tmp_path / "docs/reproducibility/approved.md"
+    frozen.parent.mkdir(parents=True)
+    original_frozen = "# Criteria\n\nStatus: FROZEN — approved\n"
+    frozen.write_text(original_frozen, encoding="utf-8")
+    with pytest.raises(PermissionError, match="frozen document"):
+        write_text_lf(frozen, original_frozen + "Changed\n")
+    assert frozen.read_text(encoding="utf-8") == original_frozen
 
 
 def test_loads_csv_json_jsonl_and_gzip(tmp_path):

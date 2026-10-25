@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
+import tomllib
 import zlib
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,34 @@ import pandas as pd
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_FROZEN_DOCUMENT_STATUS = re.compile(r"(?m)^\s*(?:\*\*)?Status:\s*FROZEN\b")
+
+
+def _decision_authority(text: str) -> tuple[tuple[str, str, tuple[tuple[str, str], ...]], ...]:
+    document = tomllib.loads(text)
+    records = [*document.get("decision", []), *document.get("stage", [])]
+    result = []
+    for row in records:
+        approval = tuple(
+            sorted((key, repr(value)) for key, value in row.items() if "approv" in key.lower())
+        )
+        result.append((str(row.get("id", "")), str(row.get("status", "")), approval))
+    return tuple(sorted(result))
+
+
+def _guard_generated_write(destination: Path, text: str) -> None:
+    if not destination.exists():
+        return
+    try:
+        relative = destination.resolve().relative_to(REPOSITORY_ROOT.resolve()).as_posix()
+    except ValueError:
+        return
+    current = destination.read_text(encoding="utf-8")
+    if relative == "contracts/decisions.toml":
+        if _decision_authority(current) != _decision_authority(text):
+            raise PermissionError("generators may not change decision or stage status/approval fields")
+    if _FROZEN_DOCUMENT_STATUS.search(current):
+        raise PermissionError(f"generators may not write frozen document: {relative}")
 
 
 def content_matches(path: str | Path, expected: bytes) -> bool:
@@ -30,6 +60,7 @@ def write_text_lf(path: str | Path, text: str, *, append: bool = False, flush: b
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    _guard_generated_write(destination, normalized)
     with destination.open("a" if append else "w", encoding="utf-8", newline="\n") as stream:
         stream.write(normalized)
         if flush:

@@ -28,17 +28,11 @@ def build_outputs(root: Path = ROOT) -> dict[Path, bytes]:
         csv_path, report_path = workspace / CSV.name, workspace / REPORT.name
         shutil.copyfile(root / CSV, csv_path)
         shutil.copyfile(root / REPORT, report_path)
-        criteria_path, decisions_path = workspace / "REPRODUCTION_CRITERIA.md", workspace / "decisions.toml"
-        shutil.copyfile(root / "docs/reproducibility/REPRODUCTION_CRITERIA.md", criteria_path)
-        shutil.copyfile(root / "contracts/decisions.toml", decisions_path)
         original = (
-            finalize.CSV_PATH, finalize.MD_PATH, finalize.CRITERIA_PATH, finalize.DECISIONS_PATH,
-            pilot_runtime.INVENTORY,
+            finalize.CSV_PATH, finalize.MD_PATH, pilot_runtime.INVENTORY,
         )
         try:
             finalize.CSV_PATH, finalize.MD_PATH = csv_path, report_path
-            finalize.CRITERIA_PATH = criteria_path
-            finalize.DECISIONS_PATH = decisions_path
             finalize.main()
             series_path = root / pilot_runtime.SERIES_CSV.relative_to(ROOT)
             with series_path.open(encoding="utf-8-sig", newline="") as stream:
@@ -61,8 +55,7 @@ def build_outputs(root: Path = ROOT) -> dict[Path, bytes]:
             }
         finally:
             (
-                finalize.CSV_PATH, finalize.MD_PATH, finalize.CRITERIA_PATH, finalize.DECISIONS_PATH,
-                pilot_runtime.INVENTORY,
+                finalize.CSV_PATH, finalize.MD_PATH, pilot_runtime.INVENTORY,
             ) = original
 
 
