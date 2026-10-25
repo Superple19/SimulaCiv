@@ -16,7 +16,6 @@ from .io import content_matches, write_text_lf
 from .provenance import ROOT
 
 
-INVENTORY = ROOT / "docs" / "reproducibility" / "M2_M3_EVIDENCE_RECONSTRUCTION.csv"
 RAW = ROOT / "docs" / "data" / "m5_05" / "m3_05_pilot" / "raw" / "m3_05_a5.jsonl"
 RESULTS_JSON = ROOT / "docs" / "reproducibility" / "M3_05_PILOT_RESULTS.json"
 RESULTS_CSV = ROOT / "docs" / "reproducibility" / "M3_05_PILOT_CLAIMS.csv"
@@ -945,7 +944,7 @@ def build_results(root: Path = ROOT) -> dict[str, Any]:
 
     base_claims = extract_claims(root, apply_m3_05_pilot=False)
     claims_by_key = {str(claim["claim_key"]): claim for claim in base_claims}
-    primary_ids = _inventory_claim_ids_from(root)
+    primary_ids = _primary_claim_ids(claims_by_key.values())
     primary_keys = {key for key, claim in claims_by_key.items() if str(claim["claim_id"]) in primary_ids}
     if len(primary_keys) != 100:
         raise ValueError(f"expected 100 primary M3-05 claim keys, found {len(primary_keys)}")
@@ -1064,11 +1063,14 @@ def build_results(root: Path = ROOT) -> dict[str, Any]:
     return payload
 
 
-def _inventory_claim_ids_from(root: Path) -> set[str]:
-    with (root / INVENTORY.relative_to(ROOT)).open(encoding="utf-8-sig", newline="") as stream:
-        group = next(row for row in csv.DictReader(stream) if row["experiment_id"] == EXPERIMENT_ID)
-    ids = set(group["claim_ids"].split(";"))
-    return ids
+def _primary_claim_ids(claims: Any) -> set[str]:
+    return {
+        str(claim["claim_id"])
+        for claim in claims
+        if claim["report"] == REPORT
+        and claim["section anchor"] == ANCHOR
+        and claim["status"] in {"missing-data", "missing-source"}
+    }
 
 
 def render(payload: dict[str, Any]) -> tuple[bytes, bytes, bytes]:

@@ -89,6 +89,7 @@ verdicts remain in the `key` tier.
 | M2 | timing | missing-data | supporting | 397 |
 | M2 | timing | unverifiable | headline | 26 |
 | M2 | timing | unverifiable | supporting | 307 |
+| M3 | derived | inconclusive (validity) | headline | 2 |
 | M3 | derived | inconclusive (validity) | supporting | 26 |
 | M3 | derived | missing-data | headline | 8 |
 | M3 | derived | missing-data | key | 4 |
@@ -96,7 +97,7 @@ verdicts remain in the `key` tier.
 | M3 | derived | missing-source | headline | 7 |
 | M3 | derived | missing-source | supporting | 170 |
 | M3 | derived | not reproduced | headline | 10 |
-| M3 | derived | recovered-original-output | headline | 106 |
+| M3 | derived | recovered-original-output | headline | 104 |
 | M3 | derived | recovered-original-output | supporting | 2,088 |
 | M3 | derived | recovered-original-output (formatted) | supporting | 754 |
 | M3 | derived | recovered-weak (composite field) | supporting | 8 |
@@ -268,8 +269,8 @@ split was:
 | small integer    | 1,680  |
 
 A fixed-seed sample (20261024; 50 headline/key and 100 other measured
-claims) found matching context for **37** of 150 value-only matches
-(**24.7%**). The full review is in
+claims) found matching context for **35** of 150 value-only matches
+(**23.3%**). The full review is in
 [recovered_claim_precision_audit.csv](recovered_claim_precision_audit.csv).
 
 #### Claims moved from missing status

@@ -7,6 +7,7 @@ from simciv_analysis.m3_05_pilot_results import (
     _any_phase_witnesses,
     _first_alpha_breaks,
     _historical_per_agent_crossings,
+    _primary_claim_ids,
     RESULTS_JSON,
     ratio_verdict,
 )
@@ -152,3 +153,15 @@ def test_invalid_scaling_claims_without_checkpoint_context_are_supplemental_vali
         20854, 20855, 20926, 20927, 20985, 21057,
     }
     assert all(row["tier"] == "supporting" and row["verdict"] == "inconclusive (validity)" for row in rows)
+
+
+def test_primary_claim_selection_does_not_depend_on_reconstruction_inventory():
+    claims = [
+        {"claim_id": 1, "report": "M3_05_SCALE_LIMIT.md", "section anchor": "first-break-findings", "status": "missing-data"},
+        {"claim_id": 2, "report": "M3_05_SCALE_LIMIT.md", "section anchor": "first-break-findings", "status": "recovered-original-output"},
+        {"claim_id": 3, "report": "M3_04_SUSTAINED_WORKLOAD.md", "section anchor": "first-break-findings", "status": "missing-data"},
+        {"claim_id": 4, "report": "M3_05_SCALE_LIMIT.md", "section anchor": "other-section", "status": "missing-source"},
+        {"claim_id": 5, "report": "M3_05_SCALE_LIMIT.md", "section anchor": "first-break-findings", "status": "missing-source"},
+    ]
+
+    assert _primary_claim_ids(claims) == {"1", "5"}
