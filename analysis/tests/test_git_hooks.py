@@ -153,6 +153,35 @@ def test_large_file_check_uses_committed_pushed_range(tmp_path):
     ]
 
 
+def test_large_file_range_checks_intermediate_commits_not_only_net_diff(tmp_path):
+    import subprocess
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path).decode().strip()
+
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=tmp_path, check=True)
+    (tmp_path / "small.txt").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "small.txt"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "base"], cwd=tmp_path, check=True)
+    base = git("rev-parse", "HEAD")
+
+    (tmp_path / "large.bin").write_bytes(b"x" * (1024 * 1024 + 1))
+    subprocess.run(["git", "add", "large.bin"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "add large file"], cwd=tmp_path, check=True)
+    (tmp_path / "large.bin").unlink()
+    subprocess.run(["git", "commit", "--quiet", "-am", "remove large file"], cwd=tmp_path, check=True)
+    head = git("rev-parse", "HEAD")
+
+    assert subprocess.run(
+        ["git", "diff", "--quiet", f"{base}..{head}", "--", "large.bin"], cwd=tmp_path
+    ).returncode == 0
+    assert large_file_range_violations(tmp_path, base, head) == [
+        ("large.bin", 1024 * 1024 + 1)
+    ]
+
+
 def test_pushed_range_guards_are_wired_into_check_and_pre_push():
     root = Path(__file__).resolve().parents[2]
     justfile = (root / "justfile").read_text(encoding="utf-8")

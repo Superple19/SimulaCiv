@@ -33,38 +33,44 @@ def dvc_output_paths(root: Path = ROOT) -> set[str]:
         )
     outputs: set[str] = set()
     for descriptor in descriptors:
-        workdir = descriptor.parent
-        in_outs = False
-        outs_indent = -1
-        for line in descriptor.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            indent = len(line) - len(line.lstrip())
-            if descriptor.name == "dvc.yaml" and stripped.startswith("wdir:"):
-                value = stripped.split(":", 1)[1].strip().strip("'\"")
-                workdir = (descriptor.parent / value).resolve()
-            if stripped == "outs:":
-                in_outs, outs_indent = True, indent
+        outputs.update(dvc_descriptor_output_paths(descriptor, root))
+    return outputs
+
+
+def dvc_descriptor_output_paths(descriptor: Path, root: Path = ROOT) -> set[str]:
+    workdir = descriptor.parent
+    in_outs = False
+    outs_indent = -1
+    outputs = set()
+    for line in descriptor.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        if descriptor.name == "dvc.yaml" and stripped.startswith("wdir:"):
+            value = stripped.split(":", 1)[1].strip().strip("'\"")
+            workdir = (descriptor.parent / value).resolve()
+        if stripped == "outs:":
+            in_outs, outs_indent = True, indent
+            continue
+        if not in_outs:
+            continue
+        if indent < outs_indent or (indent == outs_indent and not stripped.startswith("-")):
+            in_outs = False
+            continue
+        value = ""
+        if stripped.startswith("path:"):
+            value = stripped.split(":", 1)[1].strip().strip("'\"")
+        elif stripped.startswith("-"):
+            item = stripped[1:].strip()
+            if item and ":" not in item:
+                value = item.strip("'\"")
+            elif item.startswith("path:"):
+                value = item.split(":", 1)[1].strip().strip("'\"")
+        if value:
+            resolved = (workdir / value).resolve()
+            try:
+                outputs.add(resolved.relative_to(root.resolve()).as_posix())
+            except ValueError:
                 continue
-            if not in_outs:
-                continue
-            if indent < outs_indent or (indent == outs_indent and not stripped.startswith("-")):
-                in_outs = False
-                continue
-            value = ""
-            if stripped.startswith("path:"):
-                value = stripped.split(":", 1)[1].strip().strip("'\"")
-            elif stripped.startswith("-"):
-                item = stripped[1:].strip()
-                if item and ":" not in item:
-                    value = item.strip("'\"")
-                elif item.startswith("path:"):
-                    value = item.split(":", 1)[1].strip().strip("'\"")
-            if value:
-                resolved = (workdir / value).resolve()
-                try:
-                    outputs.add(resolved.relative_to(root.resolve()).as_posix())
-                except ValueError:
-                    continue
     return outputs
 
 
@@ -95,25 +101,41 @@ def large_file_range_violations(
     head: str = "HEAD",
     outputs: set[str] | None = None,
 ) -> list[tuple[str, int]]:
-    changed = subprocess.check_output(
-        ["git", "diff", "--name-only", "-z", f"{base}..{head}", "--"],
-        cwd=root,
-    ).decode("utf-8").split("\0")
     dvc_outputs = dvc_output_paths(root) if outputs is None else outputs
-    violations = []
-    for relative in sorted({Path(path).as_posix() for path in changed if path}):
-        if _is_dvc_output(relative, dvc_outputs):
-            continue
-        result = subprocess.run(
-            ["git", "cat-file", "-s", f"{head}:{relative}"],
-            cwd=root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode == 0 and int(result.stdout) > MAX_FILE_BYTES:
-            violations.append((relative, int(result.stdout)))
-    return violations
+    commits = subprocess.check_output(
+        ["git", "rev-list", "--reverse", f"{base}..{head}"], cwd=root, text=True
+    ).splitlines()
+    largest_seen: dict[str, int] = {}
+    for commit in commits:
+        parents = subprocess.check_output(
+            ["git", "rev-list", "--parents", "-n", "1", commit], cwd=root, text=True
+        ).split()
+        if len(parents) == 1:
+            changed = subprocess.check_output(
+                ["git", "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", commit], cwd=root
+            ).decode("utf-8").splitlines()
+        else:
+            changed = subprocess.check_output(
+                ["git", "diff", "--name-only", "-z", f"{commit}^1", commit, "--"], cwd=root
+            ).decode("utf-8").split("\0")
+        for raw_path in changed:
+            if not raw_path:
+                continue
+            relative = Path(raw_path).as_posix()
+            if _is_dvc_output(relative, dvc_outputs):
+                continue
+            result = subprocess.run(
+                ["git", "cat-file", "-s", f"{commit}:{relative}"],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                size = int(result.stdout)
+                if size > MAX_FILE_BYTES:
+                    largest_seen[relative] = max(largest_seen.get(relative, 0), size)
+    return sorted(largest_seen.items())
 
 
 def bom_violations(root: Path, paths: list[str]) -> list[str]:

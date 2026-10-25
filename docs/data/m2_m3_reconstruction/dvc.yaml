@@ -14,6 +14,8 @@ stages:
     - rust-toolchain.toml
     outs:
     - docs/data/m2_m3_reconstruction/m2_06_deterministic/raw
+    meta:
+      kind: deterministic
   m3_05_protocol_sensitivity:
     wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.reconstruction
@@ -32,3 +34,5 @@ stages:
     - rust-toolchain.toml
     outs:
     - docs/data/m2_m3_reconstruction/m3_05_protocol_sensitivity/raw
+    meta:
+      kind: timing

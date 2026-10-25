@@ -23,6 +23,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_09_scope_check/validate_for/raw
     frozen: true
+    meta:
+      kind: timing
   m3_09_scope_check:
     wdir: ../../../..
     cmd: uv run --directory analysis --project . python 
@@ -50,3 +52,5 @@ stages:
     outs:
     - docs/data/m5_05/m3_09_scope_check/raw
     frozen: true
+    meta:
+      kind: timing

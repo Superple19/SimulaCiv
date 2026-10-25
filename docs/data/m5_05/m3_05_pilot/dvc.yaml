@@ -17,3 +17,5 @@ stages:
     outs:
     - docs/data/m5_05/m3_05_pilot/raw
     frozen: true
+    meta:
+      kind: timing

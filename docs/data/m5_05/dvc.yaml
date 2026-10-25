@@ -26,6 +26,8 @@ stages:
     - crates/sim-model/tests/m3_search_reduction_tests.rs
     outs:
     - docs/data/m5_05/deterministic/raw
+    meta:
+      kind: deterministic
   m5_05_m2_near_linear:
     wdir: ../../../
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -49,6 +51,8 @@ stages:
     outs:
     - docs/data/m5_05/m2_near_linear/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m2_final_tick:
     wdir: ../../../
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -72,6 +76,8 @@ stages:
     outs:
     - docs/data/m5_05/m2_final_tick/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m2_phase4_crossover:
     wdir: ../../../
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -96,6 +102,8 @@ stages:
     outs:
     - docs/data/m5_05/m2_phase4_crossover/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_01_serial_baseline:
     wdir: ../../../
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -120,6 +128,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_01_serial_baseline/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_02_parallel_phase6b:
     wdir: ../../../
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -144,6 +154,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_02_parallel_phase6b/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_03_search_reduction:
     wdir: ../../../
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -168,6 +180,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_03_search_reduction/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_06_settlement_index:
     wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -193,6 +207,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_06_settlement_index/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_07_reversed_slots:
     wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -218,6 +234,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_07_reversed_slots/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_08_full_rebuild_equal_live:
     wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -242,6 +260,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_08_full_rebuild_equal_live/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_09_incremental_equal_live:
     wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -266,6 +286,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_09_incremental_equal_live/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_11_phase9c_speedup:
     wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -291,6 +313,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_11_phase9c_speedup/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_11_whole_tick_speedup:
     wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -316,6 +340,8 @@ stages:
     outs:
     - docs/data/m5_05/m3_11_whole_tick_speedup/raw
     frozen: true
+    meta:
+      kind: timing
   m5_05_m3_11_frontier_crossover:
     wdir: ../../..
     cmd: uv run --directory analysis --project . python -m simciv_analysis.m5_05
@@ -341,3 +367,5 @@ stages:
     outs:
     - docs/data/m5_05/m3_11_frontier_crossover/raw
     frozen: true
+    meta:
+      kind: timing
