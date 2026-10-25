@@ -80,6 +80,13 @@ def mise_version(root: Path = ROOT) -> str:
     return load_mise_config(root)[1]
 
 
+def rust_toolchain_version(root: Path = ROOT) -> str:
+    channel = tomllib.loads((root / "rust-toolchain.toml").read_text(encoding="utf-8")).get("toolchain", {}).get("channel")
+    if not isinstance(channel, str) or not re.fullmatch(r"\d+\.\d+\.\d+", channel):
+        raise ValueError(f"rust-toolchain.toml: expected an exact Rust toolchain version, found {channel!r}")
+    return channel
+
+
 def _tracked_paths(root: Path) -> list[Path]:
     result = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],

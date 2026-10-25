@@ -56,6 +56,9 @@ jobs:
         with:
           version: ${{ env.MISE_VERSION }}
 
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install
+
       - name: Install pinned Python
         run: uv python install --directory analysis
 

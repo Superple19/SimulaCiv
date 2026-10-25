@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 
-from .tool_versions import mise_version, tool_version
+from .tool_versions import ROOT, mise_version, rust_toolchain_version, tool_version
 
 
 TOOLS = ("uv", "just", "prek", "vale", "quarto", "dvc")
@@ -52,6 +52,16 @@ def check_tools() -> list[str]:
         if version_result.returncode or version is None or version.group(1) != expected:
             errors.append(f"{name}: expected {expected}, found {(version.group(1) if version else 'unknown')} at {executable}")
 
+    rustc = shutil.which("rustc")
+    if rustc is None:
+        errors.append("rustc is missing from PATH; install rust-toolchain.toml with rustup")
+    else:
+        result = _run([rustc, "--version"])
+        actual = VERSION.search(result.stdout + result.stderr)
+        expected = rust_toolchain_version(ROOT)
+        if result.returncode or actual is None or actual.group(1) != expected:
+            errors.append(f"rustc: expected toolchain {expected}, found {(actual.group(1) if actual else 'unknown')} at {rustc}")
+
     return errors
 
 
@@ -60,7 +70,7 @@ def main() -> int:
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    print("mise and all configured tools resolve to the pinned versions on PATH")
+    print("mise tools and the active Rust compiler match repository pins")
     return 0
 
 

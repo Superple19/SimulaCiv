@@ -213,6 +213,8 @@ def test_just_jobs_install_all_target_tools_before_running_them():
         assert "uses: jdx/mise-action@v5.2.2" in "\n".join(_step(steps, "Install mise-managed tools"))
         assert mise_index < target_index
         assert "version: ${{ env.MISE_VERSION }}" in "\n".join(_step(steps, "Install mise-managed tools"))
+        if job == "analysis":
+            assert names.index("Install pinned Rust toolchain") < target_index
 
     analysis_steps = _steps(workflow, "analysis")
     analysis_block = "\n".join("\n".join(step) for step in analysis_steps)
@@ -234,6 +236,18 @@ def test_just_jobs_install_all_target_tools_before_running_them():
     rust_toolchain = (ROOT / "rust-toolchain.toml").read_text(encoding="utf-8")
     assert 'components = ["rustfmt", "clippy"]' in rust_toolchain
     assert 'targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]' in rust_toolchain
+
+
+def test_rust_checks_use_the_locked_dependency_graph():
+    justfile = JUSTFILE.read_text(encoding="utf-8")
+    hooks = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    ci_rust = justfile.split("ci-rust:", 1)[1].split("\n\n", 1)[0]
+    cross = justfile.split("clippy-cross:", 1)[1].split("\n\n", 1)[0]
+    assert "cargo clippy --locked" in ci_rust
+    assert "cargo test --locked" in ci_rust
+    assert cross.count("cargo clippy --locked") == 2
+    assert "entry: cargo clippy --locked --workspace" in hooks
+    assert "entry: cargo test --locked --workspace" in hooks
 
 
 def test_analysis_prek_helper_skips_only_cargo_format_hook(monkeypatch):

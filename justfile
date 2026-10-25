@@ -98,12 +98,12 @@ ci-analysis: check
 
 ci-rust:
     cargo fmt --check
-    cargo clippy --workspace --all-targets -- -D warnings
-    cargo test --workspace
+    cargo clippy --locked --workspace --all-targets -- -D warnings
+    cargo test --locked --workspace
 
 clippy-cross:
-    cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
-    cargo clippy --workspace --all-targets --target aarch64-apple-darwin -- -D warnings
+    cargo clippy --locked --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+    cargo clippy --locked --workspace --all-targets --target aarch64-apple-darwin -- -D warnings
 
 ci-clean: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.ci_clean
