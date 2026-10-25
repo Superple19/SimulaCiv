@@ -15,6 +15,9 @@ days_per_sample = 3
 process_priority = "normal"
 process_affinity = "not pinned"
 measurement = "Serial per-phase medians and alpha = ln(T_high/T_low)/ln(N_high/N_low); keep the report's >1.15 threshold and first-crossing rule."
+populations = [100000, 250000, 500000, 1000000]
+unique_phase_population_series = 16
+target_contrast_count = 15
 status_note = "No timing run has been performed."
 hypothesis = "The historical 2-warmup/7-sample protocol without priority or affinity produces larger large-N phase alphas than the A-5 pilot. Treat as exploratory unless this registration predates the first timing run."
 

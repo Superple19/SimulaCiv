@@ -1,0 +1,34 @@
+stages:
+  m2_06_deterministic:
+    wdir: ../../..
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.reconstruction
+      m2-06-deterministic --raw-dir
+      docs/data/m2_m3_reconstruction/m2_06_deterministic/raw --summary
+      docs/data/m2_m3_reconstruction/m2_06_deterministic/summary.json
+    deps:
+    - Cargo.lock
+    - Cargo.toml
+    - analysis/simciv_analysis/reconstruction.py
+    - crates/sim-model/tests/m1_contract_manifest_tests.rs
+    - docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.csv
+    - rust-toolchain.toml
+    outs:
+    - docs/data/m2_m3_reconstruction/m2_06_deterministic/raw
+  m3_05_protocol_sensitivity:
+    wdir: ../../..
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.reconstruction
+      protocol-sensitivity --raw-dir
+      docs/data/m2_m3_reconstruction/m3_05_protocol_sensitivity/raw --summary
+      docs/data/m2_m3_reconstruction/m3_05_protocol_sensitivity/summary.json
+    deps:
+    - Cargo.lock
+    - Cargo.toml
+    - analysis/simciv_analysis/reconstruction.py
+    - crates/sim-model/examples/m3_05_protocol_sensitivity.rs
+    - crates/sim-model/benches/m3_scale_limit_bench.rs
+    - docs/reproducibility/M3_05_PROTOCOL_SENSITIVITY.toml
+    - docs/reports/M3_05_SCALE_LIMIT.md
+    - docs/data/m2_m3_reconstruction/m2_06_deterministic/raw
+    - rust-toolchain.toml
+    outs:
+    - docs/data/m2_m3_reconstruction/m3_05_protocol_sensitivity/raw

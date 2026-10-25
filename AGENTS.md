@@ -30,6 +30,7 @@ From the repository root:
 - `just decisions` / `just decisions-check` — regenerate or verify registry tables.
 - `just claims-locate <claim_key>` — print the current source section and line for a ledger claim.
 - `just report-m5-01`, `just report-m5-04`, `just report-m5-05` — regenerate the corresponding reports; matching `*-check` targets verify committed output.
+- `just reconstruct-all --dry-run` / `--smoke` — list planned M2/M3 reconstruction cells or smoke-test prepared drivers; the full run refuses to start while any planned group lacks a driver.
 
 ## 3. Versioning and Git
 
