@@ -82,7 +82,7 @@ lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
     vale --config analysis/vale/.vale.ini docs/data/m5_05/STATUS.md docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
-check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check decisions-check dvc-freeze-check check-autocrlf data-integrity-check links claims-check reconstruction-inventory-check generated-artifacts-check m3-05-pilot-classify-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
+check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check decisions-check dvc-freeze-check check-autocrlf data-integrity-check links claims-check reconstruction-inventory-check generated-artifacts-check m3-05-pilot-classify-check m3-05-pilot-report-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
 
 ci-analysis: check
     uv run --directory analysis --project . python -m simciv_analysis.ci_analysis
@@ -137,6 +137,17 @@ m5-05-dvc-status: analysis-sync
 
 m5-05-dvc-status-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.m5_05_dvc_status --check
+
+m3-05-pilot-report: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.m3_05_pilot_runtime --summary-only
+
+m3-05-pilot-report-check: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.m3_05_pilot_runtime --summary-check
+
+check-local-data: analysis-sync
+    just recovered-claims-check
+    just recovered-claim-audit-check
+    just m3-05-pilot-runtime-check
 
 
 m5-05-deterministic: m5-05-plan

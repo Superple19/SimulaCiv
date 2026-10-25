@@ -1,6 +1,13 @@
 import math
+from pathlib import Path
 
-from simciv_analysis.m3_05_pilot_runtime import _component_rows, _population_values, _power_law_coefficients
+from simciv_analysis.io import content_matches
+from simciv_analysis.m3_05_pilot_runtime import (
+    _component_rows,
+    _population_values,
+    _power_law_coefficients,
+    build_summary_outputs,
+)
 
 
 def test_population_parser_handles_thousands_and_suffixes():
@@ -30,3 +37,12 @@ def test_component_breakdown_marks_unrecorded_checkpoint_time():
     assert by_name["initialization + graph + projection"]["seconds"] == "3.500000"
     assert by_name["checkpoint/context preparation"]["seconds"] == ""
     assert by_name["known component subtotal"]["seconds"] == "18.500000"
+
+
+def test_report_counts_are_generated_from_committed_records():
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "analysis/simciv_analysis/m3_05_pilot_runtime.py").read_text(encoding="utf-8")
+    assert not any(text in source for text in (
+        "48 series", "16 cells", "100-claim", "162-cell", "8 SCALE_SETUP", "three calibration probes", "two P4 claims",
+    ))
+    assert all(content_matches(path, expected) for path, expected in build_summary_outputs(root).items())

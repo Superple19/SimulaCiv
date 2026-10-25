@@ -127,3 +127,10 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+      - id: pre-push-local-data
+        name: check local DVC-backed analysis data before push
+        entry: just check-local-data
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

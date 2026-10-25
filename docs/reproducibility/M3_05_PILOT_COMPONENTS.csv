@@ -1,7 +1,7 @@
 component,seconds,basis,notes,raw_data
 initialization + graph + projection,10.362660,measured fields in 8 SCALE_SETUP rows,setup component only; checkpoint/context preparation is separate and unrecorded,docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl
 checkpoint/context preparation,,not recorded,raw JSONL has no timestamps for this work,docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl
-calibration probes,268.065310,estimated from 3 × recorded probe median per series,not an observed wall duration,docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl
+calibration probes,268.065310,estimated from the recorded probe median and repetition factor per series,not an observed wall duration,docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl
 warmups,240.907548,estimated as warmup count × timed sample mean per series,not an observed wall duration,docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl
 timed samples,4938.604737,sum of recorded sample_seconds,observed timer durations,docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl
 known component subtotal,5457.940255,setup + estimated calibration/warmups + recorded timed samples,not total wall time; checkpoint/context preparation and other process overhead are excluded,docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl

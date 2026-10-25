@@ -10,7 +10,7 @@ from .provenance import ROOT
 
 ARTIFACTS = {
     "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.csv": ("analysis/simciv_analysis/m2_m3_reconstruction.py", "reconstruction-inventory-check"),
-    "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.md": ("analysis/simciv_analysis/m3_05_pilot_runtime.py", "m3-05-pilot-runtime-check"),
+    "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.md": ("analysis/simciv_analysis/m3_05_pilot_runtime.py", "m3-05-pilot-report-check"),
     "docs/reproducibility/recovered_claim_statuses.json.gz": ("analysis/simciv_analysis/recovered_claims.py", "recovered-claims-check"),
     "docs/reproducibility/recovered_claim_mismatches.csv.gz": ("analysis/simciv_analysis/recovered_claims.py", "recovered-claims-check"),
     "docs/reproducibility/recovered_claim_mismatch_triage.csv.gz": ("analysis/simciv_analysis/recovered_claims.py", "recovered-claims-check"),
@@ -21,9 +21,9 @@ ARTIFACTS = {
     "docs/reproducibility/M3_05_PILOT_RESULTS.json": ("analysis/simciv_analysis/m3_05_pilot_results.py", "m3-05-pilot-classify-check"),
     "docs/reproducibility/M3_05_PILOT_CLAIMS.csv": ("analysis/simciv_analysis/m3_05_pilot_results.py", "m3-05-pilot-classify-check"),
     "docs/reproducibility/M3_05_PILOT_VERDICT_REVIEW.csv": ("analysis/simciv_analysis/m3_05_pilot_results.py", "m3-05-pilot-classify-check"),
-    "docs/reproducibility/M3_05_PILOT_RUNTIME.csv": ("analysis/simciv_analysis/m3_05_pilot_runtime.py", "m3-05-pilot-runtime-check"),
-    "docs/reproducibility/M3_05_PILOT_COMPONENTS.csv": ("analysis/simciv_analysis/m3_05_pilot_runtime.py", "m3-05-pilot-runtime-check"),
-    "docs/reproducibility/M2_M3_REMAINING_RUNTIME.csv": ("analysis/simciv_analysis/m3_05_pilot_runtime.py", "m3-05-pilot-runtime-check"),
+    "docs/reproducibility/M3_05_PILOT_RUNTIME.csv": ("analysis/simciv_analysis/m3_05_pilot_runtime.py", "m3-05-pilot-report-check"),
+    "docs/reproducibility/M3_05_PILOT_COMPONENTS.csv": ("analysis/simciv_analysis/m3_05_pilot_runtime.py", "m3-05-pilot-report-check"),
+    "docs/reproducibility/M2_M3_REMAINING_RUNTIME.csv": ("analysis/simciv_analysis/m3_05_pilot_runtime.py", "m3-05-pilot-report-check"),
     "docs/reproducibility/M5_01_INVENTORY.qmd": ("analysis/simciv_analysis/report_m5_01.py", "report-m5-01-check"),
     "docs/reproducibility/M5_01_INVENTORY.md": ("analysis/simciv_analysis/report_m5_01.py", "report-m5-01-check"),
     "docs/reproducibility/M5_04_M4_REGENERATION.md": ("analysis/simciv_analysis/report_m5_04.py", "report-m5-04-check"),

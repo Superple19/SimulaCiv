@@ -133,7 +133,7 @@ def _series(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[d
         calibration_r = int(calibration["r"])
         calibration_estimate = 3.0 * float(calibration["estimated_sample_seconds"]) / calibration_r
         notes = (
-            "timed sample seconds are recorded; warmups and three calibration probes are estimated from the recorded timed mean and probe median"
+            "timed sample seconds are recorded; warmups and calibration probe duration are estimates"
             if kind != "setup"
             else "the selected graph/projection timer is recorded; the other setup operation may run outside that timer"
         )
@@ -160,8 +160,10 @@ def _series(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[d
             "raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl",
             "notes": notes,
         })
-    if len(output) != 48:
-        raise ValueError(f"expected 48 recorded A-5 series, found {len(output)}")
+    completed = next(row for row in records if row.get("record") == "SCALE_COMPLETE")
+    expected_series = int(completed["a5_series"])
+    if len(output) != expected_series:
+        raise ValueError(f"expected {expected_series} recorded A-5 series, found {len(output)}")
 
     by_n_type: dict[tuple[int, str], list[float]] = defaultdict(list)
     for row in output:
@@ -192,9 +194,9 @@ def _component_rows(records: list[dict[str, Any]], series_rows: list[dict[str, A
     warmups = sum(float(row["warmup_estimate_seconds"]) for row in series_rows)
     samples = sum(float(row["timed_samples_seconds"]) for row in series_rows)
     return [
-        {"component": "initialization + graph + projection", "seconds": f"{setup_seconds:.6f}", "basis": "measured fields in 8 SCALE_SETUP rows", "notes": "setup component only; checkpoint/context preparation is separate and unrecorded", "raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl"},
+        {"component": "initialization + graph + projection", "seconds": f"{setup_seconds:.6f}", "basis": f"measured fields in {len(setup)} SCALE_SETUP rows", "notes": "setup component only; checkpoint/context preparation is separate and unrecorded", "raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl"},
         {"component": "checkpoint/context preparation", "seconds": "", "basis": "not recorded", "notes": "raw JSONL has no timestamps for this work", "raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl"},
-        {"component": "calibration probes", "seconds": f"{calibration:.6f}", "basis": "estimated from 3 × recorded probe median per series", "notes": "not an observed wall duration", "raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl"},
+        {"component": "calibration probes", "seconds": f"{calibration:.6f}", "basis": "estimated from the recorded probe median and repetition factor per series", "notes": "not an observed wall duration", "raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl"},
         {"component": "warmups", "seconds": f"{warmups:.6f}", "basis": "estimated as warmup count × timed sample mean per series", "notes": "not an observed wall duration", "raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl"},
         {"component": "timed samples", "seconds": f"{samples:.6f}", "basis": "sum of recorded sample_seconds", "notes": "observed timer durations", "raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl"},
         {"component": "known component subtotal", "seconds": f"{setup_seconds + calibration + warmups + samples:.6f}", "basis": "setup + estimated calibration/warmups + recorded timed samples", "notes": "not total wall time; checkpoint/context preparation and other process overhead are excluded", "raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl"},
@@ -220,11 +222,15 @@ def _population_values(value: str) -> list[int]:
     return sorted(set(found))
 
 
-def _inventory_outputs(root: Path, per_n_rows: list[dict[str, Any]]) -> tuple[bytes, bytes, bytes, dict[str, Any]]:
-    with (root / INVENTORY.relative_to(ROOT)).open(encoding="utf-8-sig", newline="") as stream:
-        reader = csv.DictReader(stream)
-        fields = list(reader.fieldnames or [])
-        inventory = list(reader)
+def _inventory_outputs(
+    root: Path,
+    per_n_rows: list[dict[str, Any]],
+    inventory_content: bytes | None = None,
+) -> tuple[bytes, bytes, bytes, dict[str, Any]]:
+    source_content = inventory_content if inventory_content is not None else (root / INVENTORY.relative_to(ROOT)).read_bytes()
+    reader = csv.DictReader(io.StringIO(source_content.decode("utf-8-sig"), newline=""))
+    fields = list(reader.fieldnames or [])
+    inventory = list(reader)
     model = _power_law([(float(row["N"]), float(row["mean_per_series_seconds"])) for row in per_n_rows])
     model_rows: list[dict[str, Any]] = []
     remaining_cells = 0
@@ -237,7 +243,7 @@ def _inventory_outputs(root: Path, per_n_rows: list[dict[str, Any]]) -> tuple[by
             row["A5_cells_to_schedule"] = "0"
             row["A5_lower_bound_seconds"] = "0"
             row["A5_status"] = "recorded-with-validity-inconclusive-paths"
-            row["A5_estimate_basis"] = "all 48 cells completed; path-level validity exceptions are recorded in M3_05_PILOT_CLAIMS.csv"
+            row["A5_estimate_basis"] = f"all {row['A5_cells_in_group']} scheduled series completed; path-level validity exceptions are recorded in M3_05_PILOT_CLAIMS.csv"
             row["A5_cell_count_reason"] = "completed M3-05 A-5 pilot; 15 profile series have at least one path above the 5% MAD/median validity limit"
         n_values = _population_values(str(row.get("N_values", "")))
         if cells and not n_values:
@@ -293,12 +299,20 @@ def _inventory_outputs(root: Path, per_n_rows: list[dict[str, Any]]) -> tuple[by
     return inventory_csv, plan_csv, summary, {"rows": plan_rows, "summary": summary}
 
 
-def _markdown_section(per_n_rows: list[dict[str, Any]], plan: dict[str, Any], pilot_rows: list[dict[str, Any]], component_rows: list[dict[str, str]]) -> str:
+def _markdown_section(
+    per_n_rows: list[dict[str, Any]],
+    plan: dict[str, Any],
+    pilot_rows: list[dict[str, Any]],
+    series_rows: list[dict[str, Any]],
+    component_rows: list[dict[str, str]],
+) -> str:
     summary = plan["summary"]
     intercept, slope = _power_law_coefficients([
         (float(row["N"]), float(row["mean_per_series_seconds"])) for row in per_n_rows
     ])
     invalid = [row for row in pilot_rows if row.get("verdict") == "inconclusive (validity)"]
+    full_tick_cells = len({(row["N"], row["K"], row["k"], row["horizon"]) for row in series_rows if row["series_type"] == "full_tick"})
+    supplemental_invalid = sum(row.get("verdict") == "inconclusive (validity)" and row.get("scope") != EXPERIMENT_ID for row in pilot_rows)
     lines = [
         BEGIN,
         "## M3-05 pilot status and remaining runtime estimate",
@@ -325,12 +339,12 @@ def _markdown_section(per_n_rows: list[dict[str, Any]], plan: dict[str, Any], pi
         )
     lines.extend([
         "",
-        f"The original 162-cell plan included the completed 48-cell M3-05 pilot, leaving **{summary['remaining_cells']} cells** for other experiments. Their A-5 floor is **{summary['remaining_floor_seconds']:,} s**; the per-N model estimates **{summary['remaining_model_seconds']:,.1f} s** for timed samples plus estimated calibration and warmups. The model uses the per-series M3-05 aggregate and equal weights across each group's listed N values; groups without parseable N use 1M conservatively ({summary['unparsed_N_groups_fallback_to_1M']} groups). It excludes unrecorded checkpoint/context preparation and compilation, so it is not a wall-time prediction.",
+        f"The completed M3-05 pilot used **{len(series_rows)} timed series** across **{full_tick_cells} full-tick cells**. The remaining plan contains **{summary['remaining_cells']} cells** with an A-5 floor of **{summary['remaining_floor_seconds']:,} s**. The per-N model estimates **{summary['remaining_model_seconds']:,.1f} s** for timed samples plus estimated calibration and warmups. The model uses the per-series M3-05 aggregate and equal weights across each group's listed N values; groups without parseable N use 1M conservatively ({summary['unparsed_N_groups_fallback_to_1M']} groups). It excludes unrecorded checkpoint/context preparation and compilation, so it is not a wall-time prediction.",
         f"The fitted observed-series model is `T(N) = {math.exp(intercept):.6g} × N^{slope:.4f}` seconds, where T includes the recorded timed sample duration plus estimated warmups and calibration probes.",
         "",
         "### Validity exceptions",
         "",
-        f"{len(invalid)} claim result rows are marked `inconclusive (validity)` because one or more source paths exceeded the 5% MAD/median limit; the two P4 claims are supplemental headline claims already present in the same report section.",
+        f"{len(invalid)} claim result rows are marked `inconclusive (validity)` because one or more source paths exceeded the 5% MAD/median limit; {supplemental_invalid} are supplemental claims outside the first-break group.",
         "",
         "| Experiment | Cells remaining | N values | Modeled seconds | A-5 floor seconds |",
         "|---|---:|---|---:|---:|",
@@ -346,14 +360,17 @@ def _markdown_section(per_n_rows: list[dict[str, Any]], plan: dict[str, Any], pi
 
 
 def _pilot_outcome_section(pilot_rows: list[dict[str, Any]], series_rows: list[dict[str, Any]]) -> str:
-    verdicts: dict[str, int] = defaultdict(int)
-    for row in pilot_rows:
-        verdicts[str(row["verdict"])] += 1
     timed_seconds = sum(float(row["timed_samples_seconds"]) for row in series_rows)
+    pilot_group = [row for row in pilot_rows if row.get("scope") == EXPERIMENT_ID]
+    supplemental_invalid = sum(
+        row.get("verdict") == "inconclusive (validity)" and row.get("scope") != EXPERIMENT_ID
+        for row in pilot_rows
+    )
+    full_tick_cells = len({(row["N"], row["K"], row["k"], row["horizon"]) for row in series_rows if row["series_type"] == "full_tick"})
     return "\n".join([
         "## M3-05 end-to-end pilot outcome",
         "",
-        f"The completed A-5 pilot covers 48 series across 16 cells. Its 100-claim missing-data group records {verdicts['reproduced']} reproduced, {verdicts['reproduced (loose)']} reproduced (loose), {verdicts['not reproduced']} not reproduced, and {verdicts['inconclusive (validity)'] - 2} inconclusive (validity) claims. Two additional recovered P4 headline claims have pilot status `inconclusive (validity)`. See the [generated claim results](M3_05_PILOT_CLAIMS.csv) and the [pilot raw output instructions](../data/m5_05/m3_05_pilot/README.md).",
+        f"The completed A-5 pilot covers {len(series_rows)} series across {full_tick_cells} full-tick cells. Its {len(pilot_group)}-claim missing-data group records {sum(row.get('verdict') == 'reproduced' for row in pilot_group)} reproduced, {sum(row.get('verdict') == 'reproduced (loose)' for row in pilot_group)} reproduced (loose), {sum(row.get('verdict') == 'not reproduced' for row in pilot_group)} not reproduced, and {sum(row.get('verdict') == 'inconclusive (validity)' for row in pilot_group)} inconclusive (validity) claims. {supplemental_invalid} supplemental claims have pilot status `inconclusive (validity)`. See the [generated claim results](M3_05_PILOT_CLAIMS.csv) and the [pilot raw output instructions](../data/m5_05/m3_05_pilot/README.md).",
         "",
         f"Recorded sample-timer durations sum to {timed_seconds:,.3f} s. The JSONL has no wall-clock timestamps or elapsed time for calibration and warmups; see the runtime breakdown below for the estimates and unrecorded preparation components.",
         "",
@@ -368,6 +385,97 @@ def _existing_with_generated_section(old: str, section: str) -> str:
         finish = old.index(END, start) + len(END)
         return old[:start].rstrip() + "\n\n" + section.rstrip() + "\n"
     return old.rstrip() + "\n\n" + section
+
+
+def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        return list(csv.DictReader(stream))
+
+
+def _per_n_from_series(series_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_n_kind: dict[tuple[int, str], list[float]] = defaultdict(list)
+    for row in series_rows:
+        by_n_kind[(int(row["N"]), str(row["series_type"]))].append(float(row["known_elapsed_estimate_seconds"]))
+    per_n = []
+    for n in sorted({int(row["N"]) for row in series_rows}):
+        means = {
+            kind: sum(by_n_kind[(n, kind)]) / len(by_n_kind[(n, kind)])
+            for kind in ("setup", "full_tick", "phase_profile")
+        }
+        total = [float(row["known_elapsed_estimate_seconds"]) for row in series_rows if int(row["N"]) == n]
+        per_n.append({
+            "N": n,
+            "mean_per_series_seconds": sum(total) / len(total),
+            "by_type": means,
+            "series_count": len(total),
+        })
+    model = _power_law([(float(row["N"]), float(row["mean_per_series_seconds"])) for row in per_n])
+    for row in per_n:
+        row["fitted_seconds"] = model(float(row["N"]))
+    return [
+        {
+            "N": row["N"],
+            **row["by_type"],
+            "mean_per_series_seconds": f"{row['mean_per_series_seconds']:.6f}",
+            "fitted_seconds": f"{row['fitted_seconds']:.6f}",
+            "series_count": row["series_count"],
+        }
+        for row in per_n
+    ]
+
+
+def build_summary_outputs(
+    root: Path = ROOT,
+    *,
+    inventory_content: bytes | None = None,
+    report_content: bytes | None = None,
+) -> dict[Path, bytes]:
+    """Regenerate the reconstruction report from committed pilot summaries only."""
+    series_rows: list[dict[str, Any]] = _read_csv_rows(root / SERIES_CSV.relative_to(ROOT))
+    component_rows = _read_csv_rows(root / COMPONENTS_CSV.relative_to(ROOT))
+    setup_config_count = len({(row["N"], row["K"], row["k"]) for row in series_rows if row.get("series_type") == "setup"})
+    for row in series_rows:
+        if row.get("series_type") != "setup":
+            row["notes"] = "timed sample seconds are recorded; warmups and calibration probe duration are estimates"
+    for row in component_rows:
+        if row.get("component") == "initialization + graph + projection":
+            row["basis"] = f"measured fields in {setup_config_count} SCALE_SETUP rows"
+        elif row.get("component") == "calibration probes":
+            row["basis"] = "estimated from the recorded probe median and repetition factor per series"
+    per_n_rows = _per_n_from_series(series_rows)
+    inventory_csv, plan_csv, summary, plan = _inventory_outputs(root, per_n_rows, inventory_content)
+    pilot_results = json.loads((root / "docs/reproducibility/M3_05_PILOT_RESULTS.json").read_text(encoding="utf-8"))
+    report_path = root / INVENTORY_REPORT.relative_to(ROOT)
+    report = (report_content if report_content is not None else report_path.read_bytes()).decode("utf-8")
+    report = report.replace(
+        "**Status:** generated planning inventory. No simulation or timing harness was run.",
+        "**Status:** generated inventory updated after the M3-05 pilot; no other reconstruction experiment was run.",
+    )
+    report = report.replace(
+        "This inventory covers the 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source` in the recovered-mapped ledger.",
+        "At initial generation this inventory covered 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source`; the M3-05 pilot outcomes below update that group's current claim statuses.",
+    )
+    report = report.replace("## A-5 estimate by class", "## Original pre-pilot A-5 estimate by class (historical)")
+    report = report.replace("## Ten largest groups by A-5 runtime", "## Ten largest groups in the original pre-pilot plan")
+    report = report.replace(
+        "Proposed acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md) and remain draft pending approval; no timing is authorized under the draft. They require exact deterministic values and preserve dimensionless timing ratios/rankings; absolute elapsed times are recorded but are not pass criteria.",
+        "The frozen acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md). The M3-05 pilot applies exact checks to metadata and the frozen ratio bands to valid timing paths; invalid paths remain inconclusive. No additional experiment was run for this inventory update.",
+    )
+    pilot_start = report.find("## M3-05 end-to-end pilot proposal")
+    if pilot_start < 0:
+        pilot_start = report.find("## M3-05 end-to-end pilot outcome")
+    criteria_start = report.find("## Criteria and status", pilot_start)
+    if pilot_start < 0 or criteria_start < 0:
+        raise ValueError("inventory pilot proposal section markers were not found")
+    report = report[:pilot_start] + _pilot_outcome_section(pilot_results["claims"], series_rows) + report[criteria_start:]
+    section = _markdown_section(per_n_rows, plan, pilot_results["claims"], series_rows, component_rows)
+    return {
+        root / SERIES_CSV.relative_to(ROOT): _csv_bytes(series_rows, SERIES_FIELDS),
+        root / COMPONENTS_CSV.relative_to(ROOT): _csv_bytes(component_rows, COMPONENT_FIELDS),
+        root / INVENTORY.relative_to(ROOT): inventory_csv,
+        root / PLAN_CSV.relative_to(ROOT): plan_csv,
+        report_path: _existing_with_generated_section(report, section).encode("utf-8"),
+    }
 
 
 def build_outputs(root: Path = ROOT) -> dict[Path, bytes]:
@@ -401,7 +509,7 @@ def build_outputs(root: Path = ROOT) -> dict[Path, bytes]:
     if pilot_start < 0 or criteria_start < 0:
         raise ValueError("inventory pilot proposal section markers were not found")
     report = report[:pilot_start] + _pilot_outcome_section(pilot_results["claims"], series_rows) + report[criteria_start:]
-    section = _markdown_section(per_n_rows, plan, pilot_results["claims"], component_rows)
+    section = _markdown_section(per_n_rows, plan, pilot_results["claims"], series_rows, component_rows)
     return {
         root / SERIES_CSV.relative_to(ROOT): _csv_bytes(series_rows, SERIES_FIELDS),
         root / PLAN_CSV.relative_to(ROOT): plan_csv,
@@ -414,18 +522,22 @@ def build_outputs(root: Path = ROOT) -> dict[Path, bytes]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--summary-check", action="store_true")
+    parser.add_argument("--summary-only", action="store_true")
     args = parser.parse_args(argv)
     try:
-        outputs = build_outputs()
+        summary_mode = args.summary_check or args.summary_only
+        outputs = build_summary_outputs() if summary_mode else build_outputs()
     except (OSError, KeyError, ValueError, json.JSONDecodeError) as error:
         print(f"M3-05 runtime model failed: {error}", file=sys.stderr)
         return 1
-    if args.check:
+    if args.check or args.summary_check:
         failures = [str(path.relative_to(ROOT)) for path, content in outputs.items() if not content_matches(path, content)]
         if failures:
             print(f"M3-05 runtime outputs differ: {', '.join(failures)}", file=sys.stderr)
             return 1
-        print("M3-05 runtime tables and inventory match the recorded pilot data")
+        label = "committed pilot summaries" if summary_mode else "recorded pilot raw data"
+        print(f"M3-05 runtime outputs match {label}")
         return 0
     for path, content in outputs.items():
         write_text_lf(path, content.decode("utf-8"))
