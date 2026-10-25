@@ -26,11 +26,14 @@ def content_matches(path: str | Path, expected: bytes) -> bool:
         return False
 
 
-def write_text_lf(path: str | Path, text: str) -> None:
+def write_text_lf(path: str | Path, text: str, *, append: bool = False, flush: bool = False) -> None:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    destination.write_text(normalized, encoding="utf-8", newline="\n")
+    with destination.open("a" if append else "w", encoding="utf-8", newline="\n") as stream:
+        stream.write(normalized)
+        if flush:
+            stream.flush()
 
 
 def _checked_path(path: str | Path, root: str | Path) -> Path:

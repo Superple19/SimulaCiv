@@ -4,24 +4,258 @@ mod historical_process_controls;
 
 struct Args {
     smoke: bool,
+    plan_hash: String,
+    resume_file: Option<std::path::PathBuf>,
+    skip_series: std::collections::HashSet<String>,
+    interrupt_after_series: Option<usize>,
 }
 
 fn args() -> Args {
     let mut smoke = false;
-    for arg in std::env::args().skip(1) {
+    let mut plan_hash = "standalone".to_owned();
+    let mut resume_file = None;
+    let mut skip_series = std::collections::HashSet::new();
+    let mut interrupt_after_series = None;
+    let mut arguments = std::env::args().skip(1);
+    while let Some(arg) = arguments.next() {
         match arg.as_str() {
             "--smoke" => smoke = true,
+            "--plan-hash" => plan_hash = arguments.next().expect("--plan-hash needs a value"),
+            "--resume-file" => {
+                resume_file = Some(arguments.next().expect("--resume-file needs a path").into())
+            }
+            "--skip-series" => {
+                for id in arguments
+                    .next()
+                    .expect("--skip-series needs a value")
+                    .split(',')
+                {
+                    if !id.is_empty() {
+                        skip_series.insert(id.to_owned());
+                    }
+                }
+            }
+            "--interrupt-after-series" => {
+                interrupt_after_series = Some(
+                    arguments
+                        .next()
+                        .expect("--interrupt-after-series needs a count")
+                        .parse()
+                        .expect("series count is an integer"),
+                );
+            }
             _ => panic!("unknown argument: {arg}"),
         }
     }
-    Args { smoke }
+    assert!(
+        interrupt_after_series.is_none() || smoke,
+        "forced interruption is smoke-only"
+    );
+    Args {
+        smoke,
+        plan_hash,
+        resume_file,
+        skip_series,
+        interrupt_after_series,
+    }
 }
 
 #[allow(dead_code)]
 mod scale {
     include!("../benches/m3_scale_limit_bench.rs");
 
+    use sha2::{Digest, Sha256};
+    use std::path::Path;
     use std::process::Command;
+
+    fn read_resume(path: Option<&Path>) -> Vec<String> {
+        let Some(path) = path else { return Vec::new() };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return Vec::new();
+        };
+        text.lines().map(str::to_owned).collect()
+    }
+
+    fn json_field<'a>(row: &'a str, field: &str) -> Option<&'a str> {
+        let marker = format!("\"{field}\":");
+        let value = row.get(row.find(&marker)? + marker.len()..)?.trim_start();
+        if let Some(quoted) = value.strip_prefix('\"') {
+            Some(quoted.split_once('\"')?.0)
+        } else {
+            Some(value.split([',', '}']).next()?.trim())
+        }
+    }
+
+    fn matches_cell(row: &str, record: &str, n: u64, k: u32, horizon: Option<u32>) -> bool {
+        json_field(row, "record") == Some(record)
+            && json_field(row, "N").and_then(|value| value.parse::<u64>().ok()) == Some(n)
+            && json_field(row, "k").and_then(|value| value.parse::<u64>().ok())
+                == Some(u64::from(k))
+            && horizon.is_none_or(|day| {
+                json_field(row, "horizon").and_then(|value| value.parse::<u64>().ok())
+                    == Some(u64::from(day))
+            })
+    }
+
+    fn number(row: &str, field: &str) -> f64 {
+        json_field(row, field)
+            .and_then(|value| value.parse::<f64>().ok())
+            .unwrap_or_else(|| panic!("resume record lacks {field}"))
+    }
+
+    fn resume_setup_summary(records: &[String], n: u64, k: u32, phase: &str) -> Summary {
+        let row = records
+            .iter()
+            .find(|row| {
+                json_field(row, "record") == Some("SCALE_SETUP_A5")
+                    && json_field(row, "N").and_then(|value| value.parse::<u64>().ok()) == Some(n)
+                    && json_field(row, "k").and_then(|value| value.parse::<u64>().ok())
+                        == Some(u64::from(k))
+                    && json_field(row, "phase") == Some(phase)
+            })
+            .expect("completed setup series has its result record");
+        Summary {
+            median: number(row, "median_us"),
+            mad: number(row, "mad_us"),
+        }
+    }
+
+    fn resume_full_summaries(records: &[String], n: u64, k: u32, day: u32) -> (Summary, Summary) {
+        let row = records
+            .iter()
+            .find(|row| matches_cell(row, "SCALE_FULL_TICK", n, k, Some(day)))
+            .expect("completed full-tick series has its result record");
+        (
+            Summary {
+                median: number(row, "serial_median_us"),
+                mad: number(row, "serial_mad_us"),
+            },
+            Summary {
+                median: number(row, "parallel_median_us"),
+                mad: number(row, "parallel_mad_us"),
+            },
+        )
+    }
+
+    fn resume_profile(records: &[String], n: u64, k: u32, day: u32) -> ProfileSummary {
+        let phases = std::array::from_fn(|index| {
+            let row = records
+                .iter()
+                .find(|row| {
+                    matches_cell(row, "SCALE_PHASE", n, k, Some(day))
+                        && json_field(row, "phase") == Some(PHASE_NAMES[index])
+                })
+                .expect("completed profile series has every phase");
+            Summary {
+                median: number(row, "median_us"),
+                mad: number(row, "mad_us"),
+            }
+        });
+        let stages = std::array::from_fn(|index| {
+            let row = records
+                .iter()
+                .find(|row| {
+                    matches_cell(row, "SCALE_P6B_STAGE", n, k, Some(day))
+                        && json_field(row, "stage") == Some(P6B_STAGE_NAMES[index])
+                })
+                .expect("completed profile series has every Phase 6B stage");
+            Summary {
+                median: number(row, "median_us"),
+                mad: number(row, "mad_us"),
+            }
+        });
+        ProfileSummary { phases, stages }
+    }
+
+    fn resume_setup_record(records: &[String], n: u64, k: u32) -> Option<SetupMeasurement> {
+        let row = records
+            .iter()
+            .find(|row| matches_cell(row, "SCALE_SETUP", n, k, None))?;
+        Some(SetupMeasurement {
+            initialization: Duration::from_secs_f64(number(row, "initialize_us") / 1_000_000.0),
+            graph: Duration::from_secs_f64(number(row, "graph_us") / 1_000_000.0),
+            projection: Duration::from_secs_f64(number(row, "projection_us") / 1_000_000.0),
+            graph_heap_bytes: json_field(row, "graph_csr_bytes")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0),
+            projection_heap_bytes: json_field(row, "projection_bytes")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0),
+        })
+    }
+
+    fn resume_memory(records: &[String], n: u64, k: u32) -> Option<MemoryMeasurement> {
+        let row = records
+            .iter()
+            .find(|row| matches_cell(row, "SCALE_MEMORY", n, k, None))?;
+        let usize_field = |name: &str| {
+            json_field(row, name)
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0) as usize
+        };
+        let i64_field = |name: &str| {
+            json_field(row, name)
+                .and_then(|value| value.parse::<i64>().ok())
+                .unwrap_or(0)
+        };
+        Some(MemoryMeasurement {
+            soa_bytes: usize_field("soa_vec_capacity_bytes"),
+            graph_csr_bytes: usize_field("graph_csr_vec_bytes"),
+            projection_bytes: usize_field("projection_vec_bytes"),
+            membership_bytes: usize_field("membership_vec_bytes"),
+            serial_scratch_bytes: i64_field("serial_scratch_retained_bytes"),
+            parallel_extra_scratch_bytes: i64_field("parallel_phase6b_extra_scratch_bytes"),
+            os_peak_working_set_bytes: json_field(row, "os_sampled_peak_working_set_bytes")
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(|value| value as usize),
+        })
+    }
+
+    fn has_record(records: &[String], record: &str, n: u64, k: u32) -> bool {
+        records
+            .iter()
+            .any(|row| matches_cell(row, record, n, k, None))
+    }
+
+    fn series_id(kind: &str, n: u64, settlements: u32, k: u32, label: &str) -> String {
+        format!("{kind}:N{n}:K{settlements}:k{k}:{label}")
+    }
+
+    fn series_hash(plan_hash: &str, id: &str) -> String {
+        format!(
+            "{:x}",
+            Sha256::digest(format!("{plan_hash}|{id}").as_bytes())
+        )
+    }
+
+    fn series_begin(plan_hash: &str, id: &str) {
+        emit(&format!(
+            "SCALE_SERIES_BEGIN|series_id={id}|config_hash={}",
+            series_hash(plan_hash, id)
+        ));
+    }
+
+    fn series_complete(plan_hash: &str, id: &str, started: std::time::Instant) {
+        emit(&format!(
+            "SCALE_SERIES_COMPLETE|series_id={id}|config_hash={}|elapsed_seconds={:.6}",
+            series_hash(plan_hash, id),
+            started.elapsed().as_secs_f64()
+        ));
+    }
+
+    fn finish_series(
+        args: &super::Args,
+        completed: &mut usize,
+        id: &str,
+        started: std::time::Instant,
+    ) {
+        series_complete(&args.plan_hash, id, started);
+        *completed += 1;
+        if args.interrupt_after_series == Some(*completed) {
+            eprintln!("intentional smoke interruption after completed series {completed}");
+            std::process::exit(75);
+        }
+    }
 
     const A5_WARMUPS: usize = 2;
     const A5_SAMPLES: usize = 41;
@@ -812,6 +1046,7 @@ mod scale {
     }
 
     pub(super) fn run(args: super::Args) {
+        let resume_records = read_resume(args.resume_file.as_deref());
         emit_host(args.smoke);
         let pool = ThreadPoolBuilder::new()
             .num_threads(POOL_THREADS)
@@ -837,52 +1072,179 @@ mod scale {
             .iter()
             .map(|cell| (cell.0, cell.1, cell.2))
             .collect::<std::collections::BTreeSet<_>>();
-        let ram = host_ram_bytes();
+        let ram = resume_records
+            .iter()
+            .find(|row| json_field(row, "record") == Some("SCALE_HOST"))
+            .and_then(|row| json_field(row, "host_ram_bytes"))
+            .and_then(|value| value.parse::<u64>().ok())
+            .or_else(|| host_ram_bytes());
         let mut setups = Vec::new();
         let mut results = Vec::new();
+        let mut completed_series = 0;
         for (population, settlements, degree) in configs {
+            let graph_id = series_id("setup", population, settlements, degree, "graph");
+            let projection_id = series_id("setup", population, settlements, degree, "projection");
+            let setup_saved = resume_setup_record(&resume_records, population, degree);
+            let memory_saved = resume_memory(&resume_records, population, degree);
+            let horizons = cells
+                .iter()
+                .filter(|cell| cell.0 == population && cell.1 == settlements && cell.2 == degree)
+                .map(|cell| cell.3)
+                .collect::<Vec<_>>();
+            let any_cell_missing = horizons.iter().any(|horizon| {
+                !args.skip_series.contains(&series_id(
+                    "full_tick",
+                    population,
+                    settlements,
+                    degree,
+                    &format!("day{horizon}"),
+                )) || !args.skip_series.contains(&series_id(
+                    "phase_profile",
+                    population,
+                    settlements,
+                    degree,
+                    &format!("day{horizon}"),
+                ))
+            });
+            if args.skip_series.contains(&graph_id)
+                && args.skip_series.contains(&projection_id)
+                && setup_saved.is_some()
+                && memory_saved.is_some()
+                && !any_cell_missing
+            {
+                let setup = setup_saved.expect("checked setup record");
+                let memory = memory_saved.expect("checked memory record");
+                setups.push((population, degree, setup, memory));
+                for horizon in horizons {
+                    let (serial, parallel) =
+                        resume_full_summaries(&resume_records, population, degree, horizon);
+                    let profile = resume_profile(&resume_records, population, degree, horizon);
+                    results.push(PilotCell {
+                        population,
+                        degree,
+                        horizon,
+                        serial,
+                        parallel,
+                        profile,
+                    });
+                }
+                continue;
+            }
             let config = config_for_cell(population, settlements, degree);
             let (base, initialization) = initialize(&config);
-            let probe = measure_setup(&config, &base, initialization);
-            let graph = setup_series(&config, &base, "graph", warmups, samples, args.smoke);
-            let projection =
-                setup_series(&config, &base, "projection", warmups, samples, args.smoke);
-            let setup = SetupMeasurement {
+            let probe = if setup_saved.is_some() && memory_saved.is_some() {
+                setup_saved.expect("setup record exists")
+            } else {
+                measure_setup(&config, &base, initialization)
+            };
+            let graph = if args.skip_series.contains(&graph_id) {
+                resume_setup_summary(&resume_records, population, degree, "graph")
+            } else {
+                series_begin(&args.plan_hash, &graph_id);
+                let started = std::time::Instant::now();
+                let value = setup_series(&config, &base, "graph", warmups, samples, args.smoke);
+                finish_series(&args, &mut completed_series, &graph_id, started);
+                value
+            };
+            let projection = if args.skip_series.contains(&projection_id) {
+                resume_setup_summary(&resume_records, population, degree, "projection")
+            } else {
+                series_begin(&args.plan_hash, &projection_id);
+                let started = std::time::Instant::now();
+                let value =
+                    setup_series(&config, &base, "projection", warmups, samples, args.smoke);
+                finish_series(&args, &mut completed_series, &projection_id, started);
+                value
+            };
+            let setup = setup_saved.unwrap_or(SetupMeasurement {
                 initialization,
                 graph: Duration::from_secs_f64(graph.median / 1_000_000.0),
                 projection: Duration::from_secs_f64(projection.median / 1_000_000.0),
                 graph_heap_bytes: probe.graph_heap_bytes,
                 projection_heap_bytes: probe.projection_heap_bytes,
+            });
+            if !has_record(&resume_records, "SCALE_SETUP", population, degree) {
+                report_setup(setup, population, degree, settlements);
+            }
+            let memory = if let Some(memory) = memory_saved {
+                memory
+            } else {
+                let memory = measure_memory(&base, &config, &pool, setup);
+                report_memory(memory, population, degree, settlements);
+                memory
             };
-            let memory = measure_memory(&base, &config, &pool, setup);
-            report_setup(setup, population, degree, settlements);
-            report_memory(memory, population, degree, settlements);
             setups.push((population, degree, setup, memory));
-            for (_, _, _, horizon) in cells
-                .iter()
-                .filter(|cell| cell.0 == population && cell.1 == settlements && cell.2 == degree)
-            {
-                let checkpoint = build_checkpoint(&base, &config, *horizon);
-                let (serial, parallel, digests) =
-                    paired_series(&checkpoint, &config, &pool, warmups, samples, args.smoke);
-                let profile = profile_series(
-                    &checkpoint,
-                    &config,
-                    serial.median,
-                    warmups,
-                    samples,
-                    args.smoke,
+            for horizon in horizons {
+                let full_id = series_id(
+                    "full_tick",
+                    population,
+                    settlements,
+                    degree,
+                    &format!("day{horizon}"),
                 );
-                emit(&format!(
-                    "SCALE_PARITY|N={population}|K={settlements}|k={degree}|horizon={horizon}|state={}|metrics={}|events={}|serial_parallel_equal=true",
-                    digests.state.to_hex(),
-                    digests.metrics.to_hex(),
-                    digests.events.to_hex()
-                ));
+                let profile_id = series_id(
+                    "phase_profile",
+                    population,
+                    settlements,
+                    degree,
+                    &format!("day{horizon}"),
+                );
+                let full_complete = args.skip_series.contains(&full_id);
+                let profile_complete = args.skip_series.contains(&profile_id);
+                let checkpoint = if full_complete && profile_complete {
+                    None
+                } else {
+                    Some(build_checkpoint(&base, &config, horizon))
+                };
+                let (serial, parallel, digests) = if full_complete {
+                    let (serial, parallel) =
+                        resume_full_summaries(&resume_records, population, degree, horizon);
+                    (serial, parallel, None)
+                } else {
+                    series_begin(&args.plan_hash, &full_id);
+                    let started = std::time::Instant::now();
+                    let (serial, parallel, digests) = paired_series(
+                        checkpoint
+                            .as_ref()
+                            .expect("incomplete full-tick series has a checkpoint"),
+                        &config,
+                        &pool,
+                        warmups,
+                        samples,
+                        args.smoke,
+                    );
+                    emit(&format!(
+                        "SCALE_PARITY|N={population}|K={settlements}|k={degree}|horizon={horizon}|state={}|metrics={}|events={}|serial_parallel_equal=true",
+                        digests.state.to_hex(),
+                        digests.metrics.to_hex(),
+                        digests.events.to_hex()
+                    ));
+                    finish_series(&args, &mut completed_series, &full_id, started);
+                    (serial, parallel, Some(digests))
+                };
+                let profile = if profile_complete {
+                    resume_profile(&resume_records, population, degree, horizon)
+                } else {
+                    series_begin(&args.plan_hash, &profile_id);
+                    let started = std::time::Instant::now();
+                    let profile = profile_series(
+                        checkpoint
+                            .as_ref()
+                            .expect("incomplete profile series has a checkpoint"),
+                        &config,
+                        serial.median,
+                        warmups,
+                        samples,
+                        args.smoke,
+                    );
+                    finish_series(&args, &mut completed_series, &profile_id, started);
+                    profile
+                };
+                let _ = digests;
                 results.push(PilotCell {
                     population,
                     degree,
-                    horizon: *horizon,
+                    horizon,
                     serial,
                     parallel,
                     profile,

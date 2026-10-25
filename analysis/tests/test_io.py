@@ -14,6 +14,14 @@ def test_write_text_lf_creates_parents_and_normalizes_newlines(tmp_path):
     assert target.read_bytes() == "한글\ntwo\nthree\n".encode("utf-8")
 
 
+def test_write_text_lf_appends_and_flushes_completed_records(tmp_path):
+    target = tmp_path / "series.jsonl"
+    write_text_lf(target, '{"series":1}\n')
+    write_text_lf(target, '{"series":2}\n', append=True, flush=True)
+
+    assert target.read_text(encoding="utf-8") == '{"series":1}\n{"series":2}\n'
+
+
 def test_loads_csv_json_jsonl_and_gzip(tmp_path):
     (tmp_path / "table.csv").write_text("a,b\n1,x\n", encoding="utf-8")
     (tmp_path / "one.json").write_text('{"a": 1}', encoding="utf-8")
