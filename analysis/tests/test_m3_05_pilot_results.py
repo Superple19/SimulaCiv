@@ -7,7 +7,7 @@ from simciv_analysis.m3_05_pilot_results import (
     _any_phase_witnesses,
     _first_alpha_breaks,
     _historical_per_agent_crossings,
-    build_results,
+    RESULTS_JSON,
     ratio_verdict,
 )
 
@@ -137,7 +137,7 @@ def test_first_alpha_break_reads_the_current_alpha_index_key_order():
 
 
 def test_invalid_scaling_claims_without_checkpoint_context_are_supplemental_validity():
-    payload = build_results()
+    payload = json.loads(RESULTS_JSON.read_text(encoding="utf-8"))
 
     rows = [
         row
