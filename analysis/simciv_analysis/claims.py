@@ -643,6 +643,14 @@ def apply_m3_05_pilot_results(claims: list[dict[str, object]], root: Path = ROOT
         if status not in allowed:
             raise ValueError(f"invalid M3-05 pilot status for {row['claim_key']}: {status}")
         claim["status"] = status
+        class_override = row.get("class_override")
+        if class_override:
+            previous_class = str(claim.get("class", ""))
+            claim["class"] = str(class_override)
+            reason = str(row.get("class_reason", "method review changed the measurement classification"))
+            claim["notes"] = "; ".join(
+                filter(None, [str(claim.get("notes", "")), f"M3-05 class {previous_class}→{class_override}: {reason}"])
+            )
         claim["notes"] = "; ".join(
             filter(None, [str(claim.get("notes", "")), f"M3-05 pilot: {row.get('note', status)}"])
         )
