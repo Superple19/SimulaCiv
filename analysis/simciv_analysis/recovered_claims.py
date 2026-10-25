@@ -10,7 +10,7 @@ import io
 import json
 import re
 import sys
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +67,27 @@ def _value_key(value: str, unit: str = "") -> str:
         return str(Decimal(value.replace(",", "")).normalize())
     except InvalidOperation:
         return value.strip().lower()
+
+
+def _value_appears_in(values: set[str], expected: str) -> bool:
+    key = _value_key(expected)
+    if key in values:
+        return True
+    try:
+        expected_number = Decimal(expected.replace(",", ""))
+    except InvalidOperation:
+        return False
+    quantum = Decimal(1).scaleb(-max(0, -expected_number.as_tuple().exponent))
+    for value in values:
+        try:
+            actual = Decimal(value)
+        except InvalidOperation:
+            continue
+        if actual.quantize(quantum, rounding=ROUND_HALF_UP) == expected_number.quantize(
+            quantum, rounding=ROUND_HALF_UP
+        ):
+            return True
+    return False
 
 
 def _add_text_values(values: set[str], text: str) -> None:
@@ -302,58 +323,41 @@ def _output_records(path: Path, relative: str) -> list[dict[str, Any]]:
             pipe_header = line.split("|")[1:]
             continue
         allowed_rows = {
-            "ROW": ("TICK|", "ONETIME|", "VOLUME|", "RELEASE_DIFF|"),
+            "ROW": ("TICK|",),
             "PHASE_ROW": ("PHASE|",),
             "GRID_HEADER": ("GRID_ROW|",),
         }
+        if pipe_header and line.startswith(("ONETIME|", "VOLUME|", "RELEASE_DIFF|")):
+            continue
         if pipe_header and not line.startswith(allowed_rows.get(pipe_kind or "", ())):
             pipe_header = None
             pipe_kind = None
-        if line.startswith("ONETIME|"):
-            fields = dict(zip(
-                ("N", "K", "k", "p_local", "graph_median_us", "graph_mad_us", "projection_median_us", "projection_mad_us"),
-                line.split("|")[1:],
-            ))
-            records.append(_record_from_fields(relative, line_number, line, fields))
-            continue
-        if line.startswith("VOLUME|"):
-            fields = dict(zip(
-                ("N", "K", "k", "p_local", "keyed_mean", "cross_partition_mean", "conflict_fraction", "mean_contention"),
-                line.split("|")[1:],
-            ))
-            records.append(_record_from_fields(relative, line_number, line, fields))
-            continue
         if line.startswith("SUSTAINED_PHASE|"):
-            cells = line.split("|")
-            fields = {}
-            for part in cells[1:5]:
-                match = re.fullmatch(r"([A-Za-z][A-Za-z0-9_-]*)=(.*)", part)
-                if match:
-                    fields[match.group(1)] = match.group(2)
-            if len(cells) >= 8:
-                fields.update(zip(("phase", "median_us", "mad_us"), cells[5:8]))
-            records.append(_record_from_fields(relative, line_number, line, fields))
+            fields = _key_value_record(line)
+            if fields:
+                records.append(_record_from_fields(relative, line_number, line, fields))
             continue
-        if line.startswith("TICK|") and pipe_header is None and "=" not in line:
-            fields = dict(zip(
-                ("horizon", "N", "K", "p", "threads", "chunk", "serial_median_us", "serial_mad_us", "parallel_median_us", "parallel_mad_us", "speedup"),
-                line.split("|")[1:],
-            ))
-            records.append(_record_from_fields(relative, line_number, line, fields))
-            continue
-        if pipe_header and line.startswith(("TICK|", "PHASE|", "ONETIME|", "VOLUME|", "RELEASE_DIFF|", "GRID_ROW|")):
+        if pipe_header and line.startswith(("TICK|", "PHASE|", "GRID_ROW|")):
             fields = {pipe_header[i]: cell for i, cell in enumerate(line.split("|")[1:]) if i < len(pipe_header)}
             records.append(_record_from_fields(relative, line_number, line, fields))
             continue
-        parts = line.split("|")
-        fields: dict[str, str] = {}
-        for part in parts[1:] if len(parts) > 1 else parts:
-            match = re.match(r"^\s*([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(.*?)\s*$", part)
-            if match:
-                fields[match.group(1)] = match.group(2)
+        fields = _key_value_record(line)
         if fields:
             records.append(_record_from_fields(relative, line_number, line, fields))
     return records
+
+
+def _key_value_record(line: str) -> dict[str, str]:
+    cells = line.split("|")
+    if len(cells) < 2 or not re.fullmatch(r"[A-Z][A-Z0-9_]*", cells[0]):
+        return {}
+    fields: dict[str, str] = {}
+    for cell in cells[1:]:
+        match = re.fullmatch(r"\s*([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(.*?)\s*", cell)
+        if match is None or not match.group(2):
+            return {}
+        fields[match.group(1)] = match.group(2)
+    return fields
 
 
 PROFILE_COLUMN = re.compile(r"^([0-9][0-9,]*(?:\.[0-9]+)?\s*[kKmM]?)\s*/\s*([0-9.]+)$")
@@ -575,6 +579,14 @@ def _match_claim_context(claim: dict[str, Any], candidates: list[dict[str, Any]]
                     "column": context["column"],
                     "output_field": field,
                     "component_index": component_index,
+                    "component_count": len(record["measures"][field]),
+                    "position_is_explicit": field == "alpha"
+                    and len(record["measures"][field]) == 1
+                    and {"relationship_degree_k", "horizon", "phase"}.issubset(context["dimensions"])
+                    and (
+                        {"from_n", "to_n"}.issubset(context["dimensions"])
+                        or "interval" in context["dimensions"]
+                    ),
                     "expected": str(claim.get("value", "")),
                     "actual": raw,
                     "line_text": record["text"],
@@ -648,6 +660,7 @@ def build_mapping(
     unmatched: list[int] = []
     unsupported: list[int] = []
     config_values: list[int] = []
+    unverifiable: list[int] = []
     for claim in claims:
         report = Path(str(claim.get("report", ""))).name
         candidates = by_report.get(report, [])
@@ -666,6 +679,20 @@ def build_mapping(
         exact = list({(r["path"], r["line"], r["output_field"], r["actual"]): r for r in exact}.values())
         differing = list({(r["path"], r["line"], r["output_field"], r["actual"]): r for r in differing}.values())
         if not exact and not differing:
+            expected = _value_key(str(claim.get("value", "")), str(claim.get("unit", "")))
+            if any(_value_appears_in(output["values"], str(claim.get("value", ""))) for output in candidates):
+                claim_id = int(claim["claim_id"])
+                unverifiable.append(claim_id)
+                matched.append({
+                    "claim_id": claim_id,
+                    "report": report,
+                    "tier": str(claim.get("tier", "supporting")),
+                    "status_before": str(claim.get("status", "")),
+                    "status_after": "unverifiable",
+                    "output_matches": [],
+                    "mismatches": [],
+                })
+                continue
             unmatched.append(int(claim["claim_id"]))
             continue
         before = str(claim.get("status", ""))
@@ -676,7 +703,10 @@ def build_mapping(
             after = "recovered-original-output"
         component_index = source_context.get("component_index")
         if component_index is not None and exact and not any(
-            int(row.get("component_index", -1)) == int(component_index) for row in exact
+            row.get("position_is_explicit", False) for row in exact
+        ) and not any(
+            int(row.get("component_index", -1)) == int(component_index)
+            for row in exact
         ):
             after = "recovered-weak (composite field)"
         claim_row = {
@@ -699,12 +729,13 @@ def build_mapping(
     }
     mapping = {
         "schema_version": 1,
-        "matching_rule": "A recovered measurement requires an exact decimal or SHA-256 value in the same output row, exact normalized measure field, and every row/config identity dimension present on either side. Prose-only claims and numeric configuration/input columns are not recovered measurements; a different value in the same context is a mismatch.",
+        "matching_rule": "A recovered measurement requires an exact value in a structured CSV/TSV, JSON, or key=value record with the same normalized measure field and all row/config identity dimensions present on either side. Prose-only numeric matches are unverifiable; configuration/input columns are not measurements; a different structured value in the same context is a mismatch.",
         "stage_manifest_sha256": manifest_sha,
         "outputs_scanned": len(outputs),
         "report_outputs": report_outputs,
         "claims": matched,
         "unmatched_claim_ids": unmatched,
+        "unverifiable_claim_ids": unverifiable,
         "claims_without_associated_output_ids": unsupported,
         "config_value_claim_ids": config_values,
         "confirmed_mismatches": mismatches,
@@ -738,6 +769,7 @@ def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> 
             "recovered-other-run",
             "recovered-derived",
             "recovered-output-mismatch",
+            "unverifiable",
         }:
             claim["status"] = after
             evidence = row.get("mismatches") or row.get("output_matches") or []
@@ -750,6 +782,8 @@ def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> 
             fallback = (
                 f"expected {first.get('expected')} but output recorded {first.get('actual')}"
                 if after == "recovered-output-mismatch"
+                else "numeric value appears only without structured row context"
+                if after == "unverifiable"
                 else "exact value and context matched"
             )
             detail = str(row.get("triage_rationale", fallback))
@@ -853,6 +887,7 @@ def collections_summary(mapping: dict[str, Any]) -> dict[str, int]:
         "claims_without_output": len(mapping["claims_without_associated_output_ids"]),
         "triage_candidate_records": len(mapping["confirmed_mismatches"]),
         "genuine_discrepancy_claims": sum(row["status_after"] == "recovered-output-mismatch" for row in rows),
+        "unverifiable_claims": sum(row["status_after"] == "unverifiable" for row in rows),
     }
 
 

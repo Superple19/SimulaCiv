@@ -39,77 +39,93 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 | M1        | deterministic | historical-log                           | supporting | 2      |
 | M2        | derived       | analysis-only                            | headline   | 67     |
 | M2        | derived       | analysis-only                            | key        | 9      |
-| M2        | derived       | analysis-only                            | supporting | 204    |
-| M2        | derived       | missing-data                             | headline   | 128    |
-| M2        | derived       | missing-data                             | key        | 7      |
-| M2        | derived       | missing-data                             | supporting | 3,131  |
+| M2        | derived       | analysis-only                            | supporting | 150    |
+| M2        | derived       | missing-data                             | headline   | 92     |
+| M2        | derived       | missing-data                             | key        | 5      |
+| M2        | derived       | missing-data                             | supporting | 686    |
+| M2        | derived       | unverifiable                             | headline   | 36     |
+| M2        | derived       | unverifiable                             | key        | 2      |
+| M2        | derived       | unverifiable                             | supporting | 2,499  |
 | M2        | deterministic | analysis-only                            | headline   | 7      |
-| M2        | deterministic | analysis-only                            | supporting | 32     |
+| M2        | deterministic | analysis-only                            | supporting | 29     |
 | M2        | deterministic | missing-source                           | headline   | 2      |
 | M2        | deterministic | missing-source                           | key        | 5      |
 | M2        | deterministic | missing-source                           | supporting | 57     |
-| M2        | deterministic | reproducible-now                         | headline   | 26     |
-| M2        | deterministic | reproducible-now                         | key        | 3      |
-| M2        | deterministic | reproducible-now                         | supporting | 89     |
+| M2        | deterministic | reproducible-now                         | headline   | 4      |
+| M2        | deterministic | reproducible-now                         | supporting | 18     |
+| M2        | deterministic | unverifiable                             | headline   | 22     |
+| M2        | deterministic | unverifiable                             | key        | 3      |
+| M2        | deterministic | unverifiable                             | supporting | 74     |
 | M2        | timing        | analysis-only                            | headline   | 14     |
 | M2        | timing        | analysis-only                            | key        | 9      |
-| M2        | timing        | analysis-only                            | supporting | 205    |
-| M2        | timing        | missing-data                             | headline   | 44     |
+| M2        | timing        | analysis-only                            | supporting | 187    |
+| M2        | timing        | missing-data                             | headline   | 18     |
 | M2        | timing        | missing-data                             | key        | 1      |
-| M2        | timing        | missing-data                             | supporting | 686    |
-| M3        | derived       | inconclusive (validity)                  | headline   | 2      |
+| M2        | timing        | missing-data                             | supporting | 397    |
+| M2        | timing        | unverifiable                             | headline   | 26     |
+| M2        | timing        | unverifiable                             | supporting | 307    |
 | M3        | derived       | inconclusive (validity)                  | supporting | 26     |
-| M3        | derived       | missing-data                             | headline   | 81     |
-| M3        | derived       | missing-data                             | key        | 17     |
-| M3        | derived       | missing-data                             | supporting | 9,980  |
-| M3        | derived       | missing-source                           | headline   | 20     |
-| M3        | derived       | missing-source                           | supporting | 618    |
+| M3        | derived       | missing-data                             | headline   | 8      |
+| M3        | derived       | missing-data                             | key        | 4      |
+| M3        | derived       | missing-data                             | supporting | 2,104  |
+| M3        | derived       | missing-source                           | headline   | 7      |
+| M3        | derived       | missing-source                           | supporting | 170    |
 | M3        | derived       | not reproduced                           | headline   | 10     |
-| M3        | derived       | recovered-original-output                | headline   | 12     |
-| M3        | derived       | recovered-original-output                | supporting | 2,090  |
-| M3        | derived       | recovered-original-output (formatted)    | supporting | 842    |
-| M3        | derived       | recovered-weak (composite field)         | headline   | 92     |
+| M3        | derived       | recovered-original-output                | headline   | 106    |
+| M3        | derived       | recovered-original-output                | supporting | 2,088  |
+| M3        | derived       | recovered-original-output (formatted)    | supporting | 754    |
 | M3        | derived       | recovered-weak (composite field)         | supporting | 8      |
 | M3        | derived       | reproduced                               | headline   | 82     |
 | M3        | derived       | reproduced (loose)                       | headline   | 7      |
-| M3        | deterministic | missing-source                           | headline   | 6      |
-| M3        | deterministic | missing-source                           | supporting | 131    |
-| M3        | deterministic | reproducible-now                         | supporting | 8      |
-| M3        | timing        | conclusion holds                         | headline   | 22     |
-| M3        | timing        | inconclusive                             | headline   | 12     |
-| M3        | timing        | missing-data                             | headline   | 15     |
-| M3        | timing        | missing-data                             | key        | 8      |
-| M3        | timing        | missing-data                             | supporting | 8,494  |
-| M3        | timing        | missing-source                           | headline   | 50     |
-| M3        | timing        | missing-source                           | supporting | 72     |
-| M3        | timing        | recovered-original-output                | supporting | 525    |
+| M3        | derived       | unverifiable                             | headline   | 86     |
+| M3        | derived       | unverifiable                             | key        | 13     |
+| M3        | derived       | unverifiable                             | supporting | 8,414  |
+| M3        | deterministic | missing-source                           | supporting | 14     |
+| M3        | deterministic | reproducible-now                         | supporting | 1      |
+| M3        | deterministic | unverifiable                             | headline   | 6      |
+| M3        | deterministic | unverifiable                             | supporting | 124    |
+| M3        | timing        | conclusion holds                         | headline   | 2      |
+| M3        | timing        | inconclusive                             | headline   | 4      |
+| M3        | timing        | missing-data                             | headline   | 4      |
+| M3        | timing        | missing-data                             | key        | 2      |
+| M3        | timing        | missing-data                             | supporting | 430    |
+| M3        | timing        | missing-source                           | headline   | 9      |
+| M3        | timing        | missing-source                           | supporting | 17     |
+| M3        | timing        | recovered-original-output                | supporting | 345    |
 | M3        | timing        | recovered-original-output (formatted)    | supporting | 65     |
 | M3        | timing        | reproduced                               | headline   | 1      |
-| M4        | derived       | bit-exact                                | headline   | 19     |
-| M4        | derived       | bit-exact                                | key        | 3      |
-| M4        | derived       | bit-exact                                | supporting | 1,664  |
-| M4        | derived       | bit-exact after documented normalization | headline   | 9      |
-| M4        | derived       | bit-exact after documented normalization | key        | 2      |
-| M4        | derived       | bit-exact after documented normalization | supporting | 1,327  |
-| M4        | derived       | conclusion holds                         | key        | 111    |
+| M3        | timing        | unverifiable                             | headline   | 80     |
+| M3        | timing        | unverifiable                             | key        | 6      |
+| M3        | timing        | unverifiable                             | supporting | 8,299  |
+| M4        | derived       | bit-exact                                | headline   | 7      |
+| M4        | derived       | bit-exact                                | supporting | 35     |
+| M4        | derived       | bit-exact after documented normalization | headline   | 2      |
+| M4        | derived       | bit-exact after documented normalization | key        | 1      |
+| M4        | derived       | bit-exact after documented normalization | supporting | 11     |
+| M4        | derived       | conclusion holds                         | key        | 41     |
 | M4        | derived       | conclusion holds                         | supporting | 122    |
-| M4        | derived       | historical-protocol                      | headline   | 46     |
-| M4        | derived       | historical-protocol                      | key        | 216    |
-| M4        | derived       | historical-protocol                      | supporting | 102    |
-| M4        | derived       | missing-source                           | key        | 25     |
+| M4        | derived       | historical-protocol                      | key        | 22     |
+| M4        | derived       | historical-protocol                      | supporting | 13     |
+| M4        | derived       | missing-source                           | key        | 5      |
 | M4        | derived       | missing-source                           | supporting | 44     |
-| M4        | derived       | unrecoverable                            | supporting | 7      |
-| M4        | deterministic | historical-protocol                      | key        | 24     |
-| M4        | deterministic | historical-protocol                      | supporting | 25     |
+| M4        | derived       | unrecoverable                            | supporting | 3      |
+| M4        | derived       | unverifiable                             | headline   | 65     |
+| M4        | derived       | unverifiable                             | key        | 288    |
+| M4        | derived       | unverifiable                             | supporting | 3,038  |
+| M4        | deterministic | historical-protocol                      | key        | 3      |
+| M4        | deterministic | historical-protocol                      | supporting | 4      |
 | M4        | deterministic | missing-source                           | supporting | 3      |
-| M4        | timing        | conclusion holds                         | key        | 106    |
+| M4        | deterministic | unverifiable                             | key        | 21     |
+| M4        | deterministic | unverifiable                             | supporting | 21     |
+| M4        | timing        | conclusion holds                         | key        | 44     |
 | M4        | timing        | conclusion holds                         | supporting | 43     |
-| M4        | timing        | historical-protocol                      | headline   | 9      |
-| M4        | timing        | historical-protocol                      | key        | 266    |
-| M4        | timing        | historical-protocol                      | supporting | 110    |
-| M4        | timing        | missing-source                           | key        | 74     |
+| M4        | timing        | historical-protocol                      | key        | 66     |
+| M4        | timing        | missing-source                           | key        | 46     |
 | M4        | timing        | missing-source                           | supporting | 5      |
 | M4        | timing        | reproducible-now                         | supporting | 20     |
+| M4        | timing        | unverifiable                             | headline   | 9      |
+| M4        | timing        | unverifiable                             | key        | 290    |
+| M4        | timing        | unverifiable                             | supporting | 110    |
 | M5        | derived       | missing-source                           | key        | 6      |
 | M5        | derived       | missing-source                           | supporting | 21     |
 
@@ -173,20 +189,20 @@ The **29** previously unrecoverable M1 aggregate claims were rechecked against c
 
 | milestone | report                                             | status       | claims |
 | --------- | -------------------------------------------------- | ------------ | ------ |
-| M3        | M3_02_PARALLEL_PHASE6B.md                          | missing-data | 10,910 |
-| M3        | M3_04_SUSTAINED_WORKLOAD.md                        | missing-data | 2,222  |
-| M3        | M3_11_PROPAGATION.md                               | missing-data | 1,835  |
-| M2        | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | missing-data | 1,502  |
-| M3        | M3_05_SCALE_LIMIT.md                               | missing-data | 1,028  |
-| M2        | M2_37_POST_P5_P6B_REPROFILING.md                   | missing-data | 663    |
-| M2        | M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md           | missing-data | 566    |
-| M3        | M3_07_SCALE_RESIDUAL.md                            | missing-data | 517    |
-| M3        | M3_01_SERIAL_BASELINE.md                           | missing-data | 512    |
-| M3        | M3_03_SEARCH_REDUCTION.md                          | missing-data | 496    |
+| M3        | M3_02_PARALLEL_PHASE6B.md                          | unverifiable | 10,346 |
+| M3        | M3_04_SUSTAINED_WORKLOAD.md                        | unverifiable | 1,865  |
+| M4        | M4_03_DIVERGENCE.md                                | unverifiable | 1,771  |
+| M2        | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | unverifiable | 1,514  |
+| M3        | M3_11_PROPAGATION.md                               | missing-data | 1,117  |
+| M4        | M4_04_CRN_EFFICIENCY.md                            | unverifiable | 1,067  |
+| M3        | M3_05_SCALE_LIMIT.md                               | unverifiable | 1,035  |
+| M3        | M3_11_PROPAGATION.md                               | unverifiable | 718    |
+| M4        | M4_02_BRANCHING.md                                 | unverifiable | 691    |
+| M3        | M3_01_SERIAL_BASELINE.md                           | unverifiable | 616    |
 
 ### Recovered original-output matches
 
-The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **206** files. A match requires the same structured output row, measurement field, and all recorded configuration dimensions. Composite values also require the same component position; **110** same-field values at a different or unknown position remain `recovered-weak`. It records **3,534** claims as recovered evidence across exact, formatted, unit-converted, other-run, and derived statuses; **1,837** parameter values were excluded from measurement matching.
+The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **206** files. A match requires a structured CSV/TSV field, JSON key, or explicit `key=value` record with the same measurement field and all recorded configuration dimensions. Composite values also require the same component position; **8** same-field values at a different or unknown position remain `recovered-weak`. It records **3,358** claims as recovered evidence across exact, formatted, unit-converted, other-run, and derived statuses; **23,902** value-only claims without structured context remain `unverifiable`; **1,837** parameter values were excluded from measurement matching.
 
 The prior 144af62 rule matched value tokens without row, label, column, or unit context. Among **24,236** claims it had moved, the recorded type split was:
 
@@ -203,22 +219,21 @@ A fixed-seed sample (20261024; 50 headline/key and 100 other measured claims) fo
 
 | Report                        | Tier       | Prior status | Resolution                            | Claims |
 | ----------------------------- | ---------- | ------------ | ------------------------------------- | ------ |
-| M3_01_SERIAL_BASELINE.md      | supporting | missing-data | recovered-original-output             | 207    |
-| M3_01_SERIAL_BASELINE.md      | supporting | missing-data | recovered-original-output (formatted) | 153    |
+| M3_01_SERIAL_BASELINE.md      | supporting | missing-data | recovered-original-output             | 25     |
+| M3_01_SERIAL_BASELINE.md      | supporting | missing-data | recovered-original-output (formatted) | 65     |
 | M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | recovered-original-output             | 8      |
 | M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | recovered-original-output (formatted) | 88     |
-| M3_05_SCALE_LIMIT.md          | headline   | missing-data | recovered-original-output             | 12     |
+| M3_05_SCALE_LIMIT.md          | headline   | missing-data | recovered-original-output             | 106    |
 | M3_11_PROPAGATION.md          | supporting | missing-data | recovered-original-output             | 2,400  |
 | M3_11_PROPAGATION.md          | supporting | missing-data | recovered-original-output (formatted) | 666    |
 
 #### Weak composite matches
 
-These **110** values occur in the row and field but lack a same-position match, so they remain evidence gaps:
+These **8** values occur in the row and field but lack a same-position match, so they remain evidence gaps:
 
 | Report                        | Tier       | Claims |
 | ----------------------------- | ---------- | ------ |
 | M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | 8      |
-| M3_05_SCALE_LIMIT.md          | headline   | 102    |
 
 #### Claims without an exact context match
 
@@ -226,77 +241,123 @@ These claims retain their previous status. A value found only in a different row
 
 | Report                                                | Tier       | Unmatched claims |
 | ----------------------------------------------------- | ---------- | ---------------- |
-| M2_34_POST_ALGORITHM_REPROFILING.md                   | headline   | 14               |
-| M2_34_POST_ALGORITHM_REPROFILING.md                   | key        | 2                |
-| M2_34_POST_ALGORITHM_REPROFILING.md                   | supporting | 324              |
-| M2_37_POST_P5_P6B_REPROFILING.md                      | headline   | 18               |
-| M2_37_POST_P5_P6B_REPROFILING.md                      | supporting | 645              |
-| M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md              | supporting | 569              |
-| M2_39_RAYON_PRODUCTION_POLICY_GATE.md                 | supporting | 75               |
-| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md    | headline   | 57               |
-| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md    | key        | 3                |
-| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md    | supporting | 1,529            |
-| M3_01_SERIAL_BASELINE.md                              | headline   | 16               |
-| M3_01_SERIAL_BASELINE.md                              | supporting | 368              |
-| M3_02_PARALLEL_PHASE6B.md                             | headline   | 23               |
-| M3_02_PARALLEL_PHASE6B.md                             | key        | 6                |
-| M3_02_PARALLEL_PHASE6B.md                             | supporting | 10,448           |
-| M3_03_SEARCH_REDUCTION.md                             | headline   | 9                |
-| M3_03_SEARCH_REDUCTION.md                             | key        | 6                |
-| M3_03_SEARCH_REDUCTION.md                             | supporting | 434              |
-| M3_04_EQUILIBRIUM_WORKLOAD.md                         | supporting | 434              |
-| M3_04_SUSTAINED_WORKLOAD.md                           | headline   | 56               |
-| M3_04_SUSTAINED_WORKLOAD.md                           | supporting | 1,947            |
-| M3_05_SCALE_DIAGNOSIS.md                              | supporting | 232              |
-| M3_05_SCALE_LIMIT.md                                  | headline   | 58               |
-| M3_05_SCALE_LIMIT.md                                  | supporting | 1,105            |
-| M3_06_SETTLEMENT_INDEX.md                             | supporting | 414              |
-| M3_07_SCALE_RESIDUAL.md                               | key        | 12               |
-| M3_07_SCALE_RESIDUAL.md                               | supporting | 520              |
-| M3_08_POPULATION_DYNAMICS.md                          | headline   | 26               |
-| M3_08_POPULATION_DYNAMICS.md                          | supporting | 331              |
-| M3_09_INCREMENTAL_TOPOLOGY.md                         | headline   | 30               |
-| M3_09_INCREMENTAL_TOPOLOGY.md                         | supporting | 294              |
-| M3_11_PROPAGATION.md                                  | headline   | 17               |
-| M3_11_PROPAGATION.md                                  | supporting | 992              |
-| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | headline   | 8                |
-| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | supporting | 5                |
-| M4_01_SYSTEM_REGISTRY.md                              | key        | 90               |
-| M4_02_BRANCHING.md                                    | headline   | 55               |
-| M4_02_BRANCHING.md                                    | key        | 581              |
-| M4_02_BRANCHING.md                                    | supporting | 138              |
-| M4_03_DIVERGENCE.md                                   | headline   | 18               |
-| M4_03_DIVERGENCE.md                                   | key        | 66               |
-| M4_03_DIVERGENCE.md                                   | supporting | 1,733            |
-| M4_04_CRN_EFFICIENCY.md                               | supporting | 1,067            |
-| M4_05_MINIMAL_CAUSE.md                                | headline   | 9                |
-| M4_05_MINIMAL_CAUSE.md                                | key        | 11               |
-| M4_05_MINIMAL_CAUSE.md                                | supporting | 267              |
+| M2_34_POST_ALGORITHM_REPROFILING.md                   | headline   | 2                |
+| M2_34_POST_ALGORITHM_REPROFILING.md                   | supporting | 104              |
+| M2_37_POST_P5_P6B_REPROFILING.md                      | headline   | 1                |
+| M2_37_POST_P5_P6B_REPROFILING.md                      | supporting | 48               |
+| M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md              | supporting | 37               |
+| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md    | headline   | 2                |
+| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md    | supporting | 73               |
+| M3_01_SERIAL_BASELINE.md                              | headline   | 4                |
+| M3_01_SERIAL_BASELINE.md                              | supporting | 34               |
+| M3_02_PARALLEL_PHASE6B.md                             | supporting | 131              |
+| M3_03_SEARCH_REDUCTION.md                             | key        | 4                |
+| M3_03_SEARCH_REDUCTION.md                             | supporting | 9                |
+| M3_04_EQUILIBRIUM_WORKLOAD.md                         | supporting | 40               |
+| M3_04_SUSTAINED_WORKLOAD.md                           | headline   | 4                |
+| M3_04_SUSTAINED_WORKLOAD.md                           | supporting | 134              |
+| M3_05_SCALE_DIAGNOSIS.md                              | supporting | 1                |
+| M3_05_SCALE_LIMIT.md                                  | headline   | 15               |
+| M3_05_SCALE_LIMIT.md                                  | supporting | 50               |
+| M3_06_SETTLEMENT_INDEX.md                             | supporting | 113              |
+| M3_07_SCALE_RESIDUAL.md                               | key        | 1                |
+| M3_07_SCALE_RESIDUAL.md                               | supporting | 5                |
+| M3_08_POPULATION_DYNAMICS.md                          | headline   | 1                |
+| M3_08_POPULATION_DYNAMICS.md                          | supporting | 37               |
+| M3_09_INCREMENTAL_TOPOLOGY.md                         | headline   | 5                |
+| M3_09_INCREMENTAL_TOPOLOGY.md                         | supporting | 88               |
+| M3_11_PROPAGATION.md                                  | headline   | 2                |
+| M3_11_PROPAGATION.md                                  | supporting | 289              |
+| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | headline   | 3                |
+| M4_01_SYSTEM_REGISTRY.md                              | key        | 42               |
+| M4_02_BRANCHING.md                                    | key        | 66               |
+| M4_02_BRANCHING.md                                    | supporting | 17               |
+| M4_03_DIVERGENCE.md                                   | headline   | 6                |
+| M4_03_DIVERGENCE.md                                   | key        | 31               |
+| M4_03_DIVERGENCE.md                                   | supporting | 9                |
+| M4_05_MINIMAL_CAUSE.md                                | headline   | 2                |
+| M4_05_MINIMAL_CAUSE.md                                | key        | 10               |
+| M4_05_MINIMAL_CAUSE.md                                | supporting | 14               |
 | M4_07_MANY_BRANCH.md                                  | headline   | 1                |
-| M4_07_MANY_BRANCH.md                                  | supporting | 50               |
+| M4_07_MANY_BRANCH.md                                  | supporting | 46               |
+
+#### Unverifiable value-only references
+
+**23,902** claims have a numeric value in a related recovered output but no structured record with matching measurement context. They receive `unverifiable`; their values are not treated as recovered matches.
+
+| Report                                                | Tier       | Unverifiable claims |
+| ----------------------------------------------------- | ---------- | ------------------- |
+| M2_34_POST_ALGORITHM_REPROFILING.md                   | headline   | 12                  |
+| M2_34_POST_ALGORITHM_REPROFILING.md                   | key        | 2                   |
+| M2_34_POST_ALGORITHM_REPROFILING.md                   | supporting | 220                 |
+| M2_37_POST_P5_P6B_REPROFILING.md                      | headline   | 17                  |
+| M2_37_POST_P5_P6B_REPROFILING.md                      | supporting | 597                 |
+| M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md              | supporting | 532                 |
+| M2_39_RAYON_PRODUCTION_POLICY_GATE.md                 | supporting | 75                  |
+| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md    | headline   | 55                  |
+| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md    | key        | 3                   |
+| M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md    | supporting | 1,456               |
+| M3_01_SERIAL_BASELINE.md                              | headline   | 12                  |
+| M3_01_SERIAL_BASELINE.md                              | supporting | 604                 |
+| M3_02_PARALLEL_PHASE6B.md                             | headline   | 23                  |
+| M3_02_PARALLEL_PHASE6B.md                             | key        | 6                   |
+| M3_02_PARALLEL_PHASE6B.md                             | supporting | 10,317              |
+| M3_03_SEARCH_REDUCTION.md                             | headline   | 9                   |
+| M3_03_SEARCH_REDUCTION.md                             | key        | 2                   |
+| M3_03_SEARCH_REDUCTION.md                             | supporting | 425                 |
+| M3_04_EQUILIBRIUM_WORKLOAD.md                         | supporting | 394                 |
+| M3_04_SUSTAINED_WORKLOAD.md                           | headline   | 52                  |
+| M3_04_SUSTAINED_WORKLOAD.md                           | supporting | 1,813               |
+| M3_05_SCALE_DIAGNOSIS.md                              | supporting | 231                 |
+| M3_05_SCALE_LIMIT.md                                  | headline   | 43                  |
+| M3_05_SCALE_LIMIT.md                                  | supporting | 1,055               |
+| M3_06_SETTLEMENT_INDEX.md                             | supporting | 301                 |
+| M3_07_SCALE_RESIDUAL.md                               | key        | 11                  |
+| M3_07_SCALE_RESIDUAL.md                               | supporting | 515                 |
+| M3_08_POPULATION_DYNAMICS.md                          | headline   | 25                  |
+| M3_08_POPULATION_DYNAMICS.md                          | supporting | 294                 |
+| M3_09_INCREMENTAL_TOPOLOGY.md                         | headline   | 25                  |
+| M3_09_INCREMENTAL_TOPOLOGY.md                         | supporting | 206                 |
+| M3_11_PROPAGATION.md                                  | headline   | 15                  |
+| M3_11_PROPAGATION.md                                  | supporting | 703                 |
+| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | headline   | 5                   |
+| M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | supporting | 5                   |
+| M4_01_SYSTEM_REGISTRY.md                              | key        | 48                  |
+| M4_02_BRANCHING.md                                    | headline   | 55                  |
+| M4_02_BRANCHING.md                                    | key        | 515                 |
+| M4_02_BRANCHING.md                                    | supporting | 121                 |
+| M4_03_DIVERGENCE.md                                   | headline   | 12                  |
+| M4_03_DIVERGENCE.md                                   | key        | 35                  |
+| M4_03_DIVERGENCE.md                                   | supporting | 1,724               |
+| M4_04_CRN_EFFICIENCY.md                               | supporting | 1,067               |
+| M4_05_MINIMAL_CAUSE.md                                | headline   | 7                   |
+| M4_05_MINIMAL_CAUSE.md                                | key        | 1                   |
+| M4_05_MINIMAL_CAUSE.md                                | supporting | 253                 |
+| M4_07_MANY_BRANCH.md                                  | supporting | 4                   |
 
 #### Recovered-output mismatch triage
 
-The baseline mismatch file recorded at commit `fddd9a9` contained **1,087** claims and **4,371** output records. After correcting graph/projection metric-field assignment, **180** claims (**184** records) matched the intended output field exactly; these are a matcher correction, not data discrepancies. Tier counts for that correction: headline **0**, key **0**, supporting **180**.
+The baseline mismatch file recorded at commit `fddd9a9` contained **1,087** claims and **4,371** output records. After correcting graph/projection metric-field assignment, **0** claims (**0** records) matched the intended output field exactly; these are a matcher correction, not data discrepancies. Tier counts for that correction: headline **0**, key **0**, supporting **0**.
 
-The remaining **907** claims (**4,187** records) are classified in precedence order: printed formatting/rounding, unit conversion, a matching other run or aggregate, a derived value, then a genuine discrepancy. Statuses for the first four are distinct; only the last retains `recovered-output-mismatch`. The generated cause table uses **claims** and **baseline output records**, split by headline/key/supporting tier:
+The remaining **1,087** claims (**4,371** records) are classified in precedence order: printed formatting/rounding, unit conversion, a matching other run or aggregate, a derived value, then a genuine discrepancy. Statuses for the first four are distinct; only the last retains `recovered-output-mismatch`. The generated cause table uses **claims** and **baseline output records**, split by headline/key/supporting tier:
 
 | Cause                             | claims | headline | key | Baseline records | supporting |
 | --------------------------------- | ------ | -------- | --- | ---------------- | ---------- |
-| rounding/formatting               | 907    | 0        | 0   | 4,187            | 907        |
+| rounding/formatting               | 819    | 0        | 0   | 4,099            | 819        |
 | composite field position mismatch | 0      | 0        | 0   | 0                | 0          |
 | unit conversion                   | 0      | 0        | 0   | 0                | 0          |
 | different run                     | 0      | 0        | 0   | 0                | 0          |
 | derived                           | 0      | 0        | 0   | 0                | 0          |
 | genuine discrepancy               | 0      | 0        | 0   | 0                | 0          |
+| unverifiable                      | 268    | 0        | 0   | 272              | 268        |
 
 The detailed audit separates the earlier field-mapping correction from the cause categories, including position-matched composite components, weak composite matches, and printed-precision formatting:
 
 | Cause and classification detail                                     | claims | Baseline records |
 | ------------------------------------------------------------------- | ------ | ---------------- |
-| context parser correction: correct measurement field now matches    | 180    | 184              |
 | rounding/formatting: composite field component at matching position | 754    | 4,032            |
-| rounding/formatting: printed-precision rounding                     | 153    | 155              |
+| rounding/formatting: printed-precision rounding                     | 65     | 67               |
+| unverifiable: value found without a structured matching record      | 268    | 272              |
 
 Classification details are listed in [recovered_claim_mismatch_triage.csv.gz](recovered_claim_mismatch_triage.csv.gz), with its generated summary in [recovered_claim_mismatch_triage.json](recovered_claim_mismatch_triage.json).
 
@@ -315,7 +376,7 @@ Current contextual matching leaves **0** genuine mismatch claims. The table list
 | --------------------- |
 | none                  |
 
-The contextual-difference evidence file is [recovered_claim_mismatches.csv.gz](recovered_claim_mismatches.csv.gz); it contains **4,187** candidate records before triage. These candidates are not current mismatch statuses unless they remain after the ordered checks above.
+The contextual-difference evidence file is [recovered_claim_mismatches.csv.gz](recovered_claim_mismatches.csv.gz); it contains **4,097** candidate records before triage. These candidates are not current mismatch statuses unless they remain after the ordered checks above.
 
 ## Findings
 

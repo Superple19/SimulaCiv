@@ -1,16 +1,16 @@
 {
   "cause_subcategories": {
-    "context parser correction: correct measurement field now matches": {
-      "claims": 180,
-      "mismatch_records": 184
-    },
     "rounding/formatting: composite field component at matching position": {
       "claims": 754,
       "mismatch_records": 4032
     },
     "rounding/formatting: printed-precision rounding": {
-      "claims": 153,
-      "mismatch_records": 155
+      "claims": 65,
+      "mismatch_records": 67
+    },
+    "unverifiable: value found without a structured matching record": {
+      "claims": 268,
+      "mismatch_records": 272
     }
   },
   "causes": {
@@ -43,11 +43,11 @@
       "supporting": 0
     },
     "rounding/formatting": {
-      "claims": 907,
+      "claims": 819,
       "headline": 0,
       "key": 0,
-      "mismatch_records": 4187,
-      "supporting": 907
+      "mismatch_records": 4099,
+      "supporting": 819
     },
     "unit conversion": {
       "claims": 0,
@@ -55,16 +55,23 @@
       "key": 0,
       "mismatch_records": 0,
       "supporting": 0
+    },
+    "unverifiable": {
+      "claims": 268,
+      "headline": 0,
+      "key": 0,
+      "mismatch_records": 272,
+      "supporting": 268
     }
   },
   "classified_claims": 1087,
-  "context_parser_correction_records": 184,
+  "context_parser_correction_records": 0,
   "field_mapping_correction": {
-    "claims": 180,
+    "claims": 0,
     "headline": 0,
     "key": 0,
-    "mismatch_records": 184,
-    "supporting": 180
+    "mismatch_records": 0,
+    "supporting": 0
   },
   "genuine_headline_key": [],
   "genuine_other_count": 0,
@@ -82,13 +89,13 @@
   "mismatch_baseline_commit": "fddd9a91b81841a1a2b1d7ddb5e999de20838cb3",
   "mismatch_records": 4371,
   "reports_by_cause": {
-    "M3_01_SERIAL_BASELINE.md: context parser correction": {
-      "claims": 180,
-      "mismatch_records": 184
-    },
     "M3_01_SERIAL_BASELINE.md: rounding/formatting": {
-      "claims": 153,
-      "mismatch_records": 155
+      "claims": 65,
+      "mismatch_records": 67
+    },
+    "M3_01_SERIAL_BASELINE.md: unverifiable": {
+      "claims": 268,
+      "mismatch_records": 272
     },
     "M3_04_EQUILIBRIUM_WORKLOAD.md: rounding/formatting": {
       "claims": 88,

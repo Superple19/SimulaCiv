@@ -148,6 +148,40 @@ def test_derived_value_and_genuine_discrepancy_are_distinguished(tmp_path):
     assert difference["triage_subcategory"] == "before_us-after_us"
 
 
+def test_scalar_alpha_key_value_record_ignores_report_list_position(tmp_path):
+    row = _mapping(
+        tmp_path / "scalar-alpha",
+        "out.log",
+        b"SCALE_ALPHA|k=8|horizon=50|phase=P6B_key_generation|from_N=250000|to_N=500000|alpha=1.21771\n",
+        _claim(
+            "1.21771",
+            "alpha",
+            {
+                "relationship_degree_k": "8",
+                "horizon": "50",
+                "phase": "P6B key generation",
+                "interval": "250k→500k",
+            },
+            component_index=9,
+        ),
+    )
+
+    assert row["status_after"] == "recovered-original-output"
+    assert row["output_matches"][0]["component_count"] == 1
+
+
+def test_unstructured_numeric_line_is_unverifiable_not_a_match(tmp_path):
+    row = _mapping(
+        tmp_path / "unstructured",
+        "out.log",
+        b"The timing result was speedup=2.0001 for N=10, but no table row was emitted.\n",
+        _claim("2.0", "speedup", {"population_n": "10"}, "x"),
+    )
+
+    assert row["status_after"] == "unverifiable"
+    assert row["output_matches"] == []
+
+
 def test_one_time_graph_and_projection_columns_keep_their_own_output_fields():
     graph = _claim_context({
         "unit": "µs",

@@ -119,6 +119,7 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
         return {
             "moved_table": _markdown(none),
             "unmatched_table": _markdown(none),
+            "unverifiable_table": _markdown(none),
             "type_table": _markdown(pd.DataFrame([{"Value type": "none", "Claims": 0}])),
             "cause_table": _markdown(pd.DataFrame([{"Cause": "none", "Claims": 0}])),
             "m3_11_table": _markdown(none),
@@ -129,7 +130,8 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
             "parser_corrected": 0, "parser_corrected_records": 0, "genuine_other": 0, "config_values_unchanged": 0, "audit_precision": 0.0,
                         "parser_corrected_headline": 0, "parser_corrected_key": 0, "parser_corrected_supporting": 0,
                         "m3_11_claims": 0, "m3_11_records": 0,
-                        "audit_yes": 0, "audit_no": 0, "audit_baseline_count": 0},
+                        "audit_yes": 0, "audit_no": 0, "audit_baseline_count": 0,
+                        "unverifiable": 0},
         }
     with gzip.open(RECOVERED_STATUS_PATH, "rt", encoding="utf-8") as stream:
         mapping = json.load(stream)
@@ -164,6 +166,17 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
         if weak.empty:
             weak = pd.DataFrame([{"Report": "none", "Tier": "—", "Claims": 0}])
     unmatched_ids = set(int(value) for value in mapping.get("unmatched_claim_ids", []))
+    unverifiable_ids = set(int(value) for value in mapping.get("unverifiable_claim_ids", []))
+    unverifiable = claims.loc[claims["claim_id"].astype(int).isin(unverifiable_ids)].copy()
+    if unverifiable.empty:
+        unverifiable_table = pd.DataFrame([{"Report": "none", "Tier": "—", "Unverifiable claims": 0}])
+    else:
+        unverifiable_table = (
+            unverifiable.groupby(["report", "tier"], dropna=False)
+            .size().rename("Unverifiable claims").reset_index()
+            .rename(columns={"report": "Report", "tier": "Tier"})
+            .sort_values(["Report", "Tier"], kind="stable")
+        )
     unmatched = claims.loc[claims["claim_id"].astype(int).isin(unmatched_ids)].copy()
     if unmatched.empty:
         unmatched_table = pd.DataFrame([{"Report": "none", "Tier": "—", "Unmatched claims": 0}])
@@ -185,6 +198,7 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
         "different run",
         "derived",
         "genuine discrepancy",
+        "unverifiable",
     )
     cause_rows = [
         {"Cause": cause, **{("Baseline records" if key == "mismatch_records" else key): value for key, value in causes[cause].items()}}
@@ -228,6 +242,7 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
         "current_mismatch_records": current_mismatch_records,
         "genuine": int((statuses == "recovered-output-mismatch").sum()),
         "recovered_weak": int((statuses == "recovered-weak (composite field)").sum()),
+        "unverifiable": len(unverifiable_ids),
         "parser_corrected": int((triage["cause"] == "context parser correction").sum()) if not triage.empty else 0,
         "parser_corrected_records": int(triage_summary.get("context_parser_correction_records", 0)),
         "parser_corrected_headline": int(adjustment.get("headline", 0)),
@@ -245,6 +260,7 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
     return {
         "moved_table": _markdown(moved),
         "weak_table": _markdown(weak),
+        "unverifiable_table": _markdown(unverifiable_table),
         "unmatched_table": _markdown(unmatched_table),
         "type_table": _markdown(value_types),
         "cause_table": _markdown(cause_table),
@@ -340,6 +356,7 @@ def _report_parts() -> dict[str, str]:
         "recovered_moved_table": str(recovered["moved_table"]),
         "recovered_weak_table": str(recovered["weak_table"]),
         "recovered_unmatched_table": str(recovered["unmatched_table"]),
+        "recovered_unverifiable_table": str(recovered["unverifiable_table"]),
         "recovered_value_types": str(recovered["type_table"]),
         "recovered_mismatch_causes": str(recovered["cause_table"]),
         "recovered_mismatch_subcategories": str(recovered["subcategory_table"]),
@@ -363,6 +380,7 @@ def _report_parts() -> dict[str, str]:
         "recovered_moved_count": f"{recovered_summary['recovered']:,}",
         "recovered_mismatch_count": f"{recovered_summary['genuine']:,}",
         "recovered_weak_count": f"{recovered_summary['recovered_weak']:,}",
+        "recovered_unverifiable_count": f"{recovered_summary['unverifiable']:,}",
         "recovered_baseline_mismatch_claims": f"{recovered_summary['baseline_mismatch_claims']:,}",
         "recovered_baseline_mismatch_records": f"{recovered_summary['baseline_mismatch_records']:,}",
         "recovered_remaining_mismatch_claims": f"{recovered_summary['remaining_mismatch_claims']:,}",
@@ -439,7 +457,7 @@ The **{parts['m1_count']}** previously unrecoverable M1 aggregate claims were re
 
 ### Recovered original-output matches
 
-The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** files. A match requires the same structured output row, measurement field, and all recorded configuration dimensions. Composite values also require the same component position; **{parts['recovered_weak_count']}** same-field values at a different or unknown position remain `recovered-weak`. It records **{parts['recovered_exact']}** claims as recovered evidence across exact, formatted, unit-converted, other-run, and derived statuses; **{parts['recovered_config_count']}** parameter values were excluded from measurement matching.
+The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** files. A match requires a structured CSV/TSV field, JSON key, or explicit `key=value` record with the same measurement field and all recorded configuration dimensions. Composite values also require the same component position; **{parts['recovered_weak_count']}** same-field values at a different or unknown position remain `recovered-weak`. It records **{parts['recovered_exact']}** claims as recovered evidence across exact, formatted, unit-converted, other-run, and derived statuses; **{parts['recovered_unverifiable_count']}** value-only claims without structured context remain `unverifiable`; **{parts['recovered_config_count']}** parameter values were excluded from measurement matching.
 
 The prior 144af62 rule matched value tokens without row, label, column, or unit context. Among **{parts['recovered_audit_baseline_count']}** claims it had moved, the recorded type split was:
 
@@ -462,6 +480,12 @@ These **{parts['recovered_weak_count']}** values occur in the row and field but 
 These claims retain their previous status. A value found only in a different row, configuration, or measure column—or only in unstructured output—does not qualify as recovered evidence.
 
 {parts['recovered_unmatched_table']}
+
+#### Unverifiable value-only references
+
+**{parts['recovered_unverifiable_count']}** claims have a numeric value in a related recovered output but no structured record with matching measurement context. They receive `unverifiable`; their values are not treated as recovered matches.
+
+{parts['recovered_unverifiable_table']}
 
 #### Recovered-output mismatch triage
 

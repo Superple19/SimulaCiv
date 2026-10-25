@@ -31,6 +31,7 @@ STATUS_BY_CAUSE = {
     "different run": "recovered-other-run",
     "derived": "recovered-derived",
     "genuine discrepancy": "recovered-output-mismatch",
+    "unverifiable": "unverifiable",
 }
 MISMATCH_CAUSES = (
     "rounding/formatting",
@@ -39,6 +40,7 @@ MISMATCH_CAUSES = (
     "different run",
     "derived",
     "genuine discrepancy",
+    "unverifiable",
 )
 
 
@@ -187,9 +189,13 @@ def _classify_one(
         if any(_same_record(good, bad) for bad in differing)
     ]
     expected_component = context.get("component_index") if context else None
+    composite_matches = [row for row in same_record_exact if not row.get("position_is_explicit", False)]
     position_matched = [
         good for good in same_record_exact
-        if expected_component is not None and int(good.get("component_index", -1)) == expected_component
+        if good.get("position_is_explicit", False)
+        or (int(good.get("component_count", 1)) > 1
+        and expected_component is not None
+        and int(good.get("component_index", -1)) == expected_component)
     ]
 
     rounded = [row for row in differing if _printed_equal(str(row["actual"]), expected)]
@@ -206,7 +212,7 @@ def _classify_one(
                        f"{evidence['path']}:{evidence['line']}",
                        f"The expected scalar matches component {expected_component} in the same output field and row.")
 
-    if same_record_exact:
+    if composite_matches:
         evidence = same_record_exact[0]
         if expected_component is not None:
             return _result(claim, "composite field position mismatch", "composite field component at different or unknown position", expected, expected,
@@ -215,6 +221,11 @@ def _classify_one(
         return _result(claim, "rounding/formatting", "composite field component", expected, expected,
                        f"{evidence['path']}:{evidence['line']}",
                        "The expected scalar is present in the same output field and row.")
+    if same_record_exact:
+        evidence = same_record_exact[0]
+        return _result(claim, "rounding/formatting", "exact scalar field match", expected, expected,
+                       f"{evidence['path']}:{evidence['line']}",
+                       "The exact scalar field and all recorded dimensions match; the report's list position is not applicable to a scalar record.")
 
     unit = _unit_for_claim(claim, context)
     for row in differing:
@@ -358,6 +369,16 @@ def classify_mapping(
                     str(evidence["actual"]),
                     f"{evidence['path']}:{evidence['line']}",
                     "The earlier matcher assigned this table column to the wrong output field; the corrected field map finds the exact value.",
+                )
+            elif current.get("status_after") == "unverifiable":
+                result = _result(
+                    claim,
+                    "unverifiable",
+                    "value found without a structured matching record",
+                    str(claim.get("value", "")),
+                    "",
+                    "",
+                    "A numeric token appears in a related recovered output, but no structured key/value record supplies its measurement context.",
                 )
             else:
                 raise ValueError(f"pre-triage mismatch was not explained by a current exact match: {claim_id}")
