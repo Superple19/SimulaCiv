@@ -25,8 +25,12 @@ mod scale {
 
     const A5_WARMUPS: usize = 2;
     const A5_SAMPLES: usize = 41;
-    const A5_FLOOR_SECONDS: f64 = 1.0;
+    const A5_TARGET_SECONDS: f64 = 1.25;
+    const A5_MINIMUM_SECONDS: f64 = 1.0;
     const A5_PROBES: usize = 3;
+    const A5_MAX_RECALIBRATIONS: usize = 3;
+    const SMOKE_TARGET_SECONDS: f64 = 0.02;
+    const SMOKE_MINIMUM_SECONDS: f64 = 0.01;
 
     #[derive(Clone, Copy)]
     struct ProfileSummary {
@@ -42,6 +46,15 @@ mod scale {
         serial: Summary,
         parallel: Summary,
         profile: ProfileSummary,
+    }
+
+    #[derive(Clone, Copy)]
+    struct A5Series<'a> {
+        kind: &'a str,
+        population: u64,
+        settlements: u32,
+        degree: u32,
+        phase: &'a str,
     }
 
     // The report-revision bench predates the extra scan flag in ManualProfile::step.
@@ -67,8 +80,62 @@ mod scale {
         sorted[sorted.len() / 2]
     }
 
-    fn repetitions_for(probes: &[f64]) -> usize {
-        (A5_FLOOR_SECONDS / median(probes)).ceil().max(1.0) as usize
+    fn repetitions_for(probes: &[f64], target_seconds: f64) -> usize {
+        (target_seconds / median(probes)).ceil().max(1.0) as usize
+    }
+
+    fn sample_rules(smoke: bool) -> (f64, f64) {
+        if smoke {
+            (SMOKE_TARGET_SECONDS, SMOKE_MINIMUM_SECONDS)
+        } else {
+            (A5_TARGET_SECONDS, A5_MINIMUM_SECONDS)
+        }
+    }
+
+    fn increased_repetitions(old: usize) -> usize {
+        ((old as f64 * 1.5).ceil() as usize).max(old + 1)
+    }
+
+    fn record_calibration(
+        series: A5Series<'_>,
+        repetitions: usize,
+        probe_median_seconds: f64,
+        target_seconds: f64,
+        minimum_seconds: f64,
+        recalibrations: usize,
+    ) {
+        emit(&format!(
+            "SCALE_A5_CALIBRATION|series={}|N={}|K={}|k={}|phase={}|r={repetitions}|estimated_sample_seconds={:.6}|target_seconds={target_seconds:.6}|minimum_seconds={minimum_seconds:.6}|recalibrations={recalibrations}",
+            series.kind,
+            series.population,
+            series.settlements,
+            series.degree,
+            series.phase,
+            repetitions as f64 * probe_median_seconds,
+        ));
+    }
+
+    fn record_recalibration(
+        series: A5Series<'_>,
+        old: usize,
+        new: usize,
+        seconds: f64,
+        minimum_seconds: f64,
+        smoke_injected: bool,
+    ) {
+        emit(&format!(
+            "SCALE_A5_RECALIBRATION|series={}|N={}|K={}|k={}|phase={}|old_r={old}|new_r={new}|reason={}",
+            series.kind,
+            series.population,
+            series.settlements,
+            series.degree,
+            series.phase,
+            if smoke_injected {
+                "smoke_injected_floor_undershoot".to_owned()
+            } else {
+                format!("recorded_sample_{seconds:.6}s_below_{minimum_seconds:.6}s")
+            },
+        ));
     }
 
     fn config_for_cell(population: u64, settlements: u32, degree: u32) -> SimConfig {
@@ -124,33 +191,89 @@ mod scale {
         let probes = (0..A5_PROBES)
             .map(|_| setup_operation(config, world, phase, 1).0 / 1_000_000.0)
             .collect::<Vec<_>>();
-        let repetitions = if smoke { 1 } else { repetitions_for(&probes) };
-        let mut values = Vec::with_capacity(samples);
-        let mut elapsed = Vec::with_capacity(samples);
-        for sample in 0..warmups + samples {
-            let (value, seconds) = setup_operation(config, world, phase, repetitions);
-            assert!(
-                smoke || seconds >= A5_FLOOR_SECONDS,
-                "A-5 setup {phase} sample {sample} shorter than one second (r={repetitions}, {seconds:.3}s)"
-            );
-            if sample >= warmups {
-                values.push(value);
-                elapsed.push(seconds);
+        let probe_median = median(&probes);
+        let (target_seconds, minimum_seconds) = sample_rules(smoke);
+        let mut repetitions = repetitions_for(&probes, target_seconds);
+        let mut recalibrations = 0;
+        loop {
+            let mut values = Vec::with_capacity(samples);
+            let mut elapsed = Vec::with_capacity(samples);
+            let mut failed_sample = None;
+            for sample in 0..warmups + samples {
+                let (value, seconds) = setup_operation(config, world, phase, repetitions);
+                if sample >= warmups {
+                    let force_smoke_retry = smoke && recalibrations == 0 && sample == warmups;
+                    let checked_seconds = if force_smoke_retry {
+                        minimum_seconds / 2.0
+                    } else {
+                        seconds
+                    };
+                    if checked_seconds < minimum_seconds {
+                        failed_sample =
+                            Some((sample - warmups, checked_seconds, force_smoke_retry));
+                        break;
+                    }
+                    values.push(value);
+                    elapsed.push(seconds);
+                }
             }
+            if let Some((recorded_sample, seconds, smoke_injected)) = failed_sample {
+                if recalibrations >= A5_MAX_RECALIBRATIONS {
+                    panic!(
+                        "A-5 setup {phase} cell exceeded {A5_MAX_RECALIBRATIONS} recalibrations"
+                    );
+                }
+                let old = repetitions;
+                repetitions = increased_repetitions(repetitions);
+                recalibrations += 1;
+                record_recalibration(
+                    A5Series {
+                        kind: "setup",
+                        population: config.world.initial_population,
+                        settlements: config.world.settlement_count,
+                        degree: config.interaction.relationship_degree_k.unwrap() as u32,
+                        phase,
+                    },
+                    old,
+                    repetitions,
+                    seconds,
+                    minimum_seconds,
+                    smoke_injected,
+                );
+                assert!(
+                    repetitions as f64 * probe_median >= target_seconds,
+                    "recalibrated setup r must preserve the target margin (sample {recorded_sample})"
+                );
+                continue;
+            }
+            record_calibration(
+                A5Series {
+                    kind: "setup",
+                    population: config.world.initial_population,
+                    settlements: config.world.settlement_count,
+                    degree: config.interaction.relationship_degree_k.unwrap() as u32,
+                    phase,
+                },
+                repetitions,
+                probe_median,
+                target_seconds,
+                minimum_seconds,
+                recalibrations,
+            );
+            let mut sorted = values.clone();
+            let result = summarize(&mut sorted);
+            emit(&format!(
+                "SCALE_SETUP_A5|N={}|K={}|k={}|phase={phase}|warmups={warmups}|samples={samples}|r={repetitions}|recalibrations={recalibrations}|median_us={:.3}|mad_us={:.3}|sample_values_us={}|sample_seconds={}",
+                config.world.initial_population,
+                config.world.settlement_count,
+                config.interaction.relationship_degree_k.unwrap(),
+                result.median,
+                result.mad,
+                format_values(&values),
+                format_values(&elapsed),
+            ));
+            return result;
         }
-        let mut sorted = values.clone();
-        let result = summarize(&mut sorted);
-        emit(&format!(
-            "SCALE_SETUP_A5|N={}|K={}|k={}|phase={phase}|warmups={warmups}|samples={samples}|r={repetitions}|median_us={:.3}|mad_us={:.3}|sample_values_us={}|sample_seconds={}",
-            config.world.initial_population,
-            config.world.settlement_count,
-            config.interaction.relationship_degree_k.unwrap(),
-            result.median,
-            result.mad,
-            format_values(&values),
-            format_values(&elapsed),
-        ));
-        result
     }
 
     fn profile_operation(
@@ -231,63 +354,119 @@ mod scale {
         let probes = (0..A5_PROBES)
             .map(|_| profile_operation(checkpoint, config, 1).0)
             .collect::<Vec<_>>();
-        let repetitions = if smoke { 1 } else { repetitions_for(&probes) };
-        let mut phase_sample_values: [Vec<f64>; PHASE_NAMES.len()] =
-            array::from_fn(|_| Vec::with_capacity(samples));
-        let mut stage_sample_values: [Vec<f64>; P6B_STAGE_NAMES.len()] =
-            array::from_fn(|_| Vec::with_capacity(samples));
-        let mut sample_seconds = Vec::with_capacity(samples);
-        for sample in 0..warmups + samples {
-            let (seconds, profile) = profile_operation(checkpoint, config, repetitions);
-            assert!(
-                smoke || seconds >= A5_FLOOR_SECONDS,
-                "A-5 phase profile sample {sample} shorter than one second (r={repetitions}, {seconds:.3}s)"
-            );
-            if sample >= warmups {
-                for (values, summary) in phase_sample_values.iter_mut().zip(profile.phases) {
-                    values.push(summary.median);
+        let probe_median = median(&probes);
+        let (target_seconds, minimum_seconds) = sample_rules(smoke);
+        let mut repetitions = repetitions_for(&probes, target_seconds);
+        let mut recalibrations = 0;
+        loop {
+            let mut phase_sample_values: [Vec<f64>; PHASE_NAMES.len()] =
+                array::from_fn(|_| Vec::with_capacity(samples));
+            let mut stage_sample_values: [Vec<f64>; P6B_STAGE_NAMES.len()] =
+                array::from_fn(|_| Vec::with_capacity(samples));
+            let mut sample_seconds = Vec::with_capacity(samples);
+            let mut failed_sample = None;
+            for sample in 0..warmups + samples {
+                let (seconds, profile) = profile_operation(checkpoint, config, repetitions);
+                if sample >= warmups {
+                    let force_smoke_retry = smoke && recalibrations == 0 && sample == warmups;
+                    let checked_seconds = if force_smoke_retry {
+                        minimum_seconds / 2.0
+                    } else {
+                        seconds
+                    };
+                    if checked_seconds < minimum_seconds {
+                        failed_sample =
+                            Some((sample - warmups, checked_seconds, force_smoke_retry));
+                        break;
+                    }
+                    for (values, summary) in phase_sample_values.iter_mut().zip(profile.phases) {
+                        values.push(summary.median);
+                    }
+                    for (values, summary) in stage_sample_values.iter_mut().zip(profile.stages) {
+                        values.push(summary.median);
+                    }
+                    sample_seconds.push(seconds);
                 }
-                for (values, summary) in stage_sample_values.iter_mut().zip(profile.stages) {
-                    values.push(summary.median);
-                }
-                sample_seconds.push(seconds);
             }
+            if let Some((sample, seconds, smoke_injected)) = failed_sample {
+                if recalibrations >= A5_MAX_RECALIBRATIONS {
+                    panic!(
+                        "A-5 phase-profile cell exceeded {A5_MAX_RECALIBRATIONS} recalibrations"
+                    );
+                }
+                let old = repetitions;
+                repetitions = increased_repetitions(repetitions);
+                recalibrations += 1;
+                record_recalibration(
+                    A5Series {
+                        kind: "phase_profile",
+                        population: config.world.initial_population,
+                        settlements: config.world.settlement_count,
+                        degree: config.interaction.relationship_degree_k.unwrap() as u32,
+                        phase: "all_phases",
+                    },
+                    old,
+                    repetitions,
+                    seconds,
+                    minimum_seconds,
+                    smoke_injected,
+                );
+                assert!(
+                    repetitions as f64 * probe_median >= target_seconds,
+                    "recalibrated phase-profile r must retain target margin (sample {sample})"
+                );
+                continue;
+            }
+            record_calibration(
+                A5Series {
+                    kind: "phase_profile",
+                    population: config.world.initial_population,
+                    settlements: config.world.settlement_count,
+                    degree: config.interaction.relationship_degree_k.unwrap() as u32,
+                    phase: "all_phases",
+                },
+                repetitions,
+                probe_median,
+                target_seconds,
+                minimum_seconds,
+                recalibrations,
+            );
+            let phases = phase_sample_values
+                .each_mut()
+                .map(|values| summarize(values));
+            let stages = stage_sample_values
+                .each_mut()
+                .map(|values| summarize(values));
+            for (index, name) in PHASE_NAMES.iter().enumerate() {
+                emit(&format!(
+                    "SCALE_PHASE|N={}|K={}|k={}|horizon={}|phase={name}|median_us={:.3}|mad_us={:.3}|share_of_serial_tick_pct={:.3}|repetitions_per_sample={repetitions}|sample_medians_us={}|sample_seconds={}",
+                    config.world.initial_population,
+                    config.world.settlement_count,
+                    config.interaction.relationship_degree_k.unwrap(),
+                    checkpoint.world.current_day.as_u32(),
+                    phases[index].median,
+                    phases[index].mad,
+                    phases[index].median / serial_median * 100.0,
+                    format_values(&phase_sample_values[index]),
+                    format_values(&sample_seconds),
+                ));
+            }
+            for (index, name) in P6B_STAGE_NAMES.iter().enumerate() {
+                emit(&format!(
+                    "SCALE_P6B_STAGE|N={}|K={}|k={}|horizon={}|stage={name}|median_us={:.3}|mad_us={:.3}|share_of_serial_tick_pct={:.3}|repetitions_per_sample={repetitions}|sample_medians_us={}|sample_seconds={}",
+                    config.world.initial_population,
+                    config.world.settlement_count,
+                    config.interaction.relationship_degree_k.unwrap(),
+                    checkpoint.world.current_day.as_u32(),
+                    stages[index].median,
+                    stages[index].mad,
+                    stages[index].median / serial_median * 100.0,
+                    format_values(&stage_sample_values[index]),
+                    format_values(&sample_seconds),
+                ));
+            }
+            return ProfileSummary { phases, stages };
         }
-        let phases = phase_sample_values
-            .each_mut()
-            .map(|values| summarize(values));
-        let stages = stage_sample_values
-            .each_mut()
-            .map(|values| summarize(values));
-        for (index, name) in PHASE_NAMES.iter().enumerate() {
-            emit(&format!(
-                "SCALE_PHASE|N={}|K={}|k={}|horizon={}|phase={name}|median_us={:.3}|mad_us={:.3}|share_of_serial_tick_pct={:.3}|repetitions_per_sample={repetitions}|sample_medians_us={}|sample_seconds={}",
-                config.world.initial_population,
-                config.world.settlement_count,
-                config.interaction.relationship_degree_k.unwrap(),
-                checkpoint.world.current_day.as_u32(),
-                phases[index].median,
-                phases[index].mad,
-                phases[index].median / serial_median * 100.0,
-                format_values(&phase_sample_values[index]),
-                format_values(&sample_seconds),
-            ));
-        }
-        for (index, name) in P6B_STAGE_NAMES.iter().enumerate() {
-            emit(&format!(
-                "SCALE_P6B_STAGE|N={}|K={}|k={}|horizon={}|stage={name}|median_us={:.3}|mad_us={:.3}|share_of_serial_tick_pct={:.3}|repetitions_per_sample={repetitions}|sample_medians_us={}|sample_seconds={}",
-                config.world.initial_population,
-                config.world.settlement_count,
-                config.interaction.relationship_degree_k.unwrap(),
-                checkpoint.world.current_day.as_u32(),
-                stages[index].median,
-                stages[index].mad,
-                stages[index].median / serial_median * 100.0,
-                format_values(&stage_sample_values[index]),
-                format_values(&sample_seconds),
-            ));
-        }
-        ProfileSummary { phases, stages }
     }
 
     fn paired_operation(
@@ -302,12 +481,7 @@ mod scale {
         let mut seconds = 0.0;
         let mut digests: Option<Digests> = None;
         for repeat in 0..repetitions {
-            let pair = paired_timing(
-                checkpoint,
-                config,
-                pool,
-                sample_index * repetitions + repeat,
-            );
+            let pair = paired_timing(checkpoint, config, pool, sample_index + repeat);
             serial += pair.serial;
             parallel += pair.parallel;
             seconds += (pair.serial + pair.parallel) * f64::from(DAYS_PER_SAMPLE) / 1_000_000.0;
@@ -338,57 +512,115 @@ mod scale {
         let probes = (0..A5_PROBES)
             .map(|index| paired_operation(checkpoint, config, pool, 1, index).2)
             .collect::<Vec<_>>();
-        let repetitions = if smoke { 1 } else { repetitions_for(&probes) };
-        let mut serial_values = Vec::with_capacity(samples);
-        let mut parallel_values = Vec::with_capacity(samples);
-        let mut sample_seconds = Vec::with_capacity(samples);
-        let mut expected: Option<Digests> = None;
-        for sample in 0..warmups + samples {
-            let (serial, parallel, seconds, digests) =
-                paired_operation(checkpoint, config, pool, repetitions, sample + 10);
-            assert!(
-                smoke || seconds >= A5_FLOOR_SECONDS,
-                "A-5 paired sample {sample} shorter than one second (r={repetitions}, {seconds:.3}s)"
+        let probe_median = median(&probes);
+        let (target_seconds, minimum_seconds) = sample_rules(smoke);
+        let mut repetitions = repetitions_for(&probes, target_seconds);
+        let mut recalibrations = 0;
+        loop {
+            let mut serial_values = Vec::with_capacity(samples);
+            let mut parallel_values = Vec::with_capacity(samples);
+            let mut sample_seconds = Vec::with_capacity(samples);
+            let mut expected: Option<Digests> = None;
+            let mut failed_sample = None;
+            for sample in 0..warmups + samples {
+                let (serial, parallel, seconds, digests) =
+                    paired_operation(checkpoint, config, pool, repetitions, sample + 10);
+                if sample >= warmups {
+                    let force_smoke_retry = smoke && recalibrations == 0 && sample == warmups;
+                    let checked_seconds = if force_smoke_retry {
+                        minimum_seconds / 2.0
+                    } else {
+                        seconds
+                    };
+                    if checked_seconds < minimum_seconds {
+                        failed_sample =
+                            Some((sample - warmups, checked_seconds, force_smoke_retry));
+                        break;
+                    }
+                }
+                if let Some(previous) = expected {
+                    assert_eq!(previous.state, digests.state);
+                    assert_eq!(previous.metrics, digests.metrics);
+                    assert_eq!(previous.events, digests.events);
+                } else {
+                    expected = Some(digests);
+                }
+                if sample >= warmups {
+                    serial_values.push(serial);
+                    parallel_values.push(parallel);
+                    sample_seconds.push(seconds);
+                }
+            }
+            if let Some((sample, seconds, smoke_injected)) = failed_sample {
+                if recalibrations >= A5_MAX_RECALIBRATIONS {
+                    panic!("A-5 full-tick cell exceeded {A5_MAX_RECALIBRATIONS} recalibrations");
+                }
+                let old = repetitions;
+                repetitions = increased_repetitions(repetitions);
+                recalibrations += 1;
+                let phase = format!("horizon_{}", checkpoint.world.current_day.as_u32());
+                record_recalibration(
+                    A5Series {
+                        kind: "full_tick",
+                        population: config.world.initial_population,
+                        settlements: config.world.settlement_count,
+                        degree: config.interaction.relationship_degree_k.unwrap() as u32,
+                        phase: &phase,
+                    },
+                    old,
+                    repetitions,
+                    seconds,
+                    minimum_seconds,
+                    smoke_injected,
+                );
+                assert!(
+                    repetitions as f64 * probe_median >= target_seconds,
+                    "recalibrated full-tick r must retain target margin (sample {sample})"
+                );
+                continue;
+            }
+            let phase = format!("horizon_{}", checkpoint.world.current_day.as_u32());
+            record_calibration(
+                A5Series {
+                    kind: "full_tick",
+                    population: config.world.initial_population,
+                    settlements: config.world.settlement_count,
+                    degree: config.interaction.relationship_degree_k.unwrap() as u32,
+                    phase: &phase,
+                },
+                repetitions,
+                probe_median,
+                target_seconds,
+                minimum_seconds,
+                recalibrations,
             );
-            if let Some(previous) = expected {
-                assert_eq!(previous.state, digests.state);
-                assert_eq!(previous.metrics, digests.metrics);
-                assert_eq!(previous.events, digests.events);
-            } else {
-                expected = Some(digests);
-            }
-            if sample >= warmups {
-                serial_values.push(serial);
-                parallel_values.push(parallel);
-                sample_seconds.push(seconds);
-            }
+            let mut serial_sorted = serial_values.clone();
+            let mut parallel_sorted = parallel_values.clone();
+            let serial = summarize(&mut serial_sorted);
+            let parallel = summarize(&mut parallel_sorted);
+            emit(&format!(
+                "SCALE_FULL_TICK|N={}|K={}|k={}|p_local={P_LOCAL}|horizon={}|serial_median_us={:.3}|serial_mad_us={:.3}|serial_us_per_agent={:.6}|parallel_median_us={:.3}|parallel_mad_us={:.3}|parallel_us_per_agent={:.6}|speedup={:.4}|warmups={warmups}|samples={samples}|r={repetitions}|recalibrations={recalibrations}|serial_samples_us={}|parallel_samples_us={}|sample_seconds={}",
+                config.world.initial_population,
+                config.world.settlement_count,
+                config.interaction.relationship_degree_k.unwrap(),
+                checkpoint.world.current_day.as_u32(),
+                serial.median,
+                serial.mad,
+                serial.median / config.world.initial_population as f64,
+                parallel.median,
+                parallel.mad,
+                parallel.median / config.world.initial_population as f64,
+                serial.median / parallel.median,
+                format_values(&serial_values),
+                format_values(&parallel_values),
+                format_values(&sample_seconds),
+            ));
+            return (
+                serial,
+                parallel,
+                expected.expect("paired samples have digests"),
+            );
         }
-        let mut serial_sorted = serial_values.clone();
-        let mut parallel_sorted = parallel_values.clone();
-        let serial = summarize(&mut serial_sorted);
-        let parallel = summarize(&mut parallel_sorted);
-        emit(&format!(
-            "SCALE_FULL_TICK|N={}|K={}|k={}|p_local={P_LOCAL}|horizon={}|serial_median_us={:.3}|serial_mad_us={:.3}|serial_us_per_agent={:.6}|parallel_median_us={:.3}|parallel_mad_us={:.3}|parallel_us_per_agent={:.6}|speedup={:.4}|warmups={warmups}|samples={samples}|r={repetitions}|serial_samples_us={}|parallel_samples_us={}|sample_seconds={}",
-            config.world.initial_population,
-            config.world.settlement_count,
-            config.interaction.relationship_degree_k.unwrap(),
-            checkpoint.world.current_day.as_u32(),
-            serial.median,
-            serial.mad,
-            serial.median / config.world.initial_population as f64,
-            parallel.median,
-            parallel.mad,
-            parallel.median / config.world.initial_population as f64,
-            serial.median / parallel.median,
-            format_values(&serial_values),
-            format_values(&parallel_values),
-            format_values(&sample_seconds),
-        ));
-        (
-            serial,
-            parallel,
-            expected.expect("paired samples have digests"),
-        )
     }
 
     fn host_ram_bytes() -> Option<u64> {
@@ -423,12 +655,22 @@ mod scale {
             }
         };
         emit(&format!(
-            "SCALE_HOST|os={}|arch={}|seed={MASTER_SEED}|replicate={REPLICATE_ID}|profile=equilibrium|metabolic_cost={EQUILIBRIUM_METABOLIC_COST}|p_local={P_LOCAL}|pool_threads={POOL_THREADS}|chunk={CHUNK_SIZE}|warmups={}|samples={}|days_per_sample={DAYS_PER_SAMPLE}|sample_floor_seconds={}|process_controls={controls}|host_ram_bytes={}",
+            "SCALE_HOST|os={}|arch={}|seed={MASTER_SEED}|replicate={REPLICATE_ID}|profile=equilibrium|metabolic_cost={EQUILIBRIUM_METABOLIC_COST}|p_local={P_LOCAL}|pool_threads={POOL_THREADS}|chunk={CHUNK_SIZE}|warmups={}|samples={}|days_per_sample={DAYS_PER_SAMPLE}|target_sample_seconds={}|minimum_sample_seconds={}|max_recalibrations={A5_MAX_RECALIBRATIONS}|mode={}|process_controls={controls}|host_ram_bytes={}",
             std::env::consts::OS,
             std::env::consts::ARCH,
             if smoke { 1 } else { A5_WARMUPS },
             if smoke { 2 } else { A5_SAMPLES },
-            if smoke { 0.0 } else { A5_FLOOR_SECONDS },
+            if smoke {
+                SMOKE_TARGET_SECONDS
+            } else {
+                A5_TARGET_SECONDS
+            },
+            if smoke {
+                SMOKE_MINIMUM_SECONDS
+            } else {
+                A5_MINIMUM_SECONDS
+            },
+            if smoke { "smoke" } else { "a5" },
             host_ram_bytes().map_or_else(|| "unavailable".to_owned(), |value| value.to_string()),
         ));
     }

@@ -9,7 +9,7 @@ dvc repro docs/data/m5_05/m3_05_pilot/dvc.yaml:m3_05_a5_reconstruction
 just provenance-finalize docs/data/m5_05/m3_05_pilot/summary.json
 ```
 
-The small non-A-5 smoke invocation writes only under ignored `target/`:
+The smoke invocation writes only under ignored `target/`. It exercises the same calibration and retry code with a test-only 20 ms target, 10 ms floor, and one injected first-sample undershoot; these overrides are not used by full A-5 runs.
 
 ```powershell
 uv run --directory analysis --project . python -m simciv_analysis.m3_05_pilot --output-dir target/m3_05_pilot_smoke --smoke

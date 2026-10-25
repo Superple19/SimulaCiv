@@ -120,6 +120,18 @@ def _execute(raw_file: Path, smoke: bool) -> tuple[list[dict[str, Any]], str]:
         raise ValueError("M3-05 driver did not emit a full-tick cell")
     if not any(row.get("record") == "SCALE_PARITY" and row.get("serial_parallel_equal") is True for row in records):
         raise ValueError("M3-05 driver emitted no passing serial/parallel parity record")
+    if smoke:
+        calibrations = [row for row in records if row.get("record") == "SCALE_A5_CALIBRATION"]
+        if not calibrations or any(
+            row.get("estimated_sample_seconds", 0.0) < row.get("target_seconds", float("inf"))
+            for row in calibrations
+        ):
+            raise ValueError("smoke calibration failed to reach its test-only target margin")
+        recalibrations = [row for row in records if row.get("record") == "SCALE_A5_RECALIBRATION"]
+        if not recalibrations or any(
+            row.get("reason") != "smoke_injected_floor_undershoot" for row in recalibrations
+        ):
+            raise ValueError("smoke did not exercise the isolated A-5 recalibration path")
     return records, subprocess.list2cmdline(command)
 
 
@@ -131,7 +143,11 @@ def run(output_dir: str, summary_path: str | None, smoke: bool) -> dict[str, Any
     output_root.mkdir(parents=True, exist_ok=True)
     records, command = _execute(raw_file, smoke)
     if smoke:
-        print(f"M3-05 smoke passed: {len(records)} JSONL records; parity assertions passed")
+        recalibrations = sum(row.get("record") == "SCALE_A5_RECALIBRATION" for row in records)
+        print(
+            f"M3-05 smoke passed: {len(records)} JSONL records; calibration margin and "
+            f"{recalibrations} injected-floor recalibration record(s) verified; parity assertions passed"
+        )
         return None
     if summary_path is None:
         raise ValueError("full A-5 mode requires --summary")
