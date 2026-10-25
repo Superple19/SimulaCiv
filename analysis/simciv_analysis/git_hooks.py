@@ -89,6 +89,33 @@ def large_file_violations(
     return violations
 
 
+def large_file_range_violations(
+    root: Path,
+    base: str,
+    head: str = "HEAD",
+    outputs: set[str] | None = None,
+) -> list[tuple[str, int]]:
+    changed = subprocess.check_output(
+        ["git", "diff", "--name-only", "-z", f"{base}..{head}", "--"],
+        cwd=root,
+    ).decode("utf-8").split("\0")
+    dvc_outputs = dvc_output_paths(root) if outputs is None else outputs
+    violations = []
+    for relative in sorted({Path(path).as_posix() for path in changed if path}):
+        if _is_dvc_output(relative, dvc_outputs):
+            continue
+        result = subprocess.run(
+            ["git", "cat-file", "-s", f"{head}:{relative}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0 and int(result.stdout) > MAX_FILE_BYTES:
+            violations.append((relative, int(result.stdout)))
+    return violations
+
+
 def bom_violations(root: Path, paths: list[str]) -> list[str]:
     return [
         Path(raw_path).as_posix()
@@ -185,6 +212,18 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         count = len(_git_output(ROOT, "rev-list", f"{commit_range[0]}..{commit_range[1]}").splitlines())
         print(f"all {count} commits in range satisfy the allowlist")
+        return 0
+    if paths[:1] == ["--check-pushed-range"]:
+        commit_range = _commit_range(ROOT, os.environ)
+        if commit_range is None:
+            print("no pushed commit range for this workflow event")
+            return 0
+        violations = large_file_range_violations(ROOT, *commit_range)
+        if violations:
+            for path, size in violations:
+                print(f"{path}: {size} bytes exceeds the 1 MiB Git limit; track it with DVC")
+            return 1
+        print(f"all changed files in {commit_range[0][:10]}..{commit_range[1][:10]} satisfy the 1 MiB Git limit")
         return 0
     if paths[:1] == ["--check-bom"]:
         violations = bom_violations(ROOT, paths[1:])

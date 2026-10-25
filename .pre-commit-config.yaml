@@ -27,6 +27,13 @@ repos:
     hooks:
       - id: gitleaks
         stages: [pre-commit]
+      - id: gitleaks
+        alias: gitleaks-pushed-range
+        name: scan pushed commit range with gitleaks
+        entry: gitleaks git --redact --log-opts origin/main..HEAD
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
 
   - repo: local
     hooks:
@@ -42,6 +49,20 @@ repos:
         entry: uv run --directory analysis --project . python -m simciv_analysis.git_hooks
         language: system
         stages: [pre-commit]
+
+      - id: pre-push-large-file-range
+        name: block oversized files in pushed commit range
+        entry: uv run --directory analysis --project . python -m simciv_analysis.git_hooks --check-pushed-range
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: pre-push-data-integrity-range
+        name: protect existing data in pushed commit range
+        entry: uv run --directory analysis --project . python -m simciv_analysis.data_integrity --check-base-range origin/main HEAD
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
 
       - id: data-integrity
         name: verify docs/data checksums

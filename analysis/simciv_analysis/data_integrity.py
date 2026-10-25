@@ -141,6 +141,79 @@ def _committed_manifest(root: Path) -> dict[str, str]:
     return parse_manifest(text)
 
 
+def _blob_at(root: Path, revision: str, relative: str) -> bytes | None:
+    result = subprocess.run(
+        ["git", "show", f"{revision}:{relative}"],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.stdout if result.returncode == 0 else None
+
+
+def _manifest_at(root: Path, revision: str) -> dict[str, str]:
+    content = _blob_at(root, revision, "docs/data/SHA256SUMS")
+    return {} if content is None else parse_manifest(content.decode("utf-8"))
+
+
+def base_range_violations(root: Path, base: str, head: str = "HEAD") -> list[str]:
+    """Reject changes to existing data blobs or their checksums in a pushed range.
+
+    DVC pipeline YAML/lock files are control metadata; raw data and their manifest
+    entries remain protected. A new DVC output path may be registered normally.
+    """
+    try:
+        base_manifest = _manifest_at(root, base)
+        head_manifest = _manifest_at(root, head)
+    except (subprocess.SubprocessError, UnicodeDecodeError, ValueError) as error:
+        return [f"could not read data manifests for {base}..{head}: {error}"]
+    outputs = dvc_output_paths(root)
+    errors = []
+    for relative, old_digest in sorted(base_manifest.items()):
+        new_digest = head_manifest.get(relative)
+        if new_digest is None:
+            if not _is_dvc_metadata(relative):
+                errors.append(f"existing data checksum removed in {base}..{head}: {relative}")
+        elif new_digest != old_digest and not _is_dvc_metadata(relative):
+            errors.append(f"existing data checksum changed in {base}..{head}: {relative}")
+
+    for relative, digest in sorted(head_manifest.items()):
+        if relative in base_manifest or _is_dvc_metadata(relative):
+            continue
+        blob = _blob_at(root, head, relative)
+        if blob is None:
+            if not _is_dvc_output(relative, outputs):
+                errors.append(f"new checksum has no tracked file or DVC output in {head}: {relative}")
+        elif hashlib.sha256(blob).hexdigest() != digest:
+            errors.append(f"new data checksum does not match {head} blob: {relative}")
+
+    changed = subprocess.run(
+        ["git", "diff", "--name-only", "-z", f"{base}..{head}", "--", "docs/data"],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if changed.returncode:
+        errors.append(changed.stderr.decode("utf-8", errors="replace").strip() or "could not inspect changed data paths")
+        return errors
+    paths = {Path(path.decode("utf-8")).as_posix() for path in changed.stdout.split(b"\0") if path}
+    for relative in sorted(paths):
+        if relative.casefold().endswith("/readme.md") or relative.casefold() == "docs/data/readme.md":
+            continue
+        if relative == "docs/data/SHA256SUMS" or _is_dvc_metadata(relative):
+            continue
+        before = _blob_at(root, base, relative)
+        after = _blob_at(root, head, relative)
+        if before is not None and before != after:
+            errors.append(f"existing data bytes changed in {base}..{head}: {relative}")
+        elif before is None and after is not None:
+            if head_manifest.get(relative) != hashlib.sha256(after).hexdigest():
+                errors.append(f"new data file must be registered in docs/data/SHA256SUMS: {relative}")
+    return errors
+
+
 def check(root: Path = ROOT) -> list[str]:
     manifest = root / "docs" / "data" / "SHA256SUMS"
     if not manifest.is_file():
@@ -230,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--check", action="store_true", help="verify data files against SHA256SUMS")
     mode.add_argument("--write", action="store_true", help="update SHA256SUMS after producing data")
     mode.add_argument("--check-autocrlf", action="store_true", help="warn if core.autocrlf is true")
+    mode.add_argument("--check-base-range", nargs=2, metavar=("BASE", "HEAD"), help="protect existing data in a Git range")
     args = parser.parse_args(argv)
     if args.check_autocrlf:
         warning = autocrlf_warning()
@@ -245,6 +319,13 @@ def main(argv: list[str] | None = None) -> int:
                 text=True,
             )
             print(f"repository-local core.autocrlf={result.stdout.strip() or 'unset'}")
+        return 0
+    if args.check_base_range:
+        errors = base_range_violations(ROOT, *args.check_base_range)
+        if errors:
+            print("\n".join(errors), file=sys.stderr)
+            return 1
+        print(f"existing raw data bytes and checksums are unchanged in {args.check_base_range[0]}..{args.check_base_range[1]}")
         return 0
     if args.write:
         write()
