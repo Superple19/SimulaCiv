@@ -109,14 +109,14 @@ repos:
 
       - id: pre-push-clippy
         name: cargo clippy before push
-        entry: cargo clippy --workspace --all-targets -- -D warnings
+        entry: cargo clippy --locked --workspace --all-targets -- -D warnings
         language: system
         pass_filenames: false
         stages: [pre-push]
 
       - id: pre-push-cargo-test
         name: cargo test before push
-        entry: cargo test --workspace
+        entry: cargo test --locked --workspace
         language: system
         pass_filenames: false
         stages: [pre-push]

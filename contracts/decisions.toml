@@ -105,9 +105,9 @@ id = "M5-02-D-2"
 milestone = "M5"
 stage = "M5-02"
 status = "frozen"
-enforcement = "exists"
-summary = "Reports live under docs/reports with stage-based names and exactly one approved status header while historical prose is preserved."
-enforced_by = ["docs/reports/RENAMES.md", "analysis/simciv_analysis/links.py"]
+enforcement = "documented"
+summary = "Report sources use stage-based names under docs/reports, and RENAMES.md records historical filename mappings."
+enforced_by = ["docs/reports/README.md", "docs/reports/RENAMES.md"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"
 date = "2026-10-22"
 
@@ -127,9 +127,9 @@ id = "M5-02-D-4"
 milestone = "M5"
 stage = "M5-02"
 status = "frozen"
-enforcement = "exists"
-summary = "Maintained analysis tools live in analysis and obsolete tools use analysis/legacy."
-enforced_by = ["analysis/README.md", "analysis/simciv_analysis/links.py"]
+enforcement = "documented"
+summary = "The analysis/legacy directory is reserved for tools that no longer run or are no longer maintained; active analysis tools remain under analysis."
+enforced_by = ["docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#103-decision-register-frozen"
 date = "2026-10-22"
 
@@ -517,10 +517,21 @@ milestone = "M5"
 stage = "M5-03"
 status = "frozen"
 enforcement = "verified"
-summary = "Non-README docs/data bytes match SHA256SUMS generated from Git blobs and integrity checks compare working-tree bytes with blobs."
-enforced_by = ["docs/data/SHA256SUMS", "analysis/simciv_analysis/data_integrity.py", "test:analysis/tests/test_data_integrity.py::test_integrity_check_detects_changed_and_unregistered_files", "just:data-integrity-check", "prek:data-integrity"]
+summary = "Raw docs/data artifacts match Git-blob checksums; pushed-range checks protect existing artifacts and checksums, while allowing registered new paths and DVC pipeline metadata updates."
+enforced_by = ["docs/data/SHA256SUMS", "analysis/simciv_analysis/data_integrity.py", "test:analysis/tests/test_data_integrity.py::test_integrity_check_detects_changed_and_unregistered_files", "test:analysis/tests/test_data_integrity_range.py::test_existing_data_bytes_and_checksums_are_immutable_in_a_pushed_range", "test:analysis/tests/test_data_integrity_range.py::test_new_data_path_can_be_registered_in_the_pushed_range", "test:analysis/tests/test_data_integrity_range.py::test_checksum_rewrite_for_an_existing_data_path_is_rejected", "just:data-integrity-check", "just:data-integrity-range-check", "prek:data-integrity", "prek:pre-push-data-integrity-range"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-23"
+
+[[decision]]
+id = "M5-INFRA-DVC-PATH-GUARD"
+milestone = "M5"
+stage = "M5-03"
+status = "frozen"
+enforcement = "verified"
+summary = "Analysis tests and report generators do not open DVC-tracked outputs; the analysis check runs the guard test."
+enforced_by = ["analysis/simciv_analysis/dvc_path_guard.py", "test:analysis/tests/test_dvc_path_guard.py::test_analysis_tests_and_report_generators_do_not_open_dvc_outputs", "just:check"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-25"
 
 [[decision]]
 id = "M5-INFRA-FINDINGS-GUARDRAILS"
@@ -550,8 +561,8 @@ milestone = "M5"
 stage = "M5-03"
 status = "frozen"
 enforcement = "verified"
-summary = "Commit messages use the repository allowlist and require a nonempty body of contiguous '- ' bullets."
-enforced_by = ["analysis/simciv_analysis/git_hooks.py", "test:analysis/tests/test_git_hooks.py::test_commit_message_accepts_messages_with_bullet_bodies", "test:analysis/tests/test_git_hooks.py::test_commit_message_rejects_everything_outside_the_allowlist", ".pre-commit-config.yaml", "prek:allowlist-commit-message"]
+summary = "Local hooks enforce the bullet-body allowlist, and CI validates every commit in the pushed range."
+enforced_by = ["analysis/simciv_analysis/git_hooks.py", "test:analysis/tests/test_git_hooks.py::test_commit_message_accepts_messages_with_bullet_bodies", "test:analysis/tests/test_git_hooks.py::test_commit_message_rejects_everything_outside_the_allowlist", "test:analysis/tests/test_git_hooks.py::test_commit_range_checker_reads_exact_committed_messages", ".pre-commit-config.yaml", "prek:allowlist-commit-message", "just:commit-messages-check"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-24"
 
@@ -628,7 +639,7 @@ milestone = "M5"
 stage = "M5-03"
 status = "frozen"
 enforcement = "verified"
-summary = "GitHub workflows pin the newest GA runner label per OS, and image updates are made by an explicit commit."
+summary = "The CI matrix pins the latest GA runner labels per OS: Ubuntu 26.04 and Windows 2025 x64, macOS 26 arm64."
 enforced_by = [".github/workflows/ci.yml", "test:analysis/tests/test_ci_targets.py::test_workflows_use_current_ga_runner_images"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-24"
@@ -673,8 +684,8 @@ milestone = "M5"
 stage = "M5-AUDIT"
 status = "frozen"
 enforcement = "verified"
-summary = "just ship pushes the same commit to ci-check and the successful CI workflow promotes it to main by fast-forward in that run without dispatching another run."
-enforced_by = ["justfile", ".github/workflows/ci.yml", "test:analysis/tests/test_ci_targets.py::test_promotion_job_is_ci_check_push_only_fast_forward_and_needs_all_checks", "AGENTS.md"]
+summary = "just ship pushes a clean HEAD to ci-check, and that same successful CI run promotes it to main by fast-forward without a second run."
+enforced_by = ["justfile", ".github/workflows/ci.yml", "test:analysis/tests/test_git_hooks.py::test_ship_refuses_dirty_trees_and_pushes_clean_trees", "test:analysis/tests/test_ci_targets.py::test_promotion_job_is_ci_check_push_only_fast_forward_and_needs_all_checks", "test:analysis/tests/test_ci_targets.py::test_workflow_promotion_shell_is_fast_forward_only_in_a_temporary_repo", "AGENTS.md"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-24"
 

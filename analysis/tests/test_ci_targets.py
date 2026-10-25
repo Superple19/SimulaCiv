@@ -1,5 +1,9 @@
 from pathlib import Path
 import re
+import os
+import shutil
+import subprocess
+import sys
 
 
 
@@ -85,11 +89,70 @@ def test_workflow_check_steps_are_single_just_targets():
 
 def test_workflows_use_current_ga_runner_images():
     ci = WORKFLOW.read_text(encoding="utf-8")
-    assert "- ubuntu-26.04" in ci
-    assert "- windows-2025" in ci
-    assert "- macos-26" in ci
+    runner_labels = re.findall(r"^\s+- (ubuntu-\S+|windows-\S+|macos-\S+)$", ci, re.MULTILINE)
+    assert runner_labels == ["ubuntu-26.04", "windows-2025", "macos-26"]
+    assert "pinned GA labels are x64 for Ubuntu/Windows and arm64 for macOS" in ci
     assert "runs-on: ubuntu-26.04" in ci
     assert all(label not in ci for label in ("ubuntu-latest", "windows-latest", "macos-latest"))
+
+
+def test_workflow_promotion_shell_is_fast_forward_only_in_a_temporary_repo(tmp_path):
+    bash = shutil.which("bash")
+    if sys.platform == "win32":
+        git_bash = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
+        if git_bash.is_file():
+            bash = str(git_bash)
+    assert bash is not None, "the hosted runner images provide Git Bash/Bash for the promotion test"
+
+    origin = tmp_path / "origin.git"
+    checkout = tmp_path / "checkout"
+    subprocess.run(["git", "init", "--quiet", "--bare", "--object-format=sha1", "--initial-branch=main", str(origin)], check=True)
+    subprocess.run(["git", "init", "--quiet", "--object-format=sha1", "--initial-branch=main", str(checkout)], check=True)
+    for name, value in (("user.name", "Promotion Test"), ("user.email", "promotion@example.invalid")):
+        subprocess.run(["git", "config", name, value], cwd=checkout, check=True)
+    (checkout / "state.txt").write_text("base\n", encoding="utf-8")
+    subprocess.run(["git", "add", "state.txt"], cwd=checkout, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "base"], cwd=checkout, check=True)
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=checkout, check=True)
+    subprocess.run(["git", "push", "--quiet", "-u", "origin", "main"], cwd=checkout, check=True)
+
+    (checkout / "state.txt").write_text("tested\n", encoding="utf-8")
+    subprocess.run(["git", "commit", "--quiet", "-am", "tested"], cwd=checkout, check=True)
+    tested = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+    subprocess.run(["git", "push", "--quiet", "origin", "HEAD:ci-check"], cwd=checkout, check=True)
+
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    script = _run_steps(_steps(workflow, "promote"))[0][1]
+
+    def promote(sha: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [bash, "-e", "-c", script],
+            cwd=checkout,
+            env=os.environ | {"TESTED_SHA": sha},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    successful = promote(tested)
+    assert successful.returncode == 0, f"tested SHA length={len(tested)} {tested}: {successful.stderr}"
+    main_after = subprocess.check_output(["git", "--git-dir", str(origin), "rev-parse", "refs/heads/main"], text=True).strip()
+    assert main_after == tested
+
+    overlapping = promote(base)
+    assert overlapping.returncode == 0, overlapping.stderr
+    assert "already an ancestor" in overlapping.stdout
+
+    subprocess.run(["git", "checkout", "--quiet", "--detach", base], cwd=checkout, check=True)
+    (checkout / "state.txt").write_text("sibling\n", encoding="utf-8")
+    subprocess.run(["git", "commit", "--quiet", "-am", "sibling"], cwd=checkout, check=True)
+    sibling = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+    subprocess.run(["git", "push", "--quiet", "--force", "origin", "HEAD:ci-check"], cwd=checkout, check=True)
+    rejected = promote(sibling)
+    assert rejected.returncode != 0
+    assert "not a descendant of origin/main" in rejected.stderr
+    assert subprocess.check_output(["git", "--git-dir", str(origin), "rev-parse", "refs/heads/main"], text=True).strip() == tested
 
 
 def test_quarto_preflight_precedes_checks_and_report_commands():
@@ -153,6 +216,7 @@ def test_just_jobs_install_all_target_tools_before_running_them():
 
     analysis_steps = _steps(workflow, "analysis")
     analysis_block = "\n".join("\n".join(step) for step in analysis_steps)
+    assert "rustup toolchain install" in "\n".join(_step(analysis_steps, "Install pinned Rust toolchain"))
     assert "uv python install --directory analysis" in analysis_block
     python_step = "uv run --directory analysis --project . python -c \"import sys; print(sys.version)\""
     assert python_step in analysis_block
@@ -216,6 +280,8 @@ def test_promotion_job_is_ci_check_push_only_fast_forward_and_needs_all_checks()
     runs = _run_steps(steps)
     assert [name for name, _ in runs] == ["Fast-forward main"]
     commands = runs[0][1]
+    assert "${#TESTED_SHA} -ne 40" in commands
+    assert "*[!0-9a-f]*)" in commands
     assert 'git merge-base --is-ancestor "$main_sha" "$tested_sha"' in commands
     assert 'git push origin "$tested_sha:refs/heads/main"' in commands
     assert 'if [[ "$main_sha" == "$tested_sha" ]]' in commands
