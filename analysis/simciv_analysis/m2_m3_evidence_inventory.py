@@ -4,14 +4,16 @@ import csv
 import gzip
 import io
 import json
+import argparse
 import re
 import subprocess
+import sys
 import tomllib
 from collections import Counter, defaultdict
 from pathlib import Path
 
 from .claims import scan_documents
-from .io import write_text_lf
+from .io import content_matches, write_text_lf
 from .provenance import ROOT
 from .sources import load_sources, source_for_claim
 
@@ -21,6 +23,7 @@ SOURCES = ROOT / "docs/reproducibility/sources.toml"
 M5_RESULTS = ROOT / "docs/reproducibility/M5_05_M0_M3_REGENERATION_RESULTS.json"
 OUT_CSV = ROOT / "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.csv"
 OUT_MD = ROOT / "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.md"
+A5_SPEC = ROOT / "docs/reproducibility/m5_05_configs/m3_05_a5_pilot.toml"
 
 FILTER_REPORT = re.compile(r"^M[23]_")
 PROTOCOL_CUE = re.compile(
@@ -169,6 +172,14 @@ def exact_matches(pattern: re.Pattern[str], text: str) -> list[str]:
     return list(dict.fromkeys(match.group(0) for match in pattern.finditer(text)))
 
 
+def a5_cell_floor_seconds(root: Path = ROOT) -> int:
+    spec = tomllib.loads((root / A5_SPEC.relative_to(ROOT)).read_text(encoding="utf-8"))
+    seconds = (int(spec["warmups"]) + int(spec["samples"])) * float(spec["sample_floor_seconds"])
+    if not seconds.is_integer():
+        raise ValueError("A-5 cell floor must resolve to a whole number of seconds")
+    return int(seconds)
+
+
 def check_command_test_exists(command: str, commit: str = "") -> tuple[bool, bool]:
     test = re.search(r"--test\s+([A-Za-z0-9_]+)", command)
     if not test:
@@ -177,7 +188,8 @@ def check_command_test_exists(command: str, commit: str = "") -> tuple[bool, boo
     return path_exists_at(commit, path), (ROOT / path).is_file()
 
 
-def main() -> None:
+def build_outputs() -> dict[Path, bytes]:
+    cell_floor = a5_cell_floor_seconds()
     with gzip.open(LEDGER, "rt", encoding="utf-8", newline="") as stream:
         ledger = list(csv.DictReader(stream))
     selected = [r for r in ledger if FILTER_REPORT.match(r["report"]) and r["tier"] in {"headline", "key"} and r["status"] in {"missing-data", "missing-source"}]
@@ -387,7 +399,7 @@ def main() -> None:
         inferred_cells = row_count if row_count else max(len(local_n), len(n_values_set))
         estimate_applicable = classification in {"b", "c", "d"} and "timing" in classes
         cells = str(inferred_cells) if estimate_applicable and inferred_cells else "not estimable"
-        estimate_seconds = str(inferred_cells * 43) if estimate_applicable and inferred_cells else ""
+        estimate_seconds = str(inferred_cells * cell_floor) if estimate_applicable and inferred_cells else ""
         if classification == "a":
             estimate_note = "A-5 is a timing protocol and does not apply to deterministic test replay; runtime not estimated from report data."
         elif classification == "f":
@@ -395,7 +407,7 @@ def main() -> None:
         elif classification in {"b", "c", "d"} and "timing" not in classes:
             estimate_note = "No direct timing-class claim in this group; any derived values should be regenerated from their source experiment, not counted as a separate A-5 cell."
         elif estimate_seconds:
-            estimate_note = "Lower bound = 43 s per inferred table row/cell (2 warmups + 41 samples at >=1 s); excludes setup/build, retries, and any multi-setting rows."
+            estimate_note = f"Lower bound = {cell_floor} s per inferred table row/cell from the committed A-5 pilot protocol; excludes setup/build, retries, and any multi-setting rows."
         else:
             estimate_note = "Not estimable from the report because table-cell count/protocol is missing; no timing was run."
 
@@ -455,7 +467,6 @@ def main() -> None:
     csv_text = csv_buffer.getvalue()
     if len(csv_text.encode("utf-8")) >= 1024 * 1024:
         raise RuntimeError(f"inventory CSV exceeds 1 MiB: {len(csv_text.encode('utf-8'))} bytes")
-    write_text_lf(OUT_CSV, csv_text)
 
     claim_by_class = Counter()
     group_by_class = Counter()
@@ -471,7 +482,7 @@ def main() -> None:
     md = [
         "# M2/M3 Evidence Reconstruction Inventory",
         "",
-        "**Status:** generated from the committed claims ledger, current report sources, Git history, source map, recovered-evidence manifest, and M5-05 regeneration results. No timing or simulation harness was run.",
+        "**Status:** generated from committed claim and evidence sources; no new timing or simulation harness was run during inventory generation.",
         "",
         "## Scope and method",
         "",
@@ -481,7 +492,7 @@ def main() -> None:
         "",
         "Class labels: (a) deterministic replay at original revision; (b) timing with committed harness; (c) timing with complete recovered harness source; (d) reconstructed timing harness from a sufficiently specified report protocol; (e) protocol underspecified; (f) conclusion already covered by M5-05, with historical details excluded from that coverage.",
         "",
-        "A-5 lower bounds use 2 warmups plus 41 samples, with each sample at least 1 second: 43 seconds per inferred table row/cell. They exclude build/setup, repetitions within each sample beyond the 1-second floor, noise retries, and cells not enumerated as table rows; they are workload floors, not elapsed-time predictions. Deterministic replay is not an A-5 timing run.",
+        f"A-5 lower bounds use the committed pilot protocol's {cell_floor}-second per-cell floor. They exclude build/setup, repetitions within each sample beyond the minimum, noise retries, and cells not enumerated as table rows; they are workload floors, not elapsed-time predictions. Deterministic replay is not an A-5 timing run.",
         "",
         "## Counts",
         "",
@@ -510,13 +521,36 @@ def main() -> None:
         "- A blank A-5 estimate means the group is not an A-5 timing task or is not estimable from the recorded protocol; it does not mean zero compute cost.",
         "- The recovered archive is evidence only. No recovered binary was executed and no recovered source was compiled in this inventory task.",
         "",
+        "## M3-05 end-to-end pilot proposal",
+        "",
+        "The pilot protocol and settings are in [m3_05_a5_pilot.toml](m5_05_configs/m3_05_a5_pilot.toml); the result section is rendered from committed pilot records.",
+        "",
+        "## Criteria and status",
+        "",
+        "The frozen reproduction criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md).",
+        "",
     ])
-    write_text_lf(OUT_MD, "\n".join(md))
-    print(f"wrote {OUT_CSV.name} ({len(csv_text.encode('utf-8'))} bytes)")
-    print(f"wrote {OUT_MD.name}")
-    print(f"claims={len(selected)} experiments={len(output_rows)} classes={dict(group_by_class)} claim_classes={dict(claim_by_class)} A5_floor_s={timing_seconds}")
-    print("top10=" + json.dumps([{k: r[k] for k in ("report", "section_anchor", "claim_count", "classification")} for r in top], ensure_ascii=False))
+    md_text = "\n".join(md)
+    return {OUT_CSV: csv_text.encode("utf-8"), OUT_MD: md_text.encode("utf-8")}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args(argv)
+    outputs = build_outputs()
+    if args.check:
+        different = [path.relative_to(ROOT).as_posix() for path, content in outputs.items() if not content_matches(path, content)]
+        if different:
+            print("evidence inventory differs: " + ", ".join(different), file=sys.stderr)
+            return 1
+        print("evidence inventory matches source inputs")
+        return 0
+    for path, content in outputs.items():
+        write_text_lf(path, content.decode("utf-8"))
+    print("generated evidence inventory from committed source inputs")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

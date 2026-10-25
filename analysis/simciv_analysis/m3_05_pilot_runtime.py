@@ -15,6 +15,7 @@ from typing import Any
 
 from .io import content_matches, write_text_lf
 from .provenance import ROOT
+from .m2_m3_evidence_inventory import a5_cell_floor_seconds
 
 
 INVENTORY = ROOT / "docs" / "reproducibility" / "M2_M3_EVIDENCE_RECONSTRUCTION.csv"
@@ -227,6 +228,7 @@ def _inventory_outputs(
     per_n_rows: list[dict[str, Any]],
     inventory_content: bytes | None = None,
 ) -> tuple[bytes, bytes, bytes, dict[str, Any]]:
+    cell_floor = a5_cell_floor_seconds(root)
     source_content = inventory_content if inventory_content is not None else (root / INVENTORY.relative_to(ROOT)).read_bytes()
     reader = csv.DictReader(io.StringIO(source_content.decode("utf-8-sig"), newline=""))
     fields = list(reader.fieldnames or [])
@@ -266,7 +268,7 @@ def _inventory_outputs(
             "cells_remaining": cells,
             "N_values": ";".join(map(str, n_values)),
             "model_seconds": f"{estimate:.3f}",
-            "A5_floor_seconds": cells * 43,
+            "A5_floor_seconds": cells * cell_floor,
             "estimate_basis": basis,
             "pilot_harness": "analysis/simciv_analysis/m3_05_pilot_runtime.py; crates/sim-model/examples/m3_05_a5_reconstruction.rs",
             "pilot_raw_data": "docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl",
@@ -290,7 +292,7 @@ def _inventory_outputs(
     plan_csv = _csv_bytes(plan_rows, PLAN_FIELDS)
     summary = {
         "remaining_cells": remaining_cells,
-        "remaining_floor_seconds": remaining_cells * 43,
+        "remaining_floor_seconds": remaining_cells * cell_floor,
         "remaining_model_seconds": round(total_estimate, 3),
         "unparsed_N_groups_fallback_to_1M": fallback_groups,
         "model": "log-log power fit to M3-05 per-series known elapsed estimate (timed samples + estimated warmups + estimated calibration probes)",
@@ -370,7 +372,7 @@ def _pilot_outcome_section(pilot_rows: list[dict[str, Any]], series_rows: list[d
     return "\n".join([
         "## M3-05 end-to-end pilot outcome",
         "",
-        f"The completed A-5 pilot covers {len(series_rows)} series across {full_tick_cells} full-tick cells. Its {len(pilot_group)}-claim missing-data group records {sum(row.get('verdict') == 'reproduced' for row in pilot_group)} reproduced, {sum(row.get('verdict') == 'reproduced (loose)' for row in pilot_group)} reproduced (loose), {sum(row.get('verdict') == 'not reproduced' for row in pilot_group)} not reproduced, and {sum(row.get('verdict') == 'inconclusive (validity)' for row in pilot_group)} inconclusive (validity) claims. {supplemental_invalid} supplemental claims have pilot status `inconclusive (validity)`. See the [generated claim results](M3_05_PILOT_CLAIMS.csv) and the [pilot raw output instructions](../data/m5_05/m3_05_pilot/README.md).",
+        f"The completed A-5 pilot covers {len(series_rows)} series across {full_tick_cells} full-tick cells. Its {len(pilot_group)}-claim pilot group records {sum(row.get('verdict') == 'reproduced' for row in pilot_group)} reproduced, {sum(row.get('verdict') == 'reproduced (loose)' for row in pilot_group)} reproduced (loose), {sum(row.get('verdict') == 'not reproduced' for row in pilot_group)} not reproduced, and {sum(row.get('verdict') == 'inconclusive (validity)' for row in pilot_group)} inconclusive (validity) claims. {supplemental_invalid} supplemental claims have pilot status `inconclusive (validity)`. See the [generated claim results](M3_05_PILOT_CLAIMS.csv) and the [pilot raw output instructions](../data/m5_05/m3_05_pilot/README.md).",
         "",
         f"Recorded sample-timer durations sum to {timed_seconds:,.3f} s. The JSONL has no wall-clock timestamps or elapsed time for calibration and warmups; see the runtime breakdown below for the estimates and unrecorded preparation components.",
         "",
@@ -447,20 +449,6 @@ def build_summary_outputs(
     pilot_results = json.loads((root / "docs/reproducibility/M3_05_PILOT_RESULTS.json").read_text(encoding="utf-8"))
     report_path = root / INVENTORY_REPORT.relative_to(ROOT)
     report = (report_content if report_content is not None else report_path.read_bytes()).decode("utf-8")
-    report = report.replace(
-        "**Status:** generated planning inventory. No simulation or timing harness was run.",
-        "**Status:** generated inventory updated after the M3-05 pilot; no other reconstruction experiment was run.",
-    )
-    report = report.replace(
-        "This inventory covers the 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source` in the recovered-mapped ledger.",
-        "At initial generation this inventory covered 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source`; the M3-05 pilot outcomes below update that group's current claim statuses.",
-    )
-    report = report.replace("## A-5 estimate by class", "## Original pre-pilot A-5 estimate by class (historical)")
-    report = report.replace("## Ten largest groups by A-5 runtime", "## Ten largest groups in the original pre-pilot plan")
-    report = report.replace(
-        "Proposed acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md) and remain draft pending approval; no timing is authorized under the draft. They require exact deterministic values and preserve dimensionless timing ratios/rankings; absolute elapsed times are recorded but are not pass criteria.",
-        "The frozen acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md). The M3-05 pilot applies exact checks to metadata and the frozen ratio bands to valid timing paths; invalid paths remain inconclusive. No additional experiment was run for this inventory update.",
-    )
     pilot_start = report.find("## M3-05 end-to-end pilot proposal")
     if pilot_start < 0:
         pilot_start = report.find("## M3-05 end-to-end pilot outcome")
@@ -488,20 +476,6 @@ def build_outputs(root: Path = ROOT) -> dict[Path, bytes]:
     pilot_results = json.loads((root / "docs" / "reproducibility" / "M3_05_PILOT_RESULTS.json").read_text(encoding="utf-8"))
     report_path = root / INVENTORY_REPORT.relative_to(ROOT)
     report = report_path.read_text(encoding="utf-8")
-    report = report.replace(
-        "**Status:** generated planning inventory. No simulation or timing harness was run.",
-        "**Status:** generated inventory updated after the M3-05 pilot; no other reconstruction experiment was run.",
-    )
-    report = report.replace(
-        "This inventory covers the 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source` in the recovered-mapped ledger.",
-        "At initial generation this inventory covered 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source`; the M3-05 pilot outcomes below update that group's current claim statuses.",
-    )
-    report = report.replace("## A-5 estimate by class", "## Original pre-pilot A-5 estimate by class (historical)")
-    report = report.replace("## Ten largest groups by A-5 runtime", "## Ten largest groups in the original pre-pilot plan")
-    report = report.replace(
-        "Proposed acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md) and remain draft pending approval; no timing is authorized under the draft. They require exact deterministic values and preserve dimensionless timing ratios/rankings; absolute elapsed times are recorded but are not pass criteria.",
-        "The frozen acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md). The M3-05 pilot applies exact checks to metadata and the frozen ratio bands to valid timing paths; invalid paths remain inconclusive. No additional experiment was run for this inventory update.",
-    )
     pilot_start = report.find("## M3-05 end-to-end pilot proposal")
     if pilot_start < 0:
         pilot_start = report.find("## M3-05 end-to-end pilot outcome")

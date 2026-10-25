@@ -162,6 +162,7 @@ check-local-data: analysis-sync
     just recovered-claim-audit-check
     just m3-05-pilot-classify-check
     just m3-05-pilot-runtime-check
+    just m5-05-dvc-status-check
 
 
 m5-05-deterministic: m5-05-plan

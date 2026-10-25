@@ -1,6 +1,6 @@
 import json
 
-from simciv_analysis.m5_05_dvc_status import _cache_object_state
+from simciv_analysis.m5_05_dvc_status import _cache_object_state, status_report_matches
 
 
 def test_dvc_directory_cache_manifest_keeps_dir_suffix(tmp_path, monkeypatch):
@@ -17,3 +17,10 @@ def test_dvc_directory_cache_manifest_keeps_dir_suffix(tmp_path, monkeypatch):
     blob.write_text("sample", encoding="utf-8")
 
     assert _cache_object_state(directory_md5) == f"complete (`{directory_md5}` and 1 file blob(s))"
+
+
+def test_dvc_status_check_rejects_a_stale_generated_report(tmp_path):
+    report = tmp_path / "STATUS.md"
+    report.write_text("stale\n", encoding="utf-8")
+
+    assert not status_report_matches(report, "fresh\n")

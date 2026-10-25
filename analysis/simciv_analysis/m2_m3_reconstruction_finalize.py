@@ -6,16 +6,19 @@ import io
 import json
 import re
 import subprocess
+import tomllib
 from collections import Counter, defaultdict
 from pathlib import Path
 
 from .claims import scan_documents
+from .m2_m3_evidence_inventory import a5_cell_floor_seconds
 from .io import write_text_lf
 from .provenance import ROOT
 
 CSV_PATH = ROOT / "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.csv"
 MD_PATH = ROOT / "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.md"
 LEDGER_PATH = ROOT / "docs/reproducibility/claims.csv.gz"
+A5_PLAN_SPEC = ROOT / "docs/reproducibility/m5_05_configs/m3_05_a5_pilot.toml"
 
 # tuple: represented config cells, new A-5 cells, run key, status, rationale, extra evidence
 PLAN: dict[str, tuple[int, int, str, str, str, str]] = {
@@ -55,7 +58,6 @@ PLAN: dict[str, tuple[int, int, str, str, str, str]] = {
     "E062": (16, 0, "M3-05-scale-matrix", "shared", "Digest parity was checked on the same 16 paired configurations and adds no timed cell.", "docs/reports/M3_05_SCALE_LIMIT.md#L11; docs/reports/M3_05_SCALE_LIMIT.md#L234-L256"),
     "E063": (16, 0, "M3-05-scale-matrix", "shared", "First-break criteria are derived from the same scale-grid and setup records; no new cell is needed.", "docs/reports/M3_05_SCALE_LIMIT.md#L207-L232"),
     "E064": (8, 0, "M3-05-scale-memory", "not-timed", "The report has eight N×k memory/setup rows; the OS working-set probe is explicitly outside timed samples, so these add no A-5 timing cells.", "docs/reports/M3_05_SCALE_LIMIT.md#L25; docs/reports/M3_05_SCALE_LIMIT.md#L44-L55"),
-    "E065": (48, 48, "M3-05-scale-matrix", "timed", "The two first-break tables summarize one 16-cell scale matrix: 16 paired full-tick series + 16 serial phase-profile series + 8 graph + 8 projection setup series = 48 A-5 series. The tables are merged below.", "docs/reports/M3_05_SCALE_LIMIT.md#L22-L26; docs/reports/M3_05_SCALE_LIMIT.md#L33-L44; docs/reports/M3_05_SCALE_LIMIT.md#L80-L107; crates/sim-model/benches/m3_scale_limit_bench.rs#L115-L123; crates/sim-model/benches/m3_scale_limit_bench.rs#L1236-L1266; crates/sim-model/benches/m3_scale_limit_bench.rs#L2304-L2317"),
     "E067": (0, 0, "M3-07-residual", "not-timed", "The byte-traffic values are analytical field-size estimates, not measured timing cells.", "docs/reports/M3_07_SCALE_RESIDUAL.md#L133-L136"),
     "E068": (13, 13, "M3-07-residual", "timed", "The residual driver has 10 fine-sweep populations, one alpha anchor, and two slot-layout cells; 13 total profile cells.", "crates/sim-model/benches/m3_scale_limit_bench.rs#L124-L127; crates/sim-model/benches/m3_scale_limit_bench.rs#L2139-L2194; docs/reports/M3_07_SCALE_RESIDUAL.md#L140-L174"),
     "E069": (18, 18, "M3-08-population-profile", "timed", "The findings summarize 12 full-tick cells (N=2 × compaction interval=3 × normal/compaction=2), 4 interval-50 Phase 9b profile cells (N=2 × day class=2), and 2 equal-live cells (N=2).", "docs/reports/M3_08_POPULATION_DYNAMICS.md#L59-L70; docs/reports/M3_08_POPULATION_DYNAMICS.md#L90-L130; docs/reports/M3_08_POPULATION_DYNAMICS.md#L135-L155"),
@@ -85,6 +87,11 @@ def compress_lines(values: list[int]) -> str:
 
 
 def main() -> None:
+    spec = tomllib.loads(A5_PLAN_SPEC.read_text(encoding="utf-8"))
+    warmups = int(spec["warmups"])
+    samples = int(spec["samples"])
+    sample_floor = float(spec["sample_floor_seconds"])
+    cell_floor = a5_cell_floor_seconds()
     with CSV_PATH.open(encoding="utf-8", newline="") as f:
         old_rows = list(csv.DictReader(f))
     generated_columns = {
@@ -102,14 +109,20 @@ def main() -> None:
     if "M3-05-FIRST-BREAK" in by_id:
         rows = list(old_rows)
         merged = by_id["M3-05-FIRST-BREAK"]
-    else:
-        if "E065" not in by_id or "E066" not in by_id:
-            raise RuntimeError("M3-05 first-break table groups were not found")
+    elif (
+        "E065" in by_id
+        and "E066" in by_id
+        and by_id["E065"]["report"] == "M3_05_SCALE_LIMIT.md"
+        and by_id["E066"]["report"] == "M3_05_SCALE_LIMIT.md"
+        and by_id["E065"]["section_anchor"] == "first-break-findings"
+        and by_id["E066"]["section_anchor"] == "first-break-findings"
+    ):
         first, second = by_id["E065"], by_id["E066"]
         first_ids = first["claim_ids"].split(";")
         second_ids = second["claim_ids"].split(";")
         if set(first_ids) & set(second_ids):
             raise RuntimeError("M3-05 first-break groups contain overlapping claim IDs")
+        class_counts = Counter(claims_by_id[claim_id]["class"] for claim_id in first_ids + second_ids)
         merged = dict(first)
         merged.update({
             "experiment_id": "M3-05-FIRST-BREAK",
@@ -118,13 +131,16 @@ def main() -> None:
             "claim_count": str(int(first["claim_count"]) + int(second["claim_count"])),
             "headline_count": str(int(first["headline_count"]) + int(second["headline_count"])),
             "key_count": str(int(first["key_count"]) + int(second["key_count"])),
-            "class_mix": "derived=100",
+            "class_mix": ";".join(f"{name}={count}" for name, count in sorted(class_counts.items())),
             "claim_ids": ";".join(first_ids + second_ids),
             "claim_values": f"{first['claim_values']}; {second['claim_values']}",
         })
         merged["classification_basis"] = "Two separate result tables in one report section summarize the same M3-05 scale run; merged as one experiment. Claim IDs are disjoint."
         rows = [row for row in old_rows if row["experiment_id"] not in {"E065", "E066"}]
         rows.append(merged)
+    else:
+        rows = list(old_rows)
+        merged = None
     rows.sort(key=lambda row: (row["report"], row["section_anchor"], row["experiment_id"]))
 
     # Existing estimated groups plus the formerly unestimated groups. The second value is the
@@ -155,12 +171,10 @@ def main() -> None:
         "E079": (2, 0, "M3-01-and-M2-40-source-cells", "shared", "The audit copies 100k medians already represented by M3-01 and M2-40 source cells."),
     })
 
-    if merged["experiment_id"] in plan:
+    if merged is not None and merged["experiment_id"] in plan:
         raise RuntimeError("merged M3-05 group unexpectedly collides with a plan row")
-    plan["M3-05-FIRST-BREAK"] = (
-        48, 48, "M3-05-scale-matrix", "timed",
-        "One run: 16 paired whole-tick cells + 16 serial phase-profile cells + 8 graph and 8 projection setup series.",
-    )
+    if merged is not None:
+        raise RuntimeError("M3-05 pilot claims are no longer missing; do not schedule them as missing evidence")
 
     # Source line citations for every row, including zero-cell static/derived groups.
     toolchain_cache: dict[str, str] = {}
@@ -180,15 +194,13 @@ def main() -> None:
             row["experiment_id"],
             (0, 0, f"derived:{row['report']}#{row['section_anchor']}", "not-timed", "Claim is structural, validation-only, workload-count, or a derived summary; it adds no A-5 timing cell."),
         )
-        if row["experiment_id"] == "M3-05-FIRST-BREAK":
-            rationale += " Tables are distinct, IDs are disjoint, and both derive from the same 16-cell scale grid."
         if represented < additional:
             raise RuntimeError(f"additional A-5 cells exceed represented cells for {row['experiment_id']}")
         evidence = "; ".join(citations)
         supplemental = PLAN.get(row["experiment_id"])
         if supplemental:
             evidence += "; " + supplemental[5]
-        if row["experiment_id"] in {"E061", "E062", "E063", "E064", "E065", "E066", "M3-05-FIRST-BREAK"}:
+        if row["experiment_id"] in {"E061", "E062", "E063", "E064", "M3-05-FIRST-BREAK"}:
             evidence += "; docs/reports/M3_05_SCALE_LIMIT.md#L22-L26; crates/sim-model/benches/m3_scale_limit_bench.rs#L115-L123; crates/sim-model/benches/m3_scale_limit_bench.rs#L1236-L1266; crates/sim-model/benches/m3_scale_limit_bench.rs#L2304-L2317"
         if row["experiment_id"] == "E073":
             evidence += "; docs/reproducibility/M5_05_M0_M3_REGENERATION_RESULTS.json#/m3_09_scope_check"
@@ -198,8 +210,8 @@ def main() -> None:
         row["A5_status"] = status
         row["A5_cell_count_evidence"] = evidence
         row["A5_cell_count_reason"] = rationale
-        row["A5_lower_bound_seconds"] = str(additional * 43)
-        row["A5_estimate_basis"] = "43 s/cell floor (2 warmups + 41 timed samples, each >=1 s); excludes compile/setup/retries and r above the minimum."
+        row["A5_lower_bound_seconds"] = str(additional * cell_floor)
+        row["A5_estimate_basis"] = f"{cell_floor} s/cell floor ({warmups} warmups + {samples} samples, each >= {sample_floor:g} s); excludes compile/setup/retries and r above the minimum."
         commit = row["report_written_commit"]
         if commit not in toolchain_cache:
             result = subprocess.run(
@@ -212,10 +224,8 @@ def main() -> None:
 
     # Each ledger claim must occur in exactly one inventory row.
     all_ids = [claim_id for row in rows for claim_id in row["claim_ids"].split(";") if claim_id]
-    if len(all_ids) != 484 or len(set(all_ids)) != len(all_ids):
+    if len(set(all_ids)) != len(all_ids):
         raise RuntimeError(f"claim uniqueness failed: total={len(all_ids)}, unique={len(set(all_ids))}")
-    if len(rows) != 80:
-        raise RuntimeError(f"expected 80 experiment groups after M3-05 merge, got {len(rows)}")
     if any(not row["A5_cell_count_evidence"] for row in rows):
         raise RuntimeError("every experiment row must cite cell-count evidence")
 
@@ -234,9 +244,9 @@ def main() -> None:
         cls = row["classification"]
         class_claims[cls] += int(row["claim_count"])
         class_cells[cls] += int(row["A5_cells_to_schedule"])
-    class_seconds = {key: value * 43 for key, value in class_cells.items()}
+    class_seconds = {key: value * cell_floor for key, value in class_cells.items()}
     total_cells = sum(class_cells.values())
-    total_seconds = total_cells * 43
+    total_seconds = total_cells * cell_floor
     run_cells: dict[str, int] = defaultdict(int)
     for row in rows:
         run_cells[row["A5_run_id"]] += int(row["A5_cells_to_schedule"])
@@ -255,22 +265,22 @@ def main() -> None:
         grouped["seconds"] = int(grouped["seconds"]) + int(row["A5_lower_bound_seconds"])
         grouped["claim_count"] = int(grouped["claim_count"]) + int(row["claim_count"])
     largest = sorted(runtime_runs.values(), key=lambda run: (-int(run["seconds"]), str(run["run_id"])))[:10]
-    previously_unestimated_count = 61
+    previously_unestimated_count = sum(1 for row in rows if row["experiment_id"] not in plan)
     needs_decision = [row for row in rows if row["A5_status"] == "needs-decision"]
     toolchain_channels = sorted({row["report_revision_rust_toolchain"].split(" ", 1)[0] for row in rows})
 
     report = [
         "# M2/M3 Evidence Reconstruction Inventory",
         "",
-        "**Status:** generated planning inventory. No simulation or timing harness was run.",
+        "**Status:** generated from committed source inputs and pilot records; no new simulation or timing run occurred during generation.",
         "",
         "## Scope and source method",
         "",
-        "This inventory covers the 484 M2/M3 headline/key claims that were still `missing-data` or `missing-source` in the recovered-mapped ledger. Table claims are grouped by table and prose claims by paragraph/list item. Each CSV row cites source report lines; timed cell counts additionally cite the table/method or benchmark loops used to derive the count.",
+        f"This inventory covers the {len(all_ids)} M2/M3 headline/key claims that currently have status `missing-data` or `missing-source` in the recovered-mapped ledger. Table claims are grouped by table and prose claims by paragraph/list item. Each CSV row cites source report lines; timed cell counts additionally cite the table/method or benchmark loops used to derive the count.",
         "",
         "A cell is one unique configuration/measurement family for A-5. A paired path comparison remains one cell. Summaries and inferences that reuse a measured matrix have zero additional cells and name their shared run ID. Non-timing records (tests, workload counts, schema facts, static analysis) have zero A-5 timing cells and remain linked to their output/configuration cell count where useful.",
         "",
-        "The A-5 floor is 43 seconds per unique timed cell: two warmups plus 41 timed samples, each at least one second. It excludes compilation, initialization, non-timed probes, and extra repetition factor `r`. This is a lower bound, not a wall-time prediction.",
+        f"The A-5 floor is {cell_floor} seconds per unique timed cell from the committed pilot protocol: {warmups} warmups plus {samples} samples with a {sample_floor:g}-second minimum. It excludes compilation, initialization, non-timed probes, and extra repetition factor `r`. This is a lower bound, not a wall-time prediction.",
         "",
         f"Revision policy: the default reproduction revision is the report's creation commit, answering historical-number reproduction; a separate HEAD run answers only whether the conclusion still holds. The CSV records each report commit and its `rust-toolchain.toml`; pinned toolchain channels found: {', '.join(toolchain_channels)}.",
         "",
@@ -278,7 +288,7 @@ def main() -> None:
         "",
         f"All **{previously_unestimated_count}** groups that lacked a cell count in the previous inventory were assigned a report/harness-derived count, a zero-cell non-timing/shared designation, or a `needs-decision` status. `needs-decision` groups: **{len(needs_decision)}**.",
         "",
-        "M3-05 `#first-break-findings` was one section of one report, not two documents. It contains two distinct tables: the trigger-criteria table and the phase-alpha table. Their claim IDs are disjoint, so the inventory merges them into one 100-claim experiment group; a global assertion confirms each of the 484 claim IDs appears exactly once in the CSV.",
+        "The input ledger is the source of the selected claim set; rows are rejected if a claim ID is duplicated.",
         "",
         "## A-5 estimate by class",
         "",
@@ -304,21 +314,21 @@ def main() -> None:
         "",
         "## M3-05 end-to-end pilot proposal",
         "",
-        "Pilot: the merged M3-05 first-break/scale result group. It exercises the A-5 runner, phase profile, setup timing, digest/parity outputs, derived tables, and report path in one end-to-end reconstruction. The source scope is M2-40 with `base_metabolic_cost=0.3129`, M3 `k ∈ {8,16}`, `p_local=0.5`, four populations, and day-0/day-50 checkpoints; see the cited M3-05 method and benchmark source lines in the CSV.",
+        "The completed pilot settings and protocol are maintained in [m3_05_a5_pilot.toml](m5_05_configs/m3_05_a5_pilot.toml). The committed result records generate the outcome section.",
         "",
-        "The existing legacy command is `cargo bench -p sim-model --bench m3_scale_limit_bench`; it uses the report's 2 warmups and 7 samples, so it is a protocol reference only and cannot pass the frozen A-5 criteria. The A-5 driver mode is not implemented in the current bench. After that mode is committed, the proposed exact invocation is:",
+        "The existing legacy benchmark is a protocol reference only; its sample procedure is not the frozen A-5 procedure. The committed M3-05 driver and its specification are the invocation source:",
         "",
         "```powershell\ncargo bench -p sim-model --bench m3_scale_limit_bench -- --a5-reconstruction --output docs/data/m5_05/m3_05_pilot/m3_05_a5.jsonl\n```",
         "",
-        "Expected records: host/config header; eight setup and memory configurations; 16 paired full-tick configurations; 16 serial phase-profile configurations; per-cell `r`, 2 warmups, 41 samples, medians/MADs, and parity digests; alpha/first-break summaries; completion record. The raw JSONL path is under `docs/data/m5_05/m3_05_pilot/`; register it in the M5-05 DVC stage before the run, with the summary and required manifest metadata in Git.",
+        "Record families and configurations are defined in the committed pilot specification and raw output schema. The raw JSONL lives under `docs/data/m5_05/m3_05_pilot/`; its summary and manifest metadata are maintained in Git.",
         "",
-        f"A-5 floor: **48 timed series × 43 seconds = 2,064 seconds (34 minutes 24 seconds)**. Compilation, graph/world initialization, the non-timed memory probe, host setup, and any `r` above its one-second minimum make actual wall time longer; no wall-time run estimate is claimed.",
+        f"A-5 floor: **{total_cells} unique cells × {cell_floor} seconds = {total_seconds:,} seconds ({total_seconds / 3600:.2f} hours)**. Compilation, graph/world initialization, non-timed probes, host setup, and extra repetitions make actual wall time longer; no wall-time run estimate is claimed.",
         "",
-        "**Pilot precondition:** the current committed bench recognizes its default mode, `--residual`, and `--diagnose`; it does not recognize `--a5-reconstruction`. Commit the A-5 mode and its result schema before invoking the proposed command. No command was run in this inventory task.",
+        "**Pilot precondition:** run only the separately committed driver named by the pilot specification; do not use the legacy bench as an A-5 substitute. No command was run while regenerating this inventory.",
         "",
         "## Criteria and status",
         "",
-        "Proposed acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md) and remain draft pending approval; no timing is authorized under the draft. They require exact deterministic values and preserve dimensionless timing ratios/rankings; absolute elapsed times are recorded but are not pass criteria.",
+        "The frozen acceptance criteria are in [REPRODUCTION_CRITERIA.md](REPRODUCTION_CRITERIA.md); this inventory records remaining evidence work without changing those criteria.",
         "",
     ])
     write_text_lf(MD_PATH, "\n".join(report))
