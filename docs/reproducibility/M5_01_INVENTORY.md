@@ -82,16 +82,20 @@ verdicts remain in the `key` tier.
 | M2 | timing | missing-data | headline | 44 |
 | M2 | timing | missing-data | key | 1 |
 | M2 | timing | missing-data | supporting | 686 |
-| M3 | derived | missing-data | headline | 181 |
+| M3 | derived | inconclusive (validity) | headline | 4 |
+| M3 | derived | missing-data | headline | 81 |
 | M3 | derived | missing-data | key | 17 |
 | M3 | derived | missing-data | supporting | 10,006 |
 | M3 | derived | missing-source | headline | 20 |
 | M3 | derived | missing-source | supporting | 618 |
+| M3 | derived | not reproduced | headline | 11 |
 | M3 | derived | recovered-original-output | headline | 12 |
 | M3 | derived | recovered-original-output | supporting | 2,090 |
 | M3 | derived | recovered-original-output (formatted) | supporting | 842 |
-| M3 | derived | recovered-weak (composite field) | headline | 94 |
+| M3 | derived | recovered-weak (composite field) | headline | 92 |
 | M3 | derived | recovered-weak (composite field) | supporting | 8 |
+| M3 | derived | reproduced | headline | 80 |
+| M3 | derived | reproduced (loose) | headline | 7 |
 | M3 | deterministic | missing-source | headline | 6 |
 | M3 | deterministic | missing-source | supporting | 131 |
 | M3 | deterministic | reproducible-now | supporting | 8 |
@@ -213,7 +217,7 @@ tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the
 | M3 | M3_04_SUSTAINED_WORKLOAD.md | missing-data | 2,222 |
 | M3 | M3_11_PROPAGATION.md | missing-data | 1,835 |
 | M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | missing-data | 1,502 |
-| M3 | M3_05_SCALE_LIMIT.md | missing-data | 1,154 |
+| M3 | M3_05_SCALE_LIMIT.md | missing-data | 1,054 |
 | M2 | M2_37_POST_P5_P6B_REPROFILING.md | missing-data | 663 |
 | M2 | M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | missing-data | 566 |
 | M3 | M3_07_SCALE_RESIDUAL.md | missing-data | 517 |

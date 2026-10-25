@@ -291,6 +291,8 @@ def _report_parts() -> dict[str, str]:
             "bit-exact",
             "bit-exact after documented normalization",
             "conclusion holds",
+            "reproduced",
+            "reproduced (loose)",
             "recovered-original-output",
             "recovered-original-output (formatted)",
             "recovered-original-output (unit-converted)",

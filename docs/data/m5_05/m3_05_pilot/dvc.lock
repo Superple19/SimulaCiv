@@ -1,0 +1,49 @@
+schema: '2.0'
+stages:
+  m3_05_a5_reconstruction:
+    cmd: uv run --directory analysis --project . python -m 
+      simciv_analysis.m3_05_pilot --output-dir docs/data/m5_05/m3_05_pilot/raw 
+      --summary docs/data/m5_05/m3_05_pilot/summary.json
+    deps:
+    - path: Cargo.lock
+      hash: md5
+      md5: d1fb4588d9336d06a02fd3d85c39fc6b
+      size: 8630
+    - path: Cargo.toml
+      hash: md5
+      md5: b0918b36601df7a654498a7a456698f5
+      size: 181
+    - path: analysis/simciv_analysis/io.py
+      hash: md5
+      md5: 871b66e3a07eb771f6894a085b3b6d1a
+      size: 2342
+    - path: analysis/simciv_analysis/m3_05_pilot.py
+      hash: md5
+      md5: c6abb14bc3c5a322887e5c14cb065e72
+      size: 8238
+    - path: crates/sim-model/benches/m3_scale_limit_bench.rs
+      hash: md5
+      md5: 26b3b6e10b114fd0ef4199a8c7bb82a6
+      size: 88902
+    - path: crates/sim-model/examples/common/process_controls.rs
+      hash: md5
+      md5: cf74a03dc4ba8677519a2e8eecfcb149
+      size: 3309
+    - path: crates/sim-model/examples/m3_05_a5_reconstruction.rs
+      hash: md5
+      md5: d20527255f1902650fb206945a6b8be5
+      size: 37663
+    - path: docs/reproducibility/m5_05_configs/m3_05_a5_pilot.toml
+      hash: md5
+      md5: fd3fef2b96bcf76c00164f24f09fb916
+      size: 715
+    - path: rust-toolchain.toml
+      hash: md5
+      md5: c6cf1aeb5aba83906b350a2199f2abf5
+      size: 129
+    outs:
+    - path: docs/data/m5_05/m3_05_pilot/raw
+      hash: md5
+      md5: 2d13e424ecdcf1cf2a1e4159f76318e6.dir
+      size: 418185
+      nfiles: 1

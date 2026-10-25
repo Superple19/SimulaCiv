@@ -24,6 +24,7 @@ RENAMES = ROOT / "docs" / "reports" / "RENAMES.md"
 M5_04_OVERRIDES = Path("docs") / "data" / "m5_04" / "claim_statuses.json"
 M5_05_RESULTS = Path("docs") / "reproducibility" / "M5_05_M0_M3_REGENERATION_RESULTS.json"
 M5_05_LEGACY_RESULTS = Path("docs") / "data" / "m5_05" / "results.json"
+M3_05_PILOT_RESULTS = Path("docs") / "reproducibility" / "M3_05_PILOT_RESULTS.json"
 FIELDS = [
     "claim_id",
     "claim_key",
@@ -626,12 +627,35 @@ def apply_m5_05_results(claims: list[dict[str, object]], root: Path = ROOT) -> l
     return claims
 
 
+def apply_m3_05_pilot_results(claims: list[dict[str, object]], root: Path = ROOT) -> list[dict[str, object]]:
+    """Apply the recorded M3-05 pilot classification by stable claim key."""
+    path = root / M3_05_PILOT_RESULTS
+    if not path.is_file():
+        return claims
+    results = json.loads(path.read_text(encoding="utf-8"))
+    by_key = {str(row["claim_key"]): row for row in results.get("claims", [])}
+    allowed = {"reproduced", "reproduced (loose)", "not reproduced", "inconclusive (validity)"}
+    for claim in claims:
+        row = by_key.get(str(claim.get("claim_key", "")))
+        if row is None or str(claim.get("status", "")) != str(row.get("status_before", "")):
+            continue
+        status = str(row.get("verdict", ""))
+        if status not in allowed:
+            raise ValueError(f"invalid M3-05 pilot status for {row['claim_key']}: {status}")
+        claim["status"] = status
+        claim["notes"] = "; ".join(
+            filter(None, [str(claim.get("notes", "")), f"M3-05 pilot: {row.get('note', status)}"])
+        )
+    return claims
+
+
 def extract_claims(
     root: Path = ROOT,
     old_ledger: Path = OLD_LEDGER,
     *,
     apply_m5_04: bool = True,
     apply_recovered: bool = True,
+    apply_m3_05_pilot: bool = True,
 ) -> list[dict[str, object]]:
     current = scan_documents(root)
     sources = load_sources(root)
@@ -702,7 +726,11 @@ def extract_claims(
     if apply_m5_04:
         output = apply_m5_04_overrides(output, root)
     output = apply_m5_05_results(output, root)
-    return apply_recorded_statuses(output, root) if apply_recovered else output
+    if apply_recovered:
+        output = apply_recorded_statuses(output, root)
+    if apply_m3_05_pilot:
+        output = apply_m3_05_pilot_results(output, root)
+    return output
 
 
 def ledger_bytes(claims: list[dict[str, object]]) -> bytes:
