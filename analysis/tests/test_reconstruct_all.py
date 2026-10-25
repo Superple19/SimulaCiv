@@ -7,7 +7,7 @@ def test_plan_lists_all_remaining_timed_groups_in_fixed_order(capsys):
     assert [group["run_id"] for group in plan["groups"]] == list(RUN_ORDER)
     assert plan["a5_cells"] == 114
     assert plan["timing_cells_total"] == 130
-    assert abs(plan["total_estimated_seconds"] - 9439.1) < 0.1
+    assert abs(plan["total_estimated_seconds"] - 9439.9) < 0.1
     assert plan["remaining_group_rows"] == 76
     assert plan["zero_cell_group_rows"] == 58
     assert len(plan["zero_cell_details"]) == 58

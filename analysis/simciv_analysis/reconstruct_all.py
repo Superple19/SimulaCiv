@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
-import statistics
 import subprocess
 import sys
 import tomllib
@@ -19,7 +17,7 @@ from .reconstruction import run_m2_06_deterministic, run_protocol_sensitivity
 
 INVENTORY = Path("docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.csv")
 SENSITIVITY_SPEC = Path("docs/reproducibility/M3_05_PROTOCOL_SENSITIVITY.toml")
-SENSITIVITY_RAW = Path("docs/data/m5_05/m3_05_pilot/raw/m3_05_a5.jsonl")
+PILOT_RUNTIME = Path("docs/reproducibility/M3_05_PILOT_RUNTIME.csv")
 SENSITIVITY_SMOKE_RAW = Path("target/reconstruction-smoke/m3_05_protocol_sensitivity/records.jsonl")
 DETERMINISTIC_SMOKE_RAW = Path("target/reconstruction-smoke/m2_06_deterministic/records.jsonl")
 SENSITIVITY_DVC = Path("docs/data/m2_m3_reconstruction/dvc.yaml")
@@ -144,28 +142,25 @@ def _protocol_cells(root: Path = ROOT) -> set[tuple[int, int, int]]:
 
 
 def _protocol_estimate_seconds(root: Path = ROOT) -> float | None:
-    raw = root / SENSITIVITY_RAW
-    if not raw.is_file():
+    pilot_runtime = root / PILOT_RUNTIME
+    if not pilot_runtime.is_file():
         return None
     per_cell: dict[tuple[int, int, int], tuple[float, int]] = {}
-    for line in raw.read_text(encoding="utf-8").splitlines():
-        if not line:
-            continue
-        row = json.loads(line)
-        if row.get("record") != "SCALE_PHASE":
-            continue
-        key = (int(row["N"]), int(row["k"]), int(row["horizon"]))
-        if key in per_cell:
-            continue
-        seconds = row.get("sample_seconds", [])
-        repetitions = int(row.get("repetitions_per_sample", 0))
-        if seconds and repetitions > 0:
-            per_cell[key] = (statistics.median(float(value) for value in seconds), repetitions)
+    with pilot_runtime.open(encoding="utf-8-sig", newline="") as stream:
+        for row in csv.DictReader(stream):
+            if row.get("series_type") != "phase_profile":
+                continue
+            key = (int(row["N"]), int(row["k"]), int(row["horizon"]))
+            repetitions = int(row["repetitions_per_sample"])
+            samples = int(row["samples"])
+            timed_seconds = float(row["timed_samples_seconds"])
+            if repetitions > 0 and samples > 0:
+                per_cell[key] = (timed_seconds / (samples * repetitions), repetitions)
     cells = _protocol_cells(root)
     if not cells.issubset(per_cell):
         return None
-    # Two warmups plus seven samples, each a 3-day operation; divide out A-5's r.
-    return sum(9.0 * per_cell[cell][0] / per_cell[cell][1] for cell in cells)
+    # Use only committed timing summaries so a clean checkout can plan without DVC raw data.
+    return sum(9.0 * per_cell[cell][0] for cell in cells)
 
 
 def dry_run(root: Path = ROOT) -> dict[str, Any]:
@@ -220,7 +215,7 @@ def _print_dry_run(plan: dict[str, Any]) -> None:
         reason = row["reason"] or "inventory has no scheduled cell"
         print(f"    {row['experiment_id']} [{row['classification']}] {row['report']}#{row['anchor']}: {reason}")
     protocol_estimate = plan["protocol_estimate_seconds"]
-    estimate_text = "unavailable" if protocol_estimate is None else f"{protocol_estimate:.1f}s (from recorded M3-05 per-operation samples)"
+    estimate_text = "unavailable" if protocol_estimate is None else f"{protocol_estimate:.1f}s (from committed M3-05 per-series timing totals)"
     print(
         f"M3-05 protocol-sensitivity add-on: {len(plan['protocol_cells'])} unique profile/N cells, "
         f"15 target contrasts; estimated={estimate_text}; historical 2/7/3 protocol, no process controls"
