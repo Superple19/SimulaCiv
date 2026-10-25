@@ -777,6 +777,17 @@ enforced_by = ["docs/data/m5_recovered/README.md", "docs/data/m5_recovered/MANIF
 doc = "docs/data/m5_recovered/README.md#immutability-and-reruns"
 date = "2026-10-24"
 
+[[decision]]
+id = "M5-RECOVERED-REMOTE-PRIVACY"
+milestone = "M5"
+stage = "M5-AUDIT"
+status = "draft"
+enforcement = "documented"
+summary = "Compiled binaries, debug symbols, session extracts, and user-temporary artifacts listed in the draft inventory should use a private remote or be excluded from the public remote."
+enforced_by = ["docs/reproducibility/M5_RECOVERED_PRIVATE_REMOTE_DRAFT.md", "docs/data/m5_recovered/MANIFEST.json"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-25"
+
 [[stage]]
 id = "M0"
 milestone = "M0"
