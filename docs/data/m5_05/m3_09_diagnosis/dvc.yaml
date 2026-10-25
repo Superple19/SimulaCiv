@@ -14,6 +14,7 @@ stages:
     - docs/reproducibility/m5_05_configs/m3_09_diagnosis.toml
     outs:
     - docs/data/m5_05/m3_09_diagnosis/raw
+    frozen: true
   m5_05_m3_09_diagnosis_bisect:
     wdir: ../../../../
     cmd: uv run --project analysis python
@@ -33,3 +34,4 @@ stages:
     - docs/reproducibility/m5_05_configs/m3_09_diagnosis_bisect.toml
     outs:
     - docs/data/m5_05/m3_09_diagnosis/bisect_raw
+    frozen: true

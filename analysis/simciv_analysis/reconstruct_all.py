@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .provenance import ROOT
+from .dvc_freeze_guard import RECONSTRUCTION_TARGET, validate_repro_target
 from .reconstruction import run_m2_06_deterministic, run_protocol_sensitivity
 
 
@@ -20,7 +21,6 @@ SENSITIVITY_SPEC = Path("docs/reproducibility/M3_05_PROTOCOL_SENSITIVITY.toml")
 PILOT_RUNTIME = Path("docs/reproducibility/M3_05_PILOT_RUNTIME.csv")
 SENSITIVITY_SMOKE_RAW = Path("target/reconstruction-smoke/m3_05_protocol_sensitivity/records.jsonl")
 DETERMINISTIC_SMOKE_RAW = Path("target/reconstruction-smoke/m2_06_deterministic/records.jsonl")
-SENSITIVITY_DVC = Path("docs/data/m2_m3_reconstruction/dvc.yaml")
 RUN_ORDER = (
     "M2-06-telemetry",
     "M2-09-allocation-summary",
@@ -253,11 +253,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(
             "refusing to start an incomplete overnight run; build the listed A-5 group drivers first"
         )
-    result = subprocess.run(
-        ["dvc", "repro", "--file", str(SENSITIVITY_DVC)],
-        cwd=ROOT,
-        check=False,
-    )
+    validate_repro_target(RECONSTRUCTION_TARGET)
+    result = subprocess.run(["dvc", "repro", RECONSTRUCTION_TARGET], cwd=ROOT, check=False)
     return result.returncode
 
 
