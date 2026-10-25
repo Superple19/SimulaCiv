@@ -21,7 +21,9 @@ REPORT = Path("docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.md")
 def build_outputs(root: Path = ROOT) -> dict[Path, bytes]:
     from . import m2_m3_reconstruction_finalize as finalize
 
-    with tempfile.TemporaryDirectory(prefix="simciv-reconstruction-") as temporary:
+    temporary_root = root / "target"
+    temporary_root.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="simciv-reconstruction-", dir=temporary_root) as temporary:
         workspace = Path(temporary)
         csv_path, report_path = workspace / CSV.name, workspace / REPORT.name
         shutil.copyfile(root / CSV, csv_path)
