@@ -9,11 +9,14 @@ import json
 import random
 import re
 import subprocess
+import argparse
+import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from .claims import extract_claims
-from .io import write_text_lf
+from .io import content_matches, write_text_lf
 from .recovered_claims import (
     ROOT,
     _add_text_values,
@@ -153,7 +156,7 @@ def _audit_row(claim: dict[str, Any], outputs: list[dict[str, Any]]) -> dict[str
     }
 
 
-def write_audit(root: Path = ROOT) -> dict[str, Any]:
+def write_audit(root: Path = ROOT, *, destinations: tuple[Path, Path] | None = None) -> dict[str, Any]:
     baseline = _read_baseline_map(root)
     recovered_ids = {
         int(row["claim_id"])
@@ -191,7 +194,8 @@ def write_audit(root: Path = ROOT) -> dict[str, Any]:
     writer = csv.DictWriter(buffer, fieldnames=FIELDS, lineterminator="\n")
     writer.writeheader()
     writer.writerows(rows)
-    write_text_lf(SAMPLE_PATH, buffer.getvalue())
+    sample_path, summary_path = destinations or (SAMPLE_PATH, SUMMARY_PATH)
+    write_text_lf(sample_path, buffer.getvalue())
 
     result = {
         "baseline_commit": BASELINE_COMMIT,
@@ -209,12 +213,28 @@ def write_audit(root: Path = ROOT) -> dict[str, Any]:
         "precision": sum(row["context_corresponds"] == "yes" for row in rows) / len(rows),
         "sample_path": SAMPLE_PATH.relative_to(root).as_posix(),
     }
-    write_text_lf(SUMMARY_PATH, json.dumps(result, indent=2, sort_keys=True) + "\n")
+    write_text_lf(summary_path, json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
 
 
-def main() -> int:
-    print(json.dumps(write_audit(), sort_keys=True))
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args(argv)
+    try:
+        if args.check:
+            with tempfile.TemporaryDirectory() as temporary:
+                sample = Path(temporary) / SAMPLE_PATH.name
+                summary = Path(temporary) / SUMMARY_PATH.name
+                result = write_audit(destinations=(sample, summary))
+                if not content_matches(SAMPLE_PATH, sample.read_bytes()) or not content_matches(SUMMARY_PATH, summary.read_bytes()):
+                    raise ValueError("recovered claim audit outputs differ")
+        else:
+            result = write_audit()
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+        print(f"recovered claim audit failed: {error}", file=sys.stderr)
+        return 1
+    print(json.dumps(result, sort_keys=True))
     return 0
 
 

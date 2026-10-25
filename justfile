@@ -82,7 +82,7 @@ lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
     vale --config analysis/vale/.vale.ini docs/data/m5_05/STATUS.md docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
-check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check decisions-check dvc-freeze-check check-autocrlf data-integrity-check links claims-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
+check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check decisions-check dvc-freeze-check check-autocrlf data-integrity-check links claims-check reconstruction-inventory-check generated-artifacts-check m3-05-pilot-classify-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
 
 ci-analysis: check
     uv run --directory analysis --project . python -m simciv_analysis.ci_analysis
@@ -110,6 +110,34 @@ provenance-finalize SUMMARY: analysis-sync
 
 m5-05-plan: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.m5_05 validate
+
+reconstruction-inventory: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.m2_m3_reconstruction
+
+reconstruction-inventory-check: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.m2_m3_reconstruction --check
+
+recovered-claims: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.recovered_claims
+
+recovered-claims-check: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.recovered_claims --check
+
+recovered-claim-audit: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.recovered_claim_audit
+
+recovered-claim-audit-check: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.recovered_claim_audit --check
+
+generated-artifacts-check: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.generated_artifacts
+
+m5-05-dvc-status: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.m5_05_dvc_status
+
+m5-05-dvc-status-check: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.m5_05_dvc_status --check
+
 
 m5-05-deterministic: m5-05-plan
     dvc repro docs/data/m5_05/dvc.yaml:m5_05_deterministic

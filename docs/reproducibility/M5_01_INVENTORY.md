@@ -232,7 +232,7 @@ The recovered-output matcher
 [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py)
 scanned **206** files. A match requires the same structured output row,
 measurement field, and all recorded configuration dimensions. Composite
-values also require the same component position; **102** same-field
+values also require the same component position; **110** same-field
 values at a different or unknown position remain `recovered-weak`. It
 records **3,534** claims as recovered evidence across exact, formatted,
 unit-converted, other-run, and derived statuses; **1,837** parameter
@@ -250,8 +250,8 @@ split was:
 | small integer    | 1,680  |
 
 A fixed-seed sample (20261024; 50 headline/key and 100 other measured
-claims) found matching context for **35** of 150 value-only matches
-(**23.3%**). The full review is in
+claims) found matching context for **37** of 150 value-only matches
+(**24.7%**). The full review is in
 [recovered_claim_precision_audit.csv](recovered_claim_precision_audit.csv).
 
 #### Claims moved from missing status
@@ -268,13 +268,13 @@ claims) found matching context for **35** of 150 value-only matches
 
 #### Weak composite matches
 
-These **102** values occur in the row and field but lack a same-position
+These **110** values occur in the row and field but lack a same-position
 match, so they remain evidence gaps:
 
 | Report                        | Tier       | Claims |
 |-------------------------------|------------|--------|
 | M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | 8      |
-| M3_05_SCALE_LIMIT.md          | headline   | 94     |
+| M3_05_SCALE_LIMIT.md          | headline   | 102    |
 
 #### Claims without an exact context match
 
@@ -306,7 +306,7 @@ output—does not qualify as recovered evidence.
 | M3_04_SUSTAINED_WORKLOAD.md | headline | 56 |
 | M3_04_SUSTAINED_WORKLOAD.md | supporting | 1,947 |
 | M3_05_SCALE_DIAGNOSIS.md | supporting | 232 |
-| M3_05_SCALE_LIMIT.md | headline | 66 |
+| M3_05_SCALE_LIMIT.md | headline | 58 |
 | M3_05_SCALE_LIMIT.md | supporting | 1,105 |
 | M3_06_SETTLEMENT_INDEX.md | supporting | 414 |
 | M3_07_SCALE_RESIDUAL.md | key | 12 |

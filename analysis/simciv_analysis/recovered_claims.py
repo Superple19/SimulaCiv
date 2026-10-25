@@ -14,7 +14,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from .io import write_text_lf
+from .io import content_matches, write_text_lf
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -360,7 +360,7 @@ PROFILE_COLUMN = re.compile(r"^([0-9][0-9,]*(?:\.[0-9]+)?\s*[kKmM]?)\s*/\s*([0-9
 
 
 def _phase_value(value: str) -> str:
-    tokens = _label_tokens(value)
+    tokens = sorted(_label_tokens(value))
     suffixes = {"features", "projection", "market", "welfare", "mortality", "metrics", "events", "exchange", "lookup", "generation", "writeback", "output"}
     tokens = ["intent" if token == "intents" else token for token in tokens if token not in suffixes]
     return " ".join(tokens)
@@ -631,7 +631,9 @@ def _manifest_outputs(root: Path) -> tuple[str, list[dict[str, Any]]]:
     return hashlib.sha256(manifest_bytes).hexdigest(), outputs
 
 
-def build_mapping(claims: list[dict[str, Any]], root: Path = ROOT) -> dict[str, Any]:
+def build_mapping(
+    claims: list[dict[str, Any]], root: Path = ROOT, *, write_triage: bool = True
+) -> dict[str, Any]:
     manifest_sha, outputs = _manifest_outputs(root)
     aliases = _report_aliases(root)
     by_report: dict[str, list[dict[str, Any]]] = {}
@@ -709,7 +711,7 @@ def build_mapping(claims: list[dict[str, Any]], root: Path = ROOT) -> dict[str, 
     }
     from .recovered_mismatch_triage import classify_mapping
 
-    return classify_mapping(mapping, claims, by_report, root)
+    return classify_mapping(mapping, claims, by_report, root, write_outputs=write_triage)
 
 
 def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> list[dict[str, Any]]:
@@ -763,17 +765,17 @@ def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> 
     return claims
 
 
-def write_mapping(path: Path = OUTPUT, root: Path = ROOT) -> dict[str, Any]:
+def build_mapping_outputs(root: Path = ROOT) -> tuple[dict[str, Any], dict[Path, bytes]]:
     from .claims import extract_claims
 
     claims = extract_claims(root, apply_recovered=False)
-    mapping = build_mapping(claims, root)
+    mapping = build_mapping(claims, root, write_triage=False)
+    triage_outputs = mapping.pop("_triage_outputs")
     payload = json.dumps(mapping, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     compressed = io.BytesIO()
     with gzip.GzipFile(filename="", mode="wb", fileobj=compressed, mtime=0, compresslevel=9) as stream:
         stream.write(payload)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(compressed.getvalue())
+    status_path = root / OUTPUT.relative_to(ROOT)
     mismatch_text = io.StringIO(newline="")
     mismatch_fields = ["claim_id", "report", "context", "expected", "actual", "output_path", "line", "column", "output_field", "component_index"]
     writer = csv.DictWriter(mismatch_text, fieldnames=mismatch_fields, lineterminator="\n")
@@ -786,17 +788,43 @@ def write_mapping(path: Path = OUTPUT, root: Path = ROOT) -> dict[str, Any]:
     mismatch_bytes = io.BytesIO()
     with gzip.GzipFile(filename="", mode="wb", fileobj=mismatch_bytes, mtime=0, compresslevel=9) as stream:
         stream.write(mismatch_text.getvalue().encode("utf-8"))
-    write_path = root / MISMATCH_OUTPUT.relative_to(ROOT)
-    write_path.parent.mkdir(parents=True, exist_ok=True)
-    write_path.write_bytes(mismatch_bytes.getvalue())
+    mismatch_path = root / MISMATCH_OUTPUT.relative_to(ROOT)
+    return mapping, {
+        status_path: compressed.getvalue(),
+        mismatch_path: mismatch_bytes.getvalue(),
+        **triage_outputs,
+    }
+
+
+def write_mapping(path: Path = OUTPUT, root: Path = ROOT) -> dict[str, Any]:
+    mapping, outputs = build_mapping_outputs(root)
+    default_path = root / OUTPUT.relative_to(ROOT)
+    if path != default_path:
+        outputs[path] = outputs.pop(default_path)
+    for destination, content in outputs.items():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(content)
     return mapping
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args(argv)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args(argv)
     try:
-        mapping = write_mapping()
+        mapping, outputs = build_mapping_outputs()
+        if args.check:
+            failures = [
+                path.relative_to(ROOT).as_posix()
+                for path, expected in outputs.items()
+                if not content_matches(path, expected)
+            ]
+            if failures:
+                raise ValueError(f"generated recovered-claim outputs differ: {', '.join(failures)}")
+        else:
+            for path, content in outputs.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         print(f"recovered claim mapping failed: {error}", file=sys.stderr)
         return 1

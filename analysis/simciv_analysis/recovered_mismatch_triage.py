@@ -296,7 +296,8 @@ def _result(
 
 
 def classify_mapping(
-    mapping: dict[str, Any], claims: list[dict[str, Any]], by_report: dict[str, list[dict[str, Any]]], root: Path
+    mapping: dict[str, Any], claims: list[dict[str, Any]], by_report: dict[str, list[dict[str, Any]]], root: Path,
+    *, write_outputs: bool = True,
 ) -> dict[str, Any]:
     by_id = {int(claim["claim_id"]): claim for claim in claims}
     baseline_rows = _baseline_mismatches(root, mapping)
@@ -437,9 +438,18 @@ def classify_mapping(
     compressed = io.BytesIO()
     with gzip.GzipFile(filename="", mode="wb", fileobj=compressed, mtime=0, compresslevel=9) as stream:
         stream.write(buffer.getvalue().encode("utf-8"))
-    write_text = root / TRIAGE_OUTPUT
-    write_text.parent.mkdir(parents=True, exist_ok=True)
-    write_text.write_bytes(compressed.getvalue())
-    write_text_lf(root / TRIAGE_SUMMARY, json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    generated_outputs = {
+        root / TRIAGE_OUTPUT: compressed.getvalue(),
+        root / TRIAGE_SUMMARY: (json.dumps(summary, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    }
+    if write_outputs:
+        for path, content in generated_outputs.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.suffix == ".gz":
+                path.write_bytes(content)
+            else:
+                write_text_lf(path, content.decode("utf-8"))
     mapping["mismatch_triage"] = summary
+    if not write_outputs:
+        mapping["_triage_outputs"] = generated_outputs
     return mapping

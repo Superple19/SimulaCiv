@@ -2,7 +2,7 @@ import json
 
 from simciv_analysis.claims import scan_documents
 from simciv_analysis.io import write_text_lf
-from simciv_analysis.recovered_claims import _dimension_matches
+from simciv_analysis.recovered_claims import _dimension_matches, _phase_value
 
 
 def test_claim_context_keeps_measure_column_and_row_configuration(tmp_path):
@@ -44,6 +44,11 @@ def test_alpha_dimensions_match_the_same_interval_and_phase_alias():
 
     assert _dimension_matches(expected, actual)
     assert not _dimension_matches(expected, {**actual, "to_N": "500000"})
+
+
+def test_phase_normalization_has_stable_token_order():
+    assert _phase_value("P6B key_generation") == "key p6b"
+    assert _phase_value("key generation P6B") == "key p6b"
 
 
 def test_candidate_parameter_is_recorded_as_a_config_dimension(tmp_path):
