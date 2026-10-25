@@ -1,4 +1,3 @@
 [core]
-    remote = dagshub
 ['remote "dagshub"']
     url = https://dagshub.com/Superple19/SimulaCiv.dvc

@@ -30,6 +30,10 @@ check-autocrlf: analysis-sync
 data-integrity-update: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.data_integrity --write
 
+dvc-push REMOTE: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.dvc_push_guard {{REMOTE}}
+    dvc push -r {{REMOTE}}
+
 action-refs-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.action_refs
 
