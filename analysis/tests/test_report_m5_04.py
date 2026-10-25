@@ -4,6 +4,7 @@ from simciv_analysis.report_m5_04 import (
     _m4_05_differences,
     _timing_source,
 )
+from simciv_analysis.claims import apply_m5_04_overrides
 
 
 def test_a5_gate_classification_uses_spread_then_bootstrap_bound():
@@ -31,3 +32,13 @@ def test_representation_only_m4_differences_are_normalized_and_listed_separately
     assert m4_05_differences == []
     assert len(m4_05_normalizations) == 8
     assert all(row["harness"] and row["raw data"] for row in m4_05_normalizations)
+
+
+def test_m5_04_ledger_override_is_idempotent():
+    claims = [{"claim_id": 7, "status": "unverifiable", "notes": "source note; M5-04: old"}]
+    overrides = {"claims": {"7": {"result": "bit-exact", "ledger_status": "bit-exact", "note": "exact replay"}}}
+
+    once = apply_m5_04_overrides([dict(claims[0])], overrides=overrides)
+    twice = apply_m5_04_overrides([dict(once[0])], overrides=overrides)
+
+    assert once == twice

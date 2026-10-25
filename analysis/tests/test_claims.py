@@ -218,6 +218,46 @@ def test_claims_locate_resolves_current_line_from_stable_key(tmp_path):
     assert located["section anchor"] == claim["section anchor"]
 
 
+def test_m5_04_result_overrides_recovered_evidence_for_its_claims(tmp_path, monkeypatch):
+    import simciv_analysis.claims as claims_module
+
+    report = tmp_path / "docs/reproducibility/M4_sample.md"
+    report.parent.mkdir(parents=True)
+    write_text_lf(tmp_path / "docs/reproducibility/sources.toml", "")
+    overrides = tmp_path / "docs/data/m5_04/claim_statuses.json"
+    overrides.parent.mkdir(parents=True)
+    write_text_lf(
+        overrides,
+        json.dumps({"claims": {"1": {"result": "bit-exact", "ledger_status": "bit-exact", "note": "verified"}}}),
+    )
+    recovered = tmp_path / "docs/reproducibility/recovered_claim_statuses.json"
+    write_text_lf(
+        recovered,
+        json.dumps({"claims": [{
+            "claim_id": 1,
+            "status_before": "missing-data",
+            "status_after": "unverifiable",
+            "report": "M4_sample.md",
+        }]}),
+    )
+    monkeypatch.setattr(claims_module, "scan_documents", lambda root: [{
+        "report": "M4_sample.md", "section anchor": "result", "class": "derived",
+        "claim text (short)": "Recorded result 42", "value": "42", "unit": "",
+        "claim_key": "M4_sample.md#result:0",
+    }])
+    monkeypatch.setattr(claims_module, "load_sources", lambda root: {})
+    monkeypatch.setattr(claims_module, "validate_source_paths", lambda sources, root: None)
+    monkeypatch.setattr(
+        claims_module,
+        "source_for_claim",
+        lambda *args: {"status": "missing-data", "harness": [], "tests": [], "data": [], "regeneration_stage": "M5-04", "notes": ""},
+    )
+
+    result = claims_module.extract_claims(tmp_path)[0]
+
+    assert result["status"] == "bit-exact"
+
+
 def test_source_line_insert_keeps_committed_ledger_and_report_bytes_unchanged():
     from simciv_analysis.claims import OUTPUT, ROOT, main as claims_main
     from simciv_analysis.report_m5_01 import MD_PATH, QMD_PATH, check_outputs

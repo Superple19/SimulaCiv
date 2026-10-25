@@ -97,9 +97,9 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 | M3        | timing        | unverifiable                             | headline   | 80     |
 | M3        | timing        | unverifiable                             | key        | 6      |
 | M3        | timing        | unverifiable                             | supporting | 8,299  |
-| M4        | derived       | bit-exact                                | headline   | 7      |
+| M4        | derived       | bit-exact                                | headline   | 19     |
 | M4        | derived       | bit-exact                                | supporting | 35     |
-| M4        | derived       | bit-exact after documented normalization | headline   | 2      |
+| M4        | derived       | bit-exact after documented normalization | headline   | 9      |
 | M4        | derived       | bit-exact after documented normalization | key        | 1      |
 | M4        | derived       | bit-exact after documented normalization | supporting | 11     |
 | M4        | derived       | conclusion holds                         | key        | 41     |
@@ -109,7 +109,7 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 | M4        | derived       | missing-source                           | key        | 5      |
 | M4        | derived       | missing-source                           | supporting | 44     |
 | M4        | derived       | unrecoverable                            | supporting | 3      |
-| M4        | derived       | unverifiable                             | headline   | 65     |
+| M4        | derived       | unverifiable                             | headline   | 46     |
 | M4        | derived       | unverifiable                             | key        | 288    |
 | M4        | derived       | unverifiable                             | supporting | 3,038  |
 | M4        | deterministic | historical-protocol                      | key        | 3      |
@@ -191,7 +191,7 @@ The **29** previously unrecoverable M1 aggregate claims were rechecked against c
 | --------- | -------------------------------------------------- | ------------ | ------ |
 | M3        | M3_02_PARALLEL_PHASE6B.md                          | unverifiable | 10,346 |
 | M3        | M3_04_SUSTAINED_WORKLOAD.md                        | unverifiable | 1,865  |
-| M4        | M4_03_DIVERGENCE.md                                | unverifiable | 1,771  |
+| M4        | M4_03_DIVERGENCE.md                                | unverifiable | 1,759  |
 | M2        | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | unverifiable | 1,514  |
 | M3        | M3_11_PROPAGATION.md                               | missing-data | 1,117  |
 | M4        | M4_04_CRN_EFFICIENCY.md                            | unverifiable | 1,067  |

@@ -586,8 +586,12 @@ def apply_m5_04_overrides(
         if override is None:
             continue
         claim["status"] = str(override.get("ledger_status", override["result"]))
+        notes = [
+            note for note in str(claim["notes"]).split("; ")
+            if not note.startswith("M5-04:")
+        ]
         claim["notes"] = "; ".join(
-            filter(None, [str(claim["notes"]), f"M5-04: {override['note']}"])
+            filter(None, [*notes, f"M5-04: {override['note']}"])
         )
     return claims
 
@@ -731,13 +735,14 @@ def extract_claims(
                 "notes": note,
             }
         )
-    if apply_m5_04:
-        output = apply_m5_04_overrides(output, root)
     output = apply_m5_05_results(output, root)
     if apply_recovered:
         output = apply_recorded_statuses(output, root)
     if apply_m3_05_pilot:
         output = apply_m3_05_pilot_results(output, root)
+    if apply_m5_04:
+        # Final M4 regeneration verdicts take precedence over recovered-output evidence.
+        output = apply_m5_04_overrides(output, root)
     return output
 
 
