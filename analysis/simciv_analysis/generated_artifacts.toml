@@ -1,17 +1,17 @@
 [[artifact]]
 file = "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.csv"
 generator = "analysis/simciv_analysis/m2_m3_reconstruction.py"
-check = "reconstruction-inventory-check"
+check = "m3-05-pilot-runtime-check"
 
 [[artifact]]
 file = "docs/reproducibility/M2_M3_EVIDENCE_RECONSTRUCTION.md"
 generator = "analysis/simciv_analysis/m2_m3_reconstruction.py"
-check = "reconstruction-inventory-check"
+check = "m3-05-pilot-runtime-check"
 
 [[artifact]]
 file = "docs/reproducibility/M2_M3_REMAINING_RUNTIME.csv"
 generator = "analysis/simciv_analysis/m2_m3_reconstruction.py"
-check = "reconstruction-inventory-check"
+check = "m3-05-pilot-runtime-check"
 
 [[artifact]]
 file = "docs/reproducibility/recovered_claim_statuses.json.gz"
@@ -66,12 +66,12 @@ check = "m3-05-pilot-classify-check"
 [[artifact]]
 file = "docs/reproducibility/M3_05_PILOT_RUNTIME.csv"
 generator = "analysis/simciv_analysis/m3_05_pilot_runtime.py"
-check = "m3-05-pilot-report-check"
+check = "m3-05-pilot-runtime-check"
 
 [[artifact]]
 file = "docs/reproducibility/M3_05_PILOT_COMPONENTS.csv"
 generator = "analysis/simciv_analysis/m3_05_pilot_runtime.py"
-check = "m3-05-pilot-report-check"
+check = "m3-05-pilot-runtime-check"
 
 [[artifact]]
 file = "docs/reproducibility/M5_01_INVENTORY.qmd"

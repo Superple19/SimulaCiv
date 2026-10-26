@@ -1,9 +1,11 @@
 # M5 Analysis Migration Plan
 
-Status: **APPROVED PLAN — PHASE 1 IMPLEMENTED; PHASE 2 IN PROGRESS (2026-10-27)**
+Status: **APPROVED PLAN — MIGRATION IN PROGRESS (2026-10-27)**
 Parent: [M5 Analysis Contract](M5_ANALYSIS_CONTRACT.md)
 
 This plan redoes the earlier file triage against the current import/call graph and frozen decision references. It authorizes no file move, rename, deletion, generator edit, or decision-status change. All migration steps, including T3, remain planned work; this document does not claim T3 is implemented.
+
+Later update (2026-10-27): the current authorized migration changes routine-gate reachability and supersedes the reviewed frozen decisions; it does not rewrite or remove legacy sources or alter claim-ledger statuses or verdict records.
 
 ## Migration order and constraints
 
@@ -41,6 +43,10 @@ The Phase 1 gate now validates the conclusion/evidence registry and computes ver
 | `evidence-check` | Separate evidence-only validation target for append-only records, content hashes, role/kind compatibility, and supersession graph. | Not separate; these checks run through `conclusions-check`. |
 | `verdicts-check` | Compute each `(conclusion_id, role[, head SHA])` result order-independently from evidence and frozen criteria. | Implemented in `verdicts.py`; invoked by `conclusions-check`. |
 | `report-m5-final-check` | Render conclusions and cited evidence from the registries and compare the committed report. | Not implemented. |
+
+### Phase 2 gate migration record (2026-10-27)
+
+`ledger-transition-check`, `reconstruction-inventory-check`, and `m3-05-pilot-report-check` are no longer dependencies of `just check`. The reconstruction inventory and M3-05 runtime artifacts use `m3-05-pilot-runtime-check` through `just check-local-data`; the cited M5-01, M5-04, and M5-05 report checks remain reachable until registry-backed replacements are reviewed. The underlying legacy sources and commands remain in the repository for provenance. No claim-ledger bytes/statuses or verdict rows were regenerated or changed.
 
 ## Import and gate graph
 
