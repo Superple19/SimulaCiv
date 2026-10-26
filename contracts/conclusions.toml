@@ -1,0 +1,509 @@
+# Draft conclusion set for M5-09. Coverage labels are review notes, not verdicts.
+# Statements are deliberately scoped to the experiments named below.
+
+[[conclusion]]
+id = "M0-DET-REPLAY"
+milestone = "M0"
+statement = "The reference runtime produces identical canonical outputs for repeated runs from identical initialized state and inputs."
+type = "deterministic"
+source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#milestone-questions"
+experiment = "M0 repeated deterministic replay"
+revisions = ["v0.1.0-m0", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m0_determinism_gate_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs"]
+missing = "The original aggregate test-run log is not reproducible evidence; the fixed-vector and replay tests are."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M0-DET-SNAPSHOT-RESUME"
+milestone = "M0"
+statement = "Restoring a valid M0 snapshot resumes the same canonical trajectory as uninterrupted execution."
+type = "deterministic"
+source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#milestone-questions"
+experiment = "M0 snapshot pause/resume gate"
+revisions = ["v0.1.0-m0", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m0_determinism_gate_tests.rs", "crates/sim-model/tests/phase11_snapshot_tests.rs"]
+missing = "A separately archived original test-run aggregate is unavailable and is not needed for the exact replay statement."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M0-DET-INITIALIZATION"
+milestone = "M0"
+statement = "Initialization is deterministic for a fixed configuration, seed, and replicate identity."
+type = "deterministic"
+source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#milestone-questions"
+experiment = "M0 initialization and replay tests"
+revisions = ["v0.1.0-m0", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/initialization_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs"]
+missing = "The statement does not cover initialization behavior for configurations outside the committed test fixtures."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M1-DET-CANONICAL-ENCODING"
+milestone = "M1"
+statement = "The frozen M1 manifest's canonical state, metrics, and event encodings match the runtime's emitted bytes."
+type = "deterministic"
+source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#milestone-questions"
+experiment = "M1 manifest-to-runtime conformance tests"
+revisions = ["v0.2.0-m1", "HEAD"]
+existing_evidence = ["contracts/m1_contract.toml", "crates/sim-model/tests/m1_contract_manifest_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs"]
+missing = "No alternative language implementation is included in this evidence set."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M1-DET-TRANSITION-ORDER"
+milestone = "M1"
+statement = "The runtime's phase, event-tag, ordering, and error-precedence behavior conforms to the frozen M1 contract."
+type = "deterministic"
+source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#correctness-and-compatibility-record"
+experiment = "M1 contract manifest and error-precedence gates"
+revisions = ["v0.2.0-m1", "HEAD"]
+existing_evidence = ["contracts/m1_contract.toml", "crates/sim-model/tests/m1_contract_manifest_tests.rs", "crates/sim-model/tests/phase6b_targeted_tests.rs"]
+missing = "The claim is limited to the declared contract cases and runtime profiles."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M1-DET-SNAPSHOT-V1"
+milestone = "M1"
+statement = "M1 snapshot schema v1 restores the same canonical state and continuation as its source run."
+type = "deterministic"
+source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#correctness-and-compatibility-record"
+experiment = "M1 snapshot fixed-vector and resume gates"
+revisions = ["v0.2.0-m1", "HEAD"]
+existing_evidence = ["contracts/m1_contract.toml", "crates/sim-model/tests/m1_contract_manifest_tests.rs", "crates/sim-model/tests/phase11_snapshot_tests.rs"]
+missing = "Compatibility with snapshot versions introduced by later profiles is covered by their separate profile tests."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M2-DET-SOA-PARITY"
+milestone = "M2"
+statement = "The Segmented SoA storage path preserves the M0 reference's canonical behavior on the registered M2 replay and snapshot gates."
+type = "deterministic"
+source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
+experiment = "M2 storage/reference parity matrix"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m2_soa_gate_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs", "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"]
+missing = "The full historical M2 benchmark probe set is not available for regeneration."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M2-DET-RAYON-PARITY"
+milestone = "M2"
+statement = "The explicit Rayon Phase 4 path preserves the serial path's choices, errors, digests, and snapshot continuation on the registered parity cases."
+type = "deterministic"
+source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#20-graduation-criteria"
+experiment = "M2 explicit Phase 4 Rayon parity gates"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/phase4_rayon_tests.rs", "crates/sim-model/tests/m2_soa_gate_tests.rs"]
+missing = "Parity is established for the committed cases, not for every possible workload configuration."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M2-TIM-NEAR-LINEAR"
+milestone = "M2"
+statement = "The selected M5-05 cells do not resolve whether M2's broader full-tick near-linear scaling conclusion reproduces."
+type = "timing"
+source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#4-full-tick-scaling"
+experiment = "m2_near_linear"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_near_linear/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
+missing = "The M5-05 representative cells do not repeat the report's full population and workload grid."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M2-TIM-HIGH-POPULATION-TICK-RANGE"
+milestone = "M2"
+statement = "The selected high-population full-tick cells do not reproduce the exact M2-40 practical range under the registered timing criteria."
+type = "timing"
+source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
+experiment = "m2_final_tick"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_final_tick/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
+missing = "The conclusion is limited to the selected 100k workloads and the recorded reference host."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M2-TIM-PHASE4-CROSSOVER"
+milestone = "M2"
+statement = "The selected M5-05 cells do not determine a stable population crossover for whole-tick Phase 4 Rayon execution."
+type = "timing"
+source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#3-serial-and-explicit-rayon-full-tick-results"
+experiment = "m2_phase4_crossover"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_phase4_crossover/summary.json"]
+missing = "The selected thread/population cells do not repeat the original crossover search densely enough to locate a robust interval."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M2-TIM-PHASE-PROFILE"
+milestone = "M2"
+statement = "Phase 4 is the largest measured serial phase family in the M2-40 workload, while explicit Rayon reduces that phase's measured time."
+type = "timing"
+source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#5-serial-production-phase-profile"
+experiment = "M2 serial and explicit-Rayon phase profiles"
+revisions = ["report_revision"]
+existing_evidence = ["docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#5-serial-production-phase-profile", "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#6-explicit-rayon-production-phase-profile"]
+missing = "The temporary phase probes were removed and M5-05 did not rerun these detailed splits."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M2-TIM-LARGEST-EXTENSION"
+milestone = "M2"
+statement = "The largest M2-40 extension completes but shows mildly superlinear growth in the reported workload."
+type = "timing"
+source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#4-full-tick-scaling"
+experiment = "M2-40 largest-N extension"
+revisions = ["report_revision"]
+existing_evidence = ["docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#3-serial-and-explicit-rayon-full-tick-results"]
+missing = "No M5-05 200k remeasurement or surviving full original sample set is registered."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M2-QUAL-AUTO-EXPERIMENTAL"
+milestone = "M2"
+statement = "Automatic Phase 4 policy remains experimental and the serial production runner remains the default."
+type = "qualitative"
+source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
+experiment = "M2-39 policy-selection runs and M2-40 compatibility review"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M2_39_RAYON_PRODUCTION_POLICY_GATE.md", "crates/sim-model/tests/phase4_rayon_tests.rs"]
+missing = "The report explicitly limits this policy decision to the measured host and candidate set."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-DET-REFERENCE-STORAGE-PARITY"
+milestone = "M3"
+statement = "M3 storage execution preserves the reference path's per-day canonical state, metrics, events, and snapshot outputs on the registered matrix."
+type = "deterministic"
+source = "docs/reports/M3_01_SERIAL_BASELINE.md#release-differential-and-parity"
+experiment = "M3-01 reference/storage differential matrix"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m3_storage_runner_tests.rs", "crates/sim-model/tests/m3_reference_runner_tests.rs", "docs/reports/M3_01_SERIAL_BASELINE.md#release-differential-and-parity"]
+missing = "The evidence covers the frozen matrix and does not claim equivalence for unregistered future profiles."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-STATIC-SCALE"
+milestone = "M3"
+statement = "The static M3 scale workload completes through the tested maximum population while its registered first-break criteria trigger at smaller sizes."
+type = "timing"
+source = "docs/reports/M3_05_SCALE_LIMIT.md#executive-summary"
+experiment = "M3-05 A-5 static scale and first-break pilot"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M3_05_SCALE_LIMIT.md", "docs/reproducibility/M3_05_PILOT_RESULTS.json", "docs/data/m5_05/m3_05_pilot/summary.json"]
+missing = "The original temporary scale probes are incomplete; the paper must state the committed pilot scope rather than imply a full historical-grid rerun."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-PHASE6B-NO-WHOLE-TICK-GAIN"
+milestone = "M3"
+statement = "The selected parallel Phase 6B workloads show no whole-tick gain over serial execution."
+type = "timing"
+source = "docs/reports/M3_02_PARALLEL_PHASE6B.md#executive-summary"
+experiment = "m3_02_parallel_phase6b"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m3_parallel_runner_tests.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m3_02_parallel_phase6b/summary.json"]
+missing = "The M5-05 cells represent the selected headline workloads, not every historical matrix cell."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-SEARCH-REDUCTION-NO-GAIN"
+milestone = "M3"
+statement = "The selected search-reduction workloads do not show paired whole-tick savings beyond their measured variation."
+type = "timing"
+source = "docs/reports/M3_03_SEARCH_REDUCTION.md#executive-summary"
+experiment = "m3_03_search_reduction"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m3_search_reduction_tests.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m3_03_search_reduction/summary.json"]
+missing = "The conclusion is limited to the selected A-5 cells and tested configuration."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-QUAL-EQUILIBRIUM-WORKLOAD"
+milestone = "M3"
+statement = "The M2-40-derived equilibrium configuration was designed as a short benchmark and did not sustain its population under the long-horizon interaction workload."
+type = "qualitative"
+source = "docs/reports/M3_04_SUSTAINED_WORKLOAD.md#workload-and-interaction-mix"
+experiment = "M3-04 sustained workload and M3-05 scale profile"
+revisions = ["report_revision"]
+existing_evidence = ["docs/reports/M3_04_SUSTAINED_WORKLOAD.md", "docs/reports/M3_05_SCALE_LIMIT.md"]
+missing = "The result is specific to the recorded configuration and seed set; alternate sustained workloads are outside this evidence."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M3-TIM-SETTLEMENT-INDEX"
+milestone = "M3"
+statement = "M3-06's indexed settlement path is faster than the recorded pre-index baseline in the selected million-agent cell, but the historical comparison is not fully reproduced."
+type = "timing"
+source = "docs/reports/M3_06_SETTLEMENT_INDEX.md#whole-tick-result-at-n1000000"
+experiment = "m3_06_settlement_index"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/data/m5_05/m3_06_settlement_index/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
+missing = "The pre-index executable is absent, so the M5-05 comparison uses a historical recorded baseline and remains inconclusive."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M3-TIM-REVERSED-SLOTS"
+milestone = "M3"
+statement = "Reversing physical slots slows the selected Phase 4 selection workload while preserving canonical digest parity."
+type = "timing"
+source = "docs/reports/M3_07_SCALE_RESIDUAL.md#normal-versus-reversed-slot-layout"
+experiment = "m3_07_reversed_slots"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/data/m5_05/m3_07_reversed_slots/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
+missing = "The inference is limited to the measured phase and layouts; it does not identify a particular cache or TLB mechanism."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-FULL-REBUILD-EQUAL-LIVE"
+milestone = "M3"
+statement = "At equal live population the M3P full-rebuild path has a substantially higher tick cost than the M3 static path in the tested sustained workload."
+type = "timing"
+source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#equal-live-population-tick-comparison"
+experiment = "m3_08_full_rebuild_equal_live"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M3_08_POPULATION_DYNAMICS.md", "docs/data/m5_05/m3_08_full_rebuild_equal_live/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
+missing = "The original detail driver is absent; the M5-05 adapter reconstructs the report-level equal-live comparison only."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-INCREMENTAL-EQUAL-LIVE"
+milestone = "M3"
+statement = "Incremental topology maintenance reduces the equal-live M3P-to-M3 tick ratio relative to full rebuild for the report's normal-day protocol."
+type = "timing"
+source = "docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md#equal-live-m3pm3-rerun-and-interleaving"
+experiment = "m3_09_incremental_equal_live and protocol-matched M3-09 recheck"
+revisions = ["M3-09 follow-up revision", "HEAD"]
+existing_evidence = ["docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md", "docs/data/m5_05/m3_09_incremental_equal_live/summary.json", "docs/data/m5_05/m3_09_scope_check/summary.json"]
+missing = "The all-days M5-05 cell includes a compaction day and is not interchangeable with the normal-day report scope."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-DET-M3P-SUSTAINED-GATE"
+milestone = "M3"
+statement = "The registered M3P sustained test keeps live population within its gate band over the tested horizon."
+type = "deterministic"
+source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#sustained-gate"
+experiment = "M3P sustained CI gate"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m3p_sustained_gate_tests.rs", "crates/sim-model/tests/m3p_incremental_topology_tests.rs"]
+missing = "The gate covers its committed fixture, not long-horizon stability for arbitrary configurations."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-PROP-PHASE9C"
+milestone = "M3"
+statement = "Parallel propagation reduces Phase 9c time when the tested propagation frontier provides enough work per level."
+type = "timing"
+source = "docs/reports/M3_11_PROPAGATION.md#phase-9c-measurements"
+experiment = "m3_11_phase9c_speedup"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "docs/data/m5_05/m3_11_phase9c_speedup/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
+missing = "The crossover is host- and workload-specific and is not a portable threshold."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-PROP-WHOLE-TICK"
+milestone = "M3"
+statement = "Parallel propagation improves whole-tick time in the selected large-frontier cell, while gains are less consistent at smaller frontiers."
+type = "timing"
+source = "docs/reports/M3_11_PROPAGATION.md#whole-tick-measurements"
+experiment = "m3_11_whole_tick_speedup"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "docs/data/m5_05/m3_11_whole_tick_speedup/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
+missing = "The whole-tick result is specific to the fixed topology, host, and selected frontier configuration."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-PROP-FRONTIER-CROSSOVER"
+milestone = "M3"
+statement = "The measured Phase 9c serial/parallel ordering changes with frontier work and is not described by a single universal cutoff."
+type = "timing"
+source = "docs/reports/M3_11_PROPAGATION.md#phase-9c-measurements"
+experiment = "m3_11_frontier_crossover"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "docs/data/m5_05/m3_11_frontier_crossover/summary.json"]
+missing = "More workloads and hosts are needed before generalizing a crossover region."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-QUAL-NO-REPLACEMENT"
+milestone = "M3"
+statement = "No architecture replacement is required for the interaction workloads measured by M3, although profile-specific state wiring remains an engineering debt."
+type = "qualitative"
+source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#does-the-runtime-need-a-new-architecture"
+experiment = "M3 graduation evidence synthesis"
+revisions = ["M3 graduation revision", "HEAD"]
+existing_evidence = ["docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md", "docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md", "docs/reports/M3_11_PROPAGATION.md"]
+missing = "The conclusion applies only to measured workloads and is not an argument against future architecture changes for new models."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M4-DET-BRANCH-IDENTITY"
+milestone = "M4"
+statement = "A no-op intervention preserves zero divergence across the four registered M4 branch profile combinations."
+type = "deterministic"
+source = "docs/reports/M4_02_BRANCHING.md#identity-gate"
+experiment = "M4-02 base-branch identity gate"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m4_branching_tests.rs", "crates/sim-model/tests/m4_06_branch_identity_tests.rs"]
+missing = "The identity gate does not cover unsupported explicit-parallel branch requests."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-DET-DIVERGENCE-LOCATOR"
+milestone = "M4"
+statement = "The branch locator identifies the first divergent phase and component consistently with the recorded day-level branch comparison."
+type = "deterministic"
+source = "docs/reports/M4_03_DIVERGENCE.md#first-divergence-and-component-flags"
+experiment = "M4-02 phase-boundary replay and M4-03 component partition tests"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m4_branching_tests.rs", "crates/sim-model/tests/m4_03_divergence_tests.rs"]
+missing = "The paper must limit the claim to supported profiles and registered intervention types."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-QUAL-RECORD-DIVERGENCE"
+milestone = "M4"
+statement = "The tested local interventions approach population-wide record divergence over the long M3P horizon, while the result remains workload-specific."
+type = "qualitative"
+source = "docs/reports/M4_03_DIVERGENCE.md#h365-extension"
+experiment = "M4-03 food and health interventions across the registered seeds"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M4_03_DIVERGENCE.md", "docs/data/m4_03/m4_03_divergence_experiments.csv", "docs/data/m5_04/m4_03/m4_03_gate_a5.log"]
+missing = "The recorded runs do not establish the same divergence curve for other topologies, profiles, or intervention locations."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-QUAL-CRN-EFFICIENCY"
+milestone = "M4"
+statement = "Shared coordinate randomness reduces estimator variance for many tested long-horizon outcomes, with effectiveness varying by outcome and intervention."
+type = "qualitative"
+source = "docs/reports/M4_04_CRN_EFFICIENCY.md#results"
+experiment = "M4-04 paired and independent replicate sets"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M4_04_CRN_EFFICIENCY.md", "docs/data/m4_04/m4_04_crn_efficiency.csv", "docs/data/m5_04/m4_04/parallel_estimate_comparison.json"]
+missing = "The comparison uses one workload family and does not generalize to arbitrary branch or outcome distributions."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-QUAL-LOCAL-AGGREGATE-SIGNAL"
+milestone = "M4"
+statement = "In the tested health intervention, the aggregate wealth effect is concentrated in the target settlement rather than spread uniformly across the world."
+type = "qualitative"
+source = "docs/reports/M4_04_CRN_EFFICIENCY.md#health_0_01"
+experiment = "M4-04 health intervention at the registered long horizon"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M4_04_CRN_EFFICIENCY.md#health_0_01", "docs/data/m4_04/m4_04_crn_health_0_01.csv"]
+missing = "This is one workload observation, not a general spatial law."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-QUAL-MINIMAL-CAUSES"
+milestone = "M4"
+statement = "Minimal intervention sets exist for some tested predicates but are non-unique and vary across the recorded seeds."
+type = "qualitative"
+source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
+experiment = "M4-05 exhaustive and delta-debugging cases"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M4_05_MINIMAL_CAUSE.md", "docs/data/m4_05/m4_05_a_health8.jsonl", "docs/data/m4_05/seed-0.jsonl", "docs/data/m5_04/m4_05/m4_05_a5_gate_full.log"]
+missing = "The cause set is tied to the declared candidates, replicate count, threshold, and tested seeds."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-DET-MIGRATION-PARITY"
+milestone = "M4"
+statement = "The registered migration profile preserves its declared serial/storage parity, money-transfer, cooldown, and snapshot invariants."
+type = "deterministic"
+source = "docs/reports/M4_06_MIGRATION.md#correctness-and-forward-gate"
+experiment = "M4-06 migration profile gates"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
+missing = "Population cleanup removes dead-agent wealth in M3P, so whole-world money is not conserved across death compaction."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-QUAL-MIGRATION-CALIBRATION"
+milestone = "M4"
+statement = "The recorded migration parameter settings do not establish a calibrated default migration rate for sustained populations."
+type = "qualitative"
+source = "docs/reports/M4_06_MIGRATION.md#population-distribution-and-money"
+experiment = "M4-06 parameter follow-up and branch migration comparison"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M4_06_MIGRATION.md#population-distribution-and-money", "docs/data/m4_06/experiment.json", "docs/data/m4_06/branch_experiment.json"]
+missing = "A multi-workload calibration objective and parameter sweep remain unperformed."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-TIM-BRANCH-PARALLEL"
+milestone = "M4"
+statement = "Parallel branch evaluation is substantially faster than serial evaluation in the measured six-thread workloads."
+type = "timing"
+source = "docs/reports/M4_07_MANY_BRANCH.md#m4-04-replicate-experiment-serial-versus-parallel"
+experiment = "M4-07 M4-04 replicate, M4-05 search, and day-scan comparisons"
+revisions = ["report_revision", "HEAD"]
+existing_evidence = ["docs/reports/M4_07_MANY_BRANCH.md", "docs/data/m4_07/crn_parallel.jsonl", "docs/data/m4_07/m4_05_search_parallel_numeric8.jsonl"]
+missing = "The measurement is descriptive rather than a later A-5 confirmation and is specific to the recorded host and cells."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M4-QUAL-COW-SHARE"
+milestone = "M4"
+statement = "Copy-on-write was not needed for the measured branch workloads because restore and clone cost stayed below the registered share threshold."
+type = "qualitative"
+source = "docs/reports/M4_07_MANY_BRANCH.md#copy-on-write-decision"
+experiment = "M4-07 branch clone-share probes"
+revisions = ["report_revision"]
+existing_evidence = ["docs/reports/M4_07_MANY_BRANCH.md", "docs/data/m4_07/clone_share.jsonl"]
+missing = "The decision applies only to measured population sizes and horizons."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-QUAL-GPU-ASSESSMENT"
+milestone = "M4"
+statement = "The available M4 evidence does not justify a GPU implementation without a new transfer-cost and determinism study."
+type = "qualitative"
+source = "docs/reports/M4_07_MANY_BRANCH.md#gpu-suitability-assessment"
+experiment = "M4-07 written GPU suitability assessment"
+revisions = ["report_revision"]
+existing_evidence = ["docs/reports/M4_07_MANY_BRANCH.md#gpu-suitability-assessment"]
+missing = "No GPU benchmark or device-transfer measurement was performed."
+coverage = "partial"
+paper_role = "limitations"
