@@ -31,15 +31,15 @@ Later update (2026-10-26): the draft `contracts/conclusions.toml` will supersede
 
 Decision IDs above are frozen in `contracts/decisions.toml`; update them through a separately reviewed decision change, not as a side effect of a generator.
 
-## Planned gate targets
+## Gate implementation status
 
-No gate manifest exists yet. These are proposed targets for the future verdict path; each must be added to the repository's explicit gate wiring and receive a red test before the corresponding migration is complete. The planned `conclusions-check` will use a future `analysis/simciv_analysis/conclusions.py` validator for every Tier 1 record: ordered cells; exactly the required predicate keys; numeric expected values where needed; a registered host; harness paths present at HEAD; and verbatim at the pinned report SHA then-path and absent from its parent. The script and gate are planned, not implemented.
+The Phase 1 gate now validates the conclusion/evidence registry and computes verdicts through a pure module. Remaining targets are still planned; each must be explicitly wired and receive a red test before its migration is complete. `analysis/simciv_analysis/conclusions.py` checks every Tier 1 record's ordered cells, exact predicate keys, numeric expected values where needed, registered host, HEAD harness paths, and verbatim text at the pinned report SHA then-path absent from its parent.
 
 | Planned target | Function | Current state |
 |---|---|---|
-| `conclusions-check` | Validate conclusion and protocol schemas, required verbatim source text, anchors, full revisions, and ID uniqueness. | Not implemented. |
-| `evidence-check` | Validate append-only evidence records, content hashes, role/kind compatibility, and same-conclusion supersession graph. | Not implemented. |
-| `verdicts-check` | Compute each `(conclusion_id, role)` result order-independently from the full current evidence set and frozen criteria. | Not implemented. |
+| `conclusions-check` | Validate conclusion/protocol schemas, verbatim anchors, evidence hashes and append-only history; check the generated verdict table. | Implemented in Phase 1 with red tests. |
+| `evidence-check` | Separate evidence-only validation target for append-only records, content hashes, role/kind compatibility, and supersession graph. | Not separate; these checks run through `conclusions-check`. |
+| `verdicts-check` | Compute each `(conclusion_id, role[, head SHA])` result order-independently from evidence and frozen criteria. | Implemented in `verdicts.py`; invoked by `conclusions-check`. |
 | `report-m5-final-check` | Render conclusions and cited evidence from the registries and compare the committed report. | Not implemented. |
 
 ## Import and gate graph

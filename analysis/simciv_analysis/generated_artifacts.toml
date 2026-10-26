@@ -119,6 +119,11 @@ generator = "analysis/simciv_analysis/decisions.py"
 check = "decisions-check"
 
 [[artifact]]
+file = "docs/reproducibility/VERDICTS.md"
+generator = "analysis/simciv_analysis/conclusions.py"
+check = "conclusions-check"
+
+[[artifact]]
 file = "README.md"
 generator = "analysis/simciv_analysis/decisions.py"
 check = "decisions-check"

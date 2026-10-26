@@ -793,9 +793,41 @@ id = "M5-INFRA-ANALYSIS-CONTRACT"
 milestone = "M5"
 stage = "M5-00"
 status = "frozen"
-enforcement = "documented"
-summary = "The M5 analysis contract is frozen, with enforcement remaining documented until the planned verdict function and conclusions-check are implemented."
-enforced_by = ["docs/contracts/M5_ANALYSIS_CONTRACT.md#3-verdicts", "docs/contracts/M5_ANALYSIS_MIGRATION_PLAN.md#planned-gate-targets"]
+enforcement = "verified"
+summary = "The frozen M5 analysis contract is validated by the pure verdict function and conclusions-check with rule-specific red tests."
+enforced_by = [
+  "analysis/simciv_analysis/verdicts.py",
+  "analysis/simciv_analysis/conclusions.py",
+  "test:analysis/tests/test_verdicts.py::test_aggregate_verdict_obeys_each_precedence_branch",
+  "test:analysis/tests/test_verdicts.py::test_same_strength_conflicts_use_conservative_contract_tie_rule",
+  "test:analysis/tests/test_verdicts.py::test_failed_validity_is_inconclusive_but_completion_ignores_timing_validity",
+  "test:analysis/tests/test_verdicts.py::test_a5_validity_checks_sample_count_duration_and_five_percent_boundary",
+  "test:analysis/tests/test_verdicts.py::test_each_disqualifying_timing_host_field_is_inconclusive",
+  "test:analysis/tests/test_verdicts.py::test_os_build_difference_does_not_disqualify_timing_and_determinism_is_cross_host",
+  "test:analysis/tests/test_verdicts.py::test_stale_head_digest_is_unverified_stale",
+  "test:analysis/tests/test_verdicts.py::test_report_overlay_build_failure_requires_decision",
+  "test:analysis/tests/test_verdicts.py::test_unhashed_artifacts_are_ignored_not_promoted_or_failed",
+  "test:analysis/tests/test_verdicts.py::test_exact_predicate_compares_registered_values",
+  "test:analysis/tests/test_verdicts.py::test_exact_predicate_accepts_only_registered_field_normalization",
+  "test:analysis/tests/test_verdicts.py::test_exact_predicate_supports_the_other_registered_normalizations",
+  "test:analysis/tests/test_verdicts.py::test_deterministic_exact_evidence_outranks_archival_recovered_output",
+  "test:analysis/tests/test_verdicts.py::test_qualitative_source_kind_is_accepted_for_qualitative_conclusions",
+  "test:analysis/tests/test_verdicts.py::test_ratio_band_uses_frozen_ten_and_twenty_percent_edges",
+  "test:analysis/tests/test_verdicts.py::test_threshold_side_respects_old_noise_margin",
+  "test:analysis/tests/test_verdicts.py::test_completion_predicate_passes_only_completed_without_error",
+  "test:analysis/tests/test_verdicts.py::test_no_gain_predicate_uses_abs_effect_and_paired_mad",
+  "test:analysis/tests/test_conclusions.py::test_anchor_section_includes_nested_headings_and_verbatim_is_new",
+  "test:analysis/tests/test_conclusions.py::test_evidence_append_only_rejects_edit_and_removal",
+  "test:analysis/tests/test_conclusions.py::test_evidence_append_only_requires_line_boundary",
+  "test:analysis/tests/test_conclusions.py::test_hosts_registry_requires_one_well_formed_reference",
+  "test:analysis/tests/test_conclusions.py::test_evidence_checker_rejects_incompatible_kind_type_role",
+  "test:analysis/tests/test_conclusions.py::test_artifact_hash_check_detects_mismatch_and_unhashed_record",
+  "test:analysis/tests/test_conclusions.py::test_evidence_checker_rejects_missing_supersession_target",
+  "test:analysis/tests/test_verdicts.py::test_cross_conclusion_and_weaker_supersession_are_needs_decision",
+  "test:analysis/tests/test_verdicts.py::test_valid_supersession_removes_the_superseded_record",
+  "test:analysis/tests/test_conclusions.py::test_protocol_checker_rejects_missing_harness_and_nonclosed_parameter_keys",
+  "just:conclusions-check",
+]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-26"
 
