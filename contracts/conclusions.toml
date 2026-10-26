@@ -5,30 +5,30 @@ status = "draft"
 [[conclusion]]
 id = "M0-DET-REPLAY"
 milestone = "M0"
-statement = "Yes: deterministic reference execution and canonical replay establish the baseline."
-verbatim = "Yes: deterministic reference execution and canonical replay establish the baseline."
+statement = "The M0 determinism gate tests 500-day pause/resume equivalence, replay, and layout invariance."
+verbatim = "Final graduation gate: 500-day pause/resume equivalence, replay, and layout invariance"
 type = "deterministic"
-source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#milestone-questions"
-experiment = "m0_reference_replay"
-revisions = ["86f2f2d34389f85fdf27c0d295af30361f034367", "c4abc3f50b41eb3aa0c01ce6aa91d368855f2c9c"]
-aggregation = "all registered replay cases must match exactly"
+source = "docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary"
+experiment = "m0_replay_and_layout_gate"
+revisions = ["86f2f2d34389f85fdf27c0d295af30361f034367"]
+aggregation = "all listed M0 replay/layout gate cases must pass; snapshot continuation is a separate registered predicate"
 existing_evidence = ["crates/sim-model/tests/m0_determinism_gate_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs"]
-missing = "No replay run record at the pinned M0 revision is registered."
+missing = "No exact run record at the cited M1 contract revision is registered."
 coverage = "rerunnable"
 paper_role = "main"
 
 [[conclusion]]
 id = "M1-DET-CONTRACT"
 milestone = "M1"
-statement = "Yes: subsequent optimized paths are checked against the frozen canonical behavior."
-verbatim = "Yes: subsequent optimized paths are checked against the frozen canonical behavior."
+statement = "Contracts C01 through C10 are frozen as the mandatory semantic specification for later optimized implementations."
+verbatim = "**Contracts C01 through C10**, as reconciled herein, are frozen as the mandatory semantic specification."
 type = "deterministic"
-source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#milestone-questions"
-experiment = "m1_frozen_contract_conformance"
-revisions = ["62a907b7fb7b7d3e5ff1c91027a0854bc5572556", "c4abc3f50b41eb3aa0c01ce6aa91d368855f2c9c"]
-aggregation = "all registered manifest and runtime cases must match exactly"
-existing_evidence = ["contracts/m1_contract.toml", "crates/sim-model/tests/m1_contract_manifest_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs"]
-missing = "No run record at the pinned M1 revision is registered."
+source = "docs/contracts/M1_CONTRACT_FREEZE.md#1-freeze-declaration--purpose"
+experiment = "m1_contract_freeze_conformance"
+revisions = ["62a907b7fb7b7d3e5ff1c91027a0854bc5572556"]
+aggregation = "all frozen C01-C10 clauses and the declared differential requirements must hold"
+existing_evidence = ["docs/contracts/M1_CONTRACT_FREEZE.md", "contracts/m1_contract.toml", "crates/sim-model/tests/m1_contract_manifest_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs"]
+missing = "No exact run record at the cited M1 contract revision is registered."
 coverage = "rerunnable"
 paper_role = "main"
 
@@ -56,11 +56,11 @@ type = "timing"
 source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
 experiment = "m2_near_linear"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-aggregation = "evaluate the predeclared A and B 50k-to-100k mode cells; do not infer a broader grid from selected cells"
+aggregation = "evaluate the predeclared A and B 50k-to-100k mode cells; do not infer a broader grid from the declared cells"
 prior_verbatim_conclusion = "From 50k to 100k, whole-tick alpha ranges from 1.058 to 1.102; A has phase-local P5/P6A/P6B timing outliers, but they do not move aggregate alpha above 1.058."
 pass_criterion = "Report the new alpha and each absolute timing ratio; conclusion holds only if both modes remain near-linear over these cells, otherwise inconclusive or changed as observed."
 existing_evidence = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_near_linear/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-missing = "The M5-05 selected cells do not reproduce the full A/B population and workload grid."
+missing = "The M5-05 measured cell set does not reproduce the full A/B population and workload grid."
 coverage = "partial"
 paper_role = "limitations"
 
@@ -75,23 +75,23 @@ experiment = "m2_near_linear_workload_b"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "compare the single registered workload-B serial interval and its paired explicit-Rayon interval"
 existing_evidence = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_near_linear/summary.json"]
-missing = "No further cell is needed for this narrowly scoped interval; broader populations remain outside the claim."
+missing = "M5-05 remeasured both workload-B 50k-to-100k modes (serial alpha 1.111 and explicit Rayon alpha 1.102); the narrower B interval is covered, while workload A lacks its 50k cell."
 coverage = "sufficient"
 paper_role = "main"
 
 [[conclusion]]
 id = "M2-TIM-100K-RUNTIME-RANGE"
 milestone = "M2"
-statement = "Both execution modes complete a 100k-agent tick in a practical 17–22 ms on the measured host."
+statement = "Both execution modes measured 100k-agent ticks in the 17–22 ms range on the measured host."
 verbatim = "Both execution modes complete a 100k-agent tick in a practical 17–22 ms on the measured host."
 type = "timing"
 source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
 experiment = "m2_final_tick"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-aggregation = "report all four 100k A/B and Serial/Rayon medians; absolute range alone has no pass verdict"
+aggregation = "needs-decision: report the four 100k A/B and Serial/Rayon values as context; absolute elapsed time alone has no pass/fail verdict"
 pass_criterion = "Report per-cell ratios and whether the 17–22 ms range still describes both selected workloads."
 existing_evidence = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_final_tick/summary.json"]
-missing = "The statement is absolute-time-only; frozen criteria require a relative bound before it can receive a verdict."
+missing = "M5-05 measured some 100k cells, but this is an absolute-time range with no registered relative predicate."
 coverage = "partial"
 paper_role = "limitations"
 
@@ -185,11 +185,12 @@ source = "docs/reports/M3_02_PARALLEL_PHASE6B.md#executive-summary"
 experiment = "m3_02_parallel_phase6b"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "the conclusion covers the 180 active day-zero cells; selected representatives cannot replace their aggregate"
-pass_criterion = "Report selected ratios. The historical aggregate 0.967x is inconclusive unless all selected cells support the no-whole-tick-gain conclusion; do not label their mean as the original aggregate."
+pass_criterion = "Report each declared cell ratio. The historical aggregate 0.967x is inconclusive unless every declared cell satisfies the no-whole-tick-gain predicate; do not label their mean as the original aggregate."
 existing_evidence = ["crates/sim-model/benches/m3_02_parallel_phase6b_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m3_02_parallel_phase6b/summary.json"]
-missing = "M5-05 remeasured selected active cells, not all 180 cells."
+missing = "Only selected M5-05 HEAD cells were rerun; the 180-cell report-revision aggregate remains inconclusive."
 coverage = "partial"
 paper_role = "limitations"
+prior_pass_criterion = "Report selected ratios. The historical aggregate 0.967x is inconclusive unless all selected cells support the no-whole-tick-gain conclusion; do not label their mean as the original aggregate."
 
 [[conclusion]]
 id = "M3-TIM-SEARCH-REDUCTION-NO-GAIN"
@@ -201,11 +202,12 @@ source = "docs/reports/M3_03_SEARCH_REDUCTION.md#paired-whole-tick-results"
 experiment = "m3_03_search_reduction"
 revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
 aggregation = "all 12 requested paired cells must satisfy the no-saving-beyond-MAD predicate"
-pass_criterion = "For both selected cells report paired saving and MAD; the no-gain conclusion holds only when no saving exceeds MAD."
+pass_criterion = "For both declared cell IDs report paired saving and MAD; the no-gain conclusion holds only when no saving exceeds MAD."
 existing_evidence = ["crates/sim-model/benches/m3_02b_search_reduction_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m3_03_search_reduction/summary.json"]
-missing = "M5-05 remeasured two selected cells rather than the 12-cell original set."
+missing = "M5-05 remeasured two of the original 12 cells; historical report-role verdict remains inconclusive until the full report-revision set is rerun."
 coverage = "partial"
 paper_role = "limitations"
+prior_pass_criterion = "For both selected cells report paired saving and MAD; the no-gain conclusion holds only when no saving exceeds MAD."
 
 [[conclusion]]
 id = "M3-TIM-STATIC-SCALE"
@@ -214,11 +216,11 @@ statement = "The largest configured population, one million agents, completed fo
 verbatim = "The largest configured population, one million agents, completed for both degrees and both checkpoints."
 type = "timing"
 source = "docs/reports/M3_05_SCALE_LIMIT.md#executive-summary"
-experiment = "m3_05_static_scale_first_break"
-revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
-aggregation = "all registered degree and checkpoint cells must complete; first-break predicates are assessed per cell"
+experiment = "m3_05_static_scale_completion"
+revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
+aggregation = "all four degree/checkpoint combinations at N=1,000,000 must complete without a runner error"
 existing_evidence = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "crates/sim-model/examples/m3_05_a5_reconstruction.rs", "docs/reproducibility/M3_05_PILOT_RESULTS.json", "docs/data/m5_05/m3_05_pilot/summary.json"]
-missing = "The report's static-scale grid is supported by the committed A-5 pilot for its registered cells; phase-profile series with failed validity remain inconclusive."
+missing = "The pilot records completion at the report revision; threshold and per-phase first-break claims are separate conclusions."
 coverage = "sufficient"
 paper_role = "main"
 
@@ -231,7 +233,7 @@ type = "qualitative"
 source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#how-m3-answered-its-question"
 experiment = "m3_settlement_lookup_scaling_diagnosis"
 revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e", "c4abc3f50b41eb3aa0c01ce6aa91d368855f2c9c"]
-aggregation = "both the listed linear-scan call sites and fixed-N K series must support the bounded complexity statement"
+aggregation = "all named linear-scan call sites and fixed-N K cells must satisfy the declared O(K²) workload predicate"
 existing_evidence = ["docs/reports/M3_05_SCALE_DIAGNOSIS.md#settlement-keyed-lookup-work-per-day", "crates/sim-model/src/resolution.rs"]
 missing = "The report cautions that the full tick difference after indexing is not attributable to lookup removal alone."
 coverage = "sufficient"
@@ -240,17 +242,17 @@ paper_role = "main"
 [[conclusion]]
 id = "M3-TIM-SETTLEMENT-INDEX"
 milestone = "M3"
-statement = "The new serial median is 1.215× faster than the prior median (17.7% less time)."
-verbatim = "The new serial median is 1.215× faster than the prior median (17.7% less time)."
+statement = "At N=1M the paired serial whole-tick median was 17.7% lower after indexing, but the report does not attribute the whole-tick reduction to the index alone."
+verbatim = "The fixed-N series shows the repeated lookup work falling as expected; the N=1M full-tick paired median also decreased, but this report does not attribute all of that whole-tick difference to the index alone."
 prior_verbatim_conclusion = "The new serial median is 1.215x faster than the prior median (17.7% less time)."
 type = "timing"
-source = "docs/reports/M3_06_SETTLEMENT_INDEX.md#whole-tick-result-at-n1000000"
+source = "docs/reports/M3_06_SETTLEMENT_INDEX.md#validation-and-limits"
 experiment = "m3_06_settlement_index"
 revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
-aggregation = "compare the registered one-million-agent serial before/after cell"
+aggregation = "report the repeated lookup-work change and the full-tick ratio as separate results; do not attribute the entire tick delta to indexing"
 pass_criterion = "Report the serial new/old ratio and whether the faster indexed path remains; any missing old path is explicitly unrecoverable."
 existing_evidence = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/data/m5_05/m3_06_settlement_index/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-missing = "The pre-index executable is absent; the new measurement is compared with the recorded report baseline."
+missing = "The pre-index executable is absent; the report-level before/after median is available, but causal attribution to the index alone is explicitly unsupported."
 coverage = "partial"
 paper_role = "limitations"
 
@@ -282,7 +284,7 @@ revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
 aggregation = "evaluate P4 selection and P4 intent as separate phase outcomes; exclude invalid MAD cells"
 pass_criterion = "Report P4-selection ratio and parity digests; a ratio within 20% of the old timing supports the historical magnitude, otherwise flag it."
 existing_evidence = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/data/m5_05/m3_07_reversed_slots/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-missing = "The selected reversal cell covers Phase 4 layout sensitivity only, not every measured phase or size."
+missing = "Only the declared M5-05 HEAD phase cell was rerun; the historical report-role magnitude remains inconclusive."
 coverage = "partial"
 paper_role = "limitations"
 
@@ -299,7 +301,7 @@ revisions = ["7704a00cd42e3693e76f3167a1485e229c973337", "c4abc3f50b41eb3aa0c01c
 aggregation = "compare the equal-live checkpoint with the registered M3 storage baseline"
 pass_criterion = "Report the equal-live ratio and profile timing ratios; classify the historical 5.23x magnitude using the 20% rule."
 existing_evidence = ["docs/reports/M3_08_POPULATION_DYNAMICS.md#equal-live-population-tick-comparison", "docs/data/m5_05/m3_08_full_rebuild_equal_live/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-missing = "The original detail driver is absent; the M5-05 adapter reconstructs only the report-level equal-live comparison."
+missing = "The M5-05 adapter measures the report-level equal-live ratio at HEAD, not a report-revision rerun; historical magnitude remains inconclusive."
 coverage = "partial"
 paper_role = "limitations"
 
@@ -348,7 +350,7 @@ revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "compare serial and pool-6 medians at the declared large-frontier cell"
 pass_criterion = "Report Phase 9c speedup and path medians; flag absolute timings over 20% and state whether the parallel-win conclusion holds."
 existing_evidence = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "docs/data/m5_05/m3_11_phase9c_speedup/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-missing = "M5-05 remeasured selected cells and does not reproduce the full propagation matrix."
+missing = "M5-05 measured one declared HEAD cell, not the report-revision phase matrix; the historical magnitude remains inconclusive."
 coverage = "partial"
 paper_role = "limitations"
 
@@ -365,7 +367,7 @@ revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "report interleaved and non-interleaved ratios separately; both are required"
 pass_criterion = "Report interleaved and non-interleaved ratios; the measured speedup conclusion holds only if both exceed 1.0."
 existing_evidence = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "docs/data/m5_05/m3_11_whole_tick_speedup/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-missing = "The M5-05 conclusion-level result covers only selected cells, not the whole M3-11 matrix."
+missing = "M5-05 covers only this large-frontier workload cell; it does not remeasure the whole propagation matrix or support a smaller-frontier whole-tick claim."
 coverage = "partial"
 paper_role = "limitations"
 
@@ -382,20 +384,20 @@ revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "select the first qualifying frontier separately for each pool in the ordered tested grid"
 pass_criterion = "Report the first selected frontier meeting median improvement beyond both MADs; do not claim a universal threshold."
 existing_evidence = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "docs/data/m5_05/m3_11_frontier_crossover/summary.json"]
-missing = "The observed first grid point is not a portable or continuous frontier threshold."
+missing = "All three M5-05 cells favor parallel at the recorded frontiers, so no changed ordering is observed; the original run also reports concurrent Cargo work, leaving its precise historical crossover inconclusive."
 coverage = "partial"
 paper_role = "limitations"
 
 [[conclusion]]
 id = "M4-DET-BRANCH-IDENTITY"
 milestone = "M4"
-statement = "The new M4 no-op identity test passed for all four supported profile combinations."
+statement = "The M4 no-op identity test passed for profiles m3, m3p, m3+propagation, and m3p+propagation."
 verbatim = "The existing M2/M3/M3P/propagation tests, goldens, and snapshot checks passed unchanged; the new M4 no-op identity test passed for all four supported profile combinations."
 type = "deterministic"
 source = "docs/reports/M4_02_BRANCHING.md#correctness-and-completion-status"
 experiment = "m4_02_noop_branch_identity"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-aggregation = "all four supported profiles must have zero daily divergence"
+aggregation = "all four named profile combinations must have zero daily divergence"
 existing_evidence = ["crates/sim-model/tests/m4_branching_tests.rs", "crates/sim-model/tests/m4_06_branch_identity_tests.rs"]
 missing = "No exact rerun at the pinned M4-02 report revision is registered."
 coverage = "rerunnable"
@@ -441,9 +443,9 @@ source = "docs/reports/M4_03_DIVERGENCE.md#h365-extension"
 experiment = "m4_03_food_zero_h365_divergence"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "recompute the five-seed median and range from the registered daily divergence records"
-existing_evidence = ["docs/data/m4_03/m4_03_divergence_experiments.csv", "docs/data/m5_04/m4_03/m4_03_gate_a5.log"]
-missing = "The exact rerun at the pinned M4-03 report revision is not registered in the new evidence format."
-coverage = "rerunnable"
+existing_evidence = ["docs/data/m4_03/m4_03_a1_experiments.csv", "docs/data/m5_04/m4_03/m4_03_a1_experiments.csv.gz", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
+missing = "M5-04 reports the H=365 fields byte-exact after the documented CSV/gzip comparison; the new evidence-record format has not yet been populated."
+coverage = "sufficient"
 paper_role = "main"
 
 [[conclusion]]
@@ -456,9 +458,9 @@ source = "docs/reports/M4_04_CRN_EFFICIENCY.md#local-versus-global-intervention-
 experiment = "m4_04_paired_effect_intervals"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "recompute each registered outcome's paired-mean interval and its zero-exclusion predicate"
-existing_evidence = ["docs/data/m4_04/m4_04_crn_efficiency.csv", "docs/data/m5_04/m4_04/parallel_estimate_comparison.json"]
-missing = "The fixed workload and replicate identities do not support generalization to other outcome distributions."
-coverage = "rerunnable"
+existing_evidence = ["docs/data/m4_04/m4_04_crn_efficiency.csv", "docs/data/m5_04/m4_04/parallel_estimate_comparison.json", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
+missing = "M5-04 records the deterministic fields as bit-exact; the new evidence-record format has not yet been populated."
+coverage = "sufficient"
 paper_role = "main"
 
 [[conclusion]]
@@ -472,38 +474,38 @@ experiment = "m4_04_newborn_rng_identity"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "recompute mean matched-birth AgentId loss across all 100 paired replicates per intervention and horizon"
 existing_evidence = ["docs/data/m4_04/m4_04_crn_efficiency.csv"]
-missing = "This identity result is workload- and horizon-specific; no lineage-keyed RNG profile was tested."
+missing = "The fixed workload and horizon are preserved as historical outputs; no lineage-keyed RNG profile was tested."
 coverage = "rerunnable"
 paper_role = "limitations"
 
 [[conclusion]]
 id = "M4-QUAL-CRN-EFFICIENCY"
 milestone = "M4"
-statement = "Among non-exact cells, the variance ratio generally favors pairing, but its magnitude varies sharply by outcome and horizon."
-verbatim = "Among non-exact cells, the ratio generally favors pairing, but its magnitude varies sharply by outcome and horizon."
-type = "qualitative"
-source = "docs/reports/M4_04_CRN_EFFICIENCY.md#horizon-and-divergence"
+statement = "At H=365, the M4-04 CRN efficiency ratios ranged from about 1.5× to 80× across the reported outcomes."
+verbatim = "At H=365, M4-04's CRN efficiency ratios ranged from about 1.5× to 80× across the reported outcomes."
+type = "deterministic"
+source = "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#research-question-and-answer"
 experiment = "m4_04_crn_variance_ratio_grid"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-aggregation = "the statement's word generally means a strict majority of finite non-exact registered cells have independent/paired variance ratio > 1; ties do not count"
-existing_evidence = ["docs/data/m4_04/m4_04_crn_efficiency.csv"]
-missing = "The report covers one workload family and a fixed replicate set."
+aggregation = "recompute each H=365 ratio from the declared outcome records and report their minimum and maximum"
+existing_evidence = ["docs/data/m4_04/m4_04_crn_efficiency.csv", "docs/data/m5_04/m4_04/parallel_estimate_comparison.json", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
+missing = "M5-04 reports these deterministic fields bit-exact for the stated replicate set; no workload-general claim is made."
 coverage = "sufficient"
 paper_role = "main"
 
 [[conclusion]]
 id = "M4-DET-MINIMAL-CAUSES"
 milestone = "M4"
-statement = "The exhaustive search established minimum size four."
+statement = "For case (a), exhaustive search established a minimum cardinality of four."
 verbatim = "The exhaustive search established minimum size four."
 type = "deterministic"
 source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
 experiment = "m4_05_case_a_minimum_cause"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-aggregation = "verify all subsets below size four fail and at least one size-four subset passes under the registered predicate"
-existing_evidence = ["docs/data/m4_05/m4_05_a_health8.jsonl", "docs/data/m4_05/seed-0.jsonl", "docs/data/m5_04/m4_05/m4_05_a5_gate_full.log"]
-missing = "The result applies to the registered candidate set, replicate set, threshold, and seed."
-coverage = "rerunnable"
+aggregation = "all subsets below size four fail and exactly 15 of the 70 size-four subsets satisfy the declared case-(a) predicate"
+existing_evidence = ["docs/data/m4_05/m4_05_a_health8.jsonl", "docs/data/m5_04/m4_05/m4_05_a_health8.jsonl", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
+missing = "M5-04 reproduces case (a); seed-to-seed outcomes are registered separately because their helper source is incomplete."
+coverage = "sufficient"
 paper_role = "main"
 
 [[conclusion]]
@@ -522,21 +524,6 @@ coverage = "sufficient"
 paper_role = "main"
 
 [[conclusion]]
-id = "M4-DET-MIGRATION-PARITY"
-milestone = "M4"
-statement = "The reference and storage paths, including both propagation combinations, passed per-day outcome and digest parity, v4 snapshot resume, shuffled-slot checks, and the migration failure-atomicity tests."
-verbatim = "The reference and storage paths, including both propagation combinations, passed per-day outcome and digest parity, v4 snapshot resume, shuffled-slot checks, and the migration failure-atomicity tests."
-type = "deterministic"
-source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
-experiment = "m4_06_migration_parity"
-revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
-aggregation = "all four migration profile combinations and registered snapshot/error cases must match exactly"
-existing_evidence = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
-missing = "No exact rerun at the pinned M4-06 report revision is registered in the new evidence format."
-coverage = "rerunnable"
-paper_role = "main"
-
-[[conclusion]]
 id = "M4-TIM-MIGRATION-OFF-GATE"
 milestone = "M4"
 statement = "Both cells were valid PASS with no retry."
@@ -552,21 +539,6 @@ coverage = "sufficient"
 paper_role = "main"
 
 [[conclusion]]
-id = "M4-TIM-BRANCH-PARALLEL"
-milestone = "M4"
-statement = "On the recorded Windows 11 / Ryzen 5 9600X host, six-thread M4-04 branch evaluation measured 4.25–5.11× speedup, and M4-05 case (a) search measured 4.30×, with exact serial/parallel outputs."
-verbatim = "On the recorded Windows 11 / Ryzen 5 9600X host, six-thread M4-04 branch evaluation measured 4.25–5.11× speedup, and M4-05 case (a) search measured 4.30×, with exact serial/parallel outputs."
-type = "timing"
-source = "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#parallel-branches-cow-and-gpu"
-experiment = "m4_07_cross_branch_parallel_speedup"
-revisions = ["7704a00cd42e3693e76f3167a1485e229c973337", "bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
-aggregation = "report M4-04 interventions and M4-05 search separately; do not combine their speedups"
-existing_evidence = ["crates/sim-model/examples/m4_07_many_branch.rs", "docs/data/m4_07/crn_parallel.jsonl", "docs/data/m4_07/m4_05_search_parallel_numeric8.jsonl"]
-missing = "These were single paired API invocations, not repeated A-5 gates."
-coverage = "partial"
-paper_role = "limitations"
-
-[[conclusion]]
 id = "M4-TIM-COW-SHARE"
 milestone = "M4"
 statement = "Every cell is below the frozen 20% threshold, so copy-on-write is not needed for the measured workload."
@@ -577,9 +549,9 @@ experiment = "m4_07_copy_on_write_share"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "each of the four registered population/horizon cells must remain below 20%"
 existing_evidence = ["docs/data/m4_07/clone_share.jsonl"]
-missing = "The result applies only to the measured branch workloads and horizons."
-coverage = "sufficient"
-paper_role = "main"
+missing = "The four cells are three-call supplemental measurements, not an A-5 gate; they support only the reported workload and horizon set."
+coverage = "partial"
+paper_role = "limitations"
 
 [[conclusion]]
 id = "M4-QUAL-A1-A3-METHOD"
@@ -601,29 +573,269 @@ id = "M4-QUAL-LOCAL-AGGREGATE-SIGNAL"
 milestone = "M4"
 statement = "At H=365, the health=0.01 paired effect is concentrated in the target settlement: total wealth is about −3,320 versus target-settlement wealth −3,278, and alive population is −0.93 versus target-settlement alive population −1.10."
 verbatim = "**Signal versus noise:** at H=365, `|D_H|` exceeds 99% of records, yet the health=0.01 paired effect is concentrated in the target settlement: total wealth is about `−3,320` versus target-settlement wealth `−3,278`, and alive population is `−0.93` versus target-settlement alive population `−1.10`."
-type = "qualitative"
+type = "deterministic"
 source = "docs/reports/M4_04_CRN_EFFICIENCY.md#follow-ups"
 experiment = "m4_04_health_local_aggregate_effect"
 revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
 aggregation = "compare the registered paired world and target-settlement outcomes at H=365"
-existing_evidence = ["docs/data/m4_04/m4_04_crn_efficiency.csv"]
+existing_evidence = ["docs/data/m4_04/m4_04_crn_efficiency.csv", "docs/data/m5_04/m4_04/parallel_estimate_comparison.json", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
 missing = "This is one workload observation, not a general spatial rule."
 coverage = "sufficient"
 paper_role = "limitations"
+[[conclusion]]
+id = "M0-DET-INITIALIZATION"
+milestone = "M0"
+statement = "The initialization tests cover deterministic trait sampling, resource allocation, and initial world-state generation."
+verbatim = "Deterministic agent trait sampling, resource allocation, and initial world state generation"
+type = "deterministic"
+source = "docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary"
+experiment = "m0_initialization_invariants"
+revisions = ["86f2f2d34389f85fdf27c0d295af30361f034367"]
+aggregation = "all initialization test cases must match exact expected fields and deterministic outputs"
+existing_evidence = ["crates/sim-model/tests/initialization_tests.rs", "crates/sim-model/tests/config_tests.rs"]
+missing = "No exact run record at the cited M1 contract revision is registered."
+coverage = "rerunnable"
+paper_role = "main"
+
+[[conclusion]]
+id = "M0-DET-SNAPSHOT-RESUME"
+milestone = "M0"
+statement = "M0 pause/resume tests compare an uninterrupted 500-day trajectory with a snapshot and continuation from day 200."
+verbatim = "Trajectory A (continuous 500 days) $\\equiv$ Trajectory B (day 0..199 $\\to$ snapshot $\\to$ restore at 200 $\\to$ day 200..499)"
+type = "deterministic"
+source = "docs/contracts/M1_CONTRACT_FREEZE.md#3-c01c10-frozen-contract-matrix"
+experiment = "m0_snapshot_resume_trajectory"
+revisions = ["86f2f2d34389f85fdf27c0d295af30361f034367"]
+aggregation = "the canonical state trajectory at all 500 days must match uninterrupted execution exactly"
+existing_evidence = ["crates/sim-model/tests/m0_determinism_gate_tests.rs"]
+missing = "No exact run record at the cited M1 contract revision is registered."
+coverage = "rerunnable"
+paper_role = "main"
+
+[[conclusion]]
+id = "M1-DET-SNAPSHOT-V1"
+milestone = "M1"
+statement = "M0 schema-v1 snapshots use the frozen magic, version, canonical entity ordering, and exact f32 bit preservation."
+verbatim = "Magic `\"SIMCIVM0\"`, schema version 1, header metadata, sorted entity tables, exact `f32` bit preservation"
+type = "deterministic"
+source = "docs/contracts/M1_CONTRACT_FREEZE.md#3-c01c10-frozen-contract-matrix"
+experiment = "m1_snapshot_v1_encoding"
+revisions = ["62a907b7fb7b7d3e5ff1c91027a0854bc5572556"]
+aggregation = "all schema-v1 encoding fields and floating-point bits must match the frozen bytes"
+existing_evidence = ["crates/sim-model/tests/phase11_snapshot_tests.rs"]
+missing = "No exact run record at the cited M1 contract revision is registered; the M0 trajectory test is a separate predicate despite sharing snapshot infrastructure."
+coverage = "rerunnable"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-PHASE-ALPHA-FIRST-BREAK"
+milestone = "M3"
+statement = "Any phase alpha first exceeded 1.15 at 100k→250k in each of the four degree/checkpoint profiles."
+verbatim = "`100k→250k` (`N=250k`) in all four `(k, checkpoint)` profiles"
+type = "timing"
+source = "docs/reports/M3_05_SCALE_LIMIT.md#first-break-findings"
+experiment = "m3_05_any_phase_alpha_first_break"
+revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
+aggregation = "evaluate the any-phase alpha >1.15 predicate over each of the four declared k/checkpoint profiles"
+existing_evidence = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/reproducibility/M3_05_PILOT_RESULTS.json", "docs/reproducibility/M3_05_PILOT_VERDICT_REVIEW.csv", "docs/data/m5_05/m3_05_pilot/summary.json"]
+missing = "The aggregate first-trigger interval is preserved; individual phase first-break rows have changed or failed validity and are not covered by this aggregate."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-SERIAL-PER-AGENT-FIRST-BREAK"
+milestone = "M3"
+statement = "Serial per-agent tick time first exceeded the 25% increase threshold at 250k for k=8 at both checkpoints and k=16 at day 0; k=16 day 50 first crossed at 500k."
+verbatim = "| Serial per-agent tick time `>25%` above the matching 100k baseline | `N=250k` for `k=8` at day 0/day 50 and `k=16` at day 0 | `k=16`, day 50 first crosses at `N=500k` |"
+type = "timing"
+source = "docs/reports/M3_05_SCALE_LIMIT.md#first-break-findings"
+experiment = "m3_05_serial_per_agent_first_break"
+revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
+aggregation = "report the first population crossing per k/checkpoint and preserve within-noise endpoint changes as inconclusive"
+existing_evidence = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/reproducibility/M3_05_PILOT_RESULTS.json", "docs/reproducibility/M3_05_PILOT_VERDICT_REVIEW.csv", "docs/data/m5_05/m3_05_pilot/summary.json"]
+missing = "M5-05 marks the k=16/day-50 endpoint shift as within noise; the full multi-profile threshold claim is partial."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M3-TIM-SETUP-TICK-EQUIVALENT"
+milestone = "M3"
+statement = "Graph plus projection setup first exceeded ten day-0 serial-tick equivalents at N=100k, k=16."
+verbatim = "`N=100k, k=16`: `10.9230×`"
+type = "timing"
+source = "docs/reports/M3_05_SCALE_LIMIT.md#first-break-findings"
+experiment = "m3_05_graph_projection_first_break"
+revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
+aggregation = "compare graph-plus-projection setup divided by the matching day-0 serial tick against 10 for each declared N/k cell"
+existing_evidence = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/reproducibility/M3_05_PILOT_RESULTS.json", "docs/reproducibility/M3_05_PILOT_VERDICT_REVIEW.csv", "docs/data/m5_05/m3_05_pilot/summary.json"]
+missing = "The primary crossing at N=100k/k=16 is recorded; the 1M/k=16 secondary cell is within noise of the threshold and is not included in this conclusion."
+coverage = "sufficient"
+paper_role = "main"
+
+[[conclusion]]
+id = "M3-TIM-MEMORY-THRESHOLD"
+milestone = "M3"
+statement = "No sampled working set exceeded 50% of host RAM; the largest sample was an OS-reported WorkingSetSize, not a computed or allocator-counted value."
+verbatim = "Memory `>50%` of host RAM | None | Largest sampled working set `872,611,840` B"
+type = "timing"
+source = "docs/reports/M3_05_SCALE_LIMIT.md#first-break-findings"
+experiment = "m3_05_memory_working_set"
+revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
+aggregation = "compare the largest OS WorkingSetSize sample with 50% of the recorded host RAM; classify the value as environmental"
+existing_evidence = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/reproducibility/M3_05_PILOT_VERDICT_REVIEW.csv", "docs/data/m5_05/m3_05_pilot/summary.json"]
+missing = "The same OS-reported sampling method was used in the pilot; the result is specific to the recorded host."
+coverage = "sufficient"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M3-TIM-HIGH-ALPHA-RELIABILITY"
+milestone = "M3"
+statement = "None of the earlier post-M3-06 500k→1M alphas above 2 had a reliable estimate in the M3-07 rerun because an endpoint MAD/median exceeded 5%."
+verbatim = "None has a reliable alpha in this rerun: their 1M or 500k endpoint MAD exceeded 5%."
+type = "timing"
+source = "docs/reports/M3_07_SCALE_RESIDUAL.md#re-measured-scaling-alphas"
+experiment = "m3_07_post_index_high_alpha_reliability"
+revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
+aggregation = "evaluate reliability separately for each named phase alpha using both endpoint MAD/median values"
+existing_evidence = ["docs/reports/M3_07_SCALE_RESIDUAL.md", "crates/sim-model/benches/m3_scale_limit_bench.rs"]
+missing = "This report-level reliability result has no M5-05 report-revision rerun; the high-alpha intervals remain historical/inconclusive under the criteria."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M4-DET-MINIMAL-CAUSE-SEED-VARIATION"
+milestone = "M4"
+statement = "For the same case-(a) candidate construction, seeds 0 and 1 had no cause while seed 3 had a three-item minimum."
+verbatim = "Across seeds, the minimum size is not stable: seeds 0 and 1 have no cause under the predicate, while seed 3 has a three-item minimum."
+type = "deterministic"
+source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
+experiment = "m4_05_case_a_seed_variation"
+revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
+aggregation = "report each of the three registered seeds separately; do not infer a general seed distribution"
+existing_evidence = ["docs/data/m4_05/seed-0.jsonl", "docs/data/m4_05/seed-1.jsonl", "docs/data/m4_05/seed-3.jsonl", "docs/reports/M4_05_MINIMAL_CAUSE.md"]
+missing = "The dedicated helper source was incomplete and M5-04 did not rerun the seed follow-up; these are original outputs only."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M4-DET-MIGRATION-DAILY-PARITY"
+milestone = "M4"
+statement = "Migration-on reference and storage paths produced identical per-day outcomes and digests for both propagation combinations."
+verbatim = "The reference and storage paths, including both propagation combinations, passed per-day outcome and digest parity, v4 snapshot resume, shuffled-slot checks, and the migration failure-atomicity tests."
+type = "deterministic"
+source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
+experiment = "m4_06_daily_digest_parity"
+revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
+aggregation = "all four migration profile combinations must match daily State/Metrics/Events outputs exactly"
+existing_evidence = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
+missing = "The report and tests establish the cases; no new evidence record has been registered yet."
+coverage = "rerunnable"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-DET-MIGRATION-SNAPSHOT-RESUME"
+milestone = "M4"
+statement = "M4-06 snapshot v4 resume preserved continuation across the migration profile combinations."
+verbatim = "The reference and storage paths, including both propagation combinations, passed per-day outcome and digest parity, v4 snapshot resume, shuffled-slot checks, and the migration failure-atomicity tests."
+type = "deterministic"
+source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
+experiment = "m4_06_snapshot_v4_resume"
+revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
+aggregation = "each migration profile snapshot must resume to the same canonical continuation"
+existing_evidence = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
+missing = "The report and tests establish the cases; no new evidence record has been registered yet."
+coverage = "rerunnable"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-DET-MIGRATION-SHUFFLED-SLOTS"
+milestone = "M4"
+statement = "Migration outputs remained invariant under shuffled initial storage slots."
+verbatim = "The reference and storage paths, including both propagation combinations, passed per-day outcome and digest parity, v4 snapshot resume, shuffled-slot checks, and the migration failure-atomicity tests."
+type = "deterministic"
+source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
+experiment = "m4_06_shuffled_slots"
+revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
+aggregation = "canonical daily outputs must be identical under each declared slot permutation"
+existing_evidence = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
+missing = "The report and tests establish the cases; no new evidence record has been registered yet."
+coverage = "rerunnable"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-DET-MIGRATION-FAILURE-ATOMICITY"
+milestone = "M4"
+statement = "Migration validation failures preserved failure atomicity."
+verbatim = "The reference and storage paths, including both propagation combinations, passed per-day outcome and digest parity, v4 snapshot resume, shuffled-slot checks, and the migration failure-atomicity tests."
+type = "deterministic"
+source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
+experiment = "m4_06_failure_atomicity"
+revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
+aggregation = "each declared crafted migration error must leave state unchanged and preserve error precedence"
+existing_evidence = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
+missing = "The report and tests establish the cases; no new evidence record has been registered yet."
+coverage = "rerunnable"
+paper_role = "main"
+
+[[conclusion]]
+id = "M4-TIM-CRN-BRANCH-PARALLEL"
+milestone = "M4"
+statement = "Six-thread M4-04 branch evaluation measured 4.25–5.11× speedup with exact serial/parallel outputs."
+verbatim = "On the recorded Windows 11 / Ryzen 5 9600X host, six-thread M4-04 branch evaluation measured 4.25–5.11× speedup, and M4-05 case (a) search measured 4.30×, with exact serial/parallel outputs."
+type = "timing"
+source = "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#parallel-branches-cow-and-gpu"
+experiment = "m4_07_crn_branch_parallel_speedup"
+revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
+aggregation = "report the three intervention speedups from the M4-04 replicate experiment as its own non-A-5 result"
+existing_evidence = ["crates/sim-model/examples/m4_07_many_branch.rs", "docs/data/m4_07/crn_parallel.jsonl", "docs/reports/M4_07_MANY_BRANCH.md"]
+missing = "One paired invocation per path is supplemental, not an A-5 timing gate."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M4-TIM-CAUSE-SEARCH-PARALLEL"
+milestone = "M4"
+statement = "Six-thread M4-05 case-(a) search measured 4.30× speedup with exact serial/parallel outputs."
+verbatim = "On the recorded Windows 11 / Ryzen 5 9600X host, six-thread M4-04 branch evaluation measured 4.25–5.11× speedup, and M4-05 case (a) search measured 4.30×, with exact serial/parallel outputs."
+type = "timing"
+source = "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#parallel-branches-cow-and-gpu"
+experiment = "m4_07_case_a_search_parallel_speedup"
+revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
+aggregation = "compare only the exhaustive case-(a) candidate set and declared serial/parallel search calls"
+existing_evidence = ["crates/sim-model/examples/m4_07_many_branch.rs", "docs/data/m4_07/m4_05_search_serial_numeric8.jsonl", "docs/data/m4_07/m4_05_search_parallel_numeric8.jsonl", "docs/reports/M4_07_MANY_BRANCH.md"]
+missing = "One paired invocation per path is supplemental, not an A-5 timing gate."
+coverage = "partial"
+paper_role = "limitations"
+
+[[conclusion]]
+id = "M4-DET-MINIMAL-CAUSE-NONUNIQUENESS"
+milestone = "M4"
+statement = "For case (a), 15 of the 70 four-item subsets satisfied the declared target-settlement population predicate."
+verbatim = "Fifteen satisfied `mean effect <= -1`; all use `health=0.01` for the listed agents."
+type = "deterministic"
+source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
+experiment = "m4_05_case_a_nonunique_minima"
+revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
+aggregation = "enumerate the 70 size-four subsets and verify exactly 15 satisfy the case-(a) predicate"
+existing_evidence = ["docs/data/m4_05/m4_05_a_health8.jsonl", "docs/data/m5_04/m4_05/m4_05_a_health8.jsonl", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
+missing = "M5-04 reproduces the case-(a) deterministic fields; seed-to-seed outcomes are a separate conclusion."
+coverage = "sufficient"
+paper_role = "main"
+
 
 [[limitation]]
 id = "M3-NO-REPLACEMENT"
 milestone = "M3"
 statement = "No architecture replacement is required for the measured M3 workloads."
 source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#does-the-runtime-need-a-new-architecture"
-reason = "This is an architecture judgment bounded by past workloads, not a falsifiable simulation conclusion."
+reason = "This is an architecture judgment limited to the named past workloads, not a simulation conclusion."
 
 [[limitation]]
 id = "M4-01-WIRING-DEBT"
 milestone = "M4"
 statement = "M4-01 generalized the day loop but not per-profile state, snapshot codec, digest, and context wiring; M4-06 added production code outside its system module for those paths."
 source = "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#debts-and-limits"
-reason = "The line-count debt is a scoped engineering inventory, not a research conclusion."
+reason = "The line-count debt is an inventory of the named files and commit, not a research conclusion."
 
 [[limitation]]
 id = "M3P-COMPACTION-MONEY-LOSS"

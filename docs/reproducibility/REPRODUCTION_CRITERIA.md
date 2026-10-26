@@ -59,4 +59,4 @@ The historical `cargo bench -p sim-model --bench m3_scale_limit_bench` command u
 
 ## Later update (2026-10-26)
 
-The M3-09 protocol-matched follow-up revision is `681bf296ea07d3ddc4391f5f1dfd49255876300c`, not `c857d51517bf8df2ff5f50c6cb035585fc4b549e` as stated in the historical paragraph above. The old `docs/reproducibility/m5_05_conclusions.toml` is superseded by the draft `contracts/conclusions.toml`; its 13 `verbatim_conclusion` and `pass_criterion` values are carried into the new registry's `verbatim` and `pass_criterion` fields. The old file remains historical evidence and is not edited.
+The follow-up measurement is at `681bf296ea07d3ddc4391f5f1dfd49255876300c`; `c857d51517bf8df2ff5f50c6cb035585fc4b549e` is the separate HEAD run. The old `docs/reproducibility/m5_05_conclusions.toml` is superseded by the draft `contracts/conclusions.toml`; its 13 `verbatim_conclusion` and `pass_criterion` values are carried into the new registry's `verbatim` and `pass_criterion` fields. The old file remains historical evidence and is not edited.
