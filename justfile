@@ -97,6 +97,14 @@ report-m5-05: check-quarto analysis-sync
 report-m5-05-check: check-quarto analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.report_m5_05 --check
 
+analysis-reports-check: check-quarto analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.reports --check
+
+analysis-output-check: analysis-sync
+    just claims-check
+    just generated-artifacts-check
+    just analysis-reports-check
+
 reconstruct-all *ARGS: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.reconstruct_all {{ARGS}}
 
@@ -104,7 +112,7 @@ lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
     vale --config analysis/vale/.vale.ini docs/data/m5_05/STATUS.md docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
-check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check large-file-range-check data-integrity-range-check gitleaks-range-check decisions-check conclusions-check dvc-freeze-check check-autocrlf data-integrity-check links claims-check generated-artifacts-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
+check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check large-file-range-check data-integrity-range-check gitleaks-range-check decisions-check conclusions-check dvc-freeze-check check-autocrlf data-integrity-check links analysis-output-check lint-prose
 
 ci-analysis: check
     uv run --directory analysis --project . python -m simciv_analysis.ci_analysis

@@ -46,7 +46,7 @@ The Phase 1 gate now validates the conclusion/evidence registry and computes ver
 
 ### Phase 2 gate migration record (2026-10-27)
 
-`ledger-transition-check`, `reconstruction-inventory-check`, and `m3-05-pilot-report-check` are no longer dependencies of `just check`. The reconstruction inventory and M3-05 runtime artifacts use `m3-05-pilot-runtime-check` through `just check-local-data`; the cited M5-01, M5-04, and M5-05 report checks remain reachable until registry-backed replacements are reviewed. The underlying legacy sources and commands remain in the repository for provenance. No claim-ledger bytes/statuses or verdict rows were regenerated or changed.
+`ledger-transition-check`, `reconstruction-inventory-check`, and `m3-05-pilot-report-check` are no longer dependencies of `just check`. The reconstruction inventory and M3-05 runtime artifacts use `m3-05-pilot-runtime-check` through `just check-local-data`; the M5-01, M5-04, and M5-05 report checks are routed through `analysis-reports-check` and remain reachable until registry-backed replacements are reviewed. Per-report check targets remain compatibility entry points. The underlying legacy sources and commands remain in the repository for provenance. No claim-ledger bytes/statuses or verdict rows were regenerated or changed.
 
 Source-map parsing and validation now live beside the claims reference-index extractor in `claims.py`; `sources.py` remains a compatibility export for existing imports and tests.
 

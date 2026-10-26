@@ -46,7 +46,7 @@ check = "recovered-claim-audit-check"
 [[artifact]]
 file = "docs/reproducibility/claims.csv.gz"
 generator = "analysis/simciv_analysis/claims.py"
-check = "claims-check"
+check = "analysis-output-check"
 
 [[artifact]]
 file = "docs/reproducibility/M3_05_PILOT_RESULTS.json"
@@ -76,32 +76,32 @@ check = "m3-05-pilot-runtime-check"
 [[artifact]]
 file = "docs/reproducibility/M5_01_INVENTORY.qmd"
 generator = "analysis/simciv_analysis/report_m5_01.py"
-check = "report-m5-01-check"
+check = "analysis-reports-check"
 
 [[artifact]]
 file = "docs/reproducibility/M5_01_INVENTORY.md"
 generator = "analysis/simciv_analysis/report_m5_01.py"
-check = "report-m5-01-check"
+check = "analysis-reports-check"
 
 [[artifact]]
 file = "docs/reproducibility/M5_04_M4_REGENERATION.md"
 generator = "analysis/simciv_analysis/report_m5_04.py"
-check = "report-m5-04-check"
+check = "analysis-reports-check"
 
 [[artifact]]
 file = "docs/reproducibility/M5_05_M0_M3_REGENERATION.md"
 generator = "analysis/simciv_analysis/report_m5_05.py"
-check = "report-m5-05-check"
+check = "analysis-reports-check"
 
 [[artifact]]
 file = "docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md"
 generator = "analysis/simciv_analysis/report_m5_05.py"
-check = "report-m5-05-check"
+check = "analysis-reports-check"
 
 [[artifact]]
 file = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
 generator = "analysis/simciv_analysis/report_m5_05.py"
-check = "report-m5-05-check"
+check = "analysis-reports-check"
 
 [[artifact]]
 file = "docs/data/m5_05/STATUS.md"
