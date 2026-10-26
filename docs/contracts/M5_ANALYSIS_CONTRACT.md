@@ -3,101 +3,64 @@
 Status: **DRAFT — NOT FROZEN**  
 Baseline: `v0.5.0-m4`
 
-Research question: **Can the project's reported research conclusions be reproduced from explicit, versioned evidence, and which conclusions survive the registered rechecks?**
+Research question: **Can the project's research conclusions be reproduced from explicit evidence, and which conclusions survive rechecks?**
 
-The simulation used an M0 reference, froze semantics in M1, and optimized only after parity was established. M5's analysis layer grew without the same contract-first discipline: report prose was parsed into a large claim ledger and multiple generators assigned its statuses. The resulting repeated status regressions show that this design needs a smaller, explicit unit and a single verdict path.
+M0–M4 used contract-first simulation work. M5 analysis instead grew a prose-extracted 32,465-row reference ledger and multiple status writers; the repeated regressions show that prose rows are the wrong verdict unit. This draft defines one small, reviewable conclusion registry and one deterministic verdict calculation.
 
-## 1. Unit of reproducibility
+## 1. Unit and registry
 
-The unit is a **conclusion and the experiment supporting it**, not each number extracted from a report. A conclusion is a scoped, falsifiable statement with a registered type, source, experiment, and applicable revision. A table row, estimate, or parameter remains evidence attached to that conclusion; it does not carry an independent verdict.
+The unit is a **conclusion plus its supporting experiment**, not each reported number. A conclusion is one falsifiable sentence scoped by a stable experiment id and a full source revision. `contracts/conclusions.toml` is hand-written and reviewed. `docs/reproducibility/claims.csv.gz` remains a navigation index only; its rows and labels never decide a verdict.
 
-The existing claims ledger remains a reference index for locating historical numeric text. It has no verdict semantics and cannot override a registered conclusion. Existing report prose and frozen M0–M4 contracts remain historical sources; they are not rewritten to match a new result.
+Each `[[conclusion]]` requires `id`, `milestone`, `statement`, `verbatim`, `type`, `source`, `experiment`, `revisions`, and `aggregation`. `id` and `experiment` are unique stable identifiers. `type` is `deterministic`, `timing`, or `qualitative`. `source` is a report path plus anchor. `verbatim` is the exact source sentence at that anchor; a mismatch blocks evidence registration. `statement` states that original conclusion in its original scope, never an M5 outcome. `revisions` contains full commit SHAs only. In an evidence record, `role=report` means the source-report revision and its recorded toolchain; `role=head` means the exact branch tip being assessed. Roles are not encoded as aliases in the registry. Optional `claim_keys` link to the ledger without verdict meaning.
 
-## 2. Conclusion registry
+The registry may include `coverage` (`sufficient`, `partial`, `rerunnable`, or `missing`) and `paper_role` (`main` or `limitations`) as review metadata, not verdicts. `sufficient` means recorded evidence covers the registered cells and role; `partial` covers only part of them; `rerunnable` means a named harness/test exists but its result at the pinned source revision is absent; `missing` means the required source or output is unavailable. A `[[limitation]]` requires `id`, `milestone`, `statement`, `source`, and `reason`; non-falsifiable context belongs there, not in the conclusion set.
 
-`contracts/conclusions.toml` is hand-written and reviewed. It contains dozens of conclusion records, not a scraped inventory. Required fields are:
+## 2. Evidence records
 
-| Field | Meaning |
+`contracts/evidence.jsonl` is append-only. Each record has a unique id, `conclusion_id`, `role`, evidence `kind`, full-SHA `revision`, exact toolchain, protocol id, date, and artifact paths with SHA-256 hashes. Optional `supersedes` ids retain the prior records for audit. An artifact is hashed from its bytes; a missing hash or a hash mismatch is not evidence.
+
+Fixed strength order and type/role acceptance:
+
+| Strength | Kind | Deterministic | Timing | Qualitative |
+|---:|---|---|---|---|
+| 6 | `deterministic_exact` | report or head; exact fields/bytes at that revision | no | no |
+| 5 | `a5_report_revision` | no | report role only; frozen A-5 protocol | no |
+| 4 | `a5_head` | no | head role only; frozen A-5 protocol | no |
+| 3 | `structured_recovered_output` | archival context only | archival context only | archival context only |
+| 2 | `qualitative_source` | no | no | report or head; bounded predicate and hashed source |
+| 1 | `historical_protocol` | archival only | archival only | archival only |
+| 0 | `none` | no | no | no |
+
+This table is exhaustive. Recovered or superseded-protocol records cannot by themselves reproduce a conclusion. Deterministic evidence requires byte/field equality; timing evidence must match the registered host, toolchain and protocol; qualitative evidence must test the exact bounded statement.
+
+## 3. Verdicts
+
+A pure function returns one verdict for each `(conclusion_id, role)` from the complete current evidence set: `reproduced`, `reproduced (loose)`, `not reproduced`, `inconclusive`, `unverified`, or `needs-decision`. It uses the frozen rules in [REPRODUCTION_CRITERIA.md](../reproducibility/REPRODUCTION_CRITERIA.md); no caller may override them.
+
+| Existing label/source | Registry verdict rule |
 |---|---|
-| `id` | Stable, unique conclusion identifier. |
-| `milestone` | M0 through M4. |
-| `statement` | One sentence with explicit scope. |
-| `type` | `deterministic`, `timing`, or `qualitative`. |
-| `source` | Report path and section anchor. |
-| `experiment` | Stable experiment or test-protocol identifier. |
-| `revisions` | Exact revision(s) to which the conclusion applies; aliases such as `report_revision` must resolve to a commit before evidence is recorded. |
+| M5-05 `reproduced`, `reproduced (loose)`, `not reproduced` | Map to the same verdict only when the matching timing record is valid under the frozen criteria; otherwise `inconclusive`. |
+| M3-05 pilot `reproduced`, `reproduced (loose)`, `not reproduced` | Same timing rule. `preserved` maps to `reproduced` only when valid; `changed` maps to `not reproduced` only when valid. |
+| M3-05 `inconclusive (validity)`, M5-05 `inconclusive` | `inconclusive`. |
+| `bit-exact`, `bit-exact after normalization`, `bit-exact after documented normalization` | `reproduced` only with exact deterministic evidence and a named, reviewed normalization; otherwise `needs-decision`. |
+| `holds`, `conclusion holds`, `does not hold`, `changed` | Descriptive labels only; recompute from evidence and criteria. |
+| `missing-data`, `missing-source`, `unverifiable`, recovered-output mismatch/weak/unverifiable | `unverified` when no applicable evidence exists; recovered output alone stays `unverified`. |
+| `historical-protocol`, `historical-log`, `recovered-original-output` (including formatted/rounded/unit/other-run/derived), `recovered-weak`, `recovered-output-mismatch` | `unverified`; retain as lower-strength archival evidence. |
+| `analysis-only`, `unmapped`, `not evaluated`, unspecified scope, absolute-time-only claim, or a null claim without a declared threshold/predicate | `needs-decision`; exclude non-falsifiable prose from the registry. |
+| `config-value` or other input-only labels | Not a conclusion; omit from the registry and verdict set. |
 
-Optional `claim_keys` link to the historical index only; they do not supply verdicts. The draft registry also records the evidence already available, what is missing, an evidence-coverage assessment, and whether the conclusion belongs in the M5-09 paper's main results or limitations.
+For the M5-05 `holds`/`does not hold` and M3-05 pilot `preserved`/`changed` labels, recompute from their registered cell predicates; the labels alone have no status. Pilot `inconclusive (validity)` and any invalid A-5 path map to `inconclusive`. A finite paired-variance ratio above 1 means pairing lowers estimator variance; any qualitative quantifier such as “generally” must be made an explicit proportion in `aggregation`.
 
-## 3. Evidence model
+Algorithm: validate records and supersession links; remove records superseded by a valid same-conclusion, same-role record; select the highest-strength accepted evidence; compute its cell verdicts; then apply the conclusion's explicit `aggregation`. There is no latest-record or file-order tie-break. If equal-strength accepted records agree, use their common verdict; if they conflict, return `inconclusive`. For multiple cells, deterministic `all` requires every cell exact and fails on any mismatch; timing `all` fails if any valid cell fails, is inconclusive if any cell is invalid/unmeasured, otherwise returns `reproduced (loose)` if any cell is loose and `reproduced` if all are reproduced; other aggregations must be named and specified in the experiment record, including their cell order and predicate.
 
-`contracts/evidence.jsonl` is the proposed append-only evidence log. Each record identifies a conclusion and contains an evidence id, kind, revision, toolchain, protocol id, date, artifact paths with SHA-256 content hashes, and optional `supersedes` ids. Artifact paths may point to Git summaries or DVC outputs; a path without a verified content hash is not a complete artifact reference. Evidence records are never edited or deleted. Corrections and reruns append a new record that supersedes the earlier record while retaining it for audit.
+No records yields `unverified`; historical-only records yield `unverified`; failed A-5 validity yields `inconclusive`; unhashed or hash-mismatched artifacts yield `needs-decision` unless separate valid evidence determines the verdict. Timing evidence on a different host/toolchain is `inconclusive`, not a pass. Absolute elapsed time without a frozen relative criterion and null/absence claims without an explicit threshold are `needs-decision`.
 
-Evidence kinds and their default strength, strongest first:
+Supersession is a graph, not an overwrite: a link must resolve to an existing record for the same conclusion and role and may supersede only equal- or lower-strength evidence. A weaker superseding record, cross-conclusion/role link, missing target, self-link, or cycle makes that conclusion's evidence set invalid and returns `needs-decision`. Valid supersession removes the target and its superseded ancestors from the active set; all remaining records are considered together, so append order cannot change a verdict. No generator writes a verdict or any decision status.
 
-| Rank | Kind | Use |
-|---:|---|---|
-| 6 | `deterministic_exact` | Rerun at the registered revision reproduces canonical values or bytes exactly. |
-| 5 | `a5_report_revision` | A-5 timing rerun at the report revision tests historical reproduction. |
-| 4 | `a5_head` | A-5 rerun at HEAD tests whether the conclusion still holds. |
-| 3 | `structured_recovered_output` | Original structured output matches the registered context and content hash. |
-| 2 | `qualitative_source` | A bounded qualitative statement is supported by cited source code, tests, or report evidence. |
-| 1 | `historical_protocol` | Recorded evidence from a superseded or non-A-5 protocol; history only. |
-| 0 | `none` | No supporting artifact. |
+## 4. Gates and paper scope
 
-Strength ranks are defaults, not a license to compare unrelated outcomes. Deterministic evidence is exact; timing evidence is interpreted under the frozen reproduction criteria and its recorded scope; qualitative evidence cannot establish a numeric effect.
+Required gates stay limited to explicit conclusion/evidence schema and anchor checks, evidence hash and supersession validation, this verdict function, registered report generation, data/tool integrity, and simulation determinism/parity tests. Every gate check must be declared, have a red test, and be reachable from a named gate. Recovery, fuzzy matching, inventory construction, and one-off migrations are provenance tools, not verdict gates.
 
-## 4. Verdicts and status ownership
+The M5 report may state only registered conclusions. Main-text conclusions require the matching accepted evidence for their role; missing evidence, scope gaps, host/toolchain mismatch, and historical-only data appear as `unverified`, `inconclusive`, or limitations. It will cover M0/M1 reproducibility and frozen semantics; M2 speed under canonical parity; M3 scaling and interaction complexity; and M4 branching, divergence, CRN, minimal causes, migration, and many-branch execution. Every reported conclusion cites its id and evidence records.
 
-One pure computation maps a registered conclusion, its append-only evidence records, and the frozen reproduction criteria to one verdict: `reproduced`, `reproduced (loose)`, `not reproduced`, `inconclusive`, or `unverified`. Deterministic conclusions require exact comparison. Timing conclusions use the registered A-5 protocol and ratio/ranking rules. Qualitative conclusions are `reproduced` only when their bounded statement is supported by the cited evidence; otherwise they are `inconclusive` or `unverified`.
-
-A verdict can weaken only when new evidence of equal or higher strength contradicts the prior conclusion. Weaker evidence is retained but cannot override a stronger verdict. The computation is the sole owner of conclusion verdicts. No generator may write a verdict, a decision status in `contracts/decisions.toml`, or a frozen contract's status. Decision status remains a reviewed human decision, separate from evidence and computed verdicts.
-
-## 5. What stays in gates
-
-The required gates are the smallest set that validates the model and conclusion pipeline:
-
-- conclusion registry schema, unique ids, report anchors, revisions, and evidence references;
-- append-only evidence validation, content-hash verification, and the single verdict computation;
-- report rendering from registered conclusions and evidence, with deterministic output checks;
-- data immutability/integrity and tool/version checks;
-- existing determinism, golden, snapshot, and parity tests for simulation behavior.
-
-Recovery, token matching, mismatch triage, historical inventory reconstruction, and one-off migration tools are archived outside the gate graph. They remain available for provenance review but do not run from `just check`. The claims ledger is readable as a historical reference index only. This changes gate ownership; it does not authorize deletion of existing reports, data, harnesses, or history.
-
-## 6. Gate-check requirements
-
-Every check reachable from `just check`, `just check-local-data`, CI, or a pre-push hook must be declared in the gate manifest, have a red test that feeds it a deliberate invalid input, and be reachable from a named gate target. Check logic must consume explicit registry fields or manifests; it must not infer claim classes, evidence strength, report coverage, or generated-file ownership from prose heuristics. A failed or missing check is reported, not silently converted into a verdict.
-
-## 7. M5-09 paper scope
-
-The M5-09 report will state only conclusions present in `contracts/conclusions.toml` and will render their verdicts from validated evidence. Its scope is:
-
-- M0/M1: deterministic reference behavior and the frozen semantic contract;
-- M2: performance improvements under canonical parity, including observed tradeoffs and unresolved timing conclusions;
-- M3: the scale and interaction workloads that exposed lookup, locality, dynamic-topology, and propagation behavior;
-- M4: the tested limits of branching, divergence, CRN estimates, minimal-cause search, migration, and cross-branch execution.
-
-Every main-text claim must cite its conclusion id and evidence records. Deterministic claims need exact artifacts at the applicable revision; timing claims need report-revision and HEAD evidence under A-5 or an explicit `inconclusive`/`unverified` verdict; qualitative claims need bounded statements and direct citations. Partial coverage, missing historical harnesses, single-host results, and unavailable DVC raw artifacts appear as limitations, not as implied confirmation. Unregistered numbers may appear only as source quotations needed to describe a protocol, never as independent findings.
-
-## Appendix A. Current analysis surface: proposed disposition
-
-Disposition is a migration proposal only. “Archive” means preserve outside the required gate graph; “merge” means replace the separate path with the named registry/evidence path; no move or deletion is authorized by this draft.
-
-### Analysis modules
-
-| Disposition | Current modules/files | Reason |
-|---|---|---|
-| Keep | `__init__.py`, `io.py`, `tables.py`, `figures.py`, `findings.py`, `links.py`, `provenance.py`, `tool_versions.py`, `check_tools.py`, `quarto_check.py`, `action_refs.py`, `git_hooks.py`, `data_integrity.py`, `dvc_push_guard.py`, `dvc_path_guard.py`, `dvc_freeze_guard.py`, `decisions.py`, `ci_analysis.py`, `ci_clean.py`, `ci_linux.py`, `ship.py` | Shared file, evidence-hash, decision, toolchain, and delivery infrastructure remains useful to the contract. |
-| Merge | `claims.py`, `report_m5_01.py`, `report_m5_04.py`, `report_m5_05.py`, `generated_artifacts.py`, `generated_artifacts.toml`, `ledger_transition_guard.py` | Retain a non-verdict reference index and one conclusion/evidence report path; remove parallel status layers. |
-| Archive | `sources.py`, `recovered_claims.py`, `recovered_mismatch_triage.py`, `recovered_claim_audit.py`, `m2_m3_evidence_inventory.py`, `m2_m3_reconstruction.py`, `m2_m3_reconstruction_finalize.py`, `reconstruction.py`, `reconstruct_all.py`, `profile_m0_baseline.py`, `m3_05_pilot.py`, `m3_05_pilot_results.py`, `m3_05_pilot_runtime.py`, `m5_05.py`, `m5_05_diagnosis.py`, `m5_05_diagnosis_postprocess.py`, `m5_05_dvc_status.py` | These recover, classify, inventory, or post-process historical experiments; preserve them for provenance without making them required checks. |
-| Delete | None proposed | Preserve experiment history until a separate reviewed archival decision identifies genuinely redundant files. |
-
-### `just` recipes
-
-| Disposition | Current recipes | Reason |
-|---|---|---|
-| Keep | `action-refs-check`, `analysis-sync`, `analysis-test`, `check`, `check-autocrlf`, `check-quarto`, `check-tools`, `ci`, `ci-analysis`, `ci-clean`, `ci-linux`, `ci-rust`, `clippy-cross`, `commit-messages-check`, `data-integrity-check`, `data-integrity-range-check`, `data-integrity-update`, `decisions`, `decisions-check`, `dvc-freeze-check`, `dvc-push REMOTE`, `gitleaks-range-check`, `hooks-install`, `large-file-range-check`, `links`, `lint-prose`, `provenance SUMMARY`, `provenance-finalize SUMMARY`, `ship`, `tool-versions-check` | Keep reproducible CI, policy, toolchain, delivery, and artifact-integrity operations. |
-| Merge | `claims`, `claims-check`, `claims-locate KEY`, `generated-artifacts-check`, `ledger-transition-check`, `report-m5-01`, `report-m5-01-check`, `report-m5-04`, `report-m5-04-check`, `report-m5-05`, `report-m5-05-check` | Fold index, transition, generated-output, and per-stage report recipes into the explicit conclusion/evidence validator and report target. |
-| Archive | `check-local-data`, `m3-05-pilot-classify`, `m3-05-pilot-classify-check`, `m3-05-pilot-report`, `m3-05-pilot-report-check`, `m3-05-pilot-runtime`, `m3-05-pilot-runtime-check`, `m5-05-deterministic`, `m5-05-dvc-status`, `m5-05-dvc-status-check`, `m5-05-plan`, `m5-05-timing ENTRY`, `reconstruct-all *ARGS`, `reconstruction-inventory`, `reconstruction-inventory-check`, `recovered-claim-audit`, `recovered-claim-audit-check`, `recovered-claims`, `recovered-claims-check` | Preserve one-off reconstruction and local raw-data procedures without running them in required gates. |
-| Delete | None proposed | No recipe deletion is justified before the archived workflows and evidence are reviewed. |
+The proposed module and recipe migration is in [M5_ANALYSIS_MIGRATION_PLAN.md](M5_ANALYSIS_MIGRATION_PLAN.md); it is a plan, not authorization to move or delete files.

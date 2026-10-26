@@ -56,3 +56,7 @@ just provenance-finalize docs/data/m5_05/m3_05_pilot/summary.json
 The driver uses the historical public API, emits the existing scale record families plus `r`, A-5 medians/MADs and parity digests, and writes raw JSONL into the DVC stage. Its output covers 16 paired full-tick configurations, 16 phase-profile configurations, and 16 one-time graph/projection series (eight configurations times two construction measurements): 48 A-5 series. The lower-bound runtime is **2,064 seconds (34 minutes 24 seconds)**; compilation, initialization, checkpoint construction, memory probes, and `r` above the one-second floor add time.
 
 The historical `cargo bench -p sim-model --bench m3_scale_limit_bench` command uses seven samples, not A-5; it remains unchanged. The separate driver runs the frozen 2-warmup/41-sample protocol at the report commit. The criteria are frozen, but this does not authorize the A-5 pilot in this task.
+
+## Later update (2026-10-26)
+
+The M3-09 protocol-matched follow-up revision is `681bf296ea07d3ddc4391f5f1dfd49255876300c`, not `c857d51517bf8df2ff5f50c6cb035585fc4b549e` as stated in the historical paragraph above. The old `docs/reproducibility/m5_05_conclusions.toml` is superseded by the draft `contracts/conclusions.toml`; its 13 `verbatim_conclusion` and `pass_criterion` values are carried into the new registry's `verbatim` and `pass_criterion` fields. The old file remains historical evidence and is not edited.

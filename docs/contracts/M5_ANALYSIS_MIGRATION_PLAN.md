@@ -1,0 +1,79 @@
+# M5 Analysis Migration Plan
+
+Status: **DRAFT — PROPOSAL ONLY**
+Parent: [M5 Analysis Contract](M5_ANALYSIS_CONTRACT.md)
+
+This plan redoes the earlier file triage against the current import/call graph and frozen decision references. It authorizes no file move, rename, deletion, generator edit, or decision-status change.
+
+## Migration order and constraints
+
+1. Implement and review the conclusion/evidence model in the parent contract before changing verdict ownership.
+2. Replace M5-05's selected-run registry with `contracts/conclusions.toml`; append evidence records and compute verdicts without rewriting historical evidence. The M5-05 report remains evidence until replacement outputs render and check byte-identically where deterministic.
+3. Preserve generated outputs that are cited as evidence and keep their check targets reachable: `claims.csv.gz` as a reference index, the M5-01 inventory, M5-04 and M5-05 reports, generated figures, `docs/data/m5_05/STATUS.md`, and any summary cited by a conclusion. A generated file is not removable merely because its generator is proposed for merge/archive.
+4. Only after each replacement is checked should old one-off recovery and inventory commands leave required gates. Preserve their sources and results in an archive with links.
+5. Change `m2_m3_reconstruction_finalize.py` to stop writing `contracts/decisions.toml`. It may emit a proposed review artifact, but humans alone change decision status; do not archive the current writer until that behavior is replaced and reviewed.
+
+### Frozen decisions to amend before a migration changes their behavior
+
+| Decision | Why it must be reviewed first |
+|---|---|
+| `M5-00-D-3`, `M5-00-D-8` | They make every numeric claim, rather than every conclusion, the acceptance unit. Amend to keep the old ledger as a locator only. |
+| `M5-02-D-4` | It reserves `analysis/legacy` for inactive tools. Amend to name the archive destination and state that archiving removes gate ownership, not provenance. |
+| `M5-02-D-6`, `M5-03-D-6` | They freeze the prose-extracted claim schema and ledger content. Amend before changing extraction or verdict meaning. |
+| `M5-03-D-4` | It freezes the current `just` analysis interface. Amend before merging or retiring the per-report targets. |
+| `M5-04-D-6` | It defines the old per-claim M4 status set. Replace its verdict wording before retiring that path. |
+| `M5-05-D-3`, `M5-05-A1-1`, `M5-05-A1-4` | They freeze selected-run A-5 comparisons, `m5_05_conclusions.toml`, and its 13-run schedule. Replace the source registry and stage accounting before archiving their consumers. |
+| `M5-05-M3-09-SCOPE-WITHDRAWAL`, `M5-05-M3-09-PROTOCOL-RECHECK` | They bind the M3-09 scope result to the old registry file. Preserve the result, then amend the reference to the new conclusion/evidence records. |
+| `M5-05-D-6` | It requires cited harnesses, data, and generated M5-05 tables. Keep until the replacement report and its checks cover the same evidence. |
+
+Decision IDs above are frozen in `contracts/decisions.toml`; update them through a separately reviewed decision change, not as a side effect of a generator.
+
+## Import and gate graph
+
+`analysis/simciv_analysis/__init__.py` exports no runtime API. The report entry points import shared I/O, table/figure, findings, provenance, and data-source helpers. M5-01 additionally imports ledger extraction and recovered-claim audit/triage; M5-04 imports claim overrides and source mapping; M5-05 imports its separate conclusion file and computes the selected-run report. The `just` recipes invoke these entry points directly. The intended convergence is one explicit registry/evidence/report path; shared byte-writing, hashing, tools, links, integrity, and delivery checks stay shared.
+
+Generated evidence checks retained through the migration:
+
+| Evidence output | Current check to preserve until replacement is checked |
+|---|---|
+| `docs/reproducibility/claims.csv.gz` | `claims-check` (reference-index bytes only) |
+| M5-01 inventory QMD/Markdown and figures | `report-m5-01-check` |
+| M5-04 regeneration report and figures | `report-m5-04-check` |
+| M5-05 regeneration report and figure | `report-m5-05-check` |
+| registered generated artifacts and DVC summaries | `generated-artifacts-check`, `data-integrity-check` |
+
+## Proposed module disposition
+
+The dispositions follow the current direct imports, report entry points, and named gate calls above. Grouped rows enumerate every current module.
+
+| Disposition | Current modules | Reason |
+|---|---|---|
+| Keep | `__init__.py`, `io.py`, `tables.py`, `figures.py`, `findings.py`, `links.py`, `provenance.py`, `tool_versions.py`, `check_tools.py`, `quarto_check.py`, `action_refs.py`, `git_hooks.py`, `data_integrity.py`, `dvc_push_guard.py`, `dvc_path_guard.py`, `dvc_freeze_guard.py`, `decisions.py`, `ci_analysis.py`, `ci_clean.py`, `ci_linux.py`, `ship.py` | Common output, hashing, report, toolchain, integrity, and delivery dependencies. Keep the DVC-open guard as a documented heuristic exception pending its M5-06 replacement. |
+| Merge | `claims.py`, `sources.py`, `m5_05.py`, `report_m5_01.py`, `report_m5_04.py`, `report_m5_05.py`, `generated_artifacts.py`, `generated_artifacts.toml`, `ledger_transition_guard.py` | Retain `claims.py` only for the reference index; consolidate verdict and report generation around conclusions/evidence while preserving generated-output checks. |
+| Archive | `m2_m3_evidence_inventory.py`, `m2_m3_reconstruction_finalize.py`, `m2_m3_reconstruction.py`, `m3_05_pilot_results.py`, `m3_05_pilot_runtime.py`, `m3_05_pilot.py`, `m5_05_diagnosis_postprocess.py`, `m5_05_diagnosis.py`, `m5_05_dvc_status.py`, `profile_m0_baseline.py`, `reconstruct_all.py`, `reconstruction.py`, `recovered_claim_audit.py`, `recovered_claims.py`, `recovered_mismatch_triage.py` | One-off recovery, migration, pilot, and historical run procedures remain provenance, not the verdict engine. `m2_m3_reconstruction_finalize.py` must first lose its decision-status write. |
+| Delete | None proposed | No source is approved for destruction by this plan. |
+
+## Proposed `just` recipe disposition
+
+| Disposition | Current recipes | Reason |
+|---|---|---|
+| Keep | `action-refs-check`, `analysis-sync`, `analysis-test`, `check`, `check-autocrlf`, `check-quarto`, `check-tools`, `ci`, `ci-analysis`, `ci-clean`, `ci-linux`, `ci-rust`, `clippy-cross`, `commit-messages-check`, `data-integrity-check`, `data-integrity-range-check`, `data-integrity-update`, `decisions`, `decisions-check`, `dvc-freeze-check`, `dvc-push REMOTE`, `gitleaks-range-check`, `hooks-install`, `large-file-range-check`, `links`, `lint-prose`, `provenance SUMMARY`, `provenance-finalize SUMMARY`, `ship`, `tool-versions-check`, `check-local-data` | Cross-cutting validation, provenance, integrity, and delivery operations remain. |
+| Merge | `claims`, `claims-check`, `claims-locate KEY`, `ledger-transition-check`, `generated-artifacts-check`, `report-m5-01`, `report-m5-01-check`, `report-m5-04`, `report-m5-04-check`, `report-m5-05`, `report-m5-05-check` | Replace parallel verdict/report paths with registry validation, verdict calculation, and one registered report target; preserve byte-check coverage for cited generated files. |
+| Archive | `m3-05-pilot-classify`, `m3-05-pilot-classify-check`, `m3-05-pilot-report`, `m3-05-pilot-report-check`, `m3-05-pilot-runtime`, `m3-05-pilot-runtime-check`, `m5-05-deterministic`, `m5-05-dvc-status`, `m5-05-dvc-status-check`, `m5-05-plan`, `m5-05-timing ENTRY`, `reconstruct-all *ARGS`, `reconstruction-inventory`, `reconstruction-inventory-check`, `recovered-claim-audit`, `recovered-claim-audit-check`, `recovered-claims`, `recovered-claims-check` | Preserve costly DVC and one-off historical procedures outside the routine gate graph. |
+| Delete | None proposed | A later review can remove a recipe only after its outputs and provenance are retained. |
+
+## Heuristic checks and deadlines
+
+These are existing heuristics, not approved verdict rules. Keep their current outputs for provenance; do not let them assign conclusion verdicts. Review or replace them by **M5-06**, before their related migration is treated as complete.
+
+| Heuristic | What it infers today | Deadline / disposition |
+|---|---|---|
+| `claims.py` document scanner | Numeric claim boundaries, units, tiers, and excluded input-value patterns from Markdown text | M5-06; keep only the reference locator or replace with explicit source annotations. |
+| `recovered_claims.py` | Value/context fields from recovered text and table rows | M5-06; archive after its historical evidence links are preserved. |
+| `recovered_mismatch_triage.py` | Rounding, units, aggregates, and output-match cause from recovered records | M5-06; archive; no verdict authority. |
+| `m2_m3_evidence_inventory.py` | Experiment groups, protocol dimensions, evidence class, and cell counts from headings, text, tables, and patterns | M5-06; archive its result and keep only reviewed explicit experiment specs. |
+| `sources.py` | Harness citations and legacy source fallback from report links and text | M5-06; keep explicit `sources.toml` mappings, remove text fallback. |
+| `generated_artifacts.py` | Generated-file ownership and reachable check targets from file markers, imports, and `just` text | M5-06; make the generated-artifact manifest authoritative and keep its consistency check. |
+| `dvc_path_guard.py` | DVC-output reads by scanning analysis sources/tests | M5-06; keep the red test, replace source-text heuristics with an explicit file-access boundary if feasible. |
+
+The deadline is for a reviewed disposition, not permission to weaken or remove the associated check early.
