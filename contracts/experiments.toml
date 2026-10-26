@@ -13,7 +13,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["seeded-trait-sampling", "resource-allocation", "initial-world-state"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["agent_traits", "resource_allocation", "initial_state"], comparison = "exact expected fields" }
+predicate_parameters = { "fields" = ["agent_traits", "resource_allocation", "initial_state"], "expected_values" = { "seeded-trait-sampling" = "exact frozen oracle output at report revision", "resource-allocation" = "exact frozen oracle output at report revision", "initial-world-state" = "exact frozen oracle output at report revision" }, "comparison" = "exact equality" }
 scope = "Fixed M0 seed and initialization configuration."
 harness_paths = ["crates/sim-model/tests/initialization_tests.rs", "crates/sim-model/tests/config_tests.rs"]
 
@@ -28,7 +28,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["replay-500d-seed7", "pause-resume-day200-to500", "physical-layout-invariance"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["canonical_state", "metrics", "events", "resume_trajectory"], comparison = "exact byte/field equality" }
+predicate_parameters = { "fields" = ["canonical_state", "metrics", "events", "resume_trajectory"], "expected_values" = { "replay-500d-seed7" = "pinned M0 canonical output", "pause-resume-day200-to500" = "pinned M0 resume trajectory", "physical-layout-invariance" = "pinned M0 layout-invariant output" }, "comparison" = "exact equality" }
 scope = "M0 reference replay; 500-day run with a day-200 snapshot continuation and equivalent physical layouts."
 harness_paths = [
   "crates/sim-model/tests/m0_determinism_gate_tests.rs",
@@ -46,7 +46,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["continuous-500d", "snapshot-day200-resume-to500"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["canonical_state_trajectory_days0_499"], comparison = "exact trajectory equality" }
+predicate_parameters = { "fields" = ["canonical_state_trajectory_days0_499"], "expected_values" = { "continuous-500d" = "exact frozen oracle output at report revision", "snapshot-day200-resume-to500" = "exact frozen oracle output at report revision" }, "comparison" = "exact equality" }
 scope = "M0 snapshot resume cursor day 200."
 harness_paths = ["crates/sim-model/tests/m0_determinism_gate_tests.rs"]
 
@@ -61,7 +61,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["magic", "schema-version", "header-metadata", "canonical-entity-order", "f32-bit-preservation"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["snapshot-v1-bytes", "decoded-fields"], comparison = "exact bytes and f32 bits" }
+predicate_parameters = { "fields" = ["snapshot-v1-bytes", "decoded-fields"], "expected_values" = { "magic" = "exact frozen oracle output at report revision", "schema-version" = "exact frozen oracle output at report revision", "header-metadata" = "exact frozen oracle output at report revision", "canonical-entity-order" = "exact frozen oracle output at report revision", "f32-bit-preservation" = "exact frozen oracle output at report revision" }, "comparison" = "exact equality" }
 scope = "Frozen M0 schema-v1 snapshot encoding."
 harness_paths = ["crates/sim-model/tests/phase11_snapshot_tests.rs"]
 
@@ -76,7 +76,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["serial-state-metrics-events", "explicit-rayon-state-metrics-events"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["State_digest", "Metrics_digest", "Events_digest"], comparison = "exact equality" }
+predicate_parameters = { "fields" = ["State_digest", "Metrics_digest", "Events_digest"], "expected_values" = { "serial-state-metrics-events" = "committed M2 golden digests", "explicit-rayon-state-metrics-events" = "committed M2 golden digests" }, "comparison" = "exact equality" }
 scope = "M2 storage and explicit-parallel paths."
 harness_paths = [
   "crates/sim-model/tests/m2_soa_gate_tests.rs",
@@ -95,21 +95,21 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["A-N10000", "A-N20000", "A-N50000", "A-N100000", "B-N10000", "B-N20000", "B-N50000", "B-N100000"]
 predicate_kind = "ratio_band"
-predicate_parameters = { historical_values = [1.122, 1.147, 1.205, 1.199, 1.108, 1.137, 1.164, 1.188], ratio_direction = "serial_median / explicit_rayon_median", bands_pct = [0.1, 0.2] }
+predicate_parameters = { "historical_values" = [1.122, 1.147, 1.205, 1.199, 1.108, 1.137, 1.164, 1.188], "ratio_direction" = "serial_median / explicit_rayon_median", "deviation_bands_pct" = [10, 20] }
 scope = "M2-40 workloads A/B at N={10k,20k,50k,100k}; caller-owned pool 6, chunk 256; three days/sample."
 harness_paths = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "2 warmups, 7 timed samples, 3 consecutive days/sample, alternating serial/Rayon order."
 
 [[experiment]]
-id = "m2_m0_reference_disabled"
-conclusion_id = "M2-TIM-M0-REFERENCE-DISABLED"
-tier = 1
+id = "m2_allocation_phase_disabled"
+conclusion_id = "M2-TIM-ALLOCATION-PHASE-DISABLED"
+tier = 2
 report_revision = "1f1c884791cf403d11a1c7c2518648d0962696f4"
 report_path_at_revision = "docs/performance/M2_REBASELINE_REPORT.md"
 protocol_source = "docs/reports/M2_X_REBASELINE_REPORT.md#6-telemetry-mode-performance-comparison"
 host_id = "ryzen5-9600x-windows-reference"
-status = "complete"
+status = "incomplete"
 ordered_cell_ids = ["M2-01-to-M2-12-disabled"]
 predicate_kind = "ratio_band"
 predicate_parameters = { historical_values = [1.85], ratio_direction = "baseline_runtime / optimized_runtime", bands_pct = [0.1, 0.2] }
@@ -117,16 +117,16 @@ scope = "M0-16B fixture, 500-day run, metrics/events disabled; M2-01 baseline ve
 harness_paths = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "M0-16B 500-day fixture; M2-01 baseline compared with M2-12 current row in the M2 rebaseline report."
-
+incomplete_reason = "Two-revision M2-01-to-M2-12 comparison; this record does not represent a single report-role result."
 [[experiment]]
-id = "m2_m0_reference_full_telemetry"
-conclusion_id = "M2-TIM-M0-REFERENCE-FULL-TELEMETRY"
-tier = 1
+id = "m2_allocation_phase_full_telemetry"
+conclusion_id = "M2-TIM-ALLOCATION-PHASE-FULL-TELEMETRY"
+tier = 2
 report_revision = "1f1c884791cf403d11a1c7c2518648d0962696f4"
 report_path_at_revision = "docs/performance/M2_REBASELINE_REPORT.md"
 protocol_source = "docs/reports/M2_X_REBASELINE_REPORT.md#6-telemetry-mode-performance-comparison"
 host_id = "ryzen5-9600x-windows-reference"
-status = "complete"
+status = "incomplete"
 ordered_cell_ids = ["M2-01-to-M2-12-full-telemetry"]
 predicate_kind = "ratio_band"
 predicate_parameters = { historical_values = [1.2417582417582418], ratio_direction = "baseline_runtime / optimized_runtime", bands_pct = [0.1, 0.2] }
@@ -134,7 +134,7 @@ scope = "M0-16B fixture, 500-day run, metrics/events enabled; M2-01 baseline ver
 harness_paths = ["crates/sim-model/benches/m0_baseline_bench.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "M0-16B 500-day fixture; M2-01 baseline compared with M2-12 current row in the M2 rebaseline report."
-
+incomplete_reason = "Two-revision M2-01-to-M2-12 comparison; this record does not represent a single report-role result."
 [[experiment]]
 id = "m2_near_linear"
 conclusion_id = "M2-TIM-NEAR-LINEAR"
@@ -170,7 +170,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["day100-serial", "day250-serial", "day500-serial", "day100-rayon", "day250-rayon", "day500-rayon"]
 predicate_kind = "exact"
-predicate_parameters = { field = "snapshot_bytes", comparison = "exact equality" }
+predicate_parameters = { "fields" = ["snapshot_bytes"], "expected_values" = { "day100-serial" = "exact frozen oracle output at report revision", "day250-serial" = "exact frozen oracle output at report revision", "day500-serial" = "exact frozen oracle output at report revision", "day100-rayon" = "exact frozen oracle output at report revision", "day250-rayon" = "exact frozen oracle output at report revision", "day500-rayon" = "exact frozen oracle output at report revision" }, "comparison" = "exact equality" }
 scope = "Days 100, 250, and 500 in M2 serial and explicit-parallel paths."
 harness_paths = [
   "crates/sim-model/tests/m2_soa_gate_tests.rs",
@@ -207,7 +207,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["k8-day0", "k8-day50", "k16-day0", "k16-day50"]
 predicate_kind = "threshold_side"
-predicate_parameters = { metric = "maximum valid phase alpha", interval = "100k-to-250k", threshold = 1.15, relation = ">", historical_values = ["above; first crossing at N=250k", "above; first crossing at N=250k", "above; first crossing at N=250k", "above; first crossing at N=250k"], noise_rule = "criteria endpoint validity and original threshold separation beyond noise bound" }
+predicate_parameters = { "metric" = "maximum valid phase alpha on 100k-to-250k interval", "historical_values" = [1.63734, 1.61217, 1.65224, 1.60054], "threshold" = 1.15, "relation" = ">", "noise_rule" = "Only valid cells are evaluated; comparisons within the frozen criteria noise bound are inconclusive." }
 scope = "M3-05 alpha first-break profiles, each fixing k and checkpoint day."
 harness_paths = [
   "crates/sim-model/benches/m3_scale_limit_bench.rs",
@@ -216,6 +216,8 @@ harness_paths = [
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "M3-05 report protocol: 2 warmups and 7 timed samples of 3 days; phase values use the report’s declared profile/checkpoint boundaries."
 exclusion_note = "The N=1,000,000,k=16 graph+projection setup 10.0286x cell is a separate borderline setup threshold, not an alpha first-break cell; its 0.286% margin is not pass/fail."
+harness_overlays = [{ "path" = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", "sha256" = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", "origin_commit" = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m3_05_graph_projection_first_break"
@@ -247,7 +249,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["N1M-k8-day0", "N1M-k8-day50", "N1M-k16-day0", "N1M-k16-day50"]
 predicate_kind = "completion"
-predicate_parameters = { required_result = "all cells complete without runner error", N = 1000000, K = "N/200", p_local = 0.5 }
+predicate_parameters = { "required_result" = "all four declared N=1,000,000 runner cells complete without error", "error_policy" = "any runner error or incomplete cell fails" }
 scope = "Equilibrium static-world profile; k={8,16}; day-0 and day-50 checkpoint."
 harness_paths = [
   "crates/sim-model/benches/m3_scale_limit_bench.rs",
@@ -256,6 +258,8 @@ harness_paths = [
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "M3-05 report protocol: 2 warmups and 7 timed samples of 3 days; phase values use the report’s declared profile/checkpoint boundaries."
 exclusion_note = "N=1,000,000,k=16 remains included for completion. Its separate graph+projection setup ratio 10.0286x is excluded from the threshold-side verdict because its excess over 10x is 0.286%, within the report noise band."
+harness_overlays = [{ "path" = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", "sha256" = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", "origin_commit" = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m3_06_settlement_index"
@@ -306,7 +310,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["N10k-paired", "N10k-noninterleaved", "N100k-paired", "N100k-noninterleaved"]
 predicate_kind = "ratio_band"
-predicate_parameters = { historical_values = [1.21, 1.23, 1.49, 1.47], ratio_direction = "incremental_M3P_median / M3_median", bands_pct = [0.1, 0.2] }
+predicate_parameters = { "historical_values" = [1.21, 1.23, 1.49, 1.47], "ratio_direction" = "incremental_M3P_median / M3_median", "deviation_bands_pct" = [10, 20] }
 scope = "M3-09 follow-up; day-400 checkpoint; live populations 10,341 and 103,241; three days/sample."
 harness_paths = [
   "crates/sim-model/examples/m5_05_m3_09_revision.rs",
@@ -314,6 +318,8 @@ harness_paths = [
 ]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "Day-400 checkpoint; 2 warmups; 11 samples; three public-API days/call; paired rotation of M3P serial, M3P incremental, and M3."
+harness_overlays = [{ "path" = "crates/sim-model/examples/m5_05_m3_09_revision.rs", "sha256" = "0d66cb0cc690d38e03e3fb6a50551c3a1003be7b710fe3f6a5a7d6fddc0734b8", "origin_commit" = "aa1e9e5563d391b80786002beed32dd2fdffbdb2" }, { "path" = "crates/sim-model/examples/m5_05_sessions23.rs", "sha256" = "2c99efa793c151648c30e808de3832c79369edabf4e665db55c2926773d8abed", "origin_commit" = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m3_09_phase9b_normal_day_profile"
@@ -338,7 +344,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["N100000-k16-hops16-transmit0.2-pool6-day0"]
 predicate_kind = "ratio_band"
-predicate_parameters = { historical_values = [3.196766], ratio_direction = "serial_phase9c_median / pool6_phase9c_median", bands_pct = [0.1, 0.2] }
+predicate_parameters = { "historical_values" = [3.196766], "ratio_direction" = "serial_phase9c_median / pool6_phase9c_median", "deviation_bands_pct" = [10, 20] }
 scope = "Fixed-topology M3; N=100k, K=500, k=16, max_hops=16, transmit=0.2, initial frontier=29,753."
 harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
@@ -355,7 +361,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["large-frontier-interleaved-pool6", "large-frontier-noninterleaved-pool6"]
 predicate_kind = "ratio_band"
-predicate_parameters = { historical_values = [2.26, 2.29], ratio_direction = "serial_tick_median / pool6_tick_median", bands_pct = [0.1, 0.2] }
+predicate_parameters = { "historical_values" = [2.26, 2.29], "ratio_direction" = "serial_tick_median / pool6_tick_median", "deviation_bands_pct" = [10, 20] }
 scope = "Same large-frontier workload as the Phase 9c cell; three consecutive days/sample."
 harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
@@ -437,7 +443,7 @@ ordered_cell_ids = [
   "release-N10000",
 ]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["daily_State_digest", "daily_Metrics_digest", "daily_Events_digest", "snapshot_continuation"], comparison = "exact equality" }
+predicate_parameters = { "fields" = ["daily_State_digest", "daily_Metrics_digest", "daily_Events_digest", "snapshot_continuation"], "expected_values" = { "N300-K3-k4-p0-seed0" = "M0 reference oracle canonical output", "N300-K3-k4-p0.5-seed0" = "M0 reference oracle canonical output", "N300-K3-k4-p1-seed0" = "M0 reference oracle canonical output", "N300-K3-k8-p0-seed0" = "M0 reference oracle canonical output", "N300-K3-k8-p0.5-seed0" = "M0 reference oracle canonical output", "N300-K3-k8-p1-seed0" = "M0 reference oracle canonical output", "N300-K3-k16-p0-seed0" = "M0 reference oracle canonical output", "N300-K3-k16-p0.5-seed0" = "M0 reference oracle canonical output", "N300-K3-k16-p1-seed0" = "M0 reference oracle canonical output", "N300-K10-k4-p0-seed0" = "M0 reference oracle canonical output", "N300-K10-k4-p0.5-seed0" = "M0 reference oracle canonical output", "N300-K10-k4-p1-seed0" = "M0 reference oracle canonical output", "N300-K10-k8-p0-seed0" = "M0 reference oracle canonical output", "N300-K10-k8-p0.5-seed0" = "M0 reference oracle canonical output", "N300-K10-k8-p1-seed0" = "M0 reference oracle canonical output", "N300-K10-k16-p0-seed0" = "M0 reference oracle canonical output", "N300-K10-k16-p0.5-seed0" = "M0 reference oracle canonical output", "N300-K10-k16-p1-seed0" = "M0 reference oracle canonical output", "N300-K3-k4-p0-seed1" = "M0 reference oracle canonical output", "N300-K3-k4-p0.5-seed1" = "M0 reference oracle canonical output", "N300-K3-k4-p1-seed1" = "M0 reference oracle canonical output", "N300-K3-k8-p0-seed1" = "M0 reference oracle canonical output", "N300-K3-k8-p0.5-seed1" = "M0 reference oracle canonical output", "N300-K3-k8-p1-seed1" = "M0 reference oracle canonical output", "N300-K3-k16-p0-seed1" = "M0 reference oracle canonical output", "N300-K3-k16-p0.5-seed1" = "M0 reference oracle canonical output", "N300-K3-k16-p1-seed1" = "M0 reference oracle canonical output", "N300-K10-k4-p0-seed1" = "M0 reference oracle canonical output", "N300-K10-k4-p0.5-seed1" = "M0 reference oracle canonical output", "N300-K10-k4-p1-seed1" = "M0 reference oracle canonical output", "N300-K10-k8-p0-seed1" = "M0 reference oracle canonical output", "N300-K10-k8-p0.5-seed1" = "M0 reference oracle canonical output", "N300-K10-k8-p1-seed1" = "M0 reference oracle canonical output", "N300-K10-k16-p0-seed1" = "M0 reference oracle canonical output", "N300-K10-k16-p0.5-seed1" = "M0 reference oracle canonical output", "N300-K10-k16-p1-seed1" = "M0 reference oracle canonical output", "N300-K3-k4-p0-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K3-k4-p0.5-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K3-k4-p1-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K3-k8-p0-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K3-k8-p0.5-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K3-k8-p1-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K3-k16-p0-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K3-k16-p0.5-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K3-k16-p1-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K10-k4-p0-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K10-k4-p0.5-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K10-k4-p1-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K10-k8-p0-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K10-k8-p0.5-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K10-k8-p1-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K10-k16-p0-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K10-k16-p0.5-seed81985529216486895" = "M0 reference oracle canonical output", "N300-K10-k16-p1-seed81985529216486895" = "M0 reference oracle canonical output", "N1000-K58-k8-p0-seed81985529216486895" = "M0 reference oracle canonical output", "N1000-K58-k8-p0.5-seed81985529216486895" = "M0 reference oracle canonical output", "N1000-K58-k8-p1-seed81985529216486895" = "M0 reference oracle canonical output", "N3000-K176-k8-p0-seed81985529216486895" = "M0 reference oracle canonical output", "N3000-K176-k8-p0.5-seed81985529216486895" = "M0 reference oracle canonical output", "N3000-K176-k8-p1-seed81985529216486895" = "M0 reference oracle canonical output", "m3-golden" = "M0 reference oracle canonical output", "snapshot-resume-regenerated-graph-projection" = "M0 reference oracle canonical output", "shuffled-storage-slots" = "M0 reference oracle canonical output", "release-N10000" = "M0 reference oracle canonical output" }, "comparison" = "exact equality" }
 scope = "Full M3 §9.7 100-day differential set: N=300, K={3,10}, k={4,8,16}, p_local={0,0.5,1}, seeds={0,1,81985529216486895}; N={1000,3000}, K=floor(N/17), k=8, p_local={0,0.5,1}; plus golden, snapshot, shuffled slots, and N=10000 release differential. Cell IDs are ordered by seed, N, K, k, p_local as in the contract matrix."
 harness_paths = [
   "crates/sim-model/tests/m3_storage_runner_tests.rs",
@@ -455,12 +461,14 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["m3p-sustained-N10000-days100-1000", "m3p-sustained-ci-N1000-days100-1000"]
 predicate_kind = "exact"
-predicate_parameters = { field = "live_population", predicate = "within +/-10% of initial on every day 100..1000" }
-scope = "Frozen M3P sustained configuration at report N=10000 and CI N=1000."
+predicate_parameters = { "fields" = ["alive_population_checkpoints"], "expected_values" = { "m3p-sustained-N10000-days100-1000" = { "window_end_days" = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000], "alive_at_window_end" = [10045, 10089, 10139, 10174, 10222, 10264, 10303, 10341, 10380, 10429, 10461, 10505, 10561, 10589, 10618, 10667, 10691, 10720, 10744, 10755] }, "m3p-sustained-ci-N1000-days100-1000" = { "days_checked" = [100, 1000], "alive_min" = 1010, "alive_max" = 1076 } }, "comparison" = "exact equality" }
+scope = "Frozen M3P sustained configuration; N=10,000 recorded 50-day alive checkpoints plus N=1,000 CI trajectory min/max on days 100..1000."
 harness_paths = [
   "crates/sim-model/tests/m3p_sustained_gate_tests.rs",
   "crates/sim-model/tests/m3p_incremental_topology_tests.rs",
 ]
+harness_overlays = [{ "path" = "crates/sim-model/tests/m3p_incremental_topology_tests.rs", "sha256" = "4ec08fb665894dc0783264dc721207714f4d39670e56456efeca90c65acca6b1", "origin_commit" = "4dd991914996178d1ad7dc554ac88db459619e57" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_02_a5_overhead_gate"
@@ -479,12 +487,14 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["m3-noop-H30", "m3p-noop-H30", "m3-propagation-noop-H30", "m3p-propagation-noop-H30"]
 predicate_kind = "exact"
-predicate_parameters = { field = "daily_divergence", expected = 0 }
+predicate_parameters = { "fields" = ["daily_divergence"], "expected_values" = { "m3-noop-H30" = { "daily_divergence" = 0 }, "m3p-noop-H30" = { "daily_divergence" = 0 }, "m3-propagation-noop-H30" = { "daily_divergence" = 0 }, "m3p-propagation-noop-H30" = { "daily_divergence" = 0 } }, "comparison" = "exact equality" }
 scope = "No-op intervention in each supported M3-family profile."
 harness_paths = [
   "crates/sim-model/tests/m4_branching_tests.rs",
   "crates/sim-model/tests/m4_06_branch_identity_tests.rs",
 ]
+harness_overlays = [{ "path" = "crates/sim-model/tests/m4_06_branch_identity_tests.rs", "sha256" = "aa39b9249cbf56729c3f74e711bf4e2c308149e97571cbc4f65a26fc68d28ce2", "origin_commit" = "091f773813e8bc36efad7d78f8c45b25a92109d0" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_03_divergence_series_a5_gate"
@@ -501,28 +511,24 @@ report_path_at_revision = "docs/performance/M4_03_DIVERGENCE.md"
 protocol_source = "docs/reports/M4_03_DIVERGENCE.md#h365-extension"
 host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
-ordered_cell_ids = [
-  "food-zero-seed-0-H365",
-  "food-zero-seed-1-H365",
-  "food-zero-seed-2-H365",
-  "food-zero-seed-3-H365",
-  "food-zero-seed-4-H365",
-]
+ordered_cell_ids = ["food-zero-seed-0-H365", "food-zero-seed-1-H365", "food-zero-seed-3-H365", "food-zero-seed-7-H365", "food-zero-seed-81985529216486895-H365"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["daily_D_count", "normalized_fraction", "peak_fraction", "day365_fraction"], comparison = "exact recorded fields" }
+predicate_parameters = { "fields" = ["peak_day", "peak_D", "peak_fraction", "day365_D", "day365_fraction", "last30_slope_per_day", "target_death_day", "settlements_touched"], "expected_values" = { "food-zero-seed-0-H365" = { "peak_day" = 364, "peak_D" = 10150, "peak_fraction" = 0.9852, "day365_D" = 10150, "day365_fraction" = 0.9852, "last30_slope_per_day" = 2.57, "target_death_day" = "none", "settlements_touched" = 50 }, "food-zero-seed-1-H365" = { "peak_day" = 361, "peak_D" = 10164, "peak_fraction" = 0.9866, "day365_D" = 10159, "day365_fraction" = 0.9858, "last30_slope_per_day" = 1.77, "target_death_day" = "none", "settlements_touched" = 50 }, "food-zero-seed-3-H365" = { "peak_day" = 364, "peak_D" = 10171, "peak_fraction" = 0.9881, "day365_D" = 10171, "day365_fraction" = 0.9881, "last30_slope_per_day" = 2.0, "target_death_day" = "none", "settlements_touched" = 50 }, "food-zero-seed-7-H365" = { "peak_day" = 364, "peak_D" = 10188, "peak_fraction" = 0.9897, "day365_D" = 10188, "day365_fraction" = 0.9897, "last30_slope_per_day" = 2.13, "target_death_day" = "none", "settlements_touched" = 50 }, "food-zero-seed-81985529216486895-H365" = { "peak_day" = 364, "peak_D" = 10153, "peak_fraction" = 0.9839, "day365_D" = 10153, "day365_fraction" = 0.9839, "last30_slope_per_day" = 3.67, "target_death_day" = "none", "settlements_touched" = 50 } }, "comparison" = "exact equality" }
 scope = "M3P sustained fixture; food=0; five seeds; H=365."
 harness_paths = [
   "crates/sim-model/examples/m4_03_experiment.rs",
   "crates/sim-model/tests/m4_03_divergence_tests.rs",
 ]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_03_experiment.rs", "sha256" = "ab2b02a54607d01c9b2d0459cc83e96d3ab37e18aabd8556b6f085c51aba66f1", "origin_commit" = "5582e258dcf4611643afc9366299a6f1d5d0d96c" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_04_crn_variance_ratio_grid"
 conclusion_id = "M4-DET-CRN-EFFICIENCY"
 tier = 1
-report_revision = "e41180519fd5c1c9f546b312af33931606b5f4fd"
-report_path_at_revision = "docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md"
-protocol_source = "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#research-question-and-answer"
+report_revision = "739004cf6eee9c03d6f462f1852dcf10ffe43293"
+report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
+protocol_source = "docs/performance/M4_04_CRN_EFFICIENCY.md#results"
 host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = [
@@ -543,12 +549,14 @@ ordered_cell_ids = [
   "global-cost-plus-1pct-target-wealth-H365",
 ]
 predicate_kind = "exact"
-predicate_parameters = { field = "paired_to_independent_variance_ratio", comparison = "exact per registered outcome" }
+predicate_parameters = { "fields" = ["variance_ratio", "ci95"], "expected_values" = { "food-zero-alive-H365" = { "ratio" = 81.2188331869, "ci95" = [59.3802430925, 113.5139498861] }, "food-zero-total-wealth-H365" = { "ratio" = 7.006918217248, "ci95" = [4.897707242849, 10.29858696798] }, "food-zero-mean-health-H365" = { "ratio" = 7.621806331237, "ci95" = [5.53060541543, 10.85049824087] }, "food-zero-target-alive-H365" = { "ratio" = 73.53533333333, "ci95" = [48.38667315175, 130.0634547591] }, "food-zero-target-wealth-H365" = { "ratio" = 6.819849807168, "ci95" = [4.351514604416, 12.25098604272] }, "health-0.01-alive-H365" = { "ratio" = 72.06427738035, "ci95" = [52.65867274569, 102.0514255674] }, "health-0.01-total-wealth-H365" = { "ratio" = 5.481088802053, "ci95" = [3.908441544639, 7.797703371152] }, "health-0.01-mean-health-H365" = { "ratio" = 7.205180194052, "ci95" = [5.091970745444, 10.36229234389] }, "health-0.01-target-alive-H365" = { "ratio" = 48.79913043478, "ci95" = [30.2841025641, 94.03843137255] }, "health-0.01-target-wealth-H365" = { "ratio" = 1.521657098454, "ci95" = [1.090899993952, 2.160899371688] }, "global-cost-plus-1pct-alive-H365" = { "ratio" = 22.37426296702, "ci95" = [14.17602554331, 36.70463474021] }, "global-cost-plus-1pct-total-wealth-H365" = { "ratio" = 2.623915025348, "ci95" = [1.931029738876, 3.686631277278] }, "global-cost-plus-1pct-mean-health-H365" = { "ratio" = 3.267766442451, "ci95" = [2.414084140279, 4.581127066024] }, "global-cost-plus-1pct-target-alive-H365" = { "ratio" = 14.12657018023, "ci95" = [8.21402518753, 27.86600695373] }, "global-cost-plus-1pct-target-wealth-H365" = { "ratio" = 3.026458184013, "ci95" = [2.185336892712, 4.350266609367] } }, "comparison" = "exact equality" }
 scope = "M3P sustained fixture; 100 paired and 100+100 independent replicates; H=365."
 harness_paths = [
   "crates/sim-model/examples/m4_04_crn_experiment.rs",
   "crates/sim-model/tests/m4_04_crn_efficiency_tests.rs",
 ]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_04_crn_experiment.rs", "sha256" = "9e552d89704611a7223f61cf2eda9e638930b2e7a06d19a7ff3ab6c7cbb773fc", "origin_commit" = "86427bef9d0ccbf71803ebb86a2e5423b6de0748" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_04_health_local_aggregate_effect"
@@ -566,9 +574,11 @@ ordered_cell_ids = [
   "health-0.01-target-alive-H365",
 ]
 predicate_kind = "exact"
-predicate_parameters = { field = "paired_mean_effect", comparison = "exact recorded means" }
+predicate_parameters = { "fields" = ["paired_mean_effect"], "expected_values" = { "health-0.01-world-wealth-H365" = { "mean_effect" = -3320.8 }, "health-0.01-target-wealth-H365" = { "mean_effect" = -3278.25 }, "health-0.01-world-alive-H365" = { "mean_effect" = -0.93 }, "health-0.01-target-alive-H365" = { "mean_effect" = -1.1 } }, "comparison" = "exact equality" }
 scope = "M3P sustained fixture; health=0.01; world and target-settlement outcomes at H=365."
 harness_paths = ["crates/sim-model/examples/m4_04_crn_experiment.rs"]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_04_crn_experiment.rs", "sha256" = "9e552d89704611a7223f61cf2eda9e638930b2e7a06d19a7ff3ab6c7cbb773fc", "origin_commit" = "86427bef9d0ccbf71803ebb86a2e5423b6de0748" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_04_newborn_rng_identity"
@@ -579,27 +589,16 @@ report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
 protocol_source = "docs/reports/M4_04_CRN_EFFICIENCY.md#newborn-crn-identity"
 host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
-ordered_cell_ids = [
-  "food-zero-H7",
-  "food-zero-H30",
-  "food-zero-H90",
-  "food-zero-H365",
-  "health-0.01-H7",
-  "health-0.01-H30",
-  "health-0.01-H90",
-  "health-0.01-H365",
-  "global-cost-plus-1pct-H7",
-  "global-cost-plus-1pct-H30",
-  "global-cost-plus-1pct-H90",
-  "global-cost-plus-1pct-H365",
-]
+ordered_cell_ids = ["food-zero-H7", "food-zero-H30", "food-zero-H90", "food-zero-H365", "health-0.01-H7", "health-0.01-H30", "health-0.01-H90", "health-0.01-H365", "global-cost-plus-1pct-H7", "global-cost-plus-1pct-H30", "global-cost-plus-1pct-H90", "global-cost-plus-1pct-H365"]
 predicate_kind = "exact"
-predicate_parameters = { field = "mean_cumulative_newborn_agent_id_loss", comparison = "exact" }
+predicate_parameters = { "fields" = ["mean_cumulative_newborn_agent_id_loss"], "expected_values" = { "food-zero-H7" = 0.0, "food-zero-H30" = 0.0, "food-zero-H90" = 0.0, "food-zero-H365" = 1.34, "health-0.01-H7" = 0.0, "health-0.01-H30" = 0.0, "health-0.01-H90" = 0.0, "health-0.01-H365" = 1.43, "global-cost-plus-1pct-H7" = 0.0, "global-cost-plus-1pct-H30" = 0.0, "global-cost-plus-1pct-H90" = 1.33, "global-cost-plus-1pct-H365" = 33.02 }, "comparison" = "exact equality" }
 scope = "M3P sustained fixture; 100 paired replicates per intervention and horizon."
 harness_paths = [
   "crates/sim-model/examples/m4_04_crn_experiment.rs",
   "crates/sim-model/tests/m4_04_crn_efficiency_tests.rs",
 ]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_04_crn_experiment.rs", "sha256" = "9e552d89704611a7223f61cf2eda9e638930b2e7a06d19a7ff3ab6c7cbb773fc", "origin_commit" = "86427bef9d0ccbf71803ebb86a2e5423b6de0748" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_04_paired_effect_intervals"
@@ -628,12 +627,14 @@ ordered_cell_ids = [
   "global-cost-plus-1pct-target-wealth-H365",
 ]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["paired_mean_effect", "95pct_interval", "zero_exclusion"], comparison = "exact values from registered replicate records" }
+predicate_parameters = { "fields" = ["paired_mean_effect", "paired_mean_ci95"], "expected_values" = { "food-zero-alive-H365" = { "mean" = -0.21, "ci95" = [-0.76, 0.34] }, "food-zero-total-wealth-H365" = { "mean" = -126.17, "ci95" = [-925.92, 669.1] }, "food-zero-mean-health-H365" = { "mean" = -6.057929049926e-06, "ci95" = [-4.232940174407e-05, 3.023400988897e-05] }, "food-zero-target-alive-H365" = { "mean" = -0.1, "ci95" = [-0.18, -0.03] }, "food-zero-target-wealth-H365" = { "mean" = -81.84, "ci95" = [-204.55, 39.15] }, "health-0.01-alive-H365" = { "mean" = -0.93, "ci95" = [-1.5, -0.37] }, "health-0.01-total-wealth-H365" = { "mean" = -3320.8, "ci95" = [-4311.08, -2373.17] }, "health-0.01-mean-health-H365" = { "mean" = -1.386433110027e-05, "ci95" = [-5.251290161174e-05, 2.585720468687e-05] }, "health-0.01-target-alive-H365" = { "mean" = -1.1, "ci95" = [-1.19, -1.01] }, "health-0.01-target-wealth-H365" = { "mean" = -3278.25, "ci95" = [-3829.17, -2752.68] }, "global-cost-plus-1pct-alive-H365" = { "mean" = -11.81, "ci95" = [-12.85, -10.78] }, "global-cost-plus-1pct-total-wealth-H365" = { "mean" = -11914.45, "ci95" = [-13201.98, -10604.72] }, "global-cost-plus-1pct-mean-health-H365" = { "mean" = -0.0008133126997507, "ci95" = [-0.000869371935976, -0.0007543984925342] }, "global-cost-plus-1pct-target-alive-H365" = { "mean" = -0.26, "ci95" = [-0.42, -0.09] }, "global-cost-plus-1pct-target-wealth-H365" = { "mean" = -320.89, "ci95" = [-514.69, -130.06] } }, "comparison" = "exact equality" }
 scope = "M3P sustained fixture; three interventions, five outcomes, H=365."
 harness_paths = [
   "crates/sim-model/examples/m4_04_crn_experiment.rs",
   "crates/sim-model/tests/m4_04_crn_efficiency_tests.rs",
 ]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_04_crn_experiment.rs", "sha256" = "9e552d89704611a7223f61cf2eda9e638930b2e7a06d19a7ff3ab6c7cbb773fc", "origin_commit" = "86427bef9d0ccbf71803ebb86a2e5423b6de0748" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_05_batch_of_one_a5_gate"
@@ -652,12 +653,14 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["case-a-exhaustive-N2000-R10-H90"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["minimum_cardinality", "satisfying_subset_count"], expected_minimum = 4 }
+predicate_parameters = { "fields" = ["minimum_cardinality"], "expected_values" = { "case-a-exhaustive-N2000-R10-H90" = { "minimum_cardinality" = 4 } }, "comparison" = "exact equality" }
 scope = "Case (a), exhaustive candidate set and target-settlement population predicate."
 harness_paths = [
   "crates/sim-model/examples/m4_05_experiment.rs",
   "crates/sim-model/tests/m4_05_minimal_cause_tests.rs",
 ]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "baa21e7e4b9e88dadf37edf4e41146f0f55933b18102a66842955cebb1f2be78", "origin_commit" = "61d0a6b90ceb9bf28db92d98e0c20a08fbe0dd6d" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_05_case_a_nonunique_minima"
@@ -670,12 +673,14 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["case-a-all-70-size4-subsets"]
 predicate_kind = "exact"
-predicate_parameters = { field = "satisfying_subsets", expected_count = 15 }
+predicate_parameters = { "fields" = ["satisfying_subsets_count"], "expected_values" = { "case-a-all-70-size4-subsets" = { "satisfying_subsets_count" = 15 } }, "comparison" = "exact equality" }
 scope = "Case (a); enumerate every size-four subset."
 harness_paths = [
   "crates/sim-model/examples/m4_05_experiment.rs",
   "crates/sim-model/tests/m4_05_minimal_cause_tests.rs",
 ]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "baa21e7e4b9e88dadf37edf4e41146f0f55933b18102a66842955cebb1f2be78", "origin_commit" = "61d0a6b90ceb9bf28db92d98e0c20a08fbe0dd6d" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_06_daily_digest_parity"
@@ -688,9 +693,11 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["m3-migration", "m3p-migration", "m3-propagation-migration", "m3p-propagation-migration"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["daily_outcomes", "State_digest", "Metrics_digest", "Events_digest"], comparison = "exact equality" }
+predicate_parameters = { "fields" = ["daily_outcomes", "State_digest", "Metrics_digest", "Events_digest"], "expected_values" = { "m3-migration" = "exact frozen oracle output at report revision", "m3p-migration" = "exact frozen oracle output at report revision", "m3-propagation-migration" = "exact frozen oracle output at report revision", "m3p-propagation-migration" = "exact frozen oracle output at report revision" }, "comparison" = "exact equality" }
 scope = "M4-06 migration enabled across reference/storage and propagation combinations."
 harness_paths = ["crates/sim-model/tests/m4_06_migration_tests.rs", "crates/sim-model/examples/m4_06_experiment.rs"]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_06_experiment.rs", "sha256" = "267ca9ea90ee3d89d183453652f7e0d12e26e427fac1ee1a67f3c4998688f1be", "origin_commit" = "a204aab3d1e185264009e1b83f775ffd18b2efb3" }]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
 id = "m4_06_failure_atomicity"
@@ -703,7 +710,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["invalid-migration-config", "migration-plan-failure"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["state_before", "state_after", "error_precedence"], comparison = "same error and unchanged state" }
+predicate_parameters = { "fields" = ["state_before", "state_after", "error_precedence"], "expected_values" = { "invalid-migration-config" = "exact frozen oracle output at report revision", "migration-plan-failure" = "exact frozen oracle output at report revision" }, "comparison" = "exact equality" }
 scope = "Crafted M4-06 migration validation failures."
 harness_paths = ["crates/sim-model/tests/m4_06_migration_tests.rs"]
 
@@ -724,7 +731,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["m3p-migration-canonical-slots", "m3p-migration-permuted-slots"]
 predicate_kind = "exact"
-predicate_parameters = { field = "daily_canonical_outputs", comparison = "exact equality" }
+predicate_parameters = { "fields" = ["daily_canonical_outputs"], "expected_values" = { "m3p-migration-canonical-slots" = "exact frozen oracle output at report revision", "m3p-migration-permuted-slots" = "exact frozen oracle output at report revision" }, "comparison" = "exact equality" }
 scope = "Migration execution under canonical and shuffled physical slots."
 harness_paths = ["crates/sim-model/tests/m4_06_migration_tests.rs"]
 
@@ -739,7 +746,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["m3p-v4-resume-compaction-boundary"]
 predicate_kind = "exact"
-predicate_parameters = { fields = ["continuation_state", "last_move_day", "graph_csr"], comparison = "exact equality" }
+predicate_parameters = { "fields" = ["continuation_state", "last_move_day", "graph_csr"], "expected_values" = { "m3p-v4-resume-compaction-boundary" = "exact frozen oracle output at report revision" }, "comparison" = "exact equality" }
 scope = "M3P migration snapshot v4 resumed across compaction."
 harness_paths = ["crates/sim-model/tests/m4_06_migration_tests.rs"]
 
@@ -754,7 +761,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["case-a-exhaustive-R10-H90"]
 predicate_kind = "ratio_band"
-predicate_parameters = { historical_values = [4.3], ratio_direction = "serial_search_wall_time / six_thread_parallel_search_wall_time", bands_pct = [0.1, 0.2] }
+predicate_parameters = { "historical_values" = [4.3], "ratio_direction" = "serial_search_wall_time / six_thread_parallel_search_wall_time", "deviation_bands_pct" = [10, 20] }
 scope = "M4-05 case (a), N=2000, candidate set 8, R=10, H=90, caller-owned six-thread pool."
 harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates/sim-model/tests/m4_07_parallel_tests.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
@@ -777,7 +784,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["food-zero-full-R100-H7-30-90-365"]
 predicate_kind = "ratio_band"
-predicate_parameters = { historical_values = [5.11], ratio_direction = "serial_wall_time / six_thread_parallel_wall_time", bands_pct = [0.1, 0.2] }
+predicate_parameters = { "historical_values" = [5.11], "ratio_direction" = "serial_wall_time / six_thread_parallel_wall_time", "deviation_bands_pct" = [10, 20] }
 scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, food=0."
 harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
@@ -794,7 +801,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["global-cost-plus-1pct-full-R100-H7-30-90-365"]
 predicate_kind = "ratio_band"
-predicate_parameters = { historical_values = [4.25], ratio_direction = "serial_wall_time / six_thread_parallel_wall_time", bands_pct = [0.1, 0.2] }
+predicate_parameters = { "historical_values" = [4.25], "ratio_direction" = "serial_wall_time / six_thread_parallel_wall_time", "deviation_bands_pct" = [10, 20] }
 scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, BaseMetabolicCost +1%."
 harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
@@ -811,7 +818,7 @@ host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
 ordered_cell_ids = ["health-0.01-full-R100-H7-30-90-365"]
 predicate_kind = "ratio_band"
-predicate_parameters = { historical_values = [4.67], ratio_direction = "serial_wall_time / six_thread_parallel_wall_time", bands_pct = [0.1, 0.2] }
+predicate_parameters = { "historical_values" = [4.67], "ratio_direction" = "serial_wall_time / six_thread_parallel_wall_time", "deviation_bands_pct" = [10, 20] }
 scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, health=0.01."
 harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }

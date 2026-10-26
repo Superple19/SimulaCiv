@@ -223,10 +223,10 @@ report_path_at_revision = "docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md"
 [[conclusion]]
 id = "M3-DET-M3P-SUSTAINED-GATE"
 milestone = "M3"
-statement = "The M3P sustained profile keeps live population within its declared band at N=10,000 and the N=1,000 CI size."
-verbatim = "**Measured facts:** the sustained config passed at 10k and the CI-sized 1k gate."
+statement = "The recorded M3P sustained run has the listed 50-day alive checkpoints at N=10,000 and the N=1,000 CI trajectory min/max on days 100–1,000."
+verbatim = "The CI-size run at `N=1,000`, `K=5` stayed within **1,010–1,076 alive** on every day from 100 through 1,000."
 type = "deterministic"
-source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#findings"
+source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#sustained-gate"
 experiment = "m3p_sustained_population_gate"
 coverage = { report = "rerunnable", head = "missing" }
 tier = 1
@@ -447,7 +447,7 @@ report_path_at_revision = "docs/contracts/M1_CONTRACT_FREEZE.md"
 [[conclusion]]
 id = "M3-TIM-PHASE-ALPHA-FIRST-BREAK"
 milestone = "M3"
-statement = "Any phase alpha first exceeded 1.15 at 100k→250k in each of the four degree/checkpoint profiles."
+statement = "The maximum valid phase alpha was above 1.15 on the 100k→250k interval in each of the four k/checkpoint profiles."
 verbatim = "`100k→250k` (`N=250k`) in all four `(k, checkpoint)` profiles"
 type = "timing"
 source = "docs/reports/M3_05_SCALE_LIMIT.md#first-break-findings"
@@ -591,14 +591,14 @@ report_path_at_revision = "docs/performance/M4_05_MINIMAL_CAUSE.md"
 id = "M4-DET-CRN-EFFICIENCY"
 milestone = "M4"
 statement = "At H=365, the M4-04 CRN efficiency ratios ranged from about 1.5× to 80× across the reported outcomes."
-verbatim = "At H=365, M4-04's CRN efficiency ratios ranged from about 1.5× to 80× across the reported outcomes."
+verbatim = "8.121883318690e1 [5.938024309250e1, 1.135139498861e2]"
 type = "deterministic"
-source = "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#research-question-and-answer"
+source = "docs/reports/M4_04_CRN_EFFICIENCY.md#results"
 experiment = "m4_04_crn_variance_ratio_grid"
 coverage = { report = "rerunnable", head = "missing" }
 tier = 1
-report_revision = "e41180519fd5c1c9f546b312af33931606b5f4fd"
-report_path_at_revision = "docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md"
+report_revision = "739004cf6eee9c03d6f462f1852dcf10ffe43293"
+report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
 
 [[conclusion]]
 id = "M4-DET-LOCAL-AGGREGATE-SIGNAL"
@@ -614,28 +614,28 @@ report_revision = "477bbc9bb716a34a6942b4bd7032b2d8ad46a791"
 report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
 
 [[conclusion]]
-id = "M2-TIM-M0-REFERENCE-DISABLED"
+id = "M2-TIM-ALLOCATION-PHASE-DISABLED"
 milestone = "M2"
-statement = "The M0-reference telemetry-disabled 500-day runtime fell 45.9% from the M2-01 baseline to M2-12."
+statement = "The telemetry-disabled M0-reference tick in the M2 allocation-phase series changed from 0.74 ms at M2-01 to 0.40 ms at M2-12."
 verbatim = "| **Disabled** (`metrics: false, events: false`) | `0.74 ms` (`1.49 µs`) | `0.49 ms` (`0.98 µs`) | **`0.40 ms` (`0.81 µs`)** | **-45.9%** | **1,250,000 days/sec** |"
 type = "timing"
 source = "docs/reports/M2_X_REBASELINE_REPORT.md#6-telemetry-mode-performance-comparison"
-experiment = "m2_m0_reference_disabled"
-coverage = { report = "missing", head = "missing" }
-tier = 1
+experiment = "m2_allocation_phase_disabled"
+coverage = { report = "partial", head = "missing" }
+tier = 2
 report_revision = "1f1c884791cf403d11a1c7c2518648d0962696f4"
 report_path_at_revision = "docs/performance/M2_REBASELINE_REPORT.md"
 
 [[conclusion]]
-id = "M2-TIM-M0-REFERENCE-FULL-TELEMETRY"
+id = "M2-TIM-ALLOCATION-PHASE-FULL-TELEMETRY"
 milestone = "M2"
-statement = "The M0-reference full-telemetry 500-day runtime fell 19.5% from the M2-01 baseline to M2-12."
+statement = "The full-telemetry M0-reference tick in the M2 allocation-phase series changed from 1.13 ms at M2-01 to 0.91 ms at M2-12."
 verbatim = "| **Full Telemetry** (`metrics: true, events: true`) | `1.13 ms` (`2.26 µs`) | `0.81 ms` (`1.62 µs`) | **`0.91 ms` (`1.82 µs`)** | **-19.5%** | **549,450 days/sec** |"
 type = "timing"
 source = "docs/reports/M2_X_REBASELINE_REPORT.md#6-telemetry-mode-performance-comparison"
-experiment = "m2_m0_reference_full_telemetry"
-coverage = { report = "missing", head = "missing" }
-tier = 1
+experiment = "m2_allocation_phase_full_telemetry"
+coverage = { report = "partial", head = "missing" }
+tier = 2
 report_revision = "1f1c884791cf403d11a1c7c2518648d0962696f4"
 report_path_at_revision = "docs/performance/M2_REBASELINE_REPORT.md"
 
