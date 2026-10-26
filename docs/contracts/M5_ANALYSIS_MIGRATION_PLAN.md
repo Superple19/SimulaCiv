@@ -48,6 +48,8 @@ The Phase 1 gate now validates the conclusion/evidence registry and computes ver
 
 `ledger-transition-check`, `reconstruction-inventory-check`, and `m3-05-pilot-report-check` are no longer dependencies of `just check`. The reconstruction inventory and M3-05 runtime artifacts use `m3-05-pilot-runtime-check` through `just check-local-data`; the cited M5-01, M5-04, and M5-05 report checks remain reachable until registry-backed replacements are reviewed. The underlying legacy sources and commands remain in the repository for provenance. No claim-ledger bytes/statuses or verdict rows were regenerated or changed.
 
+Source-map parsing and validation now live beside the claims reference-index extractor in `claims.py`; `sources.py` remains a compatibility export for existing imports and tests.
+
 ## Import and gate graph
 
 `analysis/simciv_analysis/__init__.py` exports no runtime API. The report entry points import shared I/O, table/figure, findings, provenance, and data-source helpers. M5-01 additionally imports ledger extraction and recovered-claim audit/triage; M5-04 imports claim overrides and source mapping; M5-05 imports its separate conclusion file and computes the historical-run report. The `just` recipes invoke these entry points directly. The intended convergence is one explicit registry/evidence/report path; shared byte-writing, hashing, tools, links, integrity, and delivery checks stay shared.

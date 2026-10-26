@@ -26,12 +26,13 @@ from simciv_analysis.claims import (
     apply_m5_04_overrides,
     extract_claims,
     ledger_bytes,
+    load_sources,
+    source_for_claim,
 )
 from simciv_analysis.figures import configure, svg_bytes
 from simciv_analysis.findings import Finding, render_findings
 from simciv_analysis.io import content_matches, load_data, write_text_lf
 from simciv_analysis.tables import dataframe_to_markdown
-from simciv_analysis.sources import load_sources, source_for_claim
 
 
 DATA_ROOT = ROOT / "docs" / "data" / "m5_04"

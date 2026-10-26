@@ -12,10 +12,9 @@ import tomllib
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from .claims import scan_documents
+from .claims import load_sources, scan_documents, source_for_claim
 from .io import content_matches, write_text_lf
 from .provenance import ROOT
-from .sources import load_sources, source_for_claim
 
 LEDGER = ROOT / "docs/reproducibility/claims.csv.gz"
 MANIFEST = ROOT / "docs/data/m5_recovered/MANIFEST.json"
