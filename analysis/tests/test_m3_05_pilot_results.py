@@ -165,3 +165,24 @@ def test_primary_claim_selection_does_not_depend_on_reconstruction_inventory():
     ]
 
     assert _primary_claim_ids(claims) == {"1", "5"}
+
+
+def test_frozen_primary_claim_keys_survive_recovered_status_changes():
+    claims = [
+        {
+            "claim_id": 1,
+            "claim_key": "M3_05_SCALE_LIMIT.md#first-break-findings:0",
+            "report": "M3_05_SCALE_LIMIT.md",
+            "section anchor": "first-break-findings",
+            "status": "recovered-original-output",
+        },
+        {
+            "claim_id": 2,
+            "claim_key": "M3_05_SCALE_LIMIT.md#first-break-findings:1",
+            "report": "M3_05_SCALE_LIMIT.md",
+            "section anchor": "first-break-findings",
+            "status": "missing-data",
+        },
+    ]
+
+    assert _primary_claim_ids(claims, {"M3_05_SCALE_LIMIT.md#first-break-findings:0"}) == {"1"}

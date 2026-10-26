@@ -4,7 +4,7 @@ import io
 import json
 
 from simciv_analysis.io import write_text_lf
-from simciv_analysis.recovered_claims import apply_recorded_statuses, build_mapping
+from simciv_analysis.recovered_claims import apply_recorded_statuses, build_mapping, collections_summary
 
 
 def test_recovered_output_matches_exact_result_column_and_skips_inputs(tmp_path):
@@ -67,9 +67,11 @@ def test_recovered_output_matches_exact_result_column_and_skips_inputs(tmp_path)
     assert mapping["outputs_scanned"] == 1
     assert [row["claim_id"] for row in mapping["claims"]] == [1, 3, 4, 5, 6]
     assert mapping["claims"][0]["status_after"] == "recovered-other-run"
+    assert mapping["claims"][0]["recovered_evidence"] == "other-run"
     assert mapping["claims"][0]["triage_cause"] == "different run"
     assert mapping["claims"][1]["status_after"] == "recovered-output-mismatch"
     assert mapping["claims"][2]["status_after"] == "unverifiable"
+    assert mapping["claims"][2]["recovered_evidence"] == "unverifiable"
     assert mapping["claims"][3]["status_after"] == "unverifiable"
     assert mapping["claims"][4]["status_after"] == "recovered-original-output"
     assert mapping["confirmed_mismatches"][0]["expected"] == "1.25"
@@ -106,6 +108,60 @@ def test_recorded_recovered_status_changes_only_context_matched_missing_claims(t
 
     assert result[0]["status"] == "recovered-original-output"
     assert "recovered/out.csv" in result[0]["notes"]
-    assert result[1] == claims[1]
+    assert result[1]["status"] == claims[1]["status"]
     assert result[2]["status"] == "recovered-output-mismatch"
     assert "expected 1.25 but output recorded 1.3" in result[2]["notes"]
+
+
+def test_unstructured_recovered_evidence_never_overwrites_primary_or_missing_status(tmp_path):
+    report = tmp_path / "docs" / "reproducibility" / "recovered_claim_statuses.json.gz"
+    report.parent.mkdir(parents=True)
+    data = json.dumps(
+        {
+            "claims": [
+                {
+                    "claim_id": 1,
+                    "status_before": "reproducible-now",
+                    "status_after": "unverifiable",
+                    "recovered_evidence": "unverifiable",
+                },
+                {
+                    "claim_id": 2,
+                    "status_before": "missing-data",
+                    "status_after": "unverifiable",
+                    "recovered_evidence": "unverifiable",
+                },
+            ]
+        }
+    ).encode("utf-8")
+    compressed = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=compressed, mtime=0) as stream:
+        stream.write(data)
+    report.write_bytes(compressed.getvalue())
+    claims = [
+        {"claim_id": 1, "status": "reproducible-now"},
+        {"claim_id": 2, "status": "missing-data"},
+    ]
+
+    result = apply_recorded_statuses(claims, tmp_path)
+
+    assert [claim["status"] for claim in result] == ["reproducible-now", "missing-data"]
+    assert [claim["recovered_evidence"] for claim in result] == ["unverifiable", "unverifiable"]
+
+
+def test_collections_summary_separates_evidence_matches_from_missing_status_upgrades():
+    summary = collections_summary({
+        "outputs_scanned": 1,
+        "config_value_claim_ids": [],
+        "unmatched_claim_ids": [],
+        "claims_without_associated_output_ids": [],
+        "confirmed_mismatches": [],
+        "claims": [
+            {"status_before": "bit-exact", "status_after": "recovered-original-output"},
+            {"status_before": "missing-data", "status_after": "recovered-original-output"},
+            {"status_before": "missing-source", "status_after": "unverifiable"},
+        ],
+    })
+
+    assert summary["exact_claim_matches"] == 2
+    assert summary["moved_from_missing"] == 1

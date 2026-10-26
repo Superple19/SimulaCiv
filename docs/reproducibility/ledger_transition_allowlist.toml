@@ -1,0 +1,25 @@
+# Reviewed correction: unstructured numeric mentions are not measurement evidence.
+# The final ledger status must therefore return to its sources.toml missing status.
+[[transition]]
+from_status = "recovered-original-output"
+to_status = "missing-data"
+recovered_evidence = "unverifiable"
+reason = "The old merge promoted a value-only prose hit; recovered evidence is now separate and the source status remains missing-data."
+
+[[transition]]
+from_status = "recovered-original-output"
+to_status = "missing-source"
+recovered_evidence = "unverifiable"
+reason = "The old merge promoted a value-only prose hit; recovered evidence is now separate and the source status remains missing-source."
+
+[[transition]]
+from_status = "recovered-original-output (formatted)"
+to_status = "missing-data"
+recovered_evidence = "unverifiable"
+reason = "The old merge promoted a value-only prose hit; no structured record supports the measurement."
+
+[[transition]]
+from_status = "recovered-original-output (formatted)"
+to_status = "missing-source"
+recovered_evidence = "unverifiable"
+reason = "The old merge promoted a value-only prose hit; no structured record supports the measurement."

@@ -942,9 +942,20 @@ def build_results(root: Path = ROOT) -> dict[str, Any]:
     indexes["all_records"] = records
     from .claims import extract_claims
 
-    base_claims = extract_claims(root, apply_m3_05_pilot=False)
+    base_claims = extract_claims(root, apply_recovered=False, apply_m3_05_pilot=False)
     claims_by_key = {str(claim["claim_key"]): claim for claim in base_claims}
-    primary_ids = _primary_claim_ids(claims_by_key.values())
+    prior_results_path = root / RESULTS_JSON.relative_to(ROOT)
+    if prior_results_path.is_file():
+        # The committed pilot records freeze cohort membership; values and verdicts are recomputed below.
+        prior_results = json.loads(prior_results_path.read_text(encoding="utf-8"))
+        primary_keys = {
+            str(row["claim_key"])
+            for row in prior_results.get("claims", [])
+            if row.get("scope") == EXPERIMENT_ID
+        }
+    else:
+        primary_keys = None
+    primary_ids = _primary_claim_ids(claims_by_key.values(), primary_keys)
     primary_keys = {key for key, claim in claims_by_key.items() if str(claim["claim_id"]) in primary_ids}
     if len(primary_keys) != 100:
         raise ValueError(f"expected 100 primary M3-05 claim keys, found {len(primary_keys)}")
@@ -1063,13 +1074,17 @@ def build_results(root: Path = ROOT) -> dict[str, Any]:
     return payload
 
 
-def _primary_claim_ids(claims: Any) -> set[str]:
+def _primary_claim_ids(claims: Any, primary_keys: set[str] | None = None) -> set[str]:
     return {
         str(claim["claim_id"])
         for claim in claims
         if claim["report"] == REPORT
         and claim["section anchor"] == ANCHOR
-        and claim["status"] in {"missing-data", "missing-source"}
+        and (
+            str(claim["claim_key"]) in primary_keys
+            if primary_keys is not None
+            else claim["status"] in {"missing-data", "missing-source"}
+        )
     }
 
 

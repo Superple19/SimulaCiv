@@ -396,6 +396,16 @@ def classify_mapping(
         by_report_cause_claims[report_cause] += 1
         by_report_cause_records[report_cause] += len(baseline_evidence)
         claims_by_id[claim_id]["status_after"] = result["status_after"]
+        claims_by_id[claim_id]["recovered_evidence"] = {
+            "context parser correction": "matched",
+            "rounding/formatting": "formatted",
+            "composite field position mismatch": "weak",
+            "unit conversion": "unit-converted",
+            "different run": "other-run",
+            "derived": "derived",
+            "genuine discrepancy": "mismatch",
+            "unverifiable": "unverifiable",
+        }[result["cause"]]
         claims_by_id[claim_id]["triage_cause"] = result["cause"]
         claims_by_id[claim_id]["triage_subcategory"] = result["subcategory"]
         claims_by_id[claim_id]["triage_rationale"] = result["rationale"]

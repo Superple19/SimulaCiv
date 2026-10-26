@@ -18,6 +18,9 @@ claims: analysis-sync
 claims-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.claims --check
 
+ledger-transition-check: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.ledger_transition_guard
+
 claims-locate KEY: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.claims --locate {{KEY}}
 
@@ -95,7 +98,7 @@ lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
     vale --config analysis/vale/.vale.ini docs/data/m5_05/STATUS.md docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
-check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check large-file-range-check data-integrity-range-check gitleaks-range-check decisions-check dvc-freeze-check check-autocrlf data-integrity-check links claims-check reconstruction-inventory-check generated-artifacts-check m3-05-pilot-report-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
+check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check large-file-range-check data-integrity-range-check gitleaks-range-check decisions-check dvc-freeze-check check-autocrlf data-integrity-check links claims-check ledger-transition-check reconstruction-inventory-check generated-artifacts-check m3-05-pilot-report-check report-m5-01-check report-m5-04-check report-m5-05-check lint-prose
 
 ci-analysis: check
     uv run --directory analysis --project . python -m simciv_analysis.ci_analysis

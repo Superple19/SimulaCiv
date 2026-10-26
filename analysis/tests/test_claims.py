@@ -258,6 +258,39 @@ def test_m5_04_result_overrides_recovered_evidence_for_its_claims(tmp_path, monk
     assert result["status"] == "bit-exact"
 
 
+def test_m3_05_pilot_verdict_survives_stale_recovered_status_before(tmp_path):
+    from simciv_analysis.claims import M3_05_PILOT_RESULTS, apply_m3_05_pilot_results
+
+    write_text_lf(
+        tmp_path / M3_05_PILOT_RESULTS,
+        json.dumps({
+            "claims": [
+                {
+                    "claim_key": "M3_report.md#first-break:0",
+                    "status_before": "recovered-original-output",
+                    "verdict": "inconclusive (validity)",
+                    "note": "pilot path did not pass validity",
+                },
+                {
+                    "claim_key": "M3_report.md#first-break:1",
+                    "status_before": "recovered-original-output",
+                    "verdict": "reproduced",
+                    "note": "pilot result",
+                },
+            ]
+        }),
+    )
+    claims = [
+        {"claim_key": "M3_report.md#first-break:0", "status": "missing-data", "notes": ""},
+        {"claim_key": "M3_report.md#first-break:1", "status": "conclusion holds", "notes": ""},
+    ]
+
+    result = apply_m3_05_pilot_results(claims, tmp_path)
+
+    assert result[0]["status"] == "inconclusive (validity)"
+    assert result[1]["status"] == "conclusion holds"
+
+
 def test_source_line_insert_keeps_committed_ledger_and_report_bytes_unchanged():
     from simciv_analysis.claims import OUTPUT, ROOT, main as claims_main
     from simciv_analysis.report_m5_01 import MD_PATH, QMD_PATH, check_outputs

@@ -39,8 +39,33 @@ FIELDS = [
     "source harness",
     "raw data",
     "status",
+    "recovered_evidence",
     "M5 stage",
     "notes",
+]
+
+# Applied in this order: each later source can only refine the statuses allowed below.
+LEDGER_STATUS_PRECEDENCE = [
+    {
+        "priority": 1,
+        "source": "sources.toml and legacy classifications",
+        "rule": "Establishes the starting status and provenance.",
+    },
+    {
+        "priority": 2,
+        "source": "M5-05 and M3-05 reproduction results",
+        "rule": "These recorded experiment verdicts override the starting status.",
+    },
+    {
+        "priority": 3,
+        "source": "Recovered-output evidence",
+        "rule": "Can assign a recovered status when the prior status is missing-data or missing-source; evidence is stored separately.",
+    },
+    {
+        "priority": 4,
+        "source": "M5-04 deterministic comparisons",
+        "rule": "Final M4 regeneration findings override other classifications for their claims.",
+    },
 ]
 
 NUMBER = re.compile(
@@ -641,7 +666,14 @@ def apply_m3_05_pilot_results(claims: list[dict[str, object]], root: Path = ROOT
     allowed = {"reproduced", "reproduced (loose)", "not reproduced", "inconclusive (validity)"}
     for claim in claims:
         row = by_key.get(str(claim.get("claim_key", "")))
-        if row is None or str(claim.get("status", "")) != str(row.get("status_before", "")):
+        if row is None:
+            continue
+        current_status = str(claim.get("status", ""))
+        recorded_status = str(row.get("status_before", ""))
+        if current_status != recorded_status and not (
+            current_status in {"missing-data", "missing-source"}
+            and (recorded_status in {"missing-data", "missing-source"} or recorded_status.startswith("recovered-"))
+        ):
             continue
         status = str(row.get("verdict", ""))
         if status not in allowed:
@@ -731,15 +763,16 @@ def extract_claims(
                 "source harness": source_harness,
                 "raw data": raw_data,
                 "status": status,
+                "recovered_evidence": "none",
                 "M5 stage": stage,
                 "notes": note,
             }
         )
     output = apply_m5_05_results(output, root)
-    if apply_recovered:
-        output = apply_recorded_statuses(output, root)
     if apply_m3_05_pilot:
         output = apply_m3_05_pilot_results(output, root)
+    if apply_recovered:
+        output = apply_recorded_statuses(output, root)
     if apply_m5_04:
         # Final M4 regeneration verdicts take precedence over recovered-output evidence.
         output = apply_m5_04_overrides(output, root)

@@ -14,7 +14,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from simciv_analysis.claims import OLD_LEDGER, ROOT, _normalize_source, expand_old_ledger, match_old_claims
+from simciv_analysis.claims import (
+    LEDGER_STATUS_PRECEDENCE,
+    OLD_LEDGER,
+    ROOT,
+    _normalize_source,
+    expand_old_ledger,
+    match_old_claims,
+)
 from simciv_analysis.findings import Finding, render_findings
 from simciv_analysis.io import load_data, write_text_lf
 from simciv_analysis.recovered_claim_audit import SUMMARY_PATH as RECOVERED_AUDIT_SUMMARY_PATH
@@ -27,7 +34,7 @@ QMD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.qmd"
 MD_PATH = ROOT / "docs" / "reproducibility" / "M5_01_INVENTORY.md"
 LEDGER_PATH = ROOT / "docs" / "reproducibility" / "claims.csv.gz"
 RECOVERED_STATUS_PATH = ROOT / "docs" / "reproducibility" / "recovered_claim_statuses.json.gz"
-REQUIRED_CLAIM_FIELDS = ["claim_id", "claim_key", "report", "section anchor", "claim text (short)", "context", "value", "unit", "class", "tier", "source harness", "raw data", "status", "M5 stage", "notes"]
+REQUIRED_CLAIM_FIELDS = ["claim_id", "claim_key", "report", "section anchor", "claim text (short)", "context", "value", "unit", "class", "tier", "source harness", "raw data", "status", "recovered_evidence", "M5 stage", "notes"]
 
 
 def _milestone(report: str) -> str:
@@ -148,7 +155,10 @@ def _recovered_evidence(claims: pd.DataFrame) -> dict[str, object]:
             "recovered-derived",
         }
         moved = (
-            exact.loc[exact["status_after"].isin(recovered_statuses)]
+            exact.loc[
+                exact["status_before"].isin({"missing-data", "missing-source"})
+                & exact["status_after"].isin(recovered_statuses)
+            ]
             .groupby(["report", "tier", "status_before", "status_after"], dropna=False)
             .size().rename("Claims").reset_index()
             .rename(columns={"report": "Report", "tier": "Tier", "status_before": "Prior status", "status_after": "Resolution"})
@@ -348,6 +358,7 @@ def _report_parts() -> dict[str, str]:
     )
     return {
         "counts": _markdown(counts),
+        "status_precedence": _markdown(pd.DataFrame(LEDGER_STATUS_PRECEDENCE)),
         "headline_counts": _markdown(headline_counts),
         "comparison": _markdown(comparison),
         "comparison_reasons": _markdown(comparison_reasons),
@@ -435,6 +446,12 @@ Headline rows come from report Summary, Findings, and Status sections plus audit
 
 {parts['counts']}
 
+### Status precedence
+
+Status sources are combined using this explicit priority table. The ledger stores recovered-output evidence in a separate `recovered_evidence` field. Numeric tokens from unstructured lines are recorded as `unverifiable` evidence; the final status comes from source or reproduction results.
+
+{parts['status_precedence']}
+
 ### Old and tidy ledger comparison
 
 {parts['comparison']}
@@ -457,7 +474,7 @@ The **{parts['m1_count']}** previously unrecoverable M1 aggregate claims were re
 
 ### Recovered original-output matches
 
-The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** files. A match requires a structured CSV/TSV field, JSON key, or explicit `key=value` record with the same measurement field and all recorded configuration dimensions. Composite values also require the same component position; **{parts['recovered_weak_count']}** same-field values at a different or unknown position remain `recovered-weak`. It records **{parts['recovered_exact']}** claims as recovered evidence across exact, formatted, unit-converted, other-run, and derived statuses; **{parts['recovered_unverifiable_count']}** value-only claims without structured context remain `unverifiable`; **{parts['recovered_config_count']}** parameter values were excluded from measurement matching.
+The recovered-output matcher [recovered_claims.py](../../analysis/simciv_analysis/recovered_claims.py) scanned **{parts['recovered_outputs']}** files. A match requires a structured CSV/TSV field, JSON key, or explicit `key=value` record with the same measurement field and all recorded configuration dimensions. Composite values also require the same component position; **{parts['recovered_weak_count']}** same-field values at a different or unknown position remain weak evidence. It records **{parts['recovered_exact']}** claims as recovered evidence across exact, formatted, unit-converted, other-run, and derived classifications; **{parts['recovered_unverifiable_count']}** value-only claims without structured context have `recovered_evidence=unverifiable`; **{parts['recovered_config_count']}** parameter values were excluded from measurement matching. The separate evidence field preserves the prior source or reproduction status unless the claim was missing-data or missing-source.
 
 The prior 144af62 rule matched value tokens without row, label, column, or unit context. Among **{parts['recovered_audit_baseline_count']}** claims it had moved, the recorded type split was:
 
@@ -483,7 +500,7 @@ These claims retain their previous status. A value found only in a different row
 
 #### Unverifiable value-only references
 
-**{parts['recovered_unverifiable_count']}** claims have a numeric value in a related recovered output but no structured record with matching measurement context. They receive `unverifiable`; their values are not treated as recovered matches.
+**{parts['recovered_unverifiable_count']}** claims have a numeric value in a related recovered output but no structured record with matching measurement context. They receive `recovered_evidence=unverifiable`; the final claim status stays at its source or reproduction-result status.
 
 {parts['recovered_unverifiable_table']}
 

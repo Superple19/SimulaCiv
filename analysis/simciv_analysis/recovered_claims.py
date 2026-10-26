@@ -689,6 +689,7 @@ def build_mapping(
                     "tier": str(claim.get("tier", "supporting")),
                     "status_before": str(claim.get("status", "")),
                     "status_after": "unverifiable",
+                    "recovered_evidence": "unverifiable",
                     "output_matches": [],
                     "mismatches": [],
                 })
@@ -699,7 +700,7 @@ def build_mapping(
         after = before
         if differing:
             after = "recovered-output-mismatch"
-        elif before.startswith("missing-"):
+        elif exact:
             after = "recovered-original-output"
         component_index = source_context.get("component_index")
         if component_index is not None and exact and not any(
@@ -715,6 +716,11 @@ def build_mapping(
             "tier": str(claim.get("tier", "supporting")),
             "status_before": before,
             "status_after": after,
+            "recovered_evidence": (
+                "mismatch" if differing else
+                "weak" if after == "recovered-weak (composite field)" else
+                "matched" if exact else "none"
+            ),
             "output_matches": exact[:1],
             "mismatches": differing[:1],
         }
@@ -728,7 +734,7 @@ def build_mapping(
         for report, report_items in sorted(by_report.items())
     }
     mapping = {
-        "schema_version": 1,
+        "schema_version": 2,
         "matching_rule": "A recovered measurement requires an exact value in a structured CSV/TSV, JSON, or key=value record with the same normalized measure field and all row/config identity dimensions present on either side. Prose-only numeric matches are unverifiable; configuration/input columns are not measurements; a different structured value in the same context is a mismatch.",
         "stage_manifest_sha256": manifest_sha,
         "outputs_scanned": len(outputs),
@@ -756,22 +762,25 @@ def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> 
     else:
         return claims
     by_id = {int(row["claim_id"]): row for row in mapping.get("claims", [])}
+    status_by_evidence = {
+        "matched": "recovered-original-output",
+        "formatted": "recovered-original-output (formatted)",
+        "unit-converted": "recovered-original-output (unit-converted)",
+        "weak": "recovered-weak (composite field)",
+        "other-run": "recovered-other-run",
+        "derived": "recovered-derived",
+        "mismatch": "recovered-output-mismatch",
+    }
     for claim in claims:
         row = by_id.get(int(claim["claim_id"]))
-        if row is None or str(claim.get("status", "")) != str(row.get("status_before", "")):
+        if row is None:
             continue
         after = str(row.get("status_after", row["status_before"]))
-        if after in {
-            "recovered-original-output",
-            "recovered-original-output (formatted)",
-            "recovered-original-output (unit-converted)",
-            "recovered-weak (composite field)",
-            "recovered-other-run",
-            "recovered-derived",
-            "recovered-output-mismatch",
-            "unverifiable",
-        }:
-            claim["status"] = after
+        evidence_kind = str(row.get("recovered_evidence", _evidence_kind(after)))
+        claim["recovered_evidence"] = evidence_kind
+        upgraded_status = status_by_evidence.get(evidence_kind)
+        if upgraded_status is not None and str(claim.get("status", "")) in {"missing-data", "missing-source"}:
+            claim["status"] = upgraded_status
             evidence = row.get("mismatches") or row.get("output_matches") or []
             first = evidence[0] if evidence else {}
             reference = (
@@ -782,8 +791,6 @@ def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> 
             fallback = (
                 f"expected {first.get('expected')} but output recorded {first.get('actual')}"
                 if after == "recovered-output-mismatch"
-                else "numeric value appears only without structured row context"
-                if after == "unverifiable"
                 else "exact value and context matched"
             )
             detail = str(row.get("triage_rationale", fallback))
@@ -797,6 +804,19 @@ def apply_recorded_statuses(claims: list[dict[str, Any]], root: Path = ROOT) -> 
                 )
             )
     return claims
+
+
+def _evidence_kind(status: str) -> str:
+    return {
+        "recovered-original-output": "matched",
+        "recovered-original-output (formatted)": "formatted",
+        "recovered-original-output (unit-converted)": "unit-converted",
+        "recovered-weak (composite field)": "weak",
+        "recovered-other-run": "other-run",
+        "recovered-derived": "derived",
+        "recovered-output-mismatch": "mismatch",
+        "unverifiable": "unverifiable",
+    }.get(status, "none")
 
 
 def build_mapping_outputs(root: Path = ROOT) -> tuple[dict[str, Any], dict[Path, bytes]]:
@@ -879,7 +899,11 @@ def collections_summary(mapping: dict[str, Any]) -> dict[str, int]:
     return {
         "outputs_scanned": int(mapping["outputs_scanned"]),
         "exact_claim_matches": sum(row["status_after"] in recovered_statuses for row in rows),
-        "moved_from_missing": sum(row["status_after"] in recovered_statuses for row in rows),
+        "moved_from_missing": sum(
+            row.get("status_before") in {"missing-data", "missing-source"}
+            and row["status_after"] in recovered_statuses
+            for row in rows
+        ),
         "recovered_weak": sum(row["status_after"] == "recovered-weak (composite field)" for row in rows),
         "recovered_output_mismatches": sum(row["status_after"] == "recovered-output-mismatch" for row in rows),
         "config_values_unchanged": len(mapping["config_value_claim_ids"]),

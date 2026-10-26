@@ -64,38 +64,31 @@ verdicts remain in the `key` tier.
 | M1 | deterministic | historical-log | supporting | 2 |
 | M2 | derived | analysis-only | headline | 67 |
 | M2 | derived | analysis-only | key | 9 |
-| M2 | derived | analysis-only | supporting | 150 |
-| M2 | derived | missing-data | headline | 92 |
-| M2 | derived | missing-data | key | 5 |
-| M2 | derived | missing-data | supporting | 686 |
-| M2 | derived | unverifiable | headline | 36 |
-| M2 | derived | unverifiable | key | 2 |
-| M2 | derived | unverifiable | supporting | 2,499 |
+| M2 | derived | analysis-only | supporting | 204 |
+| M2 | derived | missing-data | headline | 128 |
+| M2 | derived | missing-data | key | 7 |
+| M2 | derived | missing-data | supporting | 3,131 |
 | M2 | deterministic | analysis-only | headline | 7 |
-| M2 | deterministic | analysis-only | supporting | 29 |
+| M2 | deterministic | analysis-only | supporting | 32 |
 | M2 | deterministic | missing-source | headline | 2 |
 | M2 | deterministic | missing-source | key | 5 |
 | M2 | deterministic | missing-source | supporting | 57 |
-| M2 | deterministic | reproducible-now | headline | 4 |
-| M2 | deterministic | reproducible-now | supporting | 18 |
-| M2 | deterministic | unverifiable | headline | 22 |
-| M2 | deterministic | unverifiable | key | 3 |
-| M2 | deterministic | unverifiable | supporting | 74 |
+| M2 | deterministic | reproducible-now | headline | 26 |
+| M2 | deterministic | reproducible-now | key | 3 |
+| M2 | deterministic | reproducible-now | supporting | 89 |
 | M2 | timing | analysis-only | headline | 14 |
 | M2 | timing | analysis-only | key | 9 |
-| M2 | timing | analysis-only | supporting | 187 |
-| M2 | timing | missing-data | headline | 18 |
+| M2 | timing | analysis-only | supporting | 205 |
+| M2 | timing | missing-data | headline | 44 |
 | M2 | timing | missing-data | key | 1 |
-| M2 | timing | missing-data | supporting | 397 |
-| M2 | timing | unverifiable | headline | 26 |
-| M2 | timing | unverifiable | supporting | 307 |
+| M2 | timing | missing-data | supporting | 686 |
 | M3 | derived | inconclusive (validity) | headline | 2 |
 | M3 | derived | inconclusive (validity) | supporting | 26 |
-| M3 | derived | missing-data | headline | 8 |
-| M3 | derived | missing-data | key | 4 |
-| M3 | derived | missing-data | supporting | 2,104 |
-| M3 | derived | missing-source | headline | 7 |
-| M3 | derived | missing-source | supporting | 170 |
+| M3 | derived | missing-data | headline | 81 |
+| M3 | derived | missing-data | key | 17 |
+| M3 | derived | missing-data | supporting | 10,070 |
+| M3 | derived | missing-source | headline | 20 |
+| M3 | derived | missing-source | supporting | 618 |
 | M3 | derived | not reproduced | headline | 10 |
 | M3 | derived | recovered-original-output | headline | 104 |
 | M3 | derived | recovered-original-output | supporting | 2,088 |
@@ -103,57 +96,61 @@ verdicts remain in the `key` tier.
 | M3 | derived | recovered-weak (composite field) | supporting | 8 |
 | M3 | derived | reproduced | headline | 82 |
 | M3 | derived | reproduced (loose) | headline | 7 |
-| M3 | derived | unverifiable | headline | 86 |
-| M3 | derived | unverifiable | key | 13 |
-| M3 | derived | unverifiable | supporting | 8,414 |
-| M3 | deterministic | missing-source | supporting | 14 |
-| M3 | deterministic | reproducible-now | supporting | 1 |
-| M3 | deterministic | unverifiable | headline | 6 |
-| M3 | deterministic | unverifiable | supporting | 124 |
-| M3 | timing | conclusion holds | headline | 2 |
-| M3 | timing | inconclusive | headline | 4 |
-| M3 | timing | missing-data | headline | 4 |
-| M3 | timing | missing-data | key | 2 |
-| M3 | timing | missing-data | supporting | 430 |
-| M3 | timing | missing-source | headline | 9 |
-| M3 | timing | missing-source | supporting | 17 |
+| M3 | deterministic | missing-source | headline | 6 |
+| M3 | deterministic | missing-source | supporting | 131 |
+| M3 | deterministic | reproducible-now | supporting | 8 |
+| M3 | timing | conclusion holds | headline | 22 |
+| M3 | timing | inconclusive | headline | 12 |
+| M3 | timing | missing-data | headline | 15 |
+| M3 | timing | missing-data | key | 8 |
+| M3 | timing | missing-data | supporting | 8,674 |
+| M3 | timing | missing-source | headline | 50 |
+| M3 | timing | missing-source | supporting | 72 |
 | M3 | timing | recovered-original-output | supporting | 345 |
 | M3 | timing | recovered-original-output (formatted) | supporting | 65 |
 | M3 | timing | reproduced | headline | 1 |
-| M3 | timing | unverifiable | headline | 80 |
-| M3 | timing | unverifiable | key | 6 |
-| M3 | timing | unverifiable | supporting | 8,299 |
 | M4 | derived | bit-exact | headline | 19 |
-| M4 | derived | bit-exact | supporting | 35 |
+| M4 | derived | bit-exact | key | 3 |
+| M4 | derived | bit-exact | supporting | 1,664 |
 | M4 | derived | bit-exact after documented normalization | headline | 9 |
-| M4 | derived | bit-exact after documented normalization | key | 1 |
-| M4 | derived | bit-exact after documented normalization | supporting | 11 |
-| M4 | derived | conclusion holds | key | 41 |
+| M4 | derived | bit-exact after documented normalization | key | 2 |
+| M4 | derived | bit-exact after documented normalization | supporting | 1,327 |
+| M4 | derived | conclusion holds | key | 111 |
 | M4 | derived | conclusion holds | supporting | 122 |
-| M4 | derived | historical-protocol | key | 22 |
-| M4 | derived | historical-protocol | supporting | 13 |
-| M4 | derived | missing-source | key | 5 |
+| M4 | derived | historical-protocol | headline | 46 |
+| M4 | derived | historical-protocol | key | 216 |
+| M4 | derived | historical-protocol | supporting | 102 |
+| M4 | derived | missing-source | key | 25 |
 | M4 | derived | missing-source | supporting | 44 |
-| M4 | derived | unrecoverable | supporting | 3 |
-| M4 | derived | unverifiable | headline | 46 |
-| M4 | derived | unverifiable | key | 288 |
-| M4 | derived | unverifiable | supporting | 3,038 |
-| M4 | deterministic | historical-protocol | key | 3 |
-| M4 | deterministic | historical-protocol | supporting | 4 |
+| M4 | derived | unrecoverable | supporting | 7 |
+| M4 | deterministic | historical-protocol | key | 24 |
+| M4 | deterministic | historical-protocol | supporting | 25 |
 | M4 | deterministic | missing-source | supporting | 3 |
-| M4 | deterministic | unverifiable | key | 21 |
-| M4 | deterministic | unverifiable | supporting | 21 |
-| M4 | timing | conclusion holds | key | 44 |
+| M4 | timing | conclusion holds | key | 106 |
 | M4 | timing | conclusion holds | supporting | 43 |
-| M4 | timing | historical-protocol | key | 66 |
-| M4 | timing | missing-source | key | 46 |
+| M4 | timing | historical-protocol | headline | 9 |
+| M4 | timing | historical-protocol | key | 266 |
+| M4 | timing | historical-protocol | supporting | 110 |
+| M4 | timing | missing-source | key | 74 |
 | M4 | timing | missing-source | supporting | 5 |
 | M4 | timing | reproducible-now | supporting | 20 |
-| M4 | timing | unverifiable | headline | 9 |
-| M4 | timing | unverifiable | key | 290 |
-| M4 | timing | unverifiable | supporting | 110 |
 | M5 | derived | missing-source | key | 6 |
 | M5 | derived | missing-source | supporting | 21 |
+
+### Status precedence
+
+Status sources are combined using this explicit priority table. The
+ledger stores recovered-output evidence in a separate
+`recovered_evidence` field. Numeric tokens from unstructured lines are
+recorded as `unverifiable` evidence; the final status comes from source
+or reproduction results.
+
+| priority | source | rule |
+|----|----|----|
+| 1 | sources.toml and legacy classifications | Establishes the starting status and provenance. |
+| 2 | M5-05 and M3-05 reproduction results | These recorded experiment verdicts override the starting status. |
+| 3 | Recovered-output evidence | Can assign a recovered status when the prior status is missing-data or missing-source; evidence is stored separately. |
+| 4 | M5-04 deterministic comparisons | Final M4 regeneration findings override other classifications for their claims. |
 
 ### Old and tidy ledger comparison
 
@@ -232,16 +229,16 @@ tests](../../crates/sim-model/tests/phase11_snapshot_tests.rs), and the
 
 | milestone | report | status | claims |
 |----|----|----|----|
-| M3 | M3_02_PARALLEL_PHASE6B.md | unverifiable | 10,346 |
-| M3 | M3_04_SUSTAINED_WORKLOAD.md | unverifiable | 1,865 |
-| M4 | M4_03_DIVERGENCE.md | unverifiable | 1,759 |
-| M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | unverifiable | 1,514 |
-| M3 | M3_11_PROPAGATION.md | missing-data | 1,117 |
-| M4 | M4_04_CRN_EFFICIENCY.md | unverifiable | 1,067 |
-| M3 | M3_05_SCALE_LIMIT.md | unverifiable | 1,035 |
-| M3 | M3_11_PROPAGATION.md | unverifiable | 718 |
-| M4 | M4_02_BRANCHING.md | unverifiable | 691 |
-| M3 | M3_01_SERIAL_BASELINE.md | unverifiable | 616 |
+| M3 | M3_02_PARALLEL_PHASE6B.md | missing-data | 10,910 |
+| M3 | M3_04_SUSTAINED_WORKLOAD.md | missing-data | 2,222 |
+| M3 | M3_11_PROPAGATION.md | missing-data | 1,835 |
+| M2 | M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md | missing-data | 1,502 |
+| M3 | M3_05_SCALE_LIMIT.md | missing-data | 1,028 |
+| M3 | M3_01_SERIAL_BASELINE.md | missing-data | 782 |
+| M2 | M2_37_POST_P5_P6B_REPROFILING.md | missing-data | 663 |
+| M2 | M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md | missing-data | 566 |
+| M3 | M3_07_SCALE_RESIDUAL.md | missing-data | 517 |
+| M3 | M3_03_SEARCH_REDUCTION.md | missing-data | 496 |
 
 ### Recovered original-output matches
 
@@ -251,11 +248,13 @@ scanned **206** files. A match requires a structured CSV/TSV field, JSON
 key, or explicit `key=value` record with the same measurement field and
 all recorded configuration dimensions. Composite values also require the
 same component position; **8** same-field values at a different or
-unknown position remain `recovered-weak`. It records **3,358** claims as
+unknown position remain weak evidence. It records **3,366** claims as
 recovered evidence across exact, formatted, unit-converted, other-run,
-and derived statuses; **23,902** value-only claims without structured
-context remain `unverifiable`; **1,837** parameter values were excluded
-from measurement matching.
+and derived classifications; **23,902** value-only claims without
+structured context have `recovered_evidence=unverifiable`; **1,837**
+parameter values were excluded from measurement matching. The separate
+evidence field preserves the prior source or reproduction status unless
+the claim was missing-data or missing-source.
 
 The prior 144af62 rule matched value tokens without row, label, column,
 or unit context. Among **24,236** claims it had moved, the recorded type
@@ -281,7 +280,7 @@ claims) found matching context for **35** of 150 value-only matches
 | M3_01_SERIAL_BASELINE.md | supporting | missing-data | recovered-original-output (formatted) | 65 |
 | M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | recovered-original-output | 8 |
 | M3_04_EQUILIBRIUM_WORKLOAD.md | supporting | missing-data | recovered-original-output (formatted) | 88 |
-| M3_05_SCALE_LIMIT.md | headline | missing-data | recovered-original-output | 106 |
+| M3_05_SCALE_LIMIT.md | headline | missing-data | recovered-original-output | 104 |
 | M3_11_PROPAGATION.md | supporting | missing-data | recovered-original-output | 2,400 |
 | M3_11_PROPAGATION.md | supporting | missing-data | recovered-original-output (formatted) | 666 |
 
@@ -346,7 +345,8 @@ output—does not qualify as recovered evidence.
 
 **23,902** claims have a numeric value in a related recovered output but
 no structured record with matching measurement context. They receive
-`unverifiable`; their values are not treated as recovered matches.
+`recovered_evidence=unverifiable`; the final claim status stays at its
+source or reproduction-result status.
 
 | Report | Tier | Unverifiable claims |
 |----|----|----|

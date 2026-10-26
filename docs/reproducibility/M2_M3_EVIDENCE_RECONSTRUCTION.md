@@ -4,7 +4,7 @@
 
 ## Scope and source method
 
-This inventory covers the 157 M2/M3 headline/key claims that currently have status `missing-data` or `missing-source` in the recovered-mapped ledger. Table claims are grouped by table and prose claims by paragraph/list item. Each CSV row cites source report lines; timed cell counts additionally cite the table/method or benchmark loops used to derive the count.
+This inventory covers the 384 M2/M3 headline/key claims that currently have status `missing-data` or `missing-source` in the recovered-mapped ledger. Table claims are grouped by table and prose claims by paragraph/list item. Each CSV row cites source report lines; timed cell counts additionally cite the table/method or benchmark loops used to derive the count.
 
 A cell is one unique configuration/measurement family for A-5. A paired path comparison remains one cell. Summaries and inferences that reuse a measured matrix have zero additional cells and name their shared run ID. Non-timing records (tests, workload counts, schema facts, static analysis) have zero A-5 timing cells and remain linked to their output/configuration cell count where useful.
 
@@ -14,7 +14,7 @@ Revision policy: the default reproduction revision is the report's creation comm
 
 ## Cell-count resolution and duplicate audit
 
-All **27** groups that lacked a cell count in the previous inventory were assigned a report/harness-derived count, a zero-cell non-timing/shared designation, or a `needs-decision` status. `needs-decision` groups: **0**.
+All **33** groups that lacked a cell count in the previous inventory were assigned a report/harness-derived count, a zero-cell non-timing/shared designation, or a `needs-decision` status. `needs-decision` groups: **0**.
 
 The input ledger is the source of the selected claim set; rows are rejected if a claim ID is duplicated.
 
@@ -22,30 +22,30 @@ The input ledger is the source of the selected claim set; rows are rejected if a
 
 | Class | Experiment groups | Claims | Unique A-5 cells | Lower-bound seconds |
 |---|---:|---:|---:|---:|
-| (a) deterministic replay | 1 | 2 | 0 | 0 |
-| (b) committed harness | 50 | 149 | 43 | 1,849 |
-| (c) complete recovered source | 3 | 5 | 8 | 344 |
-| (d) reconstructed protocol | 1 | 1 | 2 | 86 |
+| (a) deterministic replay | 2 | 3 | 0 | 0 |
+| (b) committed harness | 67 | 302 | 77 | 3,311 |
+| (c) complete recovered source | 5 | 31 | 24 | 1,032 |
+| (d) reconstructed protocol | 2 | 26 | 13 | 559 |
 | (e) underspecified | 0 | 0 | 0 | 0 |
-| (f) M5-05 conclusion covered | 0 | 0 | 0 | 0 |
-| **Total** | **55** | **157** | **53** | **2,279** |
+| (f) M5-05 conclusion covered | 3 | 22 | 0 | 0 |
+| **Total** | **79** | **384** | **114** | **4,902** |
 
-The resulting A-5 floor is **2,279 seconds (0.63 hours)**. This sums unique cells; shared summaries contribute zero. `needs-decision` is currently zero, so no timing cells are hidden from the sum.
+The resulting A-5 floor is **4,902 seconds (1.36 hours)**. This sums unique cells; shared summaries contribute zero. `needs-decision` is currently zero, so no timing cells are hidden from the sum.
 
 ## Ten largest groups by A-5 runtime
 
 | # | Experiment group | Class | Cells | Lower-bound seconds |
 |---:|---|---|---:|---:|
-| 1 | `M3_05_SCALE_LIMIT.md#executive-summary` (`M2-40-conclusion-cells`) | b | 12 | 516 |
-| 2 | `M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary` (`M2-X-optimization-ledger`) | b | 9 | 387 |
-| 3 | `M3_04_SUSTAINED_WORKLOAD.md#comparison-with-m3-02-interim-audit-findings` (`M2-37-reprofile`) | b | 8 | 344 |
-| 4 | `M3_03_SEARCH_REDUCTION.md#candidate-decisions` (`M2-34-reprofile`) | b | 6 | 258 |
-| 5 | `M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md#1-executive-summary` (`M2-31-reprofile`) | b | 5 | 215 |
-| 6 | `M3_AUDIT_INTERIM_AUDIT.md#scope-and-gate-status` (`M3-03-candidate-decisions`) | b | 5 | 215 |
-| 7 | `M2_06_BASELINE_REPORT.md#telemetry-overhead-summary` (`M2-06-telemetry`) | b | 4 | 172 |
-| 8 | `M2_09_PHASE34_SCRATCH_BUFFER_ANALYSIS.md#3-allocation-inventory-summary` (`M2-09-allocation-summary`) | b | 2 | 86 |
-| 9 | `M2_16_1_SOA_ABLATION_ANALYSIS.md#1-executive-summary-experimental-objectives` (`M2-16_1-phase10-ablation`) | b | 1 | 43 |
-| 10 | `M2_18_SEGMENTED_SOA_STORAGE_POC.md#1-executive-summary-objective` (`M2-18-prior-poc`) | b | 1 | 43 |
+| 1 | `M3_09_INCREMENTAL_TOPOLOGY.md#findings` (`M3-08-population-profile`) | c | 18 | 774 |
+| 2 | `M3_08_POPULATION_DYNAMICS.md#findings` (`M3-07-residual`) | d | 13 | 559 |
+| 3 | `M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#15-alignment-and-gpu-status` (`M2-40-conclusion-cells`) | b | 12 | 516 |
+| 4 | `M3_03_SEARCH_REDUCTION.md#executive-summary` (`M3-03-day-grid`) | b | 12 | 516 |
+| 5 | `M3_04_SUSTAINED_WORKLOAD.md#comparison-with-m3-02-interim-audit-findings` (`M3-04-sustained-grid`) | b | 12 | 516 |
+| 6 | `M2_X_REBASELINE_REPORT.md#4-allocation-scratch-buffer-optimization-ledger-m2-02-to-m2-12` (`M2-X-optimization-ledger`) | b | 9 | 387 |
+| 7 | `M2_37_POST_P5_P6B_REPROFILING.md#executive-summary` (`M2-37-reprofile`) | b | 8 | 344 |
+| 8 | `M2_34_POST_ALGORITHM_REPROFILING.md#executive-summary` (`M2-34-reprofile`) | b | 6 | 258 |
+| 9 | `M3_09_INCREMENTAL_TOPOLOGY.md#summary` (`M3-09-incremental-profile`) | c | 6 | 258 |
+| 10 | `M2_31_POST_PREINDEX_HOT_PATH_PROFILE.md#1-executive-summary` (`M2-31-reprofile`) | b | 5 | 215 |
 
 ## M3-05 end-to-end pilot outcome
 
@@ -83,7 +83,7 @@ Generated by [m3_05_pilot_runtime.py](../../analysis/simciv_analysis/m3_05_pilot
 | 500,000 | 12 | 64.184 | 103.151 | 195.960 | 121.098 | 125.675 |
 | 1,000,000 | 12 | 93.200 | 111.010 | 393.663 | 199.291 | 181.214 |
 
-The completed M3-05 pilot used **48 timed series** across **16 full-tick cells**. The remaining plan contains **53 cells** with an A-5 floor of **2,279 s**. The per-N model estimates **10,110.5 s** for timed samples plus estimated calibration and warmups. The model uses the per-series M3-05 aggregate and equal weights across each group's listed N values; groups without parseable N use 1M conservatively (5 groups). It excludes unrecorded checkpoint/context preparation and compilation, so it is not a wall-time prediction.
+The completed M3-05 pilot used **48 timed series** across **16 full-tick cells**. The remaining plan contains **114 cells** with an A-5 floor of **4,902 s**. The per-N model estimates **6,980.9 s** for timed samples plus estimated calibration and warmups. The model uses the per-series M3-05 aggregate and equal weights across each group's listed N values; groups without parseable N use 1M conservatively (5 groups). It excludes unrecorded checkpoint/context preparation and compilation, so it is not a wall-time prediction.
 The fitted observed-series model is `T(N) = 0.123074 × N^0.5280` seconds, where T includes the recorded timed sample duration plus estimated warmups and calibration probes.
 
 ### Validity exceptions
@@ -92,15 +92,15 @@ The fitted observed-series model is `T(N) = 0.123074 × N^0.5280` seconds, where
 
 | Experiment | Cells remaining | N values | Modeled seconds | A-5 floor seconds |
 |---|---:|---|---:|---:|
-| `E045` | 2 | 10000;100000;1000000000 | 4,682.1 | 86 |
-| `E051` | 9 | 1000000 | 1,630.9 | 387 |
-| `E042` | 8 | 1000000 | 1,449.7 | 344 |
-| `E055` | 5 | 1000000 | 906.1 | 215 |
+| `E058` | 12 | 1000000 | 2,174.6 | 516 |
+| `E049` | 8 | 1000000 | 1,449.7 | 344 |
 | `E002` | 4 | 1000000 | 724.9 | 172 |
-| `E049` | 8 | 10000;100000 | 278.6 | 344 |
+| `E069` | 18 | 10000;100000 | 626.9 | 774 |
+| `E068` | 13 | 10000;100000 | 452.8 | 559 |
+| `E045` | 2 | 1000000 | 362.4 | 86 |
+| `E071` | 6 | 10000;100000 | 209.0 | 258 |
+| `E056` | 12 | 10000 | 191.1 | 516 |
 | `E020` | 1 | 1000000 | 181.2 | 43 |
-| `E041` | 6 | 10000 | 95.6 | 258 |
-| `E047` | 2 | 10000;100000 | 69.7 | 86 |
-| `E032` | 4 | 1000;10000;20000 | 58.2 | 172 |
+| `E041` | 6 | 10000;50000 | 159.6 | 258 |
 
 <!-- END GENERATED M3-05 RUNTIME UPDATE -->
