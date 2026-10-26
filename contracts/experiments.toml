@@ -1,480 +1,818 @@
-# Hand-written protocol index; source rows and cited artifacts define the exact cell set.
+# Hand-written M0-M4 experiment protocols; Tier 1 records are complete, Tier 2 records may be incomplete.
 schema_version = 1
 status = "draft"
 
 [[experiment]]
-id = "m0_replay_and_layout_gate"
-protocol_source = "docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary"
-source_revisions = ["86f2f2d34389f85fdf27c0d295af30361f034367"]
-scope = "The M0 determinism gate tests 500-day pause/resume equivalence, replay, and layout invariance."
-cell_rule = "all listed M0 replay/layout gate cases must pass; snapshot continuation is a separate registered predicate"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m0_determinism_gate_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs"]
-
-[[experiment]]
-id = "m1_contract_freeze_conformance"
-protocol_source = "docs/contracts/M1_CONTRACT_FREEZE.md#1-freeze-declaration--purpose"
-source_revisions = ["62a907b7fb7b7d3e5ff1c91027a0854bc5572556"]
-scope = "Contracts C01 through C10 are frozen as the mandatory semantic specification for later optimized implementations."
-cell_rule = "all frozen C01-C10 clauses and the declared differential requirements must hold"
-cell_order = "source-table order"
-cell_artifacts = ["docs/contracts/M1_CONTRACT_FREEZE.md", "contracts/m1_contract.toml", "crates/sim-model/tests/m1_contract_manifest_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs"]
-
-[[experiment]]
-id = "m2_storage_and_phase4_parity"
-protocol_source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#milestone-questions"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337", "c4abc3f50b41eb3aa0c01ce6aa91d368855f2c9c"]
-scope = "Yes: the SoA runtime and explicit parallel option preserve digests and snapshots through the measured 100k range."
-cell_rule = "all registered profiles, digests, and snapshot cases must match exactly"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m2_soa_gate_tests.rs", "crates/sim-model/tests/phase4_rayon_tests.rs", "crates/sim-model/tests/determinism_oracle_tests.rs"]
-
-[[experiment]]
-id = "m2_near_linear"
-protocol_source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "From 50k to 100k, whole-tick alpha ranges from 1.058 to 1.102; A has phase-local P5/P6A/P6B timing outliers, but they do not move aggregate alpha above 1.058."
-cell_rule = "evaluate the predeclared A and B 50k-to-100k mode cells; do not infer a broader grid from the declared cells"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_near_linear/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-
-[[experiment]]
-id = "m2_near_linear_workload_b"
-protocol_source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#4-full-tick-scaling"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "The 50k→100k B/Serial alpha is 1.102, so that interval was checked phase by phase."
-cell_rule = "compare the single registered workload-B serial interval and its paired explicit-Rayon interval"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_near_linear/summary.json"]
-
-[[experiment]]
-id = "m2_final_tick"
-protocol_source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "Both execution modes measured 100k-agent ticks in the 17–22 ms range on the measured host."
-cell_rule = "needs-decision: report the four 100k A/B and Serial/Rayon values as context; absolute elapsed time alone has no pass/fail verdict"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_final_tick/summary.json"]
-
-[[experiment]]
-id = "m2_explicit_rayon_speedup"
-protocol_source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "Explicit Rayon improves M2-40 whole ticks by 1.08–1.22× at 10k–100k for the fixed 6/256 reference."
-cell_rule = "all declared whole-tick cells must stay within 1.08–1.22×; P4 timing is reported as supporting context only"
-cell_order = "source-table order"
-cell_artifacts = ["docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#3-serial-and-explicit-rayon-full-tick-results", "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#6-explicit-rayon-production-phase-profile"]
-
-[[experiment]]
-id = "m2_p2_p3_p9_share"
-protocol_source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "P2/P3/P9 together account for only about 6.6–7.3% of Serial ticks; a modeled 3× speedup of all three would yield about 1.05× whole-tick gain before scheduler and merge costs."
-cell_rule = "report the measured phase shares and separately reproduce the declared Amdahl calculation"
-cell_order = "source-table order"
-cell_artifacts = ["docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#5-serial-production-phase-profile"]
-
-[[experiment]]
-id = "m2_phase4_crossover"
-protocol_source = "docs/reports/M2_38_DETERMINISTIC_RAYON_PHASE4_GATE.md#10-one-thread-overhead-and-crossover"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "For every tested multi-thread setting (2/4/6/12 threads and all five chunks), both workloads first showed combined-P4 and full-tick median improvement at N=5,000. No one-thread setting showed both improvements through N=50,000."
-cell_rule = "find the first registered population satisfying both phase and full-tick criteria for each pool setting"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m2_phase4_crossover/summary.json"]
-
-[[experiment]]
-id = "m3_reference_storage_parity"
-protocol_source = "docs/reports/M3_01_SERIAL_BASELINE.md#release-differential-and-parity"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "The same runner differential and parity gates passed for the committed M3 golden configuration, the §9.7 CI matrix, snapshot pause/resume with regenerated graph/projection, and reversed storage slots."
-cell_rule = "all registered daily state, metrics, events, and snapshot fields must match exactly"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m3_storage_runner_tests.rs", "crates/sim-model/tests/m3_reference_runner_tests.rs"]
-
-[[experiment]]
-id = "m3_01_serial_baseline"
-protocol_source = "docs/reports/M3_01_SERIAL_BASELINE.md#executive-summary"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "The 50k-to-100k alpha ranged from 0.805 to 1.242 across k/p_local cells, so these samples do not support one universal scaling exponent."
-cell_rule = "report each registered k/p_local cell; do not collapse the range to one exponent"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_01_serial_baseline_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m3_01_serial_baseline/summary.json"]
-
-[[experiment]]
-id = "m3_02_parallel_phase6b"
-protocol_source = "docs/reports/M3_02_PARALLEL_PHASE6B.md#executive-summary"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "At day 0, the median whole-tick speedup across the 180 active-workload configurations was 0.967× (range 0.818×–1.142×); no active-workload configuration exceeded the M3-01 Amdahl model bound of about 1.17×."
-cell_rule = "the conclusion covers the 180 active day-zero cells; selected representatives cannot replace their aggregate"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_02_parallel_phase6b_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m3_02_parallel_phase6b/summary.json"]
-
-[[experiment]]
-id = "m3_03_search_reduction"
-protocol_source = "docs/reports/M3_03_SEARCH_REDUCTION.md#paired-whole-tick-results"
-source_revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
-scope = "No positive whole-tick paired saving exceeds its MAD."
-cell_rule = "all 12 requested paired cells must satisfy the no-saving-beyond-MAD predicate"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_02b_search_reduction_bench.rs", "crates/sim-model/examples/m5_05_conclusion_measure.rs", "docs/data/m5_05/m3_03_search_reduction/summary.json"]
-
-[[experiment]]
-id = "m3_05_static_scale_completion"
-protocol_source = "docs/reports/M3_05_SCALE_LIMIT.md#executive-summary"
-source_revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
-scope = "The largest configured population, one million agents, completed for both degrees and both checkpoints."
-cell_rule = "all four degree/checkpoint combinations at N=1,000,000 must complete without a runner error"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "crates/sim-model/examples/m3_05_a5_reconstruction.rs", "docs/reproducibility/M3_05_PILOT_RESULTS.json", "docs/data/m5_05/m3_05_pilot/summary.json"]
-
-[[experiment]]
-id = "m3_settlement_lookup_scaling_diagnosis"
-protocol_source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#how-m3-answered-its-question"
-source_revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e", "c4abc3f50b41eb3aa0c01ce6aa91d368855f2c9c"]
-scope = "The scale diagnosis identified repeated settlement-keyed linear scans whose per-partition work grows with K, yielding an O(K²) family when K partitions each scan K settlements."
-cell_rule = "all named linear-scan call sites and fixed-N K cells must satisfy the declared O(K²) workload predicate"
-cell_order = "source-table order"
-cell_artifacts = ["docs/reports/M3_05_SCALE_DIAGNOSIS.md#settlement-keyed-lookup-work-per-day", "crates/sim-model/src/resolution.rs"]
-
-[[experiment]]
-id = "m3_06_settlement_index"
-protocol_source = "docs/reports/M3_06_SETTLEMENT_INDEX.md#validation-and-limits"
-source_revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
-scope = "At N=1M the paired serial whole-tick median was 17.7% lower after indexing, but the report does not attribute the whole-tick reduction to the index alone."
-cell_rule = "report the repeated lookup-work change and the full-tick ratio as separate results; do not attribute the entire tick delta to indexing"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/data/m5_05/m3_06_settlement_index/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-
-[[experiment]]
-id = "m3_07_alpha_validity_gate"
-protocol_source = "docs/reports/M3_07_SCALE_RESIDUAL.md#re-measured-scaling-alphas"
-source_revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
-scope = "An interval is reliable only when both endpoint MAD/median values are at most 5%; unreliable intervals are excluded rather than reported as alpha estimates."
-cell_rule = "apply the stated endpoint condition to every reported alpha interval"
-cell_order = "source-table order"
-cell_artifacts = ["docs/reports/M3_07_SCALE_RESIDUAL.md#re-measured-scaling-alphas"]
-
-[[experiment]]
-id = "m3_07_reversed_slots"
-protocol_source = "docs/reports/M3_07_SCALE_RESIDUAL.md#normal-versus-reversed-slot-layout"
-source_revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
-scope = "P4 selection is a reliable 2.37× slower under reversed slots at 1M; P4 intent/projection's 3.60× point estimate is not reliable under the 5% MAD rule."
-cell_rule = "evaluate P4 selection and P4 intent as separate phase outcomes; exclude invalid MAD cells"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/data/m5_05/m3_07_reversed_slots/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-
-[[experiment]]
-id = "m3_08_full_rebuild_equal_live"
-protocol_source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#how-m3-answered-its-question"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337", "c4abc3f50b41eb3aa0c01ce6aa91d368855f2c9c"]
-scope = "At equal live population of 103,241, the M3-08 M3P/M3 tick ratio was 5.23× at 100k."
-cell_rule = "compare the equal-live checkpoint with the registered M3 storage baseline"
-cell_order = "source-table order"
-cell_artifacts = ["docs/reports/M3_08_POPULATION_DYNAMICS.md#equal-live-population-tick-comparison", "docs/data/m5_05/m3_08_full_rebuild_equal_live/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-
-[[experiment]]
-id = "m3_09_incremental_equal_live"
-protocol_source = "docs/reports/M3_AUDIT_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#how-m3-answered-its-question"
-source_revisions = ["1986a296d0a0a6f62d568ea3664faa3d6304fc56", "681bf296ea07d3ddc4391f5f1dfd49255876300c", "c4abc3f50b41eb3aa0c01ce6aa91d368855f2c9c"]
-scope = "M3-09 appended graph/projection rows between compactions; its follow-up reduced normal-day Phase 9b to 1.375 ms median and the equal-live M3P/M3 ratio to 1.49× paired."
-cell_rule = "classify the 10k and 100k ratios separately for paired and non-interleaved schedules"
-cell_order = "source-table order"
-cell_artifacts = ["docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md#equal-live-m3pm3-rerun-and-interleaving", "docs/data/m5_05/m3_09_incremental_equal_live/summary.json", "docs/data/m5_05/m3_09_scope_check/summary.json"]
-
-[[experiment]]
-id = "m3p_sustained_population_gate"
-protocol_source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#sustained-gate"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "The sustained config passed at 10k and the CI-sized 1k gate."
-cell_rule = "all required days and both population sizes must meet the registered population band"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m3p_sustained_gate_tests.rs", "crates/sim-model/tests/m3p_incremental_topology_tests.rs"]
-
-[[experiment]]
-id = "m3_11_phase9c_speedup"
-protocol_source = "docs/reports/M3_11_PROPAGATION.md#summary"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "At N=100,000, k=16, max_hops=16, transmit_probability=0.2, the day-0 frontier peaked at 29,753; Phase 9c fell from 208.693 ms serial to 65.283 ms on pool 6."
-cell_rule = "compare serial and pool-6 medians at the declared large-frontier cell"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "docs/data/m5_05/m3_11_phase9c_speedup/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-
-[[experiment]]
-id = "m3_11_whole_tick_speedup"
-protocol_source = "docs/reports/M3_11_PROPAGATION.md#summary"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "The same workload's three-day whole tick improved by 2.26× interleaved and 2.29× non-interleaved on pool 6."
-cell_rule = "report interleaved and non-interleaved ratios separately; both are required"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "docs/data/m5_05/m3_11_whole_tick_speedup/summary.json", "docs/reproducibility/M5_05_M0_M3_REGENERATION.md#conclusion-status"]
-
-[[experiment]]
-id = "m3_11_frontier_crossover"
-protocol_source = "docs/reports/M3_11_PROPAGATION.md#phase-9c-measurements"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "The first day-0 Phase 9c median that beat serial by more than the sum of the serial and parallel MADs was at N=10,000, K=50, k=8, max_hops=8, transmit=0.2, frontier 728: pool 2 was 2,831.000 ± 76.600 µs versus serial 3,039.600 ± 15.500 µs; pool 4 was 2,872.500 ± 92.200 µs. Pool 6 first met that same criterion at frontier 852 (N=10,000, K=50, k=8, max_hops=16, transmit=0.2)."
-cell_rule = "select the first qualifying frontier separately for each pool in the ordered tested grid"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "docs/data/m5_05/m3_11_frontier_crossover/summary.json"]
-
-[[experiment]]
-id = "m4_02_noop_branch_identity"
-protocol_source = "docs/reports/M4_02_BRANCHING.md#correctness-and-completion-status"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "The M4 no-op identity test passed for profiles m3, m3p, m3+propagation, and m3p+propagation."
-cell_rule = "all four named profile combinations must have zero daily divergence"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m4_branching_tests.rs", "crates/sim-model/tests/m4_06_branch_identity_tests.rs"]
-
-[[experiment]]
-id = "m4_02_a5_overhead_gate"
-protocol_source = "docs/reports/M4_02_BRANCHING.md#correctness-and-completion-status"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "M4-02 COMPLETE under A-5. The fresh run produced nine valid PASS cells with no retries."
-cell_rule = "all nine registered cells must be valid PASS"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/examples/m4_02_a5_measure.rs", "docs/reports/M4_02_BRANCHING.md#final-confirmatory-measurement-under-frozen-117-a-5"]
-
-[[experiment]]
-id = "m4_03_divergence_series_a5_gate"
-protocol_source = "docs/reports/M4_03_DIVERGENCE.md#confirmatory-performance-gate-high-priority-and-affinity"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "All three cells satisfy A-5 path-spread validity and U <= T."
-cell_rule = "all three registered branch profiles must satisfy A-5 validity and U <= T"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m5_04/m4_03/m4_03_gate_a5.log", "docs/reports/M4_03_DIVERGENCE.md#confirmatory-performance-gate-high-priority-and-affinity"]
-
-[[experiment]]
-id = "m4_03_food_zero_h365_divergence"
-protocol_source = "docs/reports/M4_03_DIVERGENCE.md#h365-extension"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "Across the five H=365 runs, food=0 peak fractions have median/range 0.9866 (0.9839–0.9897) and endpoint fractions 0.9858 (0.9839–0.9897)."
-cell_rule = "recompute the five-seed median and range from the registered daily divergence records"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m4_03/m4_03_a1_experiments.csv", "docs/data/m5_04/m4_03/m4_03_a1_experiments.csv.gz", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
-
-[[experiment]]
-id = "m4_04_paired_effect_intervals"
-protocol_source = "docs/reports/M4_04_CRN_EFFICIENCY.md#local-versus-global-intervention-effects"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "At H=365, food=0 is distinguishable only for target-settlement alive population; health=0.01 is distinguishable for alive population, total wealth, target-settlement alive population, and target-settlement wealth, while mean health includes zero; all five global-cost outcomes exclude zero."
-cell_rule = "recompute each registered outcome's paired-mean interval and its zero-exclusion predicate"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m4_04/m4_04_crn_efficiency.csv", "docs/data/m5_04/m4_04/parallel_estimate_comparison.json", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
-
-[[experiment]]
-id = "m4_04_newborn_rng_identity"
-protocol_source = "docs/reports/M4_04_CRN_EFFICIENCY.md#newborn-crn-identity"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "Mean cumulative newborn CRN loss is zero through H=90 for all three interventions, then reaches 1.34 for food=0, 1.43 for health=0.01, and 33.02 for the global cost change at H=365."
-cell_rule = "recompute mean matched-birth AgentId loss across all 100 paired replicates per intervention and horizon"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m4_04/m4_04_crn_efficiency.csv"]
-
-[[experiment]]
-id = "m4_04_crn_variance_ratio_grid"
-protocol_source = "docs/reports/M4_04_CRN_EFFICIENCY.md#horizon-and-divergence"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "At H=365, the M4-04 CRN efficiency ratios ranged from about 1.5× to 80× across the reported outcomes."
-cell_rule = "recompute each H=365 ratio from the declared outcome records and report their minimum and maximum"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m4_04/m4_04_crn_efficiency.csv", "docs/data/m5_04/m4_04/parallel_estimate_comparison.json", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
-
-[[experiment]]
-id = "m4_05_case_a_minimum_cause"
-protocol_source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "For case (a), exhaustive search established a minimum cardinality of four."
-cell_rule = "all subsets below size four fail and exactly 15 of the 70 size-four subsets satisfy the declared case-(a) predicate"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m4_05/m4_05_a_health8.jsonl", "docs/data/m5_04/m4_05/m4_05_a_health8.jsonl", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
-
-[[experiment]]
-id = "m4_05_batch_of_one_a5_gate"
-protocol_source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-5-batch-of-one-performance-gate"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "The one-sided 95% bootstrap upper bound of the paired median delta was below `T = 5% × direct median`."
-cell_rule = "the one registered M3P serial N=10k cell must be A-5-valid and satisfy U <= T"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/examples/m4_05_a5_gate.rs", "docs/data/m5_04/m4_05/m4_05_a5_gate_full.log"]
-
-[[experiment]]
-id = "m4_06_migration_off_a5_gate"
-protocol_source = "docs/reports/M4_06_MIGRATION.md#a-5-migration-off-performance-gate"
-source_revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
-scope = "Both cells were valid PASS with no retry."
-cell_rule = "both registered populations must be A-5-valid PASS"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/examples/m4_06_a5_gate.rs", "docs/data/m4_06/a5_gate_final.json"]
-
-[[experiment]]
-id = "m4_07_copy_on_write_share"
-protocol_source = "docs/reports/M4_07_MANY_BRANCH.md#copy-on-write-decision"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "Every cell is below the frozen 20% threshold, so copy-on-write is not needed for the measured workload."
-cell_rule = "each of the four registered population/horizon cells must remain below 20%"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m4_07/clone_share.jsonl"]
-
-[[experiment]]
-id = "m4_a5_gate_method_history"
-protocol_source = "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#m4-02-a-5-gate-history"
-source_revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
-scope = "The A-1 to A-3 changes were measurement-rule design errors, not simulation implementation costs."
-cell_rule = "all three rule changes must map to documented measurement-protocol defects"
-cell_order = "source-table order"
-cell_artifacts = ["docs/reports/M4_02_BRANCHING.md#final-confirmatory-measurement-under-frozen-117-a-5", "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#m4-02-a-5-gate-history"]
-
-[[experiment]]
-id = "m4_04_health_local_aggregate_effect"
-protocol_source = "docs/reports/M4_04_CRN_EFFICIENCY.md#follow-ups"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "At H=365, the health=0.01 paired effect is concentrated in the target settlement: total wealth is about −3,320 versus target-settlement wealth −3,278, and alive population is −0.93 versus target-settlement alive population −1.10."
-cell_rule = "compare the registered paired world and target-settlement outcomes at H=365"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m4_04/m4_04_crn_efficiency.csv", "docs/data/m5_04/m4_04/parallel_estimate_comparison.json", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
-
-[[experiment]]
 id = "m0_initialization_invariants"
+conclusion_id = "M0-DET-INITIALIZATION"
+tier = 1
+report_revision = "1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab"
+report_path_at_revision = "docs/contracts/M1_CONTRACT_FREEZE.md"
 protocol_source = "docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary"
-source_revisions = ["86f2f2d34389f85fdf27c0d295af30361f034367"]
-scope = "The initialization tests cover deterministic trait sampling, resource allocation, and initial world-state generation."
-cell_rule = "all initialization test cases must match exact expected fields and deterministic outputs"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/initialization_tests.rs", "crates/sim-model/tests/config_tests.rs"]
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["seeded-trait-sampling", "resource-allocation", "initial-world-state"]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["agent_traits", "resource_allocation", "initial_state"], comparison = "exact expected fields" }
+scope = "Fixed M0 seed and initialization configuration."
+harness_paths = ["crates/sim-model/tests/initialization_tests.rs", "crates/sim-model/tests/config_tests.rs"]
+
+[[experiment]]
+id = "m0_replay_and_layout_gate"
+conclusion_id = "M0-DET-REPLAY"
+tier = 1
+report_revision = "1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab"
+report_path_at_revision = "docs/contracts/M1_CONTRACT_FREEZE.md"
+protocol_source = "docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["replay-500d-seed7", "pause-resume-day200-to500", "physical-layout-invariance"]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["canonical_state", "metrics", "events", "resume_trajectory"], comparison = "exact byte/field equality" }
+scope = "M0 reference replay; 500-day run with a day-200 snapshot continuation and equivalent physical layouts."
+harness_paths = [
+  "crates/sim-model/tests/m0_determinism_gate_tests.rs",
+  "crates/sim-model/tests/determinism_oracle_tests.rs",
+]
 
 [[experiment]]
 id = "m0_snapshot_resume_trajectory"
+conclusion_id = "M0-DET-SNAPSHOT-RESUME"
+tier = 1
+report_revision = "1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab"
+report_path_at_revision = "docs/contracts/M1_CONTRACT_FREEZE.md"
 protocol_source = "docs/contracts/M1_CONTRACT_FREEZE.md#3-c01c10-frozen-contract-matrix"
-source_revisions = ["86f2f2d34389f85fdf27c0d295af30361f034367"]
-scope = "M0 pause/resume tests compare an uninterrupted 500-day trajectory with a snapshot and continuation from day 200."
-cell_rule = "the canonical state trajectory at all 500 days must match uninterrupted execution exactly"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m0_determinism_gate_tests.rs"]
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["continuous-500d", "snapshot-day200-resume-to500"]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["canonical_state_trajectory_days0_499"], comparison = "exact trajectory equality" }
+scope = "M0 snapshot resume cursor day 200."
+harness_paths = ["crates/sim-model/tests/m0_determinism_gate_tests.rs"]
 
 [[experiment]]
 id = "m1_snapshot_v1_encoding"
+conclusion_id = "M1-DET-SNAPSHOT-V1"
+tier = 1
+report_revision = "1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab"
+report_path_at_revision = "docs/contracts/M1_CONTRACT_FREEZE.md"
 protocol_source = "docs/contracts/M1_CONTRACT_FREEZE.md#3-c01c10-frozen-contract-matrix"
-source_revisions = ["62a907b7fb7b7d3e5ff1c91027a0854bc5572556"]
-scope = "M0 schema-v1 snapshots use the frozen magic, version, canonical entity ordering, and exact f32 bit preservation."
-cell_rule = "all schema-v1 encoding fields and floating-point bits must match the frozen bytes"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/phase11_snapshot_tests.rs"]
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["magic", "schema-version", "header-metadata", "canonical-entity-order", "f32-bit-preservation"]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["snapshot-v1-bytes", "decoded-fields"], comparison = "exact bytes and f32 bits" }
+scope = "Frozen M0 schema-v1 snapshot encoding."
+harness_paths = ["crates/sim-model/tests/phase11_snapshot_tests.rs"]
+
+[[experiment]]
+id = "m2_canonical_digest_parity"
+conclusion_id = "M2-DET-PARITY"
+tier = 1
+report_revision = "581ff6c109c24dfd24b430299d768c7e31ab6b45"
+report_path_at_revision = "docs/performance/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
+protocol_source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#20-graduation-criteria"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["serial-state-metrics-events", "explicit-rayon-state-metrics-events"]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["State_digest", "Metrics_digest", "Events_digest"], comparison = "exact equality" }
+scope = "M2 storage and explicit-parallel paths."
+harness_paths = [
+  "crates/sim-model/tests/m2_soa_gate_tests.rs",
+  "crates/sim-model/tests/phase4_rayon_tests.rs",
+  "crates/sim-model/tests/determinism_oracle_tests.rs",
+]
+
+[[experiment]]
+id = "m2_explicit_rayon_speedup"
+conclusion_id = "M2-TIM-EXPLICIT-RAYON-SPEEDUP"
+tier = 1
+report_revision = "581ff6c109c24dfd24b430299d768c7e31ab6b45"
+report_path_at_revision = "docs/performance/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
+protocol_source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#executive-summary"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["A-N10000", "A-N20000", "A-N50000", "A-N100000", "B-N10000", "B-N20000", "B-N50000", "B-N100000"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [1.122, 1.147, 1.205, 1.199, 1.108, 1.137, 1.164, 1.188], ratio_direction = "serial_median / explicit_rayon_median", bands_pct = [0.1, 0.2] }
+scope = "M2-40 workloads A/B at N={10k,20k,50k,100k}; caller-owned pool 6, chunk 256; three days/sample."
+harness_paths = ["crates/sim-model/benches/m0_baseline_bench.rs"]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "2 warmups, 7 timed samples, 3 consecutive days/sample, alternating serial/Rayon order."
+
+[[experiment]]
+id = "m2_m0_reference_disabled"
+conclusion_id = "M2-TIM-M0-REFERENCE-DISABLED"
+tier = 1
+report_revision = "1f1c884791cf403d11a1c7c2518648d0962696f4"
+report_path_at_revision = "docs/performance/M2_REBASELINE_REPORT.md"
+protocol_source = "docs/reports/M2_X_REBASELINE_REPORT.md#6-telemetry-mode-performance-comparison"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["M2-01-to-M2-12-disabled"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [1.85], ratio_direction = "baseline_runtime / optimized_runtime", bands_pct = [0.1, 0.2] }
+scope = "M0-16B fixture, 500-day run, metrics/events disabled; M2-01 baseline versus M2-12."
+harness_paths = ["crates/sim-model/benches/m0_baseline_bench.rs"]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "M0-16B 500-day fixture; M2-01 baseline compared with M2-12 current row in the M2 rebaseline report."
+
+[[experiment]]
+id = "m2_m0_reference_full_telemetry"
+conclusion_id = "M2-TIM-M0-REFERENCE-FULL-TELEMETRY"
+tier = 1
+report_revision = "1f1c884791cf403d11a1c7c2518648d0962696f4"
+report_path_at_revision = "docs/performance/M2_REBASELINE_REPORT.md"
+protocol_source = "docs/reports/M2_X_REBASELINE_REPORT.md#6-telemetry-mode-performance-comparison"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["M2-01-to-M2-12-full-telemetry"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [1.2417582417582418], ratio_direction = "baseline_runtime / optimized_runtime", bands_pct = [0.1, 0.2] }
+scope = "M0-16B fixture, 500-day run, metrics/events enabled; M2-01 baseline versus M2-12."
+harness_paths = ["crates/sim-model/benches/m0_baseline_bench.rs"]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "M0-16B 500-day fixture; M2-01 baseline compared with M2-12 current row in the M2 rebaseline report."
+
+[[experiment]]
+id = "m2_near_linear"
+conclusion_id = "M2-TIM-NEAR-LINEAR"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m2_near_linear_workload_b"
+conclusion_id = "M2-TIM-NEAR-LINEAR-B"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m2_p2_p3_p9_share"
+conclusion_id = "M2-TIM-SMALL-PHASE-SHARE"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m2_phase4_crossover"
+conclusion_id = "M2-TIM-PHASE4-CROSSOVER"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m2_snapshot_byte_parity"
+conclusion_id = "M2-DET-SNAPSHOT-PARITY"
+tier = 1
+report_revision = "581ff6c109c24dfd24b430299d768c7e31ab6b45"
+report_path_at_revision = "docs/performance/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
+protocol_source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#20-graduation-criteria"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["day100-serial", "day250-serial", "day500-serial", "day100-rayon", "day250-rayon", "day500-rayon"]
+predicate_kind = "exact"
+predicate_parameters = { field = "snapshot_bytes", comparison = "exact equality" }
+scope = "Days 100, 250, and 500 in M2 serial and explicit-parallel paths."
+harness_paths = [
+  "crates/sim-model/tests/m2_soa_gate_tests.rs",
+  "crates/sim-model/tests/phase4_rayon_tests.rs",
+  "crates/sim-model/tests/phase11_snapshot_tests.rs",
+]
+
+[[experiment]]
+id = "m3_01_serial_baseline"
+conclusion_id = "M3-TIM-SERIAL-BASELINE"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m3_02_parallel_phase6b"
+conclusion_id = "M3-TIM-PHASE6B-NO-WHOLE-TICK-GAIN"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m3_03_search_reduction"
+conclusion_id = "M3-TIM-SEARCH-REDUCTION-NO-GAIN"
+tier = 2
+status = "incomplete"
 
 [[experiment]]
 id = "m3_05_any_phase_alpha_first_break"
+conclusion_id = "M3-TIM-PHASE-ALPHA-FIRST-BREAK"
+tier = 1
+report_revision = "5df006c150179f67078588dfaf83a355a81d5f9f"
+report_path_at_revision = "docs/performance/M3_SCALE_LIMIT.md"
 protocol_source = "docs/reports/M3_05_SCALE_LIMIT.md#first-break-findings"
-source_revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
-scope = "Any phase alpha first exceeded 1.15 at 100k→250k in each of the four degree/checkpoint profiles."
-cell_rule = "evaluate the any-phase alpha >1.15 predicate over each of the four declared k/checkpoint profiles"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/reproducibility/M3_05_PILOT_RESULTS.json", "docs/reproducibility/M3_05_PILOT_VERDICT_REVIEW.csv", "docs/data/m5_05/m3_05_pilot/summary.json"]
-
-[[experiment]]
-id = "m3_05_serial_per_agent_first_break"
-protocol_source = "docs/reports/M3_05_SCALE_LIMIT.md#first-break-findings"
-source_revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
-scope = "Serial per-agent tick time first exceeded the 25% increase threshold at 250k for k=8 at both checkpoints and k=16 at day 0; k=16 day 50 first crossed at 500k."
-cell_rule = "report the first population crossing per k/checkpoint and preserve within-noise endpoint changes as inconclusive"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/reproducibility/M3_05_PILOT_RESULTS.json", "docs/reproducibility/M3_05_PILOT_VERDICT_REVIEW.csv", "docs/data/m5_05/m3_05_pilot/summary.json"]
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["k8-day0", "k8-day50", "k16-day0", "k16-day50"]
+predicate_kind = "threshold_side"
+predicate_parameters = { metric = "maximum valid phase alpha", interval = "100k-to-250k", threshold = 1.15, relation = ">", historical_values = ["above; first crossing at N=250k", "above; first crossing at N=250k", "above; first crossing at N=250k", "above; first crossing at N=250k"], noise_rule = "criteria endpoint validity and original threshold separation beyond noise bound" }
+scope = "M3-05 alpha first-break profiles, each fixing k and checkpoint day."
+harness_paths = [
+  "crates/sim-model/benches/m3_scale_limit_bench.rs",
+  "crates/sim-model/examples/m3_05_a5_reconstruction.rs",
+]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "M3-05 report protocol: 2 warmups and 7 timed samples of 3 days; phase values use the report’s declared profile/checkpoint boundaries."
+exclusion_note = "The N=1,000,000,k=16 graph+projection setup 10.0286x cell is a separate borderline setup threshold, not an alpha first-break cell; its 0.286% margin is not pass/fail."
 
 [[experiment]]
 id = "m3_05_graph_projection_first_break"
-protocol_source = "docs/reports/M3_05_SCALE_LIMIT.md#first-break-findings"
-source_revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
-scope = "Graph plus projection setup first exceeded ten day-0 serial-tick equivalents at N=100k, k=16."
-cell_rule = "compare graph-plus-projection setup divided by the matching day-0 serial tick against 10 for each declared N/k cell"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/reproducibility/M3_05_PILOT_RESULTS.json", "docs/reproducibility/M3_05_PILOT_VERDICT_REVIEW.csv", "docs/data/m5_05/m3_05_pilot/summary.json"]
+conclusion_id = "M3-TIM-SETUP-TICK-EQUIVALENT"
+tier = 2
+status = "incomplete"
+exclusion_note = "N=1,000,000,k=16 setup ratio 10.0286x is context only; its 0.286% excess over 10x is within noise and is not a threshold verdict."
 
 [[experiment]]
 id = "m3_05_memory_working_set"
-protocol_source = "docs/reports/M3_05_SCALE_LIMIT.md#first-break-findings"
-source_revisions = ["5df006c150179f67078588dfaf83a355a81d5f9f"]
-scope = "No sampled working set exceeded 50% of host RAM; the largest sample was an OS-reported WorkingSetSize, not a computed or allocator-counted value."
-cell_rule = "compare the largest OS WorkingSetSize sample with 50% of the recorded host RAM; classify the value as environmental"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "docs/reproducibility/M3_05_PILOT_VERDICT_REVIEW.csv", "docs/data/m5_05/m3_05_pilot/summary.json"]
+conclusion_id = "M3-TIM-MEMORY-THRESHOLD"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m3_05_serial_per_agent_first_break"
+conclusion_id = "M3-TIM-SERIAL-PER-AGENT-FIRST-BREAK"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m3_05_static_scale_completion"
+conclusion_id = "M3-TIM-STATIC-SCALE"
+tier = 1
+report_revision = "5df006c150179f67078588dfaf83a355a81d5f9f"
+report_path_at_revision = "docs/performance/M3_SCALE_LIMIT.md"
+protocol_source = "docs/reports/M3_05_SCALE_LIMIT.md#executive-summary"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["N1M-k8-day0", "N1M-k8-day50", "N1M-k16-day0", "N1M-k16-day50"]
+predicate_kind = "completion"
+predicate_parameters = { required_result = "all cells complete without runner error", N = 1000000, K = "N/200", p_local = 0.5 }
+scope = "Equilibrium static-world profile; k={8,16}; day-0 and day-50 checkpoint."
+harness_paths = [
+  "crates/sim-model/benches/m3_scale_limit_bench.rs",
+  "crates/sim-model/examples/m3_05_a5_reconstruction.rs",
+]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "M3-05 report protocol: 2 warmups and 7 timed samples of 3 days; phase values use the report’s declared profile/checkpoint boundaries."
+exclusion_note = "N=1,000,000,k=16 remains included for completion. Its separate graph+projection setup ratio 10.0286x is excluded from the threshold-side verdict because its excess over 10x is 0.286%, within the report noise band."
+
+[[experiment]]
+id = "m3_06_settlement_index"
+conclusion_id = "M3-TIM-SETTLEMENT-INDEX"
+tier = 2
+status = "incomplete"
 
 [[experiment]]
 id = "m3_07_post_index_high_alpha_reliability"
+conclusion_id = "M3-TIM-HIGH-ALPHA-RELIABILITY"
+tier = 2
+report_revision = "7926bed68101eb5de6f8cffe0961925311f3bc41"
+report_path_at_revision = "docs/performance/M3_07_SCALE_RESIDUAL.md"
 protocol_source = "docs/reports/M3_07_SCALE_RESIDUAL.md#re-measured-scaling-alphas"
-source_revisions = ["bebcfdfaa92f3093089a070c3d7e6fc051dccf5e"]
-scope = "None of the earlier post-M3-06 500k→1M alphas above 2 had a reliable estimate in the M3-07 rerun because an endpoint MAD/median exceeded 5%."
-cell_rule = "evaluate reliability separately for each named phase alpha using both endpoint MAD/median values"
-cell_order = "source-table order"
-cell_artifacts = ["docs/reports/M3_07_SCALE_RESIDUAL.md", "crates/sim-model/benches/m3_scale_limit_bench.rs"]
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+incomplete_reason = "Tier 2 protocol may remain a stub until promotion."
+known_scope = "None of the earlier post-M3-06 500k→1M alphas above 2 had a reliable estimate in the M3-07 rerun because an endpoint MAD/median exceeded 5%."
+deferred_cell_rule = "evaluate reliability separately for each named phase alpha using both endpoint MAD/median values"
+known_artifacts = ["docs/reports/M3_07_SCALE_RESIDUAL.md", "crates/sim-model/benches/m3_scale_limit_bench.rs"]
+ordered_cell_ids = ["k8-day0-500k-to1m", "k8-day50-500k-to1m", "k16-day0-500k-to1m", "k16-day50-500k-to1m"]
+predicate_kind = "threshold_side"
+predicate_parameters = { metric = "endpoint_MAD_over_median", threshold = 0.05, relation = ">", rule = "exclude alpha interval if either endpoint exceeds threshold" }
+scope = "M3-07 reliability gate applied to named high-alpha intervals at 500k-to-1M."
+harness_paths = ["crates/sim-model/benches/m3_scale_limit_bench.rs"]
+validity_rule = { both_endpoints_required = true, maximum = 0.05, invalid_action = "exclude_alpha_interval" }
 
 [[experiment]]
-id = "m4_05_case_a_seed_variation"
+id = "m3_07_reversed_slots"
+conclusion_id = "M3-TIM-REVERSED-SLOTS"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m3_08_full_rebuild_equal_live"
+conclusion_id = "M3-TIM-FULL-REBUILD-EQUAL-LIVE"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m3_09_incremental_equal_live"
+conclusion_id = "M3-TIM-INCREMENTAL-EQUAL-LIVE"
+tier = 1
+report_revision = "681bf296ea07d3ddc4391f5f1dfd49255876300c"
+report_path_at_revision = "docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md"
+protocol_source = "docs/reports/M3_09_INCREMENTAL_TOPOLOGY.md#equal-live-m3pm3-rerun-and-interleaving"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["N10k-paired", "N10k-noninterleaved", "N100k-paired", "N100k-noninterleaved"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [1.21, 1.23, 1.49, 1.47], ratio_direction = "incremental_M3P_median / M3_median", bands_pct = [0.1, 0.2] }
+scope = "M3-09 follow-up; day-400 checkpoint; live populations 10,341 and 103,241; three days/sample."
+harness_paths = [
+  "crates/sim-model/examples/m5_05_m3_09_revision.rs",
+  "crates/sim-model/examples/m5_05_sessions23.rs",
+]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "Day-400 checkpoint; 2 warmups; 11 samples; three public-API days/call; paired rotation of M3P serial, M3P incremental, and M3."
+
+[[experiment]]
+id = "m3_09_phase9b_normal_day_profile"
+conclusion_id = "M3-TIM-INCREMENTAL-PHASE9B"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m3_11_frontier_crossover"
+conclusion_id = "M3-TIM-PROP-FRONTIER-CROSSOVER"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m3_11_phase9c_speedup"
+conclusion_id = "M3-TIM-PROP-PHASE9C"
+tier = 1
+report_revision = "734627800b99e3865d9a0cd4a1d62e38a03c3bb3"
+report_path_at_revision = "docs/performance/M3_11_PROPAGATION.md"
+protocol_source = "docs/reports/M3_11_PROPAGATION.md#summary"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["N100000-k16-hops16-transmit0.2-pool6-day0"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [3.196766], ratio_direction = "serial_phase9c_median / pool6_phase9c_median", bands_pct = [0.1, 0.2] }
+scope = "Fixed-topology M3; N=100k, K=500, k=16, max_hops=16, transmit=0.2, initial frontier=29,753."
+harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "2 warmups and 11 samples; three days/sample for whole tick; Phase 9c state prepared outside timed call."
+
+[[experiment]]
+id = "m3_11_whole_tick_speedup"
+conclusion_id = "M3-TIM-PROP-WHOLE-TICK"
+tier = 1
+report_revision = "734627800b99e3865d9a0cd4a1d62e38a03c3bb3"
+report_path_at_revision = "docs/performance/M3_11_PROPAGATION.md"
+protocol_source = "docs/reports/M3_11_PROPAGATION.md#summary"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["large-frontier-interleaved-pool6", "large-frontier-noninterleaved-pool6"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [2.26, 2.29], ratio_direction = "serial_tick_median / pool6_tick_median", bands_pct = [0.1, 0.2] }
+scope = "Same large-frontier workload as the Phase 9c cell; three consecutive days/sample."
+harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "2 warmups and 11 samples; three days/sample for whole tick; Phase 9c state prepared outside timed call."
+
+[[experiment]]
+id = "m3_reference_storage_parity"
+conclusion_id = "M3-DET-REFERENCE-STORAGE-PARITY"
+tier = 1
+report_revision = "6931a9b3884eb51e21256676f1033dab92a8ac58"
+report_path_at_revision = "docs/performance/M3_01_SERIAL_BASELINE.md"
+protocol_source = "docs/reports/M3_01_SERIAL_BASELINE.md#release-differential-and-parity"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = [
+  "N300-K3-k4-p0-seed0",
+  "N300-K3-k4-p0.5-seed0",
+  "N300-K3-k4-p1-seed0",
+  "N300-K3-k8-p0-seed0",
+  "N300-K3-k8-p0.5-seed0",
+  "N300-K3-k8-p1-seed0",
+  "N300-K3-k16-p0-seed0",
+  "N300-K3-k16-p0.5-seed0",
+  "N300-K3-k16-p1-seed0",
+  "N300-K10-k4-p0-seed0",
+  "N300-K10-k4-p0.5-seed0",
+  "N300-K10-k4-p1-seed0",
+  "N300-K10-k8-p0-seed0",
+  "N300-K10-k8-p0.5-seed0",
+  "N300-K10-k8-p1-seed0",
+  "N300-K10-k16-p0-seed0",
+  "N300-K10-k16-p0.5-seed0",
+  "N300-K10-k16-p1-seed0",
+  "N300-K3-k4-p0-seed1",
+  "N300-K3-k4-p0.5-seed1",
+  "N300-K3-k4-p1-seed1",
+  "N300-K3-k8-p0-seed1",
+  "N300-K3-k8-p0.5-seed1",
+  "N300-K3-k8-p1-seed1",
+  "N300-K3-k16-p0-seed1",
+  "N300-K3-k16-p0.5-seed1",
+  "N300-K3-k16-p1-seed1",
+  "N300-K10-k4-p0-seed1",
+  "N300-K10-k4-p0.5-seed1",
+  "N300-K10-k4-p1-seed1",
+  "N300-K10-k8-p0-seed1",
+  "N300-K10-k8-p0.5-seed1",
+  "N300-K10-k8-p1-seed1",
+  "N300-K10-k16-p0-seed1",
+  "N300-K10-k16-p0.5-seed1",
+  "N300-K10-k16-p1-seed1",
+  "N300-K3-k4-p0-seed81985529216486895",
+  "N300-K3-k4-p0.5-seed81985529216486895",
+  "N300-K3-k4-p1-seed81985529216486895",
+  "N300-K3-k8-p0-seed81985529216486895",
+  "N300-K3-k8-p0.5-seed81985529216486895",
+  "N300-K3-k8-p1-seed81985529216486895",
+  "N300-K3-k16-p0-seed81985529216486895",
+  "N300-K3-k16-p0.5-seed81985529216486895",
+  "N300-K3-k16-p1-seed81985529216486895",
+  "N300-K10-k4-p0-seed81985529216486895",
+  "N300-K10-k4-p0.5-seed81985529216486895",
+  "N300-K10-k4-p1-seed81985529216486895",
+  "N300-K10-k8-p0-seed81985529216486895",
+  "N300-K10-k8-p0.5-seed81985529216486895",
+  "N300-K10-k8-p1-seed81985529216486895",
+  "N300-K10-k16-p0-seed81985529216486895",
+  "N300-K10-k16-p0.5-seed81985529216486895",
+  "N300-K10-k16-p1-seed81985529216486895",
+  "N1000-K58-k8-p0-seed81985529216486895",
+  "N1000-K58-k8-p0.5-seed81985529216486895",
+  "N1000-K58-k8-p1-seed81985529216486895",
+  "N3000-K176-k8-p0-seed81985529216486895",
+  "N3000-K176-k8-p0.5-seed81985529216486895",
+  "N3000-K176-k8-p1-seed81985529216486895",
+  "m3-golden",
+  "snapshot-resume-regenerated-graph-projection",
+  "shuffled-storage-slots",
+  "release-N10000",
+]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["daily_State_digest", "daily_Metrics_digest", "daily_Events_digest", "snapshot_continuation"], comparison = "exact equality" }
+scope = "Full M3 §9.7 100-day differential set: N=300, K={3,10}, k={4,8,16}, p_local={0,0.5,1}, seeds={0,1,81985529216486895}; N={1000,3000}, K=floor(N/17), k=8, p_local={0,0.5,1}; plus golden, snapshot, shuffled slots, and N=10000 release differential. Cell IDs are ordered by seed, N, K, k, p_local as in the contract matrix."
+harness_paths = [
+  "crates/sim-model/tests/m3_storage_runner_tests.rs",
+  "crates/sim-model/tests/m3_reference_runner_tests.rs",
+]
+
+[[experiment]]
+id = "m3p_sustained_population_gate"
+conclusion_id = "M3-DET-M3P-SUSTAINED-GATE"
+tier = 1
+report_revision = "c7def1f0f2347ebfe2cb597f6c7380b35458146b"
+report_path_at_revision = "docs/performance/M3_08_POPULATION_DYNAMICS.md"
+protocol_source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#findings"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["m3p-sustained-N10000-days100-1000", "m3p-sustained-ci-N1000-days100-1000"]
+predicate_kind = "exact"
+predicate_parameters = { field = "live_population", predicate = "within +/-10% of initial on every day 100..1000" }
+scope = "Frozen M3P sustained configuration at report N=10000 and CI N=1000."
+harness_paths = [
+  "crates/sim-model/tests/m3p_sustained_gate_tests.rs",
+  "crates/sim-model/tests/m3p_incremental_topology_tests.rs",
+]
+
+[[experiment]]
+id = "m4_02_a5_overhead_gate"
+conclusion_id = "M4-TIM-BRANCH-A5-GATE"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m4_02_noop_branch_identity"
+conclusion_id = "M4-DET-BRANCH-IDENTITY"
+tier = 1
+report_revision = "89a95c6540678e02d4eb8145ebd0b69976104a1a"
+report_path_at_revision = "docs/performance/M4_02_BRANCHING.md"
+protocol_source = "docs/reports/M4_02_BRANCHING.md#correctness-and-completion-status"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["m3-noop-H30", "m3p-noop-H30", "m3-propagation-noop-H30", "m3p-propagation-noop-H30"]
+predicate_kind = "exact"
+predicate_parameters = { field = "daily_divergence", expected = 0 }
+scope = "No-op intervention in each supported M3-family profile."
+harness_paths = [
+  "crates/sim-model/tests/m4_branching_tests.rs",
+  "crates/sim-model/tests/m4_06_branch_identity_tests.rs",
+]
+
+[[experiment]]
+id = "m4_03_divergence_series_a5_gate"
+conclusion_id = "M4-TIM-DIVERGENCE-SERIES-GATE"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m4_03_food_zero_h365_divergence"
+conclusion_id = "M4-DET-DIVERGENCE-H365"
+tier = 1
+report_revision = "bfe162baee95130a268707fef6e1489ef96cc414"
+report_path_at_revision = "docs/performance/M4_03_DIVERGENCE.md"
+protocol_source = "docs/reports/M4_03_DIVERGENCE.md#h365-extension"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = [
+  "food-zero-seed-0-H365",
+  "food-zero-seed-1-H365",
+  "food-zero-seed-2-H365",
+  "food-zero-seed-3-H365",
+  "food-zero-seed-4-H365",
+]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["daily_D_count", "normalized_fraction", "peak_fraction", "day365_fraction"], comparison = "exact recorded fields" }
+scope = "M3P sustained fixture; food=0; five seeds; H=365."
+harness_paths = [
+  "crates/sim-model/examples/m4_03_experiment.rs",
+  "crates/sim-model/tests/m4_03_divergence_tests.rs",
+]
+
+[[experiment]]
+id = "m4_04_crn_variance_ratio_grid"
+conclusion_id = "M4-DET-CRN-EFFICIENCY"
+tier = 1
+report_revision = "e41180519fd5c1c9f546b312af33931606b5f4fd"
+report_path_at_revision = "docs/performance/M4_FINAL_AUDIT_AND_GRADUATION.md"
+protocol_source = "docs/reports/M4_AUDIT_FINAL_AUDIT_AND_GRADUATION.md#research-question-and-answer"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = [
+  "food-zero-alive-H365",
+  "food-zero-total-wealth-H365",
+  "food-zero-mean-health-H365",
+  "food-zero-target-alive-H365",
+  "food-zero-target-wealth-H365",
+  "health-0.01-alive-H365",
+  "health-0.01-total-wealth-H365",
+  "health-0.01-mean-health-H365",
+  "health-0.01-target-alive-H365",
+  "health-0.01-target-wealth-H365",
+  "global-cost-plus-1pct-alive-H365",
+  "global-cost-plus-1pct-total-wealth-H365",
+  "global-cost-plus-1pct-mean-health-H365",
+  "global-cost-plus-1pct-target-alive-H365",
+  "global-cost-plus-1pct-target-wealth-H365",
+]
+predicate_kind = "exact"
+predicate_parameters = { field = "paired_to_independent_variance_ratio", comparison = "exact per registered outcome" }
+scope = "M3P sustained fixture; 100 paired and 100+100 independent replicates; H=365."
+harness_paths = [
+  "crates/sim-model/examples/m4_04_crn_experiment.rs",
+  "crates/sim-model/tests/m4_04_crn_efficiency_tests.rs",
+]
+
+[[experiment]]
+id = "m4_04_health_local_aggregate_effect"
+conclusion_id = "M4-DET-LOCAL-AGGREGATE-SIGNAL"
+tier = 1
+report_revision = "477bbc9bb716a34a6942b4bd7032b2d8ad46a791"
+report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
+protocol_source = "docs/reports/M4_04_CRN_EFFICIENCY.md#follow-ups"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = [
+  "health-0.01-world-wealth-H365",
+  "health-0.01-target-wealth-H365",
+  "health-0.01-world-alive-H365",
+  "health-0.01-target-alive-H365",
+]
+predicate_kind = "exact"
+predicate_parameters = { field = "paired_mean_effect", comparison = "exact recorded means" }
+scope = "M3P sustained fixture; health=0.01; world and target-settlement outcomes at H=365."
+harness_paths = ["crates/sim-model/examples/m4_04_crn_experiment.rs"]
+
+[[experiment]]
+id = "m4_04_newborn_rng_identity"
+conclusion_id = "M4-DET-NEWBORN-CRN-IDENTITY"
+tier = 1
+report_revision = "739004cf6eee9c03d6f462f1852dcf10ffe43293"
+report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
+protocol_source = "docs/reports/M4_04_CRN_EFFICIENCY.md#newborn-crn-identity"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = [
+  "food-zero-H7",
+  "food-zero-H30",
+  "food-zero-H90",
+  "food-zero-H365",
+  "health-0.01-H7",
+  "health-0.01-H30",
+  "health-0.01-H90",
+  "health-0.01-H365",
+  "global-cost-plus-1pct-H7",
+  "global-cost-plus-1pct-H30",
+  "global-cost-plus-1pct-H90",
+  "global-cost-plus-1pct-H365",
+]
+predicate_kind = "exact"
+predicate_parameters = { field = "mean_cumulative_newborn_agent_id_loss", comparison = "exact" }
+scope = "M3P sustained fixture; 100 paired replicates per intervention and horizon."
+harness_paths = [
+  "crates/sim-model/examples/m4_04_crn_experiment.rs",
+  "crates/sim-model/tests/m4_04_crn_efficiency_tests.rs",
+]
+
+[[experiment]]
+id = "m4_04_paired_effect_intervals"
+conclusion_id = "M4-DET-CRN-EFFECTS"
+tier = 1
+report_revision = "739004cf6eee9c03d6f462f1852dcf10ffe43293"
+report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
+protocol_source = "docs/reports/M4_04_CRN_EFFICIENCY.md#local-versus-global-intervention-effects"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = [
+  "food-zero-alive-H365",
+  "food-zero-total-wealth-H365",
+  "food-zero-mean-health-H365",
+  "food-zero-target-alive-H365",
+  "food-zero-target-wealth-H365",
+  "health-0.01-alive-H365",
+  "health-0.01-total-wealth-H365",
+  "health-0.01-mean-health-H365",
+  "health-0.01-target-alive-H365",
+  "health-0.01-target-wealth-H365",
+  "global-cost-plus-1pct-alive-H365",
+  "global-cost-plus-1pct-total-wealth-H365",
+  "global-cost-plus-1pct-mean-health-H365",
+  "global-cost-plus-1pct-target-alive-H365",
+  "global-cost-plus-1pct-target-wealth-H365",
+]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["paired_mean_effect", "95pct_interval", "zero_exclusion"], comparison = "exact values from registered replicate records" }
+scope = "M3P sustained fixture; three interventions, five outcomes, H=365."
+harness_paths = [
+  "crates/sim-model/examples/m4_04_crn_experiment.rs",
+  "crates/sim-model/tests/m4_04_crn_efficiency_tests.rs",
+]
+
+[[experiment]]
+id = "m4_05_batch_of_one_a5_gate"
+conclusion_id = "M4-TIM-MINIMAL-CAUSE-BATCH-GATE"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m4_05_case_a_minimum_cause"
+conclusion_id = "M4-DET-MINIMAL-CAUSES"
+tier = 1
+report_revision = "6b925b91d565d98706fe6cac3cdf14164abc7a32"
+report_path_at_revision = "docs/performance/M4_05_MINIMAL_CAUSE.md"
 protocol_source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "For the same case-(a) candidate construction, seeds 0 and 1 had no cause while seed 3 had a three-item minimum."
-cell_rule = "report each of the three registered seeds separately; do not infer a general seed distribution"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m4_05/seed-0.jsonl", "docs/data/m4_05/seed-1.jsonl", "docs/data/m4_05/seed-3.jsonl", "docs/reports/M4_05_MINIMAL_CAUSE.md"]
-
-[[experiment]]
-id = "m4_06_daily_digest_parity"
-protocol_source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
-source_revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
-scope = "Migration-on reference and storage paths produced identical per-day outcomes and digests for both propagation combinations."
-cell_rule = "all four migration profile combinations must match daily State/Metrics/Events outputs exactly"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
-
-[[experiment]]
-id = "m4_06_snapshot_v4_resume"
-protocol_source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
-source_revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
-scope = "M4-06 snapshot v4 resume preserved continuation across the migration profile combinations."
-cell_rule = "each migration profile snapshot must resume to the same canonical continuation"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
-
-[[experiment]]
-id = "m4_06_shuffled_slots"
-protocol_source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
-source_revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
-scope = "Migration outputs remained invariant under shuffled initial storage slots."
-cell_rule = "canonical daily outputs must be identical under each declared slot permutation"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
-
-[[experiment]]
-id = "m4_06_failure_atomicity"
-protocol_source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
-source_revisions = ["c27de8aca2f98fb97e5009b5aafd6f5b1b8384a7"]
-scope = "Migration validation failures preserved failure atomicity."
-cell_rule = "each declared crafted migration error must leave state unchanged and preserve error precedence"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/tests/m4_06_migration_tests.rs", "docs/reports/M4_06_MIGRATION.md"]
-
-[[experiment]]
-id = "m4_07_crn_branch_parallel_speedup"
-protocol_source = "docs/reports/M4_07_MANY_BRANCH.md#m4-04-replicate-experiment-serial-versus-parallel"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "Six-thread M4-04 branch evaluation measured 4.25–5.11× speedup with exact serial/parallel outputs."
-cell_rule = "report the three intervention speedups from the M4-04 replicate experiment as its own non-A-5 result"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/examples/m4_07_many_branch.rs", "docs/data/m4_07/crn_parallel.jsonl", "docs/reports/M4_07_MANY_BRANCH.md"]
-
-[[experiment]]
-id = "m4_07_case_a_search_parallel_speedup"
-protocol_source = "docs/reports/M4_07_MANY_BRANCH.md#m4-05-case-a-serial-versus-parallel-search"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "Six-thread M4-05 case-(a) search measured 4.30× speedup with exact serial/parallel outputs."
-cell_rule = "compare only the exhaustive case-(a) candidate set and declared serial/parallel search calls"
-cell_order = "source-table order"
-cell_artifacts = ["crates/sim-model/examples/m4_07_many_branch.rs", "docs/data/m4_07/m4_05_search_serial_numeric8.jsonl", "docs/data/m4_07/m4_05_search_parallel_numeric8.jsonl", "docs/reports/M4_07_MANY_BRANCH.md"]
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["case-a-exhaustive-N2000-R10-H90"]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["minimum_cardinality", "satisfying_subset_count"], expected_minimum = 4 }
+scope = "Case (a), exhaustive candidate set and target-settlement population predicate."
+harness_paths = [
+  "crates/sim-model/examples/m4_05_experiment.rs",
+  "crates/sim-model/tests/m4_05_minimal_cause_tests.rs",
+]
 
 [[experiment]]
 id = "m4_05_case_a_nonunique_minima"
+conclusion_id = "M4-DET-MINIMAL-CAUSE-NONUNIQUENESS"
+tier = 1
+report_revision = "6b925b91d565d98706fe6cac3cdf14164abc7a32"
+report_path_at_revision = "docs/performance/M4_05_MINIMAL_CAUSE.md"
 protocol_source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
-source_revisions = ["7704a00cd42e3693e76f3167a1485e229c973337"]
-scope = "For case (a), 15 of the 70 four-item subsets satisfied the declared target-settlement population predicate."
-cell_rule = "enumerate the 70 size-four subsets and verify exactly 15 satisfy the case-(a) predicate"
-cell_order = "source-table order"
-cell_artifacts = ["docs/data/m4_05/m4_05_a_health8.jsonl", "docs/data/m5_04/m4_05/m4_05_a_health8.jsonl", "docs/reproducibility/M5_04_M4_REGENERATION.md"]
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["case-a-all-70-size4-subsets"]
+predicate_kind = "exact"
+predicate_parameters = { field = "satisfying_subsets", expected_count = 15 }
+scope = "Case (a); enumerate every size-four subset."
+harness_paths = [
+  "crates/sim-model/examples/m4_05_experiment.rs",
+  "crates/sim-model/tests/m4_05_minimal_cause_tests.rs",
+]
+
+[[experiment]]
+id = "m4_06_daily_digest_parity"
+conclusion_id = "M4-DET-MIGRATION-DAILY-PARITY"
+tier = 1
+report_revision = "392f6064b6a5ac4132722af0dc8941e8d3908d9d"
+report_path_at_revision = "docs/performance/M4_06_MIGRATION.md"
+protocol_source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["m3-migration", "m3p-migration", "m3-propagation-migration", "m3p-propagation-migration"]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["daily_outcomes", "State_digest", "Metrics_digest", "Events_digest"], comparison = "exact equality" }
+scope = "M4-06 migration enabled across reference/storage and propagation combinations."
+harness_paths = ["crates/sim-model/tests/m4_06_migration_tests.rs", "crates/sim-model/examples/m4_06_experiment.rs"]
+
+[[experiment]]
+id = "m4_06_failure_atomicity"
+conclusion_id = "M4-DET-MIGRATION-FAILURE-ATOMICITY"
+tier = 1
+report_revision = "392f6064b6a5ac4132722af0dc8941e8d3908d9d"
+report_path_at_revision = "docs/performance/M4_06_MIGRATION.md"
+protocol_source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["invalid-migration-config", "migration-plan-failure"]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["state_before", "state_after", "error_precedence"], comparison = "same error and unchanged state" }
+scope = "Crafted M4-06 migration validation failures."
+harness_paths = ["crates/sim-model/tests/m4_06_migration_tests.rs"]
+
+[[experiment]]
+id = "m4_06_migration_off_a5_gate"
+conclusion_id = "M4-TIM-MIGRATION-OFF-GATE"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m4_06_shuffled_slots"
+conclusion_id = "M4-DET-MIGRATION-SHUFFLED-SLOTS"
+tier = 1
+report_revision = "392f6064b6a5ac4132722af0dc8941e8d3908d9d"
+report_path_at_revision = "docs/performance/M4_06_MIGRATION.md"
+protocol_source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["m3p-migration-canonical-slots", "m3p-migration-permuted-slots"]
+predicate_kind = "exact"
+predicate_parameters = { field = "daily_canonical_outputs", comparison = "exact equality" }
+scope = "Migration execution under canonical and shuffled physical slots."
+harness_paths = ["crates/sim-model/tests/m4_06_migration_tests.rs"]
+
+[[experiment]]
+id = "m4_06_snapshot_v4_resume"
+conclusion_id = "M4-DET-MIGRATION-SNAPSHOT-RESUME"
+tier = 1
+report_revision = "392f6064b6a5ac4132722af0dc8941e8d3908d9d"
+report_path_at_revision = "docs/performance/M4_06_MIGRATION.md"
+protocol_source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["m3p-v4-resume-compaction-boundary"]
+predicate_kind = "exact"
+predicate_parameters = { fields = ["continuation_state", "last_move_day", "graph_csr"], comparison = "exact equality" }
+scope = "M3P migration snapshot v4 resumed across compaction."
+harness_paths = ["crates/sim-model/tests/m4_06_migration_tests.rs"]
+
+[[experiment]]
+id = "m4_07_case_a_search_parallel_speedup"
+conclusion_id = "M4-TIM-CAUSE-SEARCH-PARALLEL"
+tier = 1
+report_revision = "fb0878ba1fa370e178aca3f763d08512c28ee122"
+report_path_at_revision = "docs/performance/M4_07_MANY_BRANCH.md"
+protocol_source = "docs/reports/M4_07_MANY_BRANCH.md#m4-05-case-a-serial-versus-parallel-search"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["case-a-exhaustive-R10-H90"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [4.3], ratio_direction = "serial_search_wall_time / six_thread_parallel_search_wall_time", bands_pct = [0.1, 0.2] }
+scope = "M4-05 case (a), N=2000, candidate set 8, R=10, H=90, caller-owned six-thread pool."
+harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates/sim-model/tests/m4_07_parallel_tests.rs"]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
+
+[[experiment]]
+id = "m4_07_copy_on_write_share"
+conclusion_id = "M4-TIM-COW-SHARE"
+tier = 2
+status = "incomplete"
+
+[[experiment]]
+id = "m4_07_crn_parallel_food0"
+conclusion_id = "M4-TIM-CRN-PARALLEL-FOOD"
+tier = 1
+report_revision = "fb0878ba1fa370e178aca3f763d08512c28ee122"
+report_path_at_revision = "docs/performance/M4_07_MANY_BRANCH.md"
+protocol_source = "docs/reports/M4_07_MANY_BRANCH.md#m4-04-replicate-experiment-serial-versus-parallel"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["food-zero-full-R100-H7-30-90-365"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [5.11], ratio_direction = "serial_wall_time / six_thread_parallel_wall_time", bands_pct = [0.1, 0.2] }
+scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, food=0."
+harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
+
+[[experiment]]
+id = "m4_07_crn_parallel_global_cost"
+conclusion_id = "M4-TIM-CRN-PARALLEL-GLOBAL"
+tier = 1
+report_revision = "fb0878ba1fa370e178aca3f763d08512c28ee122"
+report_path_at_revision = "docs/performance/M4_07_MANY_BRANCH.md"
+protocol_source = "docs/reports/M4_07_MANY_BRANCH.md#m4-04-replicate-experiment-serial-versus-parallel"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["global-cost-plus-1pct-full-R100-H7-30-90-365"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [4.25], ratio_direction = "serial_wall_time / six_thread_parallel_wall_time", bands_pct = [0.1, 0.2] }
+scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, BaseMetabolicCost +1%."
+harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
+
+[[experiment]]
+id = "m4_07_crn_parallel_health001"
+conclusion_id = "M4-TIM-CRN-PARALLEL-HEALTH"
+tier = 1
+report_revision = "fb0878ba1fa370e178aca3f763d08512c28ee122"
+report_path_at_revision = "docs/performance/M4_07_MANY_BRANCH.md"
+protocol_source = "docs/reports/M4_07_MANY_BRANCH.md#m4-04-replicate-experiment-serial-versus-parallel"
+host_id = "ryzen5-9600x-windows-reference"
+status = "complete"
+ordered_cell_ids = ["health-0.01-full-R100-H7-30-90-365"]
+predicate_kind = "ratio_band"
+predicate_parameters = { historical_values = [4.67], ratio_direction = "serial_wall_time / six_thread_parallel_wall_time", bands_pct = [0.1, 0.2] }
+scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, health=0.01."
+harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."

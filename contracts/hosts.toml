@@ -1,0 +1,23 @@
+schema_version = 1
+
+[[host]]
+id = "ryzen5-9600x-windows-reference"
+cpu_model = "AMD Ryzen 5 9600X 6-Core Processor"
+physical_cores = 6
+logical_cores = 12
+ram_bytes = 102663720960
+os_family = "Windows 11 Pro"
+os_build = "10.0.26300"
+rustc = "1.98.1"
+rust_target = "x86_64-pc-windows-msvc"
+reference = true
+
+[host.a5]
+warmups = 2
+samples = 41
+sample_target_seconds = 1.25
+minimum_sample_seconds = 1.0
+max_path_mad_over_median = 0.05
+priority = "High"
+affinity_mask = "0x555"
+pair_order = "alternating"
