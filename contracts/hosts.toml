@@ -1,4 +1,6 @@
 schema_version = 1
+status = "frozen"
+approval_date = "2026-10-26"
 
 [[host]]
 id = "ryzen5-9600x-windows-reference"

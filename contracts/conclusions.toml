@@ -1,6 +1,7 @@
 # Hand-written M0-M4 conclusion registry; verdicts are computed from evidence.
 schema_version = 1
-status = "draft"
+status = "frozen"
+approval_date = "2026-10-26"
 
 [[conclusion]]
 id = "M0-DET-REPLAY"

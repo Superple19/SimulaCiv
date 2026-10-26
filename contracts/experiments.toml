@@ -1,6 +1,7 @@
 # Hand-written M0-M4 experiment protocols; Tier 1 records are complete, Tier 2 records may be incomplete.
 schema_version = 1
-status = "draft"
+status = "frozen"
+approval_date = "2026-10-26"
 
 [[experiment]]
 id = "m0_initialization_invariants"

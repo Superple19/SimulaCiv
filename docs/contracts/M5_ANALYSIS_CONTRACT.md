@@ -1,6 +1,9 @@
 # M5 Analysis Contract
 
-Status: **DRAFT — NOT FROZEN**  
+Status: **FROZEN**
+
+Approval date: **2026-10-26**
+
 Baseline: `v0.5.0-m4`
 
 Research question: **Can the project's research conclusions be reproduced from explicit evidence, and which conclusions survive rechecks?**
@@ -98,3 +101,6 @@ Only these M5-04 transformations may support a “bit-exact after documented nor
 No unlisted normalization can be added during comparison; it requires a reviewed registry amendment first.
 
 The proposed module and recipe migration is in [M5_ANALYSIS_MIGRATION_PLAN.md](M5_ANALYSIS_MIGRATION_PLAN.md); it is a plan, not authorization to move or delete files.
+
+
+Later update (2026-10-26): The former verdict role of `docs/reproducibility/claims.csv.gz` is superseded by this frozen conclusion/evidence model; the ledger remains a navigation reference index.

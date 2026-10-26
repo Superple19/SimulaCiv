@@ -239,3 +239,5 @@ pass_criterion = "Report the first selected frontier meeting median improvement 
 estimate_minutes = 35
 session = 3
 tests = ["m3_propagation_storage_tests", "m3p_propagation_tests"]
+
+# Later update (2026-10-26): This M5-05 conclusions registry is superseded by the frozen contracts/conclusions.toml and contracts/experiments.toml registries. The entries above remain historical source material.

@@ -788,6 +788,17 @@ enforced_by = ["docs/reproducibility/M5_RECOVERED_PRIVATE_REMOTE_DRAFT.md", "doc
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
 date = "2026-10-25"
 
+[[decision]]
+id = "M5-INFRA-ANALYSIS-CONTRACT"
+milestone = "M5"
+stage = "M5-00"
+status = "frozen"
+enforcement = "documented"
+summary = "The M5 analysis contract is frozen, with enforcement remaining documented until the planned verdict function and conclusions-check are implemented."
+enforced_by = ["docs/contracts/M5_ANALYSIS_CONTRACT.md#3-verdicts", "docs/contracts/M5_ANALYSIS_MIGRATION_PLAN.md#planned-gate-targets"]
+doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#16-m5-infrastructure-decision-register-frozen"
+date = "2026-10-26"
+
 [[stage]]
 id = "M0"
 milestone = "M0"
