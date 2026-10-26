@@ -104,3 +104,5 @@ The proposed module and recipe migration is in [M5_ANALYSIS_MIGRATION_PLAN.md](M
 
 
 Later update (2026-10-26): The former verdict role of `docs/reproducibility/claims.csv.gz` is superseded by this frozen conclusion/evidence model; the ledger remains a navigation reference index.
+
+Later update (2026-10-27): the M5-05 conclusion registry is superseded as verdict authority by `contracts/conclusions.toml` and `contracts/evidence.jsonl`; its entries remain historical inputs until their report consumers are retired.

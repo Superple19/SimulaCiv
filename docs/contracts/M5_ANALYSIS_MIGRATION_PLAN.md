@@ -1,6 +1,6 @@
 # M5 Analysis Migration Plan
 
-Status: **APPROVED PLAN — NOT EXECUTED (2026-10-26)**
+Status: **APPROVED PLAN — PHASE 1 IMPLEMENTED; PHASE 2 IN PROGRESS (2026-10-27)**
 Parent: [M5 Analysis Contract](M5_ANALYSIS_CONTRACT.md)
 
 This plan redoes the earlier file triage against the current import/call graph and frozen decision references. It authorizes no file move, rename, deletion, generator edit, or decision-status change. All migration steps, including T3, remain planned work; this document does not claim T3 is implemented.

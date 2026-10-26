@@ -241,3 +241,4 @@ session = 3
 tests = ["m3_propagation_storage_tests", "m3p_propagation_tests"]
 
 # Later update (2026-10-26): This M5-05 conclusions registry is superseded by the frozen contracts/conclusions.toml and contracts/experiments.toml registries. The entries above remain historical source material.
+# Later update (2026-10-27): superseded as verdict authority by contracts/conclusions.toml and contracts/evidence.jsonl; retained as historical provenance for M5-05 report consumers.
