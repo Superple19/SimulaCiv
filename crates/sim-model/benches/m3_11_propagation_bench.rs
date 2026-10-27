@@ -20,6 +20,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
+#[path = "../examples/common/a5.rs"]
+mod a5;
+#[path = "../examples/common/process_controls.rs"]
+mod process_controls;
+
 const M2_40_CONFIG: &str = r#"
 [world]
 master_seed = 81985529216486895
@@ -615,6 +620,379 @@ fn run_cell(population: u64, degree: u32, max_hops: u32, transmit_probability: f
     }
 }
 
+struct PhaseSetup {
+    world: HybridWorldState,
+    context: M3StorageRunContext,
+    prop_config: PropagationConfig,
+    oracle_counts: PropagationDailyCounts,
+    oracle_state: BTreeMap<AgentId, PropagationAgentState>,
+}
+
+impl PhaseSetup {
+    fn new(config: &SimConfig) -> Self {
+        let mut world =
+            HybridWorldState::hybrid(initialize_world(config).expect("world initializes"));
+        let run_context = M0RunContext::new(SEED, REPLICATE);
+        let mut base_config = config.clone();
+        base_config
+            .simulation
+            .as_mut()
+            .expect("systems exist")
+            .systems
+            .propagation = false;
+        base_config.propagation = None;
+        base_config.validate().expect("base config validates");
+        let mut context = M3StorageRunContext::new(&world, &base_config, &run_context)
+            .expect("base context builds");
+        run_m3_storage_days(&mut world, &base_config, &mut context, 1, &options())
+            .expect("base day runs");
+        let storage = world.storage().expect("storage exists");
+        let mut oracle_state = initial_propagation(storage);
+        let (oracle_counts, _) = trace_day_zero_frontiers(
+            storage,
+            context.relationship_graph(),
+            &mut oracle_state,
+            config.propagation.expect("propagation config exists"),
+            0,
+        );
+        Self {
+            world,
+            context,
+            prop_config: config.propagation.expect("propagation config exists"),
+            oracle_counts,
+            oracle_state,
+        }
+    }
+
+    fn run(
+        &self,
+        pool: Option<&rayon::ThreadPool>,
+    ) -> (
+        f64,
+        PropagationDailyCounts,
+        BTreeMap<AgentId, PropagationAgentState>,
+    ) {
+        let storage = self.world.storage().expect("storage exists");
+        let mut state = initial_propagation(storage);
+        let started = Instant::now();
+        let counts = match pool {
+            Some(pool) => apply_phase9c_storage_parallel(
+                storage,
+                self.context.relationship_graph(),
+                &mut state,
+                self.prop_config,
+                SEED,
+                REPLICATE,
+                0,
+                pool,
+                CHUNK_SIZE,
+            ),
+            None => apply_phase9c_storage(
+                storage,
+                self.context.relationship_graph(),
+                &mut state,
+                self.prop_config,
+                SEED,
+                REPLICATE,
+                0,
+            ),
+        };
+        let elapsed_us = started.elapsed().as_secs_f64() * 1_000_000.0;
+        let counts = counts.expect("Phase 9c succeeds");
+        assert_eq!(
+            counts, self.oracle_counts,
+            "Phase 9c counts match the serial oracle"
+        );
+        assert_eq!(
+            state, self.oracle_state,
+            "Phase 9c state matches the serial oracle"
+        );
+        (elapsed_us, counts, state)
+    }
+}
+
+fn controls_record() -> (bool, bool) {
+    let status = process_controls::apply_high_priority_affinity();
+    if cfg!(windows) {
+        assert!(
+            status.priority_set && status.affinity_set,
+            "A-5 process controls failed"
+        );
+    }
+    (status.priority_set, status.affinity_set)
+}
+
+fn a5_record(
+    cell: &str,
+    config_hash: &str,
+    paths: &[&str],
+    series: &a5::Series,
+    controls: (bool, bool),
+) -> String {
+    let records = (0..a5::SAMPLES)
+        .map(|sample| {
+            let values = paths
+                .iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    format!(
+                        "\"{name}_us_per_call\":{:.9}",
+                        series.path_samples_us[index][sample]
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "{{{values},\"timed_pair_elapsed_ns\":{:.0}}}",
+                series.sample_seconds[sample] * 1_000_000_000.0
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let spreads = paths
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            format!(
+                "\"{name}\":{:.9}",
+                a5::mad_over_median(&series.path_samples_us[index])
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let repetitions = series.repetitions_per_path.first().copied().unwrap_or(1);
+    let recalibrations = a5::recalibrations_json(series);
+    format!(
+        "{{\"kind\":\"series\",\"cell_id\":\"{cell}\",\"complete\":true,\"smoke\":false,\"config_hash\":\"{config_hash}\",\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{{\"warmups\":{},\"samples\":{},\"repetitions_per_sample\":{repetitions},\"sample_records\":[{records}],\"path_mad_over_median\":{{{spreads}}},\"recalibrations\":{recalibrations}}}}}",
+        controls.0,
+        controls.1,
+        a5::WARMUPS,
+        a5::SAMPLES
+    )
+}
+
+fn append_record(path: &std::path::Path, record: &str) {
+    use std::io::Write;
+    let mut output = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .expect("open A-5 JSONL");
+    writeln!(output, "{record}").expect("append A-5 record");
+    output.flush().expect("flush A-5 record");
+}
+
+fn a5_phase9c(
+    population: u64,
+    smoke: bool,
+    controls: (bool, bool),
+) -> (String, String, a5::Series, (bool, bool)) {
+    let config = config(population, 16, 16, 0.2);
+    let setup = PhaseSetup::new(&config);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(6)
+        .build()
+        .expect("six-thread pool builds");
+    let id = format!("N{population}-k16-hops16-transmit0.2-pool6-day0");
+    if smoke {
+        let (_, _, serial_state) = setup.run(None);
+        let (_, _, parallel_state) = setup.run(Some(&pool));
+        assert_eq!(serial_state, parallel_state, "Phase 9c smoke parity");
+        return (
+            id,
+            "smoke".into(),
+            a5::Series {
+                repetitions_per_path: vec![1],
+                sample_seconds: vec![],
+                path_samples_us: vec![],
+                recalibrations: vec![],
+            },
+            controls,
+        );
+    }
+    let series = a5::paired_series(2, |sample, repeat| {
+        let (serial_us, _, serial_state, parallel_us, _, parallel_state) =
+            if (sample + repeat) % 2 == 0 {
+                let serial = setup.run(None);
+                let parallel = setup.run(Some(&pool));
+                (
+                    serial.0, serial.1, serial.2, parallel.0, parallel.1, parallel.2,
+                )
+            } else {
+                let parallel = setup.run(Some(&pool));
+                let serial = setup.run(None);
+                (
+                    serial.0, serial.1, serial.2, parallel.0, parallel.1, parallel.2,
+                )
+            };
+        assert_eq!(serial_state, parallel_state, "Phase 9c paired parity");
+        (
+            vec![serial_us, parallel_us],
+            (serial_us + parallel_us) / 1_000_000.0,
+        )
+    });
+    let hash = a5::config_hash(&format!(
+        "{id}|seed={SEED}|replicate={REPLICATE}|K={}|phase=9c|pool=6|chunk=256|timer=apply_phase9c_storage",
+        population / 200
+    ));
+    (id, hash, series, controls)
+}
+
+fn a5_tick(
+    cell: &str,
+    population: u64,
+    interleaved: bool,
+    smoke: bool,
+    controls: (bool, bool),
+) -> (String, String, a5::Series, (bool, bool)) {
+    let config = config(population, 16, 16, 0.2);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(6)
+        .build()
+        .expect("six-thread pool builds");
+    let series = if interleaved {
+        if smoke {
+            let mut serial = TimedRun::new(&config);
+            let mut parallel = TimedRun::new(&config);
+            let (_, serial_trace) = serial.advance(&config, None);
+            let (_, parallel_trace) = parallel.advance(&config, Some(&pool));
+            assert_trace_equal(&serial_trace, &parallel_trace);
+            return (
+                cell.into(),
+                "smoke".into(),
+                a5::Series {
+                    repetitions_per_path: vec![1],
+                    sample_seconds: vec![],
+                    path_samples_us: vec![],
+                    recalibrations: vec![],
+                },
+                controls,
+            );
+        }
+        a5::paired_series(2, |sample, repeat| {
+            let order = (sample + repeat) % 2;
+            let (serial_us, serial_trace, parallel_us, parallel_trace) = if order == 0 {
+                let mut serial = TimedRun::new(&config);
+                let serial = serial.advance(&config, None);
+                let mut parallel = TimedRun::new(&config);
+                let parallel = parallel.advance(&config, Some(&pool));
+                (serial.0, serial.1, parallel.0, parallel.1)
+            } else {
+                let mut parallel = TimedRun::new(&config);
+                let parallel = parallel.advance(&config, Some(&pool));
+                let mut serial = TimedRun::new(&config);
+                let serial = serial.advance(&config, None);
+                (serial.0, serial.1, parallel.0, parallel.1)
+            };
+            assert_trace_equal(&serial_trace, &parallel_trace);
+            (
+                vec![serial_us, parallel_us],
+                (serial_us + parallel_us) / 1_000_000.0,
+            )
+        })
+    } else {
+        if smoke {
+            let mut serial = TimedRun::new(&config);
+            let mut parallel = TimedRun::new(&config);
+            let (_, serial_trace) = serial.advance(&config, None);
+            let (_, parallel_trace) = parallel.advance(&config, Some(&pool));
+            assert_trace_equal(&serial_trace, &parallel_trace);
+            return (
+                cell.into(),
+                "smoke".into(),
+                a5::Series {
+                    repetitions_per_path: vec![1],
+                    sample_seconds: vec![],
+                    path_samples_us: vec![],
+                    recalibrations: vec![],
+                },
+                (true, true),
+            );
+        }
+        let mut oracle = TimedRun::new(&config);
+        let (_, expected) = oracle.advance(&config, None);
+        a5::noninterleaved_series(2, |path, _, _| {
+            let mut run = TimedRun::new(&config);
+            let (elapsed, trace) = run.advance(&config, if path == 0 { None } else { Some(&pool) });
+            assert_trace_equal(&expected, &trace);
+            (elapsed, elapsed / 1_000_000.0)
+        })
+    };
+    let hash = a5::config_hash(&format!(
+        "{cell}|seed={SEED}|replicate={REPLICATE}|N={population}|K={}|k=16|hops=16|tx=0.2|threads=6|days=3|metrics=events=true|timer=public storage API",
+        population / 200
+    ));
+    (cell.into(), hash, series, controls)
+}
+
+fn run_a5(output: &std::path::Path) {
+    let controls = controls_record();
+    let cells = [
+        ("N100000-k16-hops16-transmit0.2-pool6-day0", 100_000, true),
+        ("large-frontier-interleaved-pool6", 100_000, true),
+        ("large-frontier-noninterleaved-pool6", 100_000, false),
+    ];
+    for (cell, population, _) in cells {
+        let existing = std::fs::read_to_string(output).unwrap_or_default();
+        let hash_scope = if cell.starts_with("N") {
+            format!(
+                "{cell}|seed={SEED}|replicate={REPLICATE}|K={}|phase=9c|pool=6|chunk=256|timer=apply_phase9c_storage",
+                population / 200
+            )
+        } else {
+            format!(
+                "{cell}|seed={SEED}|replicate={REPLICATE}|N={population}|K={}|k=16|hops=16|tx=0.2|threads=6|days=3|metrics=events=true|timer=public storage API",
+                population / 200
+            )
+        };
+        let expected_hash = a5::config_hash(&hash_scope);
+        if let Some(line) = existing
+            .lines()
+            .find(|line| line.contains(&format!("\"cell_id\":\"{cell}\"")))
+        {
+            assert!(
+                line.contains(&format!("\"config_hash\":\"{expected_hash}\"")),
+                "existing A-5 cell has a stale config hash: {cell}"
+            );
+            println!("A5_SKIP|cell={cell}");
+            continue;
+        }
+        let result = match cell {
+            "N100000-k16-hops16-transmit0.2-pool6-day0" => a5_phase9c(population, false, controls),
+            "large-frontier-interleaved-pool6" => a5_tick(cell, population, true, false, controls),
+            _ => a5_tick(cell, population, false, false, controls),
+        };
+        append_record(
+            output,
+            &a5_record(
+                &result.0,
+                &result.1,
+                &["serial", "rayon"],
+                &result.2,
+                result.3,
+            ),
+        );
+        println!("A5_CELL_COMPLETE|cell={cell}");
+    }
+}
+
+fn a5_smoke(cell: &str) {
+    let controls = controls_record();
+    match cell {
+        "N100000-k16-hops16-transmit0.2-pool6-day0" => {
+            let _ = a5_phase9c(2_000, true, controls);
+        }
+        "large-frontier-interleaved-pool6" => {
+            let _ = a5_tick(cell, 2_000, true, true, controls);
+        }
+        "large-frontier-noninterleaved-pool6" => {
+            let _ = a5_tick(cell, 2_000, false, true, controls);
+        }
+        _ => panic!("unknown M3-11 A-5 cell {cell}"),
+    }
+    println!("A5_SMOKE_OK|cell={cell}|parity=true|timing_recorded=false");
+}
+
 fn golden_frontiers() {
     let config = SimConfig::parse_and_validate(GOLDEN_CONFIG).expect("golden config validates");
     let world = initialize_world(&config).expect("golden world initializes");
@@ -637,6 +1015,19 @@ fn golden_frontiers() {
 }
 
 fn main() {
+    let args = std::env::args().collect::<Vec<_>>();
+    if args.get(1).map(String::as_str) == Some("--a5") {
+        let output = args
+            .get(2)
+            .map(std::path::PathBuf::from)
+            .expect("--a5 needs JSONL output path");
+        run_a5(&output);
+        return;
+    }
+    if args.get(1).map(String::as_str) == Some("--a5-smoke") {
+        a5_smoke(args.get(2).expect("--a5-smoke needs a cell id"));
+        return;
+    }
     println!(
         "HOST|os={}|arch={}|logical_threads={}|warmups={WARMUPS}|samples={SAMPLES}|days_per_sample={SAMPLE_DAYS}|p_local=0.5|chunk={}",
         std::env::consts::OS,

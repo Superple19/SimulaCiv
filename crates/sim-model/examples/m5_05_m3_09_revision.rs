@@ -14,6 +14,9 @@ use std::io::{self, BufRead, BufWriter, Write};
 use std::path::PathBuf;
 use std::time::Instant;
 
+#[path = "common/a5.rs"]
+mod a5;
+
 const N: i64 = 100_000;
 const K: i64 = 500;
 const DEGREE: i64 = 8;
@@ -104,11 +107,7 @@ fn parse_config(profile: &str, initial_population: i64, settlement_count: i64) -
     SimConfig::parse_and_validate(&serialized).expect("frozen diagnosis config validates")
 }
 
-fn make_checkpoint(config: &SimConfig) -> M3pReferenceState {
-    let checkpoint_cursor = std::env::var("SIMCIV_M5_05_CHECKPOINT_CURSOR")
-        .ok()
-        .map(|value| value.parse::<u32>().expect("checkpoint cursor is a u32"))
-        .unwrap_or(400);
+fn make_checkpoint(config: &SimConfig, checkpoint_cursor: u32) -> M3pReferenceState {
     let world = initialize_world(config).expect("M3P world initializes");
     let mut hybrid = HybridWorldState::hybrid(world);
     let run_context = M0RunContext::new(SEED, REPLICATE);
@@ -142,26 +141,14 @@ fn make_checkpoint(config: &SimConfig) -> M3pReferenceState {
     state
 }
 
-fn prepare() -> Prepared {
-    let initial_population = std::env::var("SIMCIV_M5_05_N")
-        .ok()
-        .map(|value| value.parse::<i64>().expect("population is an i64"))
-        .unwrap_or(N);
-    let settlement_count = std::env::var("SIMCIV_M5_05_K")
-        .ok()
-        .map(|value| value.parse::<i64>().expect("settlement count is an i64"))
-        .unwrap_or(K);
+fn prepare_for(initial_population: i64, settlement_count: i64, checkpoint_cursor: u32) -> Prepared {
     let m3p_config = parse_config("m3p", initial_population, settlement_count);
-    let reference = make_checkpoint(&m3p_config);
+    let reference = make_checkpoint(&m3p_config, checkpoint_cursor);
     let mut m3_world = reference.world().clone();
     m3_world.agents.retain(|agent| agent.alive);
     let live_population = m3_world.agents.len() as u64;
     let m3_config = parse_config("m3", live_population as i64, settlement_count);
 
-    let checkpoint_cursor = std::env::var("SIMCIV_M5_05_CHECKPOINT_CURSOR")
-        .ok()
-        .map(|value| value.parse::<u32>().expect("checkpoint cursor is a u32"))
-        .unwrap_or(400);
     let checkpoint_scope = if checkpoint_cursor == 400 && initial_population == N {
         format!("checkpoint_day=400;days={DAYS}")
     } else {
@@ -196,6 +183,22 @@ fn prepare() -> Prepared {
         live_population,
         config_sha256,
     }
+}
+
+fn prepare() -> Prepared {
+    let initial_population = std::env::var("SIMCIV_M5_05_N")
+        .ok()
+        .map(|value| value.parse::<i64>().expect("population is an i64"))
+        .unwrap_or(N);
+    let settlement_count = std::env::var("SIMCIV_M5_05_K")
+        .ok()
+        .map(|value| value.parse::<i64>().expect("settlement count is an i64"))
+        .unwrap_or(K);
+    let checkpoint_cursor = std::env::var("SIMCIV_M5_05_CHECKPOINT_CURSOR")
+        .ok()
+        .map(|value| value.parse::<u32>().expect("checkpoint cursor is a u32"))
+        .unwrap_or(400);
+    prepare_for(initial_population, settlement_count, checkpoint_cursor)
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -354,6 +357,22 @@ fn validate_m3p_call(prepared: &Prepared) -> f64 {
     started.elapsed().as_secs_f64() * 1_000_000.0
 }
 
+fn run_path(prepared: &Prepared, path: usize) -> (f64, Digests) {
+    let (elapsed, digests) = match path {
+        0 => run_m3p(&prepared.m3p_config, &prepared.reference, false),
+        1 => run_m3p(&prepared.m3p_config, &prepared.reference, true),
+        2 => run_m3(&prepared.m3_config, &prepared.m3_world),
+        _ => panic!("unknown equal-live path {path}"),
+    };
+    let expected = if path < 2 {
+        &prepared.expected_m3p
+    } else {
+        &prepared.expected_m3
+    };
+    assert_eq!(digests, *expected, "equal-live runner repeat digest");
+    (elapsed, digests)
+}
+
 fn pair_once(prepared: &Prepared, rotation: usize) -> ([f64; 3], f64) {
     let started = Instant::now();
     let order = match rotation % 3 {
@@ -363,20 +382,187 @@ fn pair_once(prepared: &Prepared, rotation: usize) -> ([f64; 3], f64) {
     };
     let mut timings = [0.0; 3];
     for path in order {
-        let (elapsed, digests) = match path {
-            0 => run_m3p(&prepared.m3p_config, &prepared.reference, false),
-            1 => run_m3p(&prepared.m3p_config, &prepared.reference, true),
-            _ => run_m3(&prepared.m3_config, &prepared.m3_world),
-        };
-        let expected = if path < 2 {
-            &prepared.expected_m3p
-        } else {
-            &prepared.expected_m3
-        };
-        assert_eq!(digests, *expected, "equal-live runner repeat digest");
+        let (elapsed, _) = run_path(prepared, path);
         timings[path] = elapsed;
     }
     (timings, started.elapsed().as_secs_f64() * 1_000_000.0)
+}
+
+fn m3_09_cells() -> [&'static str; 4] {
+    [
+        "N10k-paired",
+        "N10k-noninterleaved",
+        "N100k-paired",
+        "N100k-noninterleaved",
+    ]
+}
+
+fn cell_config(cell: &str, smoke: bool) -> (i64, i64, bool, u32) {
+    if smoke {
+        return (300, 3, cell.contains("paired"), 4);
+    }
+    let population = if cell.starts_with("N10k-") {
+        10_000
+    } else if cell.starts_with("N100k-") {
+        100_000
+    } else {
+        panic!("unknown M3-09 cell {cell}")
+    };
+    let paired = cell.ends_with("-paired");
+    let noninterleaved = cell.ends_with("-noninterleaved");
+    assert!(paired ^ noninterleaved, "cell schedule is explicit");
+    (population, population / 200, paired, 400)
+}
+
+fn m3_09_config_hash(
+    cell: &str,
+    population: i64,
+    settlement_count: i64,
+    paired: bool,
+    cursor: u32,
+) -> String {
+    a5::config_hash(&format!(
+        "{cell}|N={population}|K={settlement_count}|k={DEGREE}|p_local={LOCALITY}|seed={SEED}|replicate={REPLICATE}|checkpoint_cursor={cursor}|days={DAYS}|metrics=true|events=true|snapshots=false|schedule={}",
+        if paired {
+            "paired-rotation-m3p-serial-incremental-m3"
+        } else {
+            "noninterleaved-m3p-serial-then-incremental-then-m3"
+        }
+    ))
+}
+
+fn a5_controls() -> (bool, bool) {
+    let status = process_controls::apply_high_priority_affinity();
+    if cfg!(windows) {
+        assert!(
+            status.priority_set && status.affinity_set,
+            "A-5 priority/affinity setup failed"
+        );
+    }
+    (status.priority_set, status.affinity_set)
+}
+
+fn a5_record(
+    cell: &str,
+    config_hash: &str,
+    paired: bool,
+    series: &a5::Series,
+    controls: (bool, bool),
+) -> String {
+    let samples = (0..a5::SAMPLES).map(|sample| {
+        format!(
+            "{{\"serial_us_per_call\":{:.9},\"rayon_us_per_call\":{:.9},\"m3p_serial_us_per_call\":{:.9},\"timed_pair_elapsed_ns\":{:.0}}}",
+            series.path_samples_us[1][sample],
+            series.path_samples_us[2][sample],
+            series.path_samples_us[0][sample],
+            series.sample_seconds[sample] * 1_000_000_000.0,
+        )
+    }).collect::<Vec<_>>().join(",");
+    let repetitions = series.repetitions_per_path.first().copied().unwrap_or(1);
+    let recalibrations = a5::recalibrations_json(series);
+    let series_json = format!(
+        "{{\"warmups\":{},\"samples\":{},\"repetitions_per_sample\":{repetitions},\"sample_records\":[{samples}],\"sample_seconds\":{},\"path_mad_over_median\":{{\"serial\":{:.9},\"rayon\":{:.9}}},\"recalibrations\":{recalibrations}}}",
+        a5::WARMUPS,
+        a5::SAMPLES,
+        a5::json_numbers(&series.sample_seconds),
+        a5::mad_over_median(&series.path_samples_us[1]),
+        a5::mad_over_median(&series.path_samples_us[2]),
+    );
+    format!(
+        "{{\"kind\":\"series\",\"cell_id\":\"{cell}\",\"complete\":true,\"smoke\":false,\"config_hash\":\"{config_hash}\",\"schedule\":\"{}\",\"paths\":[\"m3p_serial\",\"m3p_incremental\",\"m3\"],\"ratio_mapping\":\"m3p_incremental/m3\",\"parity_asserted\":true,\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{series_json}}}",
+        if paired {
+            "paired-rotation"
+        } else {
+            "noninterleaved"
+        },
+        controls.0,
+        controls.1,
+    )
+}
+
+fn append_a5(path: &std::path::Path, record: &str) {
+    let mut output = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .expect("open A-5 raw JSONL");
+    writeln!(output, "{record}").expect("append A-5 cell series");
+    output.flush().expect("flush A-5 cell series");
+}
+
+fn run_a5_cell(cell: &str, output: &std::path::Path, smoke: bool) {
+    let (population, settlements, paired, cursor) = cell_config(cell, smoke);
+    let config_hash = m3_09_config_hash(cell, population, settlements, paired, cursor);
+    if !smoke {
+        let existing = std::fs::read_to_string(output).unwrap_or_default();
+        if let Some(line) = existing
+            .lines()
+            .find(|line| line.contains(&format!("\"cell_id\":\"{cell}\"")))
+        {
+            assert!(
+                line.contains(&format!("\"config_hash\":\"{config_hash}\"")),
+                "existing M3-09 cell has a stale config hash: {cell}"
+            );
+            println!("A5_SKIP|cell={cell}");
+            return;
+        }
+    }
+    let controls = a5_controls();
+    let prepared = prepare_for(population, settlements, cursor);
+    if smoke {
+        let expected = if paired {
+            let (times, _) = pair_once(&prepared, 0);
+            times
+        } else {
+            [
+                run_path(&prepared, 0).0,
+                run_path(&prepared, 1).0,
+                run_path(&prepared, 2).0,
+            ]
+        };
+        assert!(expected.iter().all(|value| *value > 0.0));
+        println!("A5_SMOKE_OK|cell={cell}|parity=true|timing_recorded=false");
+        return;
+    }
+    let series = if paired {
+        a5::paired_series(3, |sample, repeat| {
+            let (values, _) = pair_once(&prepared, sample + repeat);
+            let paths = values.to_vec();
+            (paths.clone(), paths.iter().sum::<f64>() / 1_000_000.0)
+        })
+    } else {
+        a5::noninterleaved_series(3, |path, _, _| {
+            let (elapsed, _) = run_path(&prepared, path);
+            (elapsed, elapsed / 1_000_000.0)
+        })
+    };
+    let record = a5_record(cell, &config_hash, paired, &series, controls);
+    append_a5(output, &record);
+    println!("A5_CELL_COMPLETE|cell={cell}");
+}
+
+fn a5_cli(args: &[String]) -> bool {
+    match args.get(1).map(String::as_str) {
+        Some("--a5-cell") => {
+            let cell = args.get(2).expect("--a5-cell needs a cell id");
+            let output = PathBuf::from(args.get(3).expect("--a5-cell needs a JSONL path"));
+            run_a5_cell(cell, &output, false);
+            true
+        }
+        Some("--a5-all") => {
+            let output = PathBuf::from(args.get(2).expect("--a5-all needs a JSONL path"));
+            for cell in m3_09_cells() {
+                run_a5_cell(cell, &output, false);
+            }
+            true
+        }
+        Some("--a5-smoke") => {
+            let cell = args.get(2).expect("--a5-smoke needs a cell id");
+            run_a5_cell(cell, std::path::Path::new(""), true);
+            true
+        }
+        _ => false,
+    }
 }
 
 fn reply(writer: &mut BufWriter<io::StdoutLock<'_>>, value: &str) {
@@ -479,6 +665,10 @@ fn server() {
 }
 
 fn main() {
-    assert_eq!(std::env::args().nth(1).as_deref(), Some("--server"));
+    let args = std::env::args().collect::<Vec<_>>();
+    if a5_cli(&args) {
+        return;
+    }
+    assert_eq!(args.get(1).map(String::as_str), Some("--server"));
     server();
 }
