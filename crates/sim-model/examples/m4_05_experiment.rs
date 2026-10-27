@@ -8,10 +8,11 @@ use sim_model::{
     AgentField, AgentFieldValue, BranchInterventionBatchRequest, ConfigParameter, ConfigValue,
     CrnOutcome, EffectComparison, IdentifiedIntervention, MinimalCausePredicate,
     MinimalCauseRequest, MinimalCauseResult, SimConfig, SimulationProfile,
-    build_agent_field_candidates, build_config_candidates, search_minimal_cause,
+    build_agent_field_candidates, build_config_candidates, evaluate_subset, search_minimal_cause,
 };
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -21,6 +22,14 @@ const HORIZON: u32 = 90;
 const REPLICATES: usize = 10;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let enumerate_size4 = args.iter().any(|arg| arg == "--enumerate-size4");
+    let enumeration_output = args
+        .iter()
+        .position(|arg| arg == "--output")
+        .and_then(|index| args.get(index + 1))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("target/m4_05_case_a_size4.jsonl"));
     let mut config = SimConfig::parse_and_validate(include_str!(
         "../tests/fixtures/m3p_propagation_sustained.toml"
     ))?;
@@ -134,6 +143,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         threshold: -5.0,
     };
 
+    if enumerate_size4 {
+        let request = MinimalCauseRequest {
+            batch: batch_template.clone(),
+            candidates: health8,
+            predicate: target_predicate,
+            replicate_ids: (1..=REPLICATES as u32).collect(),
+            exploratory_single_replicate: false,
+            max_branch_evaluations: 100_000,
+            max_wall_time: Duration::from_secs(21_600),
+            evaluation_log_path: PathBuf::from("target/m4_05_enumeration_unused.jsonl"),
+        };
+        return enumerate_size_four(&request, &enumeration_output);
+    }
+
     let case_a = run_case(
         "a_health8",
         &batch_template,
@@ -167,6 +190,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .cloned()
         .collect::<Vec<_>>();
     println!("OVERLAP|a_b={}", overlap.join(","));
+    Ok(())
+}
+
+fn enumerate_size_four(
+    request: &MinimalCauseRequest,
+    output: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(request.candidates.len(), 8, "case (a) has eight candidates");
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut writer = BufWriter::new(fs::File::create(output)?);
+    writeln!(
+        writer,
+        "{{\"record\":\"header\",\"case\":\"a\",\"candidate_count\":8,\"subset_size\":4,\"replicate_ids\":[1,2,3,4,5,6,7,8,9,10]}}"
+    )?;
+    let ids = request
+        .candidates
+        .iter()
+        .map(|candidate| candidate.id.clone())
+        .collect::<Vec<_>>();
+    let mut evaluated = 0_usize;
+    let mut satisfying = 0_usize;
+    for a in 0..ids.len() - 3 {
+        for b in a + 1..ids.len() - 2 {
+            for c in b + 1..ids.len() - 1 {
+                for d in c + 1..ids.len() {
+                    let subset = [&ids[a], &ids[b], &ids[c], &ids[d]]
+                        .into_iter()
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    let result = evaluate_subset(request, &subset)?;
+                    evaluated += 1;
+                    satisfying += usize::from(result.predicate_value);
+                    writeln!(writer, "{}", serde_json::to_string(&result)?)?;
+                    writer.flush()?;
+                }
+            }
+        }
+    }
+    assert_eq!(evaluated, 70, "C(8, 4) subsets are evaluated");
+    assert_eq!(satisfying, 15, "report addendum records fifteen minima");
+    println!("ENUMERATION|case=a|subset_size=4|evaluated={evaluated}|satisfying={satisfying}");
     Ok(())
 }
 
