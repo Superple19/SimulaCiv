@@ -526,14 +526,15 @@ fn run_a5_cell(cell: &str, output: &std::path::Path, smoke: bool) {
     }
     let series = if paired {
         a5::paired_series(3, |sample, repeat| {
-            let (values, _) = pair_once(&prepared, sample + repeat);
+            let (values, wall_us) = pair_once(&prepared, sample + repeat);
             let paths = values.to_vec();
-            (paths.clone(), paths.iter().sum::<f64>() / 1_000_000.0)
+            (paths, wall_us / 1_000_000.0)
         })
     } else {
         a5::noninterleaved_series(3, |path, _, _| {
+            let started = Instant::now();
             let (elapsed, _) = run_path(&prepared, path);
-            (elapsed, elapsed / 1_000_000.0)
+            (elapsed, started.elapsed().as_secs_f64())
         })
     };
     let record = a5_record(cell, &config_hash, paired, &series, controls);

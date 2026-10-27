@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::time::Instant;
+
 pub const WARMUPS: usize = 2;
 pub const SAMPLES: usize = 41;
 pub const TARGET_SECONDS: f64 = 1.25;
@@ -96,16 +98,16 @@ where
         let mut sample_seconds = Vec::with_capacity(SAMPLES);
         let mut failed = false;
         for sample in 0..SAMPLES {
+            let started = Instant::now();
             let mut sums = vec![0.0; path_count];
-            let mut seconds = 0.0;
             for repeat in 0..reps[0] {
-                let (paths, elapsed_seconds) = operation(sample, repeat);
+                let (paths, _) = operation(sample, repeat);
                 assert_eq!(paths.len(), path_count, "A-5 operation path count");
                 for (sum, value) in sums.iter_mut().zip(paths) {
                     *sum += value;
                 }
-                seconds += elapsed_seconds;
             }
+            let seconds = started.elapsed().as_secs_f64();
             if seconds < FLOOR_SECONDS {
                 failed = true;
                 break;
@@ -164,13 +166,13 @@ where
         let mut failed = false;
         for path in 0..path_count {
             for (sample, seconds_slot) in path_seconds[path].iter_mut().enumerate() {
+                let started = Instant::now();
                 let mut sum = 0.0;
-                let mut seconds = 0.0;
                 for repeat in 0..reps[0] {
-                    let (value, elapsed_seconds) = operation(path, sample, repeat);
+                    let (value, _) = operation(path, sample, repeat);
                     sum += value;
-                    seconds += elapsed_seconds;
                 }
+                let seconds = started.elapsed().as_secs_f64();
                 *seconds_slot = seconds;
                 path_samples[path].push(sum / reps[0] as f64);
             }

@@ -811,6 +811,7 @@ fn a5_phase9c(
         );
     }
     let series = a5::paired_series(2, |sample, repeat| {
+        let started = Instant::now();
         let (serial_us, _, serial_state, parallel_us, _, parallel_state) =
             if (sample + repeat) % 2 == 0 {
                 let serial = setup.run(None);
@@ -828,7 +829,7 @@ fn a5_phase9c(
         assert_eq!(serial_state, parallel_state, "Phase 9c paired parity");
         (
             vec![serial_us, parallel_us],
-            (serial_us + parallel_us) / 1_000_000.0,
+            started.elapsed().as_secs_f64(),
         )
     });
     let hash = a5::config_hash(&format!(
@@ -870,6 +871,7 @@ fn a5_tick(
             );
         }
         a5::paired_series(2, |sample, repeat| {
+            let started = Instant::now();
             let order = (sample + repeat) % 2;
             let (serial_us, serial_trace, parallel_us, parallel_trace) = if order == 0 {
                 let mut serial = TimedRun::new(&config);
@@ -887,7 +889,7 @@ fn a5_tick(
             assert_trace_equal(&serial_trace, &parallel_trace);
             (
                 vec![serial_us, parallel_us],
-                (serial_us + parallel_us) / 1_000_000.0,
+                started.elapsed().as_secs_f64(),
             )
         })
     } else {
@@ -912,10 +914,11 @@ fn a5_tick(
         let mut oracle = TimedRun::new(&config);
         let (_, expected) = oracle.advance(&config, None);
         a5::noninterleaved_series(2, |path, _, _| {
+            let started = Instant::now();
             let mut run = TimedRun::new(&config);
             let (elapsed, trace) = run.advance(&config, if path == 0 { None } else { Some(&pool) });
             assert_trace_equal(&expected, &trace);
-            (elapsed, elapsed / 1_000_000.0)
+            (elapsed, started.elapsed().as_secs_f64())
         })
     };
     let hash = a5::config_hash(&format!(
