@@ -144,6 +144,9 @@ a5-tonight-prepare: analysis-sync
 a5-tonight-run GROUP: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.a5_tonight run {{GROUP}}
 
+a5-tonight-summarize GROUP: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_tonight summarize {{GROUP}}
+
 a5-tonight-ingest GROUP: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.a5_tonight ingest {{GROUP}}
 

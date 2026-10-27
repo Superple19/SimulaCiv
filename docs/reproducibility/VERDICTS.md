@@ -102,9 +102,9 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | not reproduced | N100k-noninterleaved | not reproduced | m5-08-20261027T142128Z-m3_09_incremental_equal_live-report |
 | `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | inconclusive | m3p-sustained-N10000-days100-1000 | unverified | — |
 | `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | inconclusive | m3p-sustained-ci-N1000-days100-1000 | reproduced | m5-07-report-m3-det-m3p-sustained-ci-gate |
-| `M3-TIM-PROP-PHASE9C` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | needs-decision | N100000-k16-hops16-transmit0.2-pool6-day0 | needs-decision | — |
-| `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | needs-decision | large-frontier-interleaved-pool6 | needs-decision | — |
-| `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | needs-decision | large-frontier-noninterleaved-pool6 | needs-decision | — |
+| `M3-TIM-PROP-PHASE9C` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | reproduced | N100000-k16-hops16-transmit0.2-pool6-day0 | reproduced | m5-08-20261027T170707Z-m3_11_phase9c_speedup-report, m5-08-20261027T170707Z-m3_11_phase9c_speedup-report-supersession |
+| `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | reproduced | large-frontier-interleaved-pool6 | reproduced | m5-08-20261027T170708Z-m3_11_whole_tick_speedup-report, m5-08-20261027T170708Z-m3_11_whole_tick_speedup-report-supersession |
+| `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | reproduced | large-frontier-noninterleaved-pool6 | reproduced | m5-08-20261027T170708Z-m3_11_whole_tick_speedup-report, m5-08-20261027T170708Z-m3_11_whole_tick_speedup-report-supersession |
 | `M3-TIM-PROP-FRONTIER-CROSSOVER` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | — | unverified | — |
 | `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | reproduced | m3-noop-H3 | reproduced | m5-06-report-m4-det-branch-identity-h3 |
 | `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | reproduced | m3p-noop-H3 | reproduced | m5-06-report-m4-det-branch-identity-h3 |

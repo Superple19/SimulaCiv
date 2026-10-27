@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .a5_evidence import (
+    EVIDENCE,
     append_evidence,
     build_evidence_record,
     build_run_manifest,
@@ -84,6 +85,11 @@ def _exceeds_invalid_limit(invalid_count: int, expected_count: int) -> bool:
     return expected_count > 0 and invalid_count / expected_count > 0.10
 
 
+def _completed_protocol_cells(status: dict[str, Any], expected: list[str]) -> list[str]:
+    completed = set(status.get("completed_cells", []))
+    return [cell for cell in expected if cell in completed]
+
+
 def _available_protocol_ids(preflight: dict[str, Any]) -> set[str]:
     return {
         protocol_id
@@ -114,6 +120,18 @@ def _overlay_failure_record(
             for cell_id in protocol["ordered_cell_ids"]
         ],
     }
+
+
+def _ingest_record_id(record: dict[str, Any], existing: list[dict[str, Any]]) -> str:
+    identifier = str(record["id"])
+    by_id = {str(item.get("id", "")): item for item in existing}
+    if identifier not in by_id:
+        return identifier
+    if record.get("supersedes") and not by_id[identifier].get("supersedes"):
+        correction = f"{identifier}-supersession"
+        if correction not in by_id:
+            return correction
+    raise ValueError(f"evidence id already exists: {identifier}")
 
 
 def _git(root: Path, *args: str) -> str:
@@ -483,7 +501,8 @@ def _build_protocol_summary(group_id: str, protocol_id: str, status: dict[str, A
     raw_exists = raw_path.is_file()
     raw_digest = _sha256(raw_path.read_bytes()) if raw_exists else None
     expected = protocol["ordered_cell_ids"]
-    completed = status.get("complete") is True and all(cell in status.get("completed_cells", []) for cell in expected)
+    completed_cells = _completed_protocol_cells(status, expected)
+    completed = status.get("complete") is True and completed_cells == expected
     cells: list[dict[str, Any]] = []
     if completed:
         record = build_evidence_record(manifest, raw_path, protocol, root=ROOT, manifest_path=manifest_path)
@@ -520,7 +539,7 @@ def _build_protocol_summary(group_id: str, protocol_id: str, status: dict[str, A
         "raw_path": raw_path.relative_to(ROOT).as_posix(),
         "raw_sha256": raw_digest,
         "expected_cells": expected,
-        "completed_cells": status.get("completed_cells", []),
+        "completed_cells": completed_cells,
         "validity_failures": invalid_cells,
         "recalibrations": {row["cell_id"]: row["recalibrations"] for row in cells},
         "cells": cells,
@@ -540,6 +559,10 @@ def _run_group(group_id: str) -> None:
     _freeze_stage(stage_name)
     status = _read_status(group_id)
     status["orchestrator_wall_seconds"] = elapsed
+    _write_group_summaries(group_id, status)
+
+
+def _write_group_summaries(group_id: str, status: dict[str, Any]) -> None:
     for protocol_id in GROUPS[group_id]["protocols"]:
         summary = _build_protocol_summary(group_id, protocol_id, status)
         write_text_lf(_summary_path(protocol_id), json.dumps(summary, separators=(",", ":"), sort_keys=True) + "\n")
@@ -550,8 +573,15 @@ def _run_group(group_id: str) -> None:
         print(f"preserved incomplete stage raw output for {group_id}; later groups may proceed")
 
 
+def _summarize_existing_group(group_id: str) -> None:
+    if group_id not in GROUPS:
+        raise ValueError(f"unknown A-5 group: {group_id}")
+    _write_group_summaries(group_id, _read_status(group_id))
+
+
 def _ingest(group_id: str) -> None:
     protocols = _protocols()
+    existing = [json.loads(line) for line in EVIDENCE.read_text(encoding="utf-8").splitlines() if line.strip()]
     for protocol_id in GROUPS[group_id]["protocols"]:
         summary_path = _summary_path(protocol_id)
         if not summary_path.is_file():
@@ -571,7 +601,12 @@ def _ingest(group_id: str) -> None:
             root=ROOT,
             manifest_path=manifest_path,
         )
+        resolved_id = _ingest_record_id(record, existing)
+        if resolved_id != record["id"]:
+            record["id"] = resolved_id
+            record.setdefault("notes", []).append("Corrected record adds the registered evidence supersession; the A-5 run was not repeated.")
         append_evidence(record)
+        existing.append(record)
         print(f"ingested {protocol_id}: {len(record['cell_results'])} cells")
 
 
@@ -687,6 +722,8 @@ def main(argv: list[str] | None = None) -> int:
     stage_parser.add_argument("group", choices=ORDER)
     run_parser = sub.add_parser("run")
     run_parser.add_argument("group", choices=ORDER)
+    summarize_parser = sub.add_parser("summarize")
+    summarize_parser.add_argument("group", choices=ORDER)
     ingest_parser = sub.add_parser("ingest")
     ingest_parser.add_argument("group", choices=ORDER)
     sub.add_parser("record-blocked-m3-11")
@@ -708,6 +745,8 @@ def main(argv: list[str] | None = None) -> int:
             return _stage_command(args.group)
         elif args.mode == "run":
             _run_group(args.group)
+        elif args.mode == "summarize":
+            _summarize_existing_group(args.group)
         elif args.mode == "record-blocked-m3-11":
             record_blocked_m3_11()
         else:

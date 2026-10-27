@@ -9,7 +9,9 @@ from simciv_analysis.a5_tonight import (
     ORDER,
     _available_protocol_ids,
     _cargo_env,
+    _completed_protocol_cells,
     _exceeds_invalid_limit,
+    _ingest_record_id,
     _overlay_failure_record,
     _protocols,
     _split_by_cell,
@@ -35,6 +37,20 @@ def test_report_revisions_use_isolated_cargo_target_directories():
     assert left != right
     assert left.endswith("a" * 40)
     assert right.endswith("b" * 40)
+
+
+def test_ingest_reuses_completed_run_only_for_a_missing_supersession_link():
+    record = {"id": "run-report", "supersedes": ["old-failure"]}
+    existing = [{"id": "run-report"}]
+    assert _ingest_record_id(record, existing) == "run-report-supersession"
+    with pytest.raises(ValueError, match="evidence id already exists"):
+        _ingest_record_id(record, [*existing, {"id": "run-report-supersession"}])
+
+
+def test_summary_completed_cells_are_scoped_to_each_protocol():
+    status = {"complete": True, "completed_cells": ["phase", "tick-a", "tick-b"]}
+    assert _completed_protocol_cells(status, ["phase"]) == ["phase"]
+    assert _completed_protocol_cells(status, ["tick-a", "tick-b"]) == ["tick-a", "tick-b"]
 
 
 def test_m3_11_split_preserves_raw_record_bytes_and_cell_order():

@@ -301,6 +301,24 @@ def test_ingestion_builds_hashed_report_evidence_from_complete_cells(tmp_path: P
     assert record["harness_overlays"] == protocol["harness_overlays"]
 
 
+def test_ingestion_carries_registered_evidence_supersession(tmp_path: Path):
+    protocol = _protocol(tmp_path)
+    protocol["evidence_supersedes"] = ["old-build-failure"]
+    host = _host()
+    manifest = build_run_manifest(
+        protocol,
+        run_id="superseding-run",
+        root=tmp_path,
+        hosts={"host": [host]},
+        identity=_identity(protocol["report_revision"], host),
+        started_at="2026-10-27T00:00:00Z",
+    )
+    raw_path = tmp_path / "raw.jsonl"
+    write_text_lf(raw_path, json.dumps(_completed_result()) + "\n")
+    record = build_evidence_record(manifest, raw_path, protocol, root=tmp_path, hosts_doc={"host": [host]})
+    assert record["supersedes"] == ["old-build-failure"]
+
+
 @pytest.mark.parametrize(
     ("serial_key", "parallel_key", "serial", "parallel"),
     [

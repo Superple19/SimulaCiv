@@ -168,3 +168,59 @@ stages:
       md5: b533ee12567898010d9f693b276c19f9.dir
       size: 8987
       nfiles: 2
+  a5_m3_11_propagation:
+    cmd: uv run --directory analysis --project . python -m 
+      simciv_analysis.a5_tonight stage m3_11
+    deps:
+    - path: Cargo.lock
+      hash: md5
+      md5: d1fb4588d9336d06a02fd3d85c39fc6b
+      size: 8630
+    - path: analysis/simciv_analysis/a5_evidence.py
+      hash: md5
+      md5: a5dbcde11759c3ab539ecc5fcda5d8de
+      size: 51147
+    - path: analysis/simciv_analysis/a5_tonight.py
+      hash: md5
+      md5: dab0a03faddc86b0eca0e2d9748bffae
+      size: 33338
+    - path: contracts/experiments.toml
+      hash: md5
+      md5: 15647e1b997dae365c8f7ac1bee9ba49
+      size: 97381
+    - path: contracts/hosts.toml
+      hash: md5
+      md5: 778b3f3f5ae7da5937efa16cd911c3d6
+      size: 681
+    - path: crates/sim-core/src
+      hash: md5
+      md5: 6a9075a8073d6b50097209057693c361.dir
+      size: 7155
+      nfiles: 3
+    - path: crates/sim-model/benches/m3_11_propagation_bench.rs
+      hash: md5
+      md5: 52a7bc8f2fc919051bff07f9ab2065e9
+      size: 39285
+    - path: crates/sim-model/examples/common/a5.rs
+      hash: md5
+      md5: aa3e097690d8b8d857d13d429dc67e64
+      size: 6731
+    - path: crates/sim-model/examples/common/process_controls.rs
+      hash: md5
+      md5: cf74a03dc4ba8677519a2e8eecfcb149
+      size: 3309
+    - path: crates/sim-model/src
+      hash: md5
+      md5: 5e71da49c88cf7139b7ac3669c47f62f.dir
+      size: 1497617
+      nfiles: 31
+    - path: rust-toolchain.toml
+      hash: md5
+      md5: c6cf1aeb5aba83906b350a2199f2abf5
+      size: 129
+    outs:
+    - path: docs/data/m5_08/m3_11/raw
+      hash: md5
+      md5: e275a79c8d749f9b0528f05165b22ed0.dir
+      size: 15542
+      nfiles: 3

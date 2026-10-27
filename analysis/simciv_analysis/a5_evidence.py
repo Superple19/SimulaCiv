@@ -559,8 +559,9 @@ def build_evidence_record(
         "cell_results": processed,
         "raw_outputs": [{"path": raw_relative, "sha256": _digest(raw)}],
     }
-    if manifest.get("supersedes"):
-        record["supersedes"] = manifest["supersedes"]
+    supersedes = manifest.get("supersedes", protocol.get("evidence_supersedes", []))
+    if supersedes:
+        record["supersedes"] = supersedes
     return record
 
 
