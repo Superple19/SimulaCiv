@@ -11,3 +11,9 @@ Raw outputs from deterministic report-revision reruns. No A-5 timing series were
 | `m4_04_477/*.csv` | `477bbc9bb716a34a6942b4bd7032b2d8ad46a791` | Same registered M4-04 harness overlay and full configuration. Every CSV is byte-identical to the matching `m4_04_739/` file. |
 
 The repository-side evidence logs and per-cell exact-match results are in `docs/reproducibility/evidence/m5_06_phase3/` and `contracts/evidence.jsonl`.
+
+## Phase 4 deterministic M4-05 enumeration
+
+| Output | Report revision | Harness and command |
+|---|---|---|
+| `phase4_raw/m4_05_case_a_size4.jsonl` | `6b925b91d565d98706fe6cac3cdf14164abc7a32` | `crates/sim-model/examples/m4_05_experiment.rs` overlay from `4218d39`; `cargo +1.98.1 run --locked --release -p sim-model --example m4_05_experiment -- --enumerate-size4`. Raw output is under `phase4_raw/m4_05_case_a_size4.jsonl.dvc`; it is local-cache-only until DVC upload.

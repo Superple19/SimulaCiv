@@ -106,10 +106,10 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | large-frontier-interleaved-pool6 | unverified | — |
 | `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | large-frontier-noninterleaved-pool6 | unverified | — |
 | `M3-TIM-PROP-FRONTIER-CROSSOVER` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | — | unverified | — |
-| `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | needs-decision | m3-noop-H30 | needs-decision | — |
-| `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | needs-decision | m3p-noop-H30 | needs-decision | — |
-| `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | needs-decision | m3-propagation-noop-H30 | needs-decision | — |
-| `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | needs-decision | m3p-propagation-noop-H30 | needs-decision | — |
+| `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | reproduced | m3-noop-H3 | reproduced | m5-06-report-m4-det-branch-identity-h3 |
+| `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | reproduced | m3p-noop-H3 | reproduced | m5-06-report-m4-det-branch-identity-h3 |
+| `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | reproduced | m3-propagation-noop-H3 | reproduced | m5-06-report-m4-det-branch-identity-h3 |
+| `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | reproduced | m3p-propagation-noop-H3 | reproduced | m5-06-report-m4-det-branch-identity-h3 |
 | `M4-TIM-BRANCH-A5-GATE` | report | d9b08fdcb05f813ab525531bb2ec08e87622a31d | unverified | — | unverified | — |
 | `M4-TIM-DIVERGENCE-SERIES-GATE` | report | 37d33ef9f71f9120bf523f8aeaf6e97ef130c2da | unverified | — | unverified | — |
 | `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-0-H365 | not reproduced | m5-06-report-m4-det-divergence-h365 |
@@ -176,7 +176,7 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M4-DET-MIGRATION-FAILURE-ATOMICITY` | report | 392f6064b6a5ac4132722af0dc8941e8d3908d9d | reproduced | invalid-migration-config | reproduced | m5-06-report-m4-det-migration-failure-atomicity |
 | `M4-DET-MIGRATION-FAILURE-ATOMICITY` | report | 392f6064b6a5ac4132722af0dc8941e8d3908d9d | reproduced | migration-plan-failure | reproduced | m5-06-report-m4-det-migration-failure-atomicity |
 | `M4-TIM-CAUSE-SEARCH-PARALLEL` | report | fb0878ba1fa370e178aca3f763d08512c28ee122 | unverified | case-a-exhaustive-R10-H90 | unverified | — |
-| `M4-DET-MINIMAL-CAUSE-NONUNIQUENESS` | report | 6b925b91d565d98706fe6cac3cdf14164abc7a32 | unverified | case-a-all-70-size4-subsets | unverified | — |
+| `M4-DET-MINIMAL-CAUSE-NONUNIQUENESS` | report | 6b925b91d565d98706fe6cac3cdf14164abc7a32 | reproduced | case-a-all-70-size4-subsets | reproduced | m5-06-report-m4-det-minimal-cause-nonuniqueness-enumerated |
 | `M4-DET-CRN-EFFICIENCY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-alive-H365 | reproduced | m5-06-report-m4-det-crn-efficiency |
 | `M4-DET-CRN-EFFICIENCY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-total-wealth-H365 | reproduced | m5-06-report-m4-det-crn-efficiency |
 | `M4-DET-CRN-EFFICIENCY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-mean-health-H365 | reproduced | m5-06-report-m4-det-crn-efficiency |

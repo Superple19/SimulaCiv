@@ -284,7 +284,7 @@ verbatim = "The existing M2/M3/M3P/propagation tests, goldens, and snapshot chec
 type = "deterministic"
 source = "docs/reports/M4_02_BRANCHING.md#correctness-and-completion-status"
 experiment = "m4_02_noop_branch_identity"
-coverage = { report = "missing", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "89a95c6540678e02d4eb8145ebd0b69976104a1a"
 report_path_at_revision = "docs/performance/M4_02_BRANCHING.md"

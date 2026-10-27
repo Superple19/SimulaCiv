@@ -1,0 +1,5 @@
+outs:
+- md5: c040562ad427da5f031eef7b34036db9
+  size: 17844
+  hash: md5
+  path: m4_05_case_a_size4.jsonl

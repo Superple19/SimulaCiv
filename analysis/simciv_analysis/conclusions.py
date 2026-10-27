@@ -306,6 +306,18 @@ def validate_artifact_hashes(record: dict[str, Any], root: Path = ROOT) -> list[
     return errors
 
 
+def _protocol_for_evidence(experiment: dict[str, Any], evidence_id: str) -> dict[str, Any]:
+    for history in experiment.get("protocol_history", []):
+        if evidence_id in history.get("superseded_evidence_ids", []):
+            return {
+                **experiment,
+                "ordered_cell_ids": history["prior_ordered_cell_ids"],
+                "harness_paths": history.get("prior_harness_paths", experiment.get("harness_paths", [])),
+                "harness_overlays": history.get("prior_harness_overlays", []),
+            }
+    return experiment
+
+
 def _evidence_errors(
     records: list[dict[str, Any]],
     conclusions: dict[str, dict[str, Any]],
@@ -357,12 +369,13 @@ def _evidence_errors(
         errors.extend(validate_artifact_hashes(record, root))
 
         experiment = experiments.get(str(conclusion.get("experiment", "")), {})
+        evidence_protocol = _protocol_for_evidence(experiment, identifier)
         results = record.get("cell_results", [])
         if not isinstance(results, list):
             errors.append(f"cell_results must be an array: {identifier}")
             continue
         seen_cells: set[str] = set()
-        allowed_cells = set(experiment.get("ordered_cell_ids", []))
+        allowed_cells = set(evidence_protocol.get("ordered_cell_ids", []))
         for result in results:
             if not isinstance(result, dict) or result.get("cell_id") not in allowed_cells:
                 errors.append(f"evidence has unknown cell result: {identifier}")
@@ -392,10 +405,10 @@ def _evidence_errors(
                         isinstance(value, (int, float)) and not isinstance(value, bool) for value in spreads.values()
                     ):
                         errors.append(f"A-5 validity needs two numeric path MAD/median values: {identifier}: {cell_id}")
-        if role == "report" and experiment.get("harness_overlays"):
+        if role == "report" and evidence_protocol.get("harness_overlays"):
             expected = [
                 {key: overlay[key] for key in ("path", "sha256", "origin_commit")}
-                for overlay in experiment["harness_overlays"]
+                for overlay in evidence_protocol["harness_overlays"]
             ]
             actual = record.get("harness_overlays")
             if actual != expected:

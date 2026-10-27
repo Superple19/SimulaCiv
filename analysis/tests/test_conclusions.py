@@ -8,6 +8,7 @@ import pytest
 
 from simciv_analysis.conclusions import (
     _protocol_errors,
+    _protocol_for_evidence,
     _evidence_errors,
     anchor_section,
     load_evidence,
@@ -48,6 +49,27 @@ def test_evidence_append_only_rejects_edit_and_removal():
 def test_evidence_append_only_requires_line_boundary():
     with pytest.raises(ValueError, match="record boundary"):
         validate_evidence_append_only(b'{"id":"one"}', b'{"id":"one"}\n')
+
+
+def test_superseded_evidence_uses_its_dated_protocol_snapshot():
+    experiment = {
+        "ordered_cell_ids": ["m3-noop-H3"],
+        "harness_paths": ["current.rs"],
+        "protocol_history": [{
+            "date": "2026-10-27",
+            "superseded_evidence_ids": ["old-report-run"],
+            "prior_ordered_cell_ids": ["m3-noop-H30"],
+            "prior_harness_paths": ["old.rs"],
+            "prior_harness_overlays": [{"path": "overlay.rs", "sha256": "a" * 64, "origin_commit": "0" * 40}],
+        }],
+    }
+    old = _protocol_for_evidence(experiment, "old-report-run")
+    current = _protocol_for_evidence(experiment, "new-report-run")
+    assert old["ordered_cell_ids"] == ["m3-noop-H30"]
+    assert old["harness_paths"] == ["old.rs"]
+    assert old["harness_overlays"][0]["path"] == "overlay.rs"
+    assert current["ordered_cell_ids"] == ["m3-noop-H3"]
+    assert current["harness_paths"] == ["current.rs"]
 
 
 def test_artifact_hash_check_detects_mismatch_and_unhashed_record(tmp_path: Path):

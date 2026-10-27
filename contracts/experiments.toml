@@ -486,15 +486,21 @@ report_path_at_revision = "docs/performance/M4_02_BRANCHING.md"
 protocol_source = "docs/reports/M4_02_BRANCHING.md#correctness-and-completion-status"
 host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
-ordered_cell_ids = ["m3-noop-H30", "m3p-noop-H30", "m3-propagation-noop-H30", "m3p-propagation-noop-H30"]
+ordered_cell_ids = ["m3-noop-H3", "m3p-noop-H3", "m3-propagation-noop-H3", "m3p-propagation-noop-H3"]
 predicate_kind = "exact"
-predicate_parameters = { "fields" = ["daily_divergence"], "expected_values" = { "m3-noop-H30" = { "daily_divergence" = 0 }, "m3p-noop-H30" = { "daily_divergence" = 0 }, "m3-propagation-noop-H30" = { "daily_divergence" = 0 }, "m3p-propagation-noop-H30" = { "daily_divergence" = 0 } }, "comparison" = "exact equality" }
-scope = "No-op intervention in each supported M3-family profile."
-harness_paths = [
-  "crates/sim-model/tests/m4_branching_tests.rs",
-  "crates/sim-model/tests/m4_06_branch_identity_tests.rs",
-]
-harness_overlays = [{ "path" = "crates/sim-model/tests/m4_06_branch_identity_tests.rs", "sha256" = "aa39b9249cbf56729c3f74e711bf4e2c308149e97571cbc4f65a26fc68d28ce2", "origin_commit" = "091f773813e8bc36efad7d78f8c45b25a92109d0" }]
+predicate_parameters = { "fields" = ["daily_divergence"], "expected_values" = { "m3-noop-H3" = { "daily_divergence" = 0 }, "m3p-noop-H3" = { "daily_divergence" = 0 }, "m3-propagation-noop-H3" = { "daily_divergence" = 0 }, "m3p-propagation-noop-H3" = { "daily_divergence" = 0 } }, "comparison" = "exact equality" }
+scope = "The report-revision no-op identity test runs three days in each of the four supported M3-family profiles."
+harness_paths = ["crates/sim-model/tests/m4_branching_tests.rs"]
+
+[[experiment.protocol_history]]
+date = "2026-10-27"
+source = "89a95c6540678e02d4eb8145ebd0b69976104a1a:crates/sim-model/tests/m4_branching_tests.rs::no_op_intervention_is_identity_for_all_supported_profiles"
+reason = "The worked example in M4_02_BRANCHING.md uses H=30, but the source test supporting this conclusion passes horizon_days=3. The prior H=30 protocol was inferred from the worked example, not the test."
+superseded_evidence_ids = ["m5-06-report-m4-det-branch-identity"]
+prior_ordered_cell_ids = ["m3-noop-H30", "m3p-noop-H30", "m3-propagation-noop-H30", "m3p-propagation-noop-H30"]
+prior_expected_values = { "m3-noop-H30" = { "daily_divergence" = 0 }, "m3p-noop-H30" = { "daily_divergence" = 0 }, "m3-propagation-noop-H30" = { "daily_divergence" = 0 }, "m3p-propagation-noop-H30" = { "daily_divergence" = 0 } }
+prior_harness_paths = ["crates/sim-model/tests/m4_branching_tests.rs", "crates/sim-model/tests/m4_06_branch_identity_tests.rs"]
+prior_harness_overlays = [{ "path" = "crates/sim-model/tests/m4_06_branch_identity_tests.rs", "sha256" = "aa39b9249cbf56729c3f74e711bf4e2c308149e97571cbc4f65a26fc68d28ce2", "origin_commit" = "091f773813e8bc36efad7d78f8c45b25a92109d0" }]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment]]
@@ -522,6 +528,16 @@ harness_paths = [
 ]
 harness_overlays = [{ "path" = "crates/sim-model/examples/m4_03_experiment.rs", "sha256" = "ab2b02a54607d01c9b2d0459cc83e96d3ab37e18aabd8556b6f085c51aba66f1", "origin_commit" = "5582e258dcf4611643afc9366299a6f1d5d0d96c" }]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "data_report_revision_mismatch"
+source_report = "bfe162baee95130a268707fef6e1489ef96cc414:docs/performance/M4_03_DIVERGENCE.md#h365-extension"
+source_data_commit = "6f01be3c311ce1e9551e567044d058f9b52880c2"
+source_data_path_at_commit = "docs/data/m4/m4_03/m4_03_a1_experiments.csv"
+reason = "The report's five H365 food-zero rows support the existing expected values. The first Git version of the preserved CSV was added later, is labeled restored/not re-run, and differs for seed 1 (report peak day/D=361/10164; CSV=362/10165). M5-04's gzip is byte-exact with that CSV, and the Phase 3 output has the same uncompressed SHA-256. This is a report/data revision mismatch, not a registration transcription error or an attributable simulation regression."
+registry_values_changed = false
+prior_expected_values = { "food-zero-seed-0-H365" = { "peak_day" = 364, "peak_D" = 10150, "peak_fraction" = 0.9852, "day365_D" = 10150, "day365_fraction" = 0.9852, "last30_slope_per_day" = 2.57, "target_death_day" = "none", "settlements_touched" = 50 }, "food-zero-seed-1-H365" = { "peak_day" = 361, "peak_D" = 10164, "peak_fraction" = 0.9866, "day365_D" = 10159, "day365_fraction" = 0.9858, "last30_slope_per_day" = 1.77, "target_death_day" = "none", "settlements_touched" = 50 }, "food-zero-seed-3-H365" = { "peak_day" = 364, "peak_D" = 10171, "peak_fraction" = 0.9881, "day365_D" = 10171, "day365_fraction" = 0.9881, "last30_slope_per_day" = 2.0, "target_death_day" = "none", "settlements_touched" = 50 }, "food-zero-seed-7-H365" = { "peak_day" = 364, "peak_D" = 10188, "peak_fraction" = 0.9897, "day365_D" = 10188, "day365_fraction" = 0.9897, "last30_slope_per_day" = 2.13, "target_death_day" = "none", "settlements_touched" = 50 }, "food-zero-seed-81985529216486895-H365" = { "peak_day" = 364, "peak_D" = 10153, "peak_fraction" = 0.9839, "day365_D" = 10153, "day365_fraction" = 0.9839, "last30_slope_per_day" = 3.67, "target_death_day" = "none", "settlements_touched" = 50 } }
 
 [[experiment]]
 id = "m4_04_crn_variance_ratio_grid"
@@ -660,8 +676,18 @@ harness_paths = [
   "crates/sim-model/examples/m4_05_experiment.rs",
   "crates/sim-model/tests/m4_05_minimal_cause_tests.rs",
 ]
-harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "baa21e7e4b9e88dadf37edf4e41146f0f55933b18102a66842955cebb1f2be78", "origin_commit" = "61d0a6b90ceb9bf28db92d98e0c20a08fbe0dd6d" }]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "f953af7aee5dbe6a928b0077689058d9d1a618a9fc04fb8982bd6bebb29706a2", "origin_commit" = "4218d3904ccce3cb5292777a18a53d7946e728a1" }]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+
+[[experiment.protocol_history]]
+date = "2026-10-27"
+source = "6b925b91d565d98706fe6cac3cdf14164abc7a32:docs/performance/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
+reason = "The registered harness gained only an opt-in exact size-four enumeration mode; the default minimum-cause search and its protocol remain unchanged."
+superseded_evidence_ids = ["m5-06-report-m4-det-minimum-search"]
+prior_ordered_cell_ids = ["case-a-exhaustive-N2000-R10-H90"]
+prior_expected_values = { "case-a-exhaustive-N2000-R10-H90" = { "minimum_cardinality" = 4 } }
+prior_harness_paths = ["crates/sim-model/examples/m4_05_experiment.rs", "crates/sim-model/tests/m4_05_minimal_cause_tests.rs"]
+prior_harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "baa21e7e4b9e88dadf37edf4e41146f0f55933b18102a66842955cebb1f2be78", "origin_commit" = "61d0a6b90ceb9bf28db92d98e0c20a08fbe0dd6d" }]
 
 [[experiment]]
 id = "m4_05_case_a_nonunique_minima"
@@ -680,8 +706,18 @@ harness_paths = [
   "crates/sim-model/examples/m4_05_experiment.rs",
   "crates/sim-model/tests/m4_05_minimal_cause_tests.rs",
 ]
-harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "baa21e7e4b9e88dadf37edf4e41146f0f55933b18102a66842955cebb1f2be78", "origin_commit" = "61d0a6b90ceb9bf28db92d98e0c20a08fbe0dd6d" }]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "f953af7aee5dbe6a928b0077689058d9d1a618a9fc04fb8982bd6bebb29706a2", "origin_commit" = "4218d3904ccce3cb5292777a18a53d7946e728a1" }]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+
+[[experiment.protocol_history]]
+date = "2026-10-27"
+source = "6b925b91d565d98706fe6cac3cdf14164abc7a32:docs/performance/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
+reason = "The prior report-role evidence used the same registered example before its opt-in size-four enumeration mode was added."
+superseded_evidence_ids = ["m5-06-report-m4-det-minimal-cause-nonuniqueness"]
+prior_ordered_cell_ids = ["case-a-all-70-size4-subsets"]
+prior_expected_values = { "case-a-all-70-size4-subsets" = { "satisfying_subsets_count" = 15 } }
+prior_harness_paths = ["crates/sim-model/examples/m4_05_experiment.rs", "crates/sim-model/tests/m4_05_minimal_cause_tests.rs"]
+prior_harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "baa21e7e4b9e88dadf37edf4e41146f0f55933b18102a66842955cebb1f2be78", "origin_commit" = "61d0a6b90ceb9bf28db92d98e0c20a08fbe0dd6d" }]
 
 [[experiment]]
 id = "m4_06_daily_digest_parity"
