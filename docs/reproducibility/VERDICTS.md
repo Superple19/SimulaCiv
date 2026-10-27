@@ -143,7 +143,7 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M4-DET-NEWBORN-CRN-IDENTITY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | global-cost-plus-1pct-H30 | reproduced | m5-06-report-m4-det-newborn-crn-identity |
 | `M4-DET-NEWBORN-CRN-IDENTITY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | global-cost-plus-1pct-H90 | reproduced | m5-06-report-m4-det-newborn-crn-identity |
 | `M4-DET-NEWBORN-CRN-IDENTITY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | global-cost-plus-1pct-H365 | reproduced | m5-06-report-m4-det-newborn-crn-identity |
-| `M4-DET-MINIMAL-CAUSES` | report | 6b925b91d565d98706fe6cac3cdf14164abc7a32 | needs-decision | case-a-exhaustive-N2000-R10-H90 | needs-decision | — |
+| `M4-DET-MINIMAL-CAUSES` | report | 6b925b91d565d98706fe6cac3cdf14164abc7a32 | reproduced | case-a-exhaustive-N2000-R10-H90 | reproduced | m5-06-report-m4-det-minimum-search |
 | `M4-TIM-MINIMAL-CAUSE-BATCH-GATE` | report | e5ea655a24c939c1dc2c8f97b12febf2ab9041df | unverified | — | unverified | — |
 | `M4-TIM-MIGRATION-OFF-GATE` | report | 392f6064b6a5ac4132722af0dc8941e8d3908d9d | unverified | — | unverified | — |
 | `M4-TIM-COW-SHARE` | report | fb0878ba1fa370e178aca3f763d08512c28ee122 | unverified | — | unverified | — |

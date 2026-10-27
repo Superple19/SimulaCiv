@@ -782,7 +782,7 @@ harness_paths = [
   "crates/sim-model/examples/m4_05_experiment.rs",
   "crates/sim-model/tests/m4_05_minimal_cause_tests.rs",
 ]
-harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "f953af7aee5dbe6a928b0077689058d9d1a618a9fc04fb8982bd6bebb29706a2", "origin_commit" = "4218d3904ccce3cb5292777a18a53d7946e728a1" }]
+harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "baa21e7e4b9e88dadf37edf4e41146f0f55933b18102a66842955cebb1f2be78", "origin_commit" = "61d0a6b90ceb9bf28db92d98e0c20a08fbe0dd6d" }]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
 
 [[experiment.protocol_history]]
@@ -794,6 +794,15 @@ prior_ordered_cell_ids = ["case-a-exhaustive-N2000-R10-H90"]
 prior_expected_values = { "case-a-exhaustive-N2000-R10-H90" = { "minimum_cardinality" = 4 } }
 prior_harness_paths = ["crates/sim-model/examples/m4_05_experiment.rs", "crates/sim-model/tests/m4_05_minimal_cause_tests.rs"]
 prior_harness_overlays = [{ "path" = "crates/sim-model/examples/m4_05_experiment.rs", "sha256" = "baa21e7e4b9e88dadf37edf4e41146f0f55933b18102a66842955cebb1f2be78", "origin_commit" = "61d0a6b90ceb9bf28db92d98e0c20a08fbe0dd6d" }]
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "minimum-cause-overlay-registration-corrected"
+source_report = "6b925b91d565d98706fe6cac3cdf14164abc7a32:docs/performance/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
+source_evidence = "contracts/evidence.jsonl#m5-06-report-m4-det-minimum-search"
+reason = "The prior verdict was needs-decision because the registered overlay hash f953af7 was the later enumeration-mode source, while the existing minimum-search evidence used baa21e7 from 61d0a6b. The source evidence and dated protocol history show the default minimum search used the pre-enumeration overlay; its exact minimum-cardinality result remains applicable. Enumeration remains registered separately for M4-DET-MINIMAL-CAUSE-NONUNIQUENESS."
+registry_values_changed = false
+prior_harness_overlays = [{ path = "crates/sim-model/examples/m4_05_experiment.rs", sha256 = "f953af7aee5dbe6a928b0077689058d9d1a618a9fc04fb8982bd6bebb29706a2", origin_commit = "4218d3904ccce3cb5292777a18a53d7946e728a1" }]
 
 [[experiment]]
 id = "m4_05_case_a_nonunique_minima"
