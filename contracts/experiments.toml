@@ -546,14 +546,24 @@ report_path_at_revision = "docs/performance/M3_08_POPULATION_DYNAMICS.md"
 protocol_source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#findings"
 host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
-ordered_cell_ids = ["m3p-sustained-ci-N1000-days100-1000"]
+ordered_cell_ids = ["m3p-sustained-N10000-days100-1000", "m3p-sustained-ci-N1000-days100-1000"]
 predicate_kind = "exact"
-predicate_parameters = { "fields" = ["gate_result"], "expected_values" = { "m3p-sustained-ci-N1000-days100-1000" = "report-revision 1000-day sustained CI assertion passes" }, "comparison" = "exact equality" }
-scope = "Report-revision M3P sustained CI test at N=1,000, K=5; per-day alive-population bound on days 100..1000."
+predicate_parameters = { "fields" = ["sustained_result"], "expected_values" = { "m3p-sustained-N10000-days100-1000" = { "alive_range" = [10089, 10758], "population_bound" = [9000, 11000], "days" = [100, 1000], "givefood_target_every_day" = true, "births_and_deaths_every_50_day_window" = true }, "m3p-sustained-ci-N1000-days100-1000" = "report-revision 1000-day sustained CI assertion passes" }, "comparison" = "exact equality" }
+scope = "The report's 1,000-day release trajectory at N=10,000, K=50 and its CI test at N=1,000, K=5; both use the same M3P sustained configuration and per-day ±10% population band."
 harness_paths = [
   "crates/sim-model/tests/m3p_sustained_gate_tests.rs",
 ]
 report_role_harness_policy = "The report-revision source test is run unchanged in a temporary worktree."
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "sustained-10k-cell-restored-from-report-source"
+source_report = "c7def1f0f2347ebfe2cb597f6c7380b35458146b:docs/performance/M3_08_POPULATION_DYNAMICS.md#sustained-gate"
+source_code = "c7def1f0f2347ebfe2cb597f6c7380b35458146b:crates/sim-model/tests/m3p_sustained_gate_tests.rs"
+reason = "The M3-08 report states that the 10k release run stayed within 9,000–11,000 alive on days 100–1,000, and its findings cover both the 10k run and 1k CI gate. The report-revision test source contains only the N=1,000 daily assertion; no N=10,000 report-SHA test exists. The 10k cell is registered from the report values but has no evidence, so the aggregate must be inconclusive until a source-backed run exists."
+registry_values_changed = true
+prior_ordered_cell_ids = ["m3p-sustained-ci-N1000-days100-1000"]
+prior_expected_values = { "m3p-sustained-ci-N1000-days100-1000" = "report-revision 1000-day sustained CI assertion passes" }
 
 [[experiment.amendment]]
 date = "2026-10-27"

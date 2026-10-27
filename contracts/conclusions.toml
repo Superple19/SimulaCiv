@@ -224,10 +224,10 @@ report_path_at_revision = "docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md"
 [[conclusion]]
 id = "M3-DET-M3P-SUSTAINED-GATE"
 milestone = "M3"
-statement = "The report-revision N=1,000 M3P sustained-gate test passes its 10% alive-population bound on every day from 100 through 1,000."
-verbatim = "The CI-size run at `N=1,000`, `K=5` stayed within **1,010–1,076 alive** on every day from 100 through 1,000."
+statement = "The M3P sustained configuration stayed within the alive-population band at N=10,000, and the report-revision CI-size test passed at N=1,000."
+verbatim = "**Measured facts:** the sustained config passed at 10k and the CI-sized 1k gate."
 type = "deterministic"
-source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#sustained-gate"
+source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#findings"
 experiment = "m3p_sustained_population_gate"
 coverage = { report = "sufficient", head = "missing" }
 tier = 1

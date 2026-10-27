@@ -100,7 +100,8 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N10k-noninterleaved | unverified | — |
 | `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N100k-paired | unverified | — |
 | `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N100k-noninterleaved | unverified | — |
-| `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | reproduced | m3p-sustained-ci-N1000-days100-1000 | reproduced | m5-07-report-m3-det-m3p-sustained-ci-gate |
+| `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | inconclusive | m3p-sustained-N10000-days100-1000 | unverified | — |
+| `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | inconclusive | m3p-sustained-ci-N1000-days100-1000 | reproduced | m5-07-report-m3-det-m3p-sustained-ci-gate |
 | `M3-TIM-PROP-PHASE9C` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | N100000-k16-hops16-transmit0.2-pool6-day0 | unverified | — |
 | `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | large-frontier-interleaved-pool6 | unverified | — |
 | `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | large-frontier-noninterleaved-pool6 | unverified | — |
