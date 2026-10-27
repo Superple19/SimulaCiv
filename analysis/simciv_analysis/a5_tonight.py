@@ -158,9 +158,9 @@ def _apply_overlays(worktree: Path, protocol: dict[str, Any]) -> list[dict[str, 
     return overlays
 
 
-def _cargo_env() -> dict[str, str]:
+def _cargo_env(report_revision: str) -> dict[str, str]:
     environment = os.environ.copy()
-    environment["CARGO_TARGET_DIR"] = str(BUILD)
+    environment["CARGO_TARGET_DIR"] = str(BUILD / report_revision)
     return environment
 
 
@@ -169,7 +169,8 @@ def _smoke_worktree(group_id: str, worktree: Path) -> list[str]:
     temp = SCRATCH / "smoke"
     temp.mkdir(parents=True, exist_ok=True)
     example = spec["example"]
-    env = _cargo_env()
+    report_revision = _protocols()[spec["protocols"][0]]["report_revision"]
+    env = _cargo_env(report_revision)
     if group_id == "m3_11":
         cells = [
             "N100000-k16-hops16-transmit0.2-pool6-day0",
@@ -272,6 +273,51 @@ def prepare() -> None:
     write_text_lf(SCRATCH / "preflight.json", json.dumps(preflight, separators=(",", ":"), sort_keys=True) + "\n")
 
 
+def prepare_group(group_id: str) -> None:
+    if group_id not in GROUPS:
+        raise ValueError(f"unknown A-5 group: {group_id}")
+    if _git(ROOT, "status", "--porcelain"):
+        raise ValueError("prepare-group requires a clean Git worktree")
+    protocols = _protocols()
+    spec = GROUPS[group_id]
+    revisions = {protocols[protocol_id]["report_revision"] for protocol_id in spec["protocols"]}
+    if len(revisions) != 1:
+        raise ValueError(f"all protocols in {group_id} must share one report revision")
+    revision = revisions.pop()
+    worktree = _worktree(revision)
+    for protocol_id in spec["protocols"]:
+        _apply_overlays(worktree, protocols[protocol_id])
+    preflight_path = SCRATCH / "preflight.json"
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8")) if preflight_path.is_file() else {"prepared_groups": [], "blocked_groups": {}}
+    try:
+        smoke_cells = _smoke_worktree(group_id, worktree)
+    except (OSError, subprocess.CalledProcessError) as error:
+        preflight["prepared_groups"] = [item for item in preflight.get("prepared_groups", []) if item != group_id]
+        preflight.setdefault("blocked_groups", {})[group_id] = {"report_revision": revision, "reason": str(error)}
+        write_text_lf(preflight_path, json.dumps(preflight, separators=(",", ":"), sort_keys=True) + "\n")
+        print(f"report-SHA smoke blocked: {group_id}: {error}")
+        return
+    host_observation = _host_observation()
+    for protocol_id in spec["protocols"]:
+        protocol = protocols[protocol_id]
+        manifest = build_run_manifest(
+            protocol,
+            run_id=f"m5-08-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{protocol_id}",
+            root=worktree,
+            hosts=tomllib.loads((ROOT / "contracts" / "hosts.toml").read_text(encoding="utf-8")),
+            commands=_commands(group_id, worktree, SCRATCH / "raw" / spec["temp"]),
+        )
+        manifest["host_observation_before"] = host_observation
+        output = _manifest_path(protocol_id)
+        write_text_lf(output, json.dumps(manifest, separators=(",", ":"), sort_keys=True) + "\n")
+        print(f"manifest ready: {output.relative_to(ROOT).as_posix()} ({revision})")
+    preflight["prepared_groups"] = list(dict.fromkeys([*preflight.get("prepared_groups", []), group_id]))
+    preflight.setdefault("blocked_groups", {}).pop(group_id, None)
+    preflight["host_observation_before"] = host_observation
+    write_text_lf(preflight_path, json.dumps(preflight, separators=(",", ":"), sort_keys=True) + "\n")
+    print(f"report-SHA smoke passed: {group_id}; cells={','.join(smoke_cells)}")
+
+
 def print_dry_run() -> None:
     rows = tonight_plan()
     preflight_path = SCRATCH / "preflight.json"
@@ -346,7 +392,7 @@ def _stage_command(group_id: str) -> int:
     start = time.perf_counter()
     try:
         args = command.split()
-        result = subprocess.run(args, cwd=worktree, env=_cargo_env(), check=False)
+        result = subprocess.run(args, cwd=worktree, env=_cargo_env(report_revision), check=False)
         complete = result.returncode == 0
         error = None if complete else f"harness exited with status {result.returncode}"
     except OSError as failure:
@@ -583,7 +629,7 @@ def record_blocked_m3_11() -> None:
         "cargo", "+1.98.1", "bench", "--locked", "--no-run", "-p", "sim-model",
         "--bench", "m3_11_propagation_bench",
     ]
-    result = subprocess.run(command, cwd=worktree, env=_cargo_env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    result = subprocess.run(command, cwd=worktree, env=_cargo_env(first_protocol["report_revision"]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if result.returncode == 0:
         raise ValueError("M3-11 report-SHA build now passes; do not record a stale block")
     compiler_errors = [
@@ -633,6 +679,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="mode", required=True)
     sub.add_parser("prepare")
+    prepare_group_parser = sub.add_parser("prepare-group")
+    prepare_group_parser.add_argument("group", choices=ORDER)
     sub.add_parser("dry-run")
     sub.add_parser("check-summaries")
     stage_parser = sub.add_parser("stage")
@@ -646,6 +694,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.mode == "prepare":
             prepare()
+        elif args.mode == "prepare-group":
+            prepare_group(args.group)
         elif args.mode == "dry-run":
             print_dry_run()
         elif args.mode == "check-summaries":

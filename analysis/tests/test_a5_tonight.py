@@ -8,6 +8,7 @@ from simciv_analysis.a5_tonight import (
     GROUPS,
     ORDER,
     _available_protocol_ids,
+    _cargo_env,
     _exceeds_invalid_limit,
     _overlay_failure_record,
     _protocols,
@@ -26,6 +27,14 @@ def test_tonight_plan_covers_the_registered_cells_once_in_execution_order():
         "a5_m3_11_propagation",
         "a5_m4_search_parallel",
     ]
+
+
+def test_report_revisions_use_isolated_cargo_target_directories():
+    left = _cargo_env("a" * 40)["CARGO_TARGET_DIR"]
+    right = _cargo_env("b" * 40)["CARGO_TARGET_DIR"]
+    assert left != right
+    assert left.endswith("a" * 40)
+    assert right.endswith("b" * 40)
 
 
 def test_m3_11_split_preserves_raw_record_bytes_and_cell_order():
