@@ -138,6 +138,9 @@ a5-dry-run: analysis-sync
 a5-manifest PROTOCOL RUN_ID OUTPUT: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.a5_evidence manifest {{PROTOCOL}} {{RUN_ID}} {{OUTPUT}}
 
+a5-retrospective-manifest PROTOCOL RUN_ID SUMMARY RAW HARNESS_COMMIT OUTPUT: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_evidence retrospective-manifest {{PROTOCOL}} {{RUN_ID}} {{SUMMARY}} {{RAW}} {{HARNESS_COMMIT}} {{OUTPUT}}
+
 a5-ingest MANIFEST RAW: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.a5_evidence ingest {{MANIFEST}} {{RAW}}
 

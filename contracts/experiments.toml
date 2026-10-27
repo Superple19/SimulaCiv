@@ -216,6 +216,7 @@ status = "incomplete"
 
 [[experiment]]
 id = "m3_05_any_phase_alpha_first_break"
+source_stage = "m3_05_a5_reconstruction"
 conclusion_id = "M3-TIM-PHASE-ALPHA-FIRST-BREAK"
 tier = 1
 report_revision = "5df006c150179f67078588dfaf83a355a81d5f9f"
@@ -228,14 +229,41 @@ predicate_kind = "threshold_side"
 predicate_parameters = { "metric" = "maximum valid phase alpha on 100k-to-250k interval", "historical_values" = [1.63734, 1.61217, 1.65224, 1.60054], "threshold" = 1.15, "relation" = ">", "noise_rule" = "Only valid cells are evaluated; comparisons within the frozen criteria noise bound are inconclusive." }
 scope = "M3-05 alpha first-break profiles, each fixing k and checkpoint day."
 harness_paths = [
+  "analysis/simciv_analysis/m3_05_pilot.py",
   "crates/sim-model/benches/m3_scale_limit_bench.rs",
   "crates/sim-model/examples/m3_05_a5_reconstruction.rs",
+  "crates/sim-model/examples/common/process_controls.rs",
 ]
-sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired", operation_days = 3 }
 historical_sampling = "M3-05 report protocol: 2 warmups and 7 timed samples of 3 days; phase values use the report’s declared profile/checkpoint boundaries."
 exclusion_note = "The N=1,000,000,k=16 graph+projection setup 10.0286x cell is a separate borderline setup threshold, not an alpha first-break cell; its 0.286% margin is not pass/fail."
-harness_overlays = [{ "path" = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", "sha256" = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", "origin_commit" = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
+harness_overlays = [
+  { "path" = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", "sha256" = "5d3c929784f978c6518508645b662462b7a372c1f9c51c29dd803b58da321d7e", "origin_commit" = "cefa2690b3f395f9546204222f70032235cc1924" },
+  { "path" = "crates/sim-model/examples/common/process_controls.rs", "sha256" = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", "origin_commit" = "cefa2690b3f395f9546204222f70032235cc1924" },
+]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+evidence_supersedes = ["m5-07-report-m3-05-overlay-smoke-failure"]
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "pilot_provenance_overlay_registered"
+source_report = "5df006c150179f67078588dfaf83a355a81d5f9f:docs/performance/M3_SCALE_LIMIT.md#first-break-findings"
+source_manifest = "docs/data/m5_05/m3_05_pilot/summary.json"
+source_dvc_lock = "docs/data/m5_05/m3_05_pilot/dvc.lock"
+source_harness_commit = "cefa2690b3f395f9546204222f70032235cc1924"
+source_harness_digest = "5933cac1af5140a9c6219ec559452ad93afef1a677ef6b0a8d9a0e1d99520cd6"
+reason = "The finalized DVC provenance summary and lock identify the driver input revision: all nine locked source dependencies and the four-file harness digest match cefa269. The raw header records the registered A-5 settings, process controls, and three-day operation; the raw output contains the four registered alpha cells. The existing debug-only smoke failure used cargo check without --release, while the committed pilot command is cargo run --release. No pilot cells are rerun."
+registry_values_changed = false
+prior_harness_overlays = [{ path = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", sha256 = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", origin_commit = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
+
+[[experiment.protocol_history]]
+date = "2026-10-27"
+source = "docs/reproducibility/evidence/m5_07/m3_05_overlay_smoke_failure.log"
+reason = "The earlier overlay smoke used cargo check in debug mode; the pilot command uses --release, where the historical one-argument ManualProfile::step API is selected. The completed pilot JSONL and DVC provenance supersede that debug-only build result."
+superseded_evidence_ids = ["m5-07-report-m3-05-overlay-smoke-failure"]
+prior_ordered_cell_ids = ["k8-day0", "k8-day50", "k16-day0", "k16-day50"]
+prior_harness_paths = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "crates/sim-model/examples/m3_05_a5_reconstruction.rs"]
+prior_harness_overlays = [{ path = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", sha256 = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", origin_commit = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
 
 [[experiment.amendment]]
 date = "2026-10-27"
@@ -249,7 +277,6 @@ prior_ordered_cell_ids = ["k8-day0", "k8-day50", "k16-day0", "k16-day50"]
 prior_predicate_parameters = { metric = "maximum valid phase alpha on 100k-to-250k interval", historical_values = [1.63734, 1.61217, 1.65224, 1.60054], threshold = 1.15, relation = ">", noise_rule = "Only valid cells are evaluated; comparisons within the frozen criteria noise bound are inconclusive." }
 prior_harness_paths = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "crates/sim-model/examples/m3_05_a5_reconstruction.rs"]
 prior_harness_overlays = [{ path = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", sha256 = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", origin_commit = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
-
 
 [[experiment]]
 id = "m3_05_graph_projection_first_break"
@@ -272,6 +299,7 @@ status = "incomplete"
 
 [[experiment]]
 id = "m3_05_static_scale_completion"
+source_stage = "m3_05_a5_reconstruction"
 conclusion_id = "M3-TIM-STATIC-SCALE"
 tier = 1
 report_revision = "5df006c150179f67078588dfaf83a355a81d5f9f"
@@ -284,14 +312,41 @@ predicate_kind = "completion"
 predicate_parameters = { "required_result" = "all four declared N=1,000,000 runner cells complete without error", "error_policy" = "any runner error or incomplete cell fails" }
 scope = "Equilibrium static-world profile; k={8,16}; day-0 and day-50 checkpoint."
 harness_paths = [
+  "analysis/simciv_analysis/m3_05_pilot.py",
   "crates/sim-model/benches/m3_scale_limit_bench.rs",
   "crates/sim-model/examples/m3_05_a5_reconstruction.rs",
+  "crates/sim-model/examples/common/process_controls.rs",
 ]
-sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "completion does not depend on timing validity", operation_days = 3 }
 historical_sampling = "M3-05 report protocol: 2 warmups and 7 timed samples of 3 days; phase values use the report’s declared profile/checkpoint boundaries."
 exclusion_note = "N=1,000,000,k=16 remains included for completion. Its separate graph+projection setup ratio 10.0286x is excluded from the threshold-side verdict because its excess over 10x is 0.286%, within the report noise band."
-harness_overlays = [{ "path" = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", "sha256" = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", "origin_commit" = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
+harness_overlays = [
+  { "path" = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", "sha256" = "5d3c929784f978c6518508645b662462b7a372c1f9c51c29dd803b58da321d7e", "origin_commit" = "cefa2690b3f395f9546204222f70032235cc1924" },
+  { "path" = "crates/sim-model/examples/common/process_controls.rs", "sha256" = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", "origin_commit" = "cefa2690b3f395f9546204222f70032235cc1924" },
+]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+evidence_supersedes = ["m5-07-report-m3-static-scale-overlay-smoke-failure"]
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "pilot_provenance_overlay_registered"
+source_report = "5df006c150179f67078588dfaf83a355a81d5f9f:docs/performance/M3_SCALE_LIMIT.md#executive-summary"
+source_manifest = "docs/data/m5_05/m3_05_pilot/summary.json"
+source_dvc_lock = "docs/data/m5_05/m3_05_pilot/dvc.lock"
+source_harness_commit = "cefa2690b3f395f9546204222f70032235cc1924"
+source_harness_digest = "5933cac1af5140a9c6219ec559452ad93afef1a677ef6b0a8d9a0e1d99520cd6"
+reason = "The finalized DVC provenance summary and lock identify the driver input revision: all nine locked source dependencies and the four-file harness digest match cefa269. The raw header records the registered A-5 settings, process controls, and three-day operation; the raw output contains the four registered N=1,000,000 completion cells. The existing debug-only smoke failure used cargo check without --release, while the committed pilot command is cargo run --release. No pilot cells are rerun."
+registry_values_changed = false
+prior_harness_overlays = [{ path = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", sha256 = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", origin_commit = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
+
+[[experiment.protocol_history]]
+date = "2026-10-27"
+source = "docs/reproducibility/evidence/m5_07/m3_05_overlay_smoke_failure.log"
+reason = "The earlier overlay smoke used cargo check in debug mode; the pilot command uses --release, where the historical one-argument ManualProfile::step API is selected. The completed pilot JSONL and DVC provenance supersede that debug-only build result."
+superseded_evidence_ids = ["m5-07-report-m3-static-scale-overlay-smoke-failure"]
+prior_ordered_cell_ids = ["N1M-k8-day0", "N1M-k8-day50", "N1M-k16-day0", "N1M-k16-day50"]
+prior_harness_paths = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "crates/sim-model/examples/m3_05_a5_reconstruction.rs"]
+prior_harness_overlays = [{ path = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", sha256 = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", origin_commit = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
 
 [[experiment]]
 id = "m3_06_settlement_index"

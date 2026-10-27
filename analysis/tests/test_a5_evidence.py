@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -9,10 +10,12 @@ import pytest
 from simciv_analysis.a5_evidence import (
     append_evidence,
     build_evidence_record,
+    build_retrospective_manifest,
     build_run_manifest,
     tonight_plan,
 )
 from simciv_analysis.io import write_text_lf
+from simciv_analysis.provenance import digest_files
 
 
 def _identity(revision: str, host: dict):
@@ -145,6 +148,107 @@ def test_manifest_rejects_overlay_bytes_that_changed_after_registration(tmp_path
         )
 
 
+def test_manifest_uses_registered_git_blob_when_the_worktree_copy_differs(tmp_path: Path):
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    source = b"historical overlay\n"
+    write_text_lf(tmp_path / "driver.rs", source.decode())
+    subprocess.run(["git", "add", "driver.rs"], cwd=tmp_path, check=True)
+    write_text_lf(tmp_path / "message.txt", "test: add overlay\n\n- historical source\n")
+    subprocess.run(["git", "commit", "--quiet", "-F", "message.txt"], cwd=tmp_path, check=True)
+    origin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    protocol = _protocol(tmp_path)
+    protocol["harness_overlays"] = [{
+        "path": "driver.rs",
+        "sha256": hashlib.sha256(source).hexdigest(),
+        "origin_commit": origin,
+    }]
+    write_text_lf(tmp_path / "driver.rs", "later worktree copy\n")
+
+    manifest = build_run_manifest(
+        protocol,
+        run_id="historical-overlay",
+        root=tmp_path,
+        hosts={"host": [_host()]},
+        identity=_identity(protocol["report_revision"], _host()),
+        started_at="2026-10-27T00:00:00Z",
+    )
+
+    assert manifest["harness_overlays"] == protocol["harness_overlays"]
+
+
+def test_retrospective_manifest_is_source_backed_and_does_not_invent_start_time(tmp_path: Path):
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    (tmp_path / "analysis").mkdir()
+    (tmp_path / "docs/data/pilot/raw").mkdir(parents=True)
+    write_text_lf(tmp_path / "Cargo.lock", "lock\n")
+    write_text_lf(tmp_path / "analysis/uv.lock", "uv lock\n")
+    write_text_lf(tmp_path / "mise.toml", '"aqua:astral-sh/uv" = "0.13.5"\n')
+    write_text_lf(tmp_path / "rust-toolchain.toml", (Path(__file__).resolve().parents[2] / "rust-toolchain.toml").read_text(encoding="utf-8"))
+    write_text_lf(tmp_path / "driver.rs", "driver\n")
+    write_text_lf(tmp_path / "message.txt", "test: add pilot source\n\n- fixture source commit\n")
+    subprocess.run(["git", "add", "Cargo.lock", "analysis/uv.lock", "mise.toml", "rust-toolchain.toml", "driver.rs"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-F", "message.txt"], cwd=tmp_path, check=True)
+    source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    rustc_version = subprocess.check_output(["rustc", "-V"], cwd=tmp_path, text=True).strip()
+    host = _host()
+    protocol = {
+        "id": "pilot-stage",
+        "source_stage": "pilot-stage",
+        "conclusion_id": "C-1",
+        "report_revision": source_commit,
+        "host_id": "reference",
+        "harness_overlays": [{
+            "path": "driver.rs",
+            "sha256": hashlib.sha256(b"driver\n").hexdigest(),
+            "origin_commit": source_commit,
+        }],
+    }
+    header = {
+        "record": "SCALE_HOST", "mode": "a5", "warmups": 2, "samples": 41,
+        "target_sample_seconds": 1.25, "minimum_sample_seconds": 1.0,
+        "process_controls": "priority=high;affinity_mask=0x555",
+    }
+    raw = tmp_path / "docs/data/pilot/raw/run.jsonl"
+    write_text_lf(raw, json.dumps(header) + "\n")
+    summary = {
+        "stage": "pilot-stage",
+        "details": {"report_revision": source_commit},
+        "toolchain": rustc_version,
+        "harness_files": ["driver.rs"],
+        "harness_digest": digest_files(["driver.rs"], tmp_path),
+        "outputs": [{
+            "path": "docs/data/pilot/raw",
+            "sha256": digest_files(["docs/data/pilot/raw/run.jsonl"], tmp_path),
+        }],
+        "raw_outputs": ["docs/data/pilot/raw"],
+        "command": "cargo run --release --example pilot",
+    }
+    summary_path = tmp_path / "docs/data/pilot/summary.json"
+    write_text_lf(summary_path, json.dumps(summary) + "\n")
+    write_text_lf(tmp_path / "message.txt", "data: record source summary\n\n- preserve pilot provenance\n")
+    subprocess.run(["git", "add", "docs/data/pilot"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-F", "message.txt"], cwd=tmp_path, check=True)
+
+    manifest = build_retrospective_manifest(
+        protocol,
+        run_id="pilot-run",
+        summary_path="docs/data/pilot/summary.json",
+        raw_path="docs/data/pilot/raw/run.jsonl",
+        harness_commit=source_commit,
+        root=tmp_path,
+        hosts_doc={"host": [host]},
+    )
+
+    assert manifest["started_at"] is None
+    assert manifest["harness_overlays"] == protocol["harness_overlays"]
+    assert manifest["raw_artifact"] == summary["outputs"][0]
+    assert "original run start timestamp was not recorded" in manifest["date_basis"]
+
+
 def test_ingestion_builds_hashed_report_evidence_from_complete_cells(tmp_path: Path):
     protocol = _protocol(tmp_path)
     host = _host()
@@ -167,7 +271,8 @@ def test_ingestion_builds_hashed_report_evidence_from_complete_cells(tmp_path: P
     assert record["role"] == "report"
     assert record["cell_results"][0]["valid"] is True
     assert record["cell_results"][0]["validity"]["sample_seconds"] == [1.3] * 41
-    assert {item["path"] for item in record["artifacts"]} == {"manifest.json", "raw.jsonl", "driver.rs"}
+    assert {item["path"] for item in record["artifacts"]} == {"manifest.json", "raw.jsonl"}
+    assert record["harness_overlays"] == protocol["harness_overlays"]
 
 
 @pytest.mark.parametrize(
@@ -248,6 +353,49 @@ def test_ingestion_normalizes_m3_05_pipe_records_and_excludes_invalid_phases(tmp
     assert cell["validity"]["repetitions_per_sample"] == {"lower_endpoint": 5, "upper_endpoint": 5}
 
 
+def test_ingestion_normalizes_m3_05_json_records_from_the_committed_pilot_format(tmp_path: Path):
+    protocol = _protocol(tmp_path)
+    protocol.update({"id": "m3_05_any_phase_alpha_first_break", "ordered_cell_ids": ["k8-day0"], "harness_overlays": []})
+    host = _host()
+    manifest = build_run_manifest(
+        protocol,
+        run_id="m3-json-run",
+        root=tmp_path,
+        hosts={"host": [host]},
+        identity=_identity(protocol["report_revision"], host),
+        started_at="2026-10-27T00:00:00Z",
+    )
+    seconds = [1.3] * 41
+    records = [{
+        "record": "SCALE_HOST", "mode": "a5", "warmups": 2, "samples": 41,
+        "process_controls": "priority=high;affinity_mask=0x555",
+    }]
+    for population, median in ((100_000, 100.0), (250_000, 250.0)):
+        records.append({
+            "record": "SCALE_PHASE", "N": population, "k": 8, "horizon": 0,
+            "phase": "P1_regrowth", "median_us": median, "mad_us": 1.0,
+            "repetitions_per_sample": 2, "sample_seconds": seconds,
+        })
+        records.append({
+            "record": "SCALE_FULL_TICK", "N": population, "k": 8, "horizon": 0,
+            "serial_median_us": median, "serial_mad_us": 1.0, "r": 2,
+            "sample_seconds": seconds,
+        })
+    records.extend([
+        {"record": "SCALE_ALPHA", "k": 8, "horizon": 0, "phase": "P1_regrowth", "from_N": 100_000, "to_N": 250_000, "alpha": 1.2},
+        {"record": "SCALE_ALPHA", "k": 8, "horizon": 0, "phase": "full_tick", "from_N": 100_000, "to_N": 250_000, "alpha": 1.3},
+    ])
+    raw_path = tmp_path / "m3_json_raw.jsonl"
+    write_text_lf(raw_path, "".join(json.dumps(row) + "\n" for row in records))
+
+    record = build_evidence_record(manifest, raw_path, protocol, root=tmp_path, hosts_doc={"host": [host]})
+    cell = record["cell_results"][0]
+
+    assert cell["observed"] == {"alpha": 1.3, "maximum_phase": "full_tick"}
+    assert cell["valid"] is True
+    assert cell["process_controls"] == {"priority_set": True, "affinity_set": True}
+
+
 def test_ingestion_normalizes_m3_05_completion_cells_from_run_records(tmp_path: Path):
     protocol = _protocol(tmp_path)
     protocol.update({
@@ -267,12 +415,12 @@ def test_ingestion_normalizes_m3_05_completion_cells_from_run_records(tmp_path: 
         started_at="2026-10-27T00:00:00Z",
     )
     raw_path = tmp_path / "completion.jsonl"
-    write_text_lf(
-        raw_path,
-        "SCALE_HOST|mode=a5|warmups=2|samples=41|process_controls=priority=high;affinity_mask=0x555\n"
-        "SCALE_FULL_TICK|N=1000000|K=5000|k=8|horizon=0|serial_median_us=10\n"
-        "SCALE_COMPLETE|largest_N=1000000|cells=16|parity=all_serial_parallel_final_digests_equal\n",
-    )
+    rows = [
+        {"record": "SCALE_HOST", "mode": "a5", "warmups": 2, "samples": 41, "process_controls": "priority=high;affinity_mask=0x555"},
+        {"record": "SCALE_FULL_TICK", "N": 1_000_000, "K": 5_000, "k": 8, "horizon": 0, "serial_median_us": 10},
+        {"record": "SCALE_COMPLETE", "largest_N": 1_000_000, "cells": 16, "parity": "all_serial_parallel_final_digests_equal"},
+    ]
+    write_text_lf(raw_path, "".join(json.dumps(row) + "\n" for row in rows))
 
     record = build_evidence_record(manifest, raw_path, protocol, root=tmp_path, hosts_doc={"host": [host]})
 

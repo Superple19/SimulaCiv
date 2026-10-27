@@ -89,10 +89,10 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M3-TIM-SERIAL-BASELINE` | report | 6931a9b3884eb51e21256676f1033dab92a8ac58 | unverified | — | unverified | — |
 | `M3-TIM-PHASE6B-NO-WHOLE-TICK-GAIN` | report | db4d482d96840d1f7320c13f908d767f9c31f050 | unverified | — | unverified | — |
 | `M3-TIM-SEARCH-REDUCTION-NO-GAIN` | report | 3f8eb78013e466b1dc6b47515c002dd3cac78d9d | unverified | — | unverified | — |
-| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | N1M-k8-day0 | needs-decision | — |
-| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | N1M-k8-day50 | needs-decision | — |
-| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | N1M-k16-day0 | needs-decision | — |
-| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | N1M-k16-day50 | needs-decision | — |
+| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | reproduced | N1M-k8-day0 | reproduced | m3-05-pilot-static-corrected-report, m3-05-pilot-static-report |
+| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | reproduced | N1M-k8-day50 | reproduced | m3-05-pilot-static-corrected-report, m3-05-pilot-static-report |
+| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | reproduced | N1M-k16-day0 | reproduced | m3-05-pilot-static-corrected-report, m3-05-pilot-static-report |
+| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | reproduced | N1M-k16-day50 | reproduced | m3-05-pilot-static-corrected-report, m3-05-pilot-static-report |
 | `M3-TIM-SETTLEMENT-INDEX` | report | ee7970737de4c8f0bc4ee745bf445368a954fd2a | unverified | — | unverified | — |
 | `M3-TIM-REVERSED-SLOTS` | report | 7926bed68101eb5de6f8cffe0961925311f3bc41 | unverified | — | unverified | — |
 | `M3-TIM-FULL-REBUILD-EQUAL-LIVE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | unverified | — | unverified | — |
@@ -157,10 +157,10 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M1-DET-SNAPSHOT-V1` | report | 1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab | reproduced | header-metadata | reproduced | m5-06-report-m1-det-snapshot-v1 |
 | `M1-DET-SNAPSHOT-V1` | report | 1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab | reproduced | canonical-entity-order | reproduced | m5-06-report-m1-det-snapshot-v1 |
 | `M1-DET-SNAPSHOT-V1` | report | 1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab | reproduced | f32-bit-preservation | reproduced | m5-06-report-m1-det-snapshot-v1 |
-| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | k8-day0 | needs-decision | — |
-| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | k8-day50 | needs-decision | — |
-| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | k16-day0 | needs-decision | — |
-| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | k16-day50 | needs-decision | — |
+| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | reproduced | k8-day0 | reproduced | m3-05-pilot-alpha-corrected-report, m3-05-pilot-alpha-report |
+| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | reproduced | k8-day50 | reproduced | m3-05-pilot-alpha-corrected-report, m3-05-pilot-alpha-report |
+| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | reproduced | k16-day0 | reproduced | m3-05-pilot-alpha-corrected-report, m3-05-pilot-alpha-report |
+| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | reproduced | k16-day50 | reproduced | m3-05-pilot-alpha-corrected-report, m3-05-pilot-alpha-report |
 | `M3-TIM-SERIAL-PER-AGENT-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | — | unverified | — |
 | `M3-TIM-SETUP-TICK-EQUIVALENT` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | — | unverified | — |
 | `M3-TIM-MEMORY-THRESHOLD` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | — | unverified | — |

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,25 @@ def test_artifact_hash_check_accepts_unmaterialized_dvc_output_only_with_blob_ma
     assert validate_artifact_hashes(record, tmp_path) == []
     write_text_lf(manifest, f"{'0' * 64}  {artifact_path}\n")
     assert "DVC SHA256SUMS mismatch" in validate_artifact_hashes(record, tmp_path)[0]
+
+
+def test_artifact_hash_check_rebuilds_unmaterialized_dvc_directory_digest(tmp_path: Path, monkeypatch):
+    import simciv_analysis.conclusions as conclusions
+
+    content = b"raw output\n"
+    content_hash = hashlib.sha256(content).hexdigest()
+    artifact_path = "docs/data/stage/raw"
+    file_path = f"{artifact_path}/run.jsonl"
+    directory_hash = hashlib.sha256(file_path.encode() + b"\0" + content_hash.encode() + b"\n").hexdigest()
+    write_text_lf(tmp_path / "docs/data/SHA256SUMS", f"{content_hash}  {file_path}\n")
+    monkeypatch.setattr(conclusions, "dvc_output_paths", lambda root: {artifact_path})
+
+    errors = validate_artifact_hashes(
+        {"id": "dvc-directory", "artifacts": [{"path": artifact_path, "sha256": directory_hash}]},
+        tmp_path,
+    )
+
+    assert errors == []
 
 
 def test_hosts_registry_requires_full_rustc_identity():
@@ -281,3 +301,40 @@ def test_protocol_checker_rejects_missing_harness_and_nonclosed_parameter_keys()
     errors = _protocol_errors(conclusion, protocol, Path("."))
     assert any("exactly" in error for error in errors)
     assert any("harness path is missing" in error for error in errors)
+
+
+def test_protocol_overlay_accepts_registered_source_blob_when_worktree_copy_differs(tmp_path: Path):
+    subprocess.run(["git", "init", "--quiet"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    source = b"overlay source\n"
+    write_text_lf(tmp_path / "overlay.rs", source.decode())
+    subprocess.run(["git", "add", "overlay.rs"], cwd=tmp_path, check=True)
+    write_text_lf(tmp_path / "message.txt", "test: add overlay source\n\n- record source blob\n")
+    subprocess.run(["git", "commit", "--quiet", "-F", "message.txt"], cwd=tmp_path, check=True)
+    origin = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+    write_text_lf(tmp_path / "overlay.rs", "different working tree copy\n")
+
+    protocol = {
+        "id": "E-1",
+        "status": "complete",
+        "ordered_cell_ids": ["c1"],
+        "predicate_kind": "exact",
+        "predicate_parameters": {
+            "fields": ["value"],
+            "expected_values": {"c1": 1},
+            "comparison": "exact equality",
+        },
+        "host_id": "host",
+        "scope": "one cell",
+        "harness_paths": ["overlay.rs"],
+        "harness_overlays": [{
+            "path": "overlay.rs",
+            "sha256": hashlib.sha256(source).hexdigest(),
+            "origin_commit": origin,
+        }],
+    }
+
+    errors = _protocol_errors({"id": "C-1", "tier": 1, "type": "deterministic"}, protocol, tmp_path)
+
+    assert not any("overlay" in error for error in errors)

@@ -256,12 +256,9 @@ def _protocol_errors(conclusion: dict[str, Any], experiment: dict[str, Any], roo
             errors.append(f"overlay needs path, sha256, and origin_commit: {experiment.get('id')}")
             continue
         path = _repo_file(root, str(overlay["path"]))
-        if path is None or not path.is_file():
+        if path is None:
             errors.append(f"overlay path is missing: {overlay['path']}")
             continue
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        if digest != overlay["sha256"]:
-            errors.append(f"overlay working-tree SHA mismatch: {overlay['path']}")
         origin = str(overlay["origin_commit"])
         blob = _git(root, "show", f"{origin}:{overlay['path']}")
         if blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != overlay["sha256"]:
@@ -321,6 +318,17 @@ def validate_artifact_hashes(record: dict[str, Any], root: Path = ROOT) -> list[
                     if separator and len(digest) == 64:
                         entries[relative] = digest
             actual = entries.get(artifact["path"])
+            if actual is None and artifact["path"] in dvc_output_paths(root):
+                prefix = artifact["path"].rstrip("/") + "/"
+                members = sorted((name, digest) for name, digest in entries.items() if name.startswith(prefix))
+                if members:
+                    digest = hashlib.sha256()
+                    for name, content_hash in members:
+                        digest.update(name.encode("utf-8"))
+                        digest.update(b"\0")
+                        digest.update(content_hash.encode("ascii"))
+                        digest.update(b"\n")
+                    actual = digest.hexdigest()
             if actual is None:
                 errors.append(f"DVC artifact is absent from docs/data/SHA256SUMS: {label}: {artifact['path']}")
                 continue

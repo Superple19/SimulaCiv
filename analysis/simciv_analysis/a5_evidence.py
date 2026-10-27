@@ -25,6 +25,21 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _digest_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _overlay_bytes(root: Path, overlay: dict[str, Any]) -> bytes | None:
+    path, digest, origin = str(overlay["path"]), str(overlay["sha256"]), str(overlay["origin_commit"])
+    blob = _git(root, "show", f"{origin}:{path}")
+    if blob.returncode == 0 and _digest_bytes(blob.stdout) == digest:
+        return blob.stdout
+    file = _repo_file(root, path)
+    if file is not None and file.is_file() and _digest(file) == digest:
+        return file.read_bytes()
+    return None
+
+
 def _runtime_identity(root: Path) -> dict[str, Any]:
     rustc_vv = subprocess.check_output(["rustc", "-Vv"], cwd=root, text=True)
     parsed = _parse_rustc_vv(rustc_vv)
@@ -106,8 +121,7 @@ def build_run_manifest(
     overlays = []
     for overlay in protocol.get("harness_overlays", []):
         path = str(overlay["path"])
-        file = _repo_file(root, path)
-        if file is None or not file.is_file() or _digest(file) != overlay["sha256"]:
+        if _overlay_bytes(root, overlay) is None:
             raise ValueError(f"registered overlay bytes are absent or changed: {path}")
         overlays.append({key: overlay[key] for key in ("path", "sha256", "origin_commit")})
     if overlays != protocol.get("harness_overlays", []):
@@ -128,6 +142,144 @@ def build_run_manifest(
         "a5_settings": host["a5"],
         "harness_overlays": overlays,
         "commands": commands or [],
+    }
+
+
+def build_retrospective_manifest(
+    protocol: dict[str, Any],
+    *,
+    run_id: str,
+    summary_path: str | Path,
+    raw_path: str | Path,
+    harness_commit: str,
+    root: Path = ROOT,
+    hosts_doc: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Record only what an existing DVC pilot summary and raw file establish."""
+    summary_file = _repo_file(root, str(summary_path))
+    raw_file = _repo_file(root, str(raw_path))
+    if summary_file is None or not summary_file.is_file() or raw_file is None or not raw_file.is_file():
+        raise ValueError("retrospective A-5 ingestion needs the committed pilot summary and materialized raw output")
+    summary = json.loads(summary_file.read_text(encoding="utf-8"))
+    details = summary.get("details", {})
+    if details.get("report_revision") != protocol.get("report_revision"):
+        raise ValueError("pilot summary report revision differs from the registered protocol")
+    if summary.get("stage") != protocol.get("source_stage"):
+        raise ValueError("pilot summary stage differs from the registered protocol")
+    if not re.fullmatch(r"[0-9a-f]{40}", harness_commit):
+        raise ValueError("retrospective source commit must be a full SHA")
+    harness_files = [str(path) for path in summary.get("harness_files", [])]
+    if not harness_files:
+        raise ValueError("pilot summary has no harness source list")
+    digest = hashlib.sha256()
+    for path in sorted(harness_files, key=lambda value: value.encode("utf-8")):
+        blob = _git(root, "show", f"{harness_commit}:{path}")
+        if blob.returncode:
+            raise ValueError(f"pilot harness source is absent from {harness_commit}: {path}")
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(_digest_bytes(blob.stdout).encode("ascii"))
+        digest.update(b"\n")
+    if digest.hexdigest() != summary.get("harness_digest"):
+        raise ValueError("pilot harness digest does not match the registered source commit")
+
+    output = next((item for item in summary.get("outputs", []) if item.get("path") in summary.get("raw_outputs", [])), None)
+    if not isinstance(output, dict) or not isinstance(output.get("sha256"), str):
+        raise ValueError("pilot summary has no hashed DVC raw output")
+    output_path = _repo_file(root, str(output["path"]))
+    if output_path is None or not output_path.is_dir():
+        raise ValueError("pilot DVC output directory is absent")
+    from .provenance import digest_files
+
+    output_files = [file for file in output_path.rglob("*") if file.is_file()]
+    if digest_files(output_files, root) != output["sha256"]:
+        raise ValueError("pilot raw output directory digest differs from its provenance summary")
+    if raw_file.resolve().parent != output_path.resolve():
+        raise ValueError("raw pilot file is not the registered DVC stage output")
+
+    records = [json.loads(line) for line in raw_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    header = next((item for item in records if item.get("record") == "SCALE_HOST"), None)
+    host_rows = (hosts_doc or tomllib.loads((root / "contracts/hosts.toml").read_text(encoding="utf-8"))).get("host", [])
+    host = next((item for item in host_rows if item.get("id") == protocol.get("host_id")), None)
+    if header is None or host is None or host.get("reference") is not True:
+        raise ValueError("pilot raw output or reference host registration is missing")
+    if (
+        header.get("mode") != "a5"
+        or header.get("warmups") != host["a5"]["warmups"]
+        or header.get("samples") != host["a5"]["samples"]
+        or header.get("target_sample_seconds") != host["a5"]["sample_target_seconds"]
+        or header.get("minimum_sample_seconds") != host["a5"]["minimum_sample_seconds"]
+        or header.get("process_controls") != f"priority=high;affinity_mask={host['a5']['affinity_mask']}"
+    ):
+        raise ValueError("pilot raw header does not match the frozen A-5 settings")
+
+    rustc_vv = subprocess.check_output(["rustc", "-Vv"], cwd=root, text=True)
+    rustc = _parse_rustc_vv(rustc_vv)
+    if rustc is None or f"rustc {rustc['first_line']}" != summary.get("toolchain"):
+        raise ValueError("installed rustc -Vv differs from the pilot's recorded rustc version")
+    summary_commit = _git(root, "log", "-1", "--format=%H", "--", str(summary_path))
+    if summary_commit.returncode:
+        raise ValueError("cannot find the committed pilot provenance summary")
+    date_result = _git(root, "show", "-s", "--format=%cs", summary_commit.stdout.decode().strip())
+    if date_result.returncode:
+        raise ValueError("cannot determine the provenance summary commit date")
+    pinned_tools = _git(root, "show", f"{harness_commit}:mise.toml")
+    uv_version = "not recorded"
+    if pinned_tools.returncode == 0:
+        uv_match = re.search(r'^"aqua:astral-sh/uv"\s*=\s*"([^"]+)"', pinned_tools.stdout.decode(), re.MULTILINE)
+        if uv_match:
+            uv_version = uv_match.group(1)
+    report_revision = str(protocol["report_revision"])
+    cargo_blob = _git(root, "show", f"{report_revision}:Cargo.lock")
+    if cargo_blob.returncode:
+        raise ValueError("report revision Cargo.lock is unavailable")
+    analysis_blob = _git(root, "show", f"{report_revision}:analysis/uv.lock")
+    overlays = [{key: item[key] for key in ("path", "sha256", "origin_commit")} for item in protocol.get("harness_overlays", [])]
+    for overlay in overlays:
+        if overlay["origin_commit"] != harness_commit or _overlay_bytes(root, overlay) is None:
+            raise ValueError(f"pilot overlay does not match the source commit: {overlay['path']}")
+    return {
+        "schema_version": 1,
+        "run_id": run_id,
+        "started_at": None,
+        "date": date_result.stdout.decode().strip(),
+        "date_basis": "committed pilot provenance summary; original run start timestamp was not recorded",
+        "conclusion_id": protocol["conclusion_id"],
+        "protocol_id": protocol["id"],
+        "role": "report",
+        "revision": report_revision,
+        "worktree_head": report_revision,
+        "host_id": host["id"],
+        "toolchain": {
+            "rustc": rustc["first_line"],
+            "rustc_vv": rustc_vv,
+            "rust_target": rustc["host"],
+            "cargo_lock_sha256": _digest_bytes(cargo_blob.stdout),
+            "analysis_lock_sha256": _digest_bytes(analysis_blob.stdout) if analysis_blob.returncode == 0 else None,
+            "python": "not recorded in pilot provenance",
+            "uv": uv_version,
+            "os_family": "Windows 11",
+            "os_build": "not recorded in pilot provenance",
+            "cpu_model": host["cpu_model"],
+            "physical_cores": host["physical_cores"],
+            "logical_cores": host["logical_cores"],
+            "external_tools": {"cargo": "not separately recorded", "rustc": rustc["release"], "uv": uv_version},
+            "a5_settings": host["a5"],
+        },
+        "a5_settings": host["a5"],
+        "harness_overlays": overlays,
+        "commands": [summary.get("command", "")],
+        "raw_artifact": {"path": output["path"], "sha256": output["sha256"]},
+        "source_summary": {"path": str(summary_path).replace("\\", "/"), "sha256": _digest(summary_file)},
+        "source_harness_commit": harness_commit,
+        "source_harness_files": harness_files,
+        "source_harness_digest": summary["harness_digest"],
+        "notes": [
+            "Retrospective manifest derived from the committed DVC summary and complete raw JSONL; no simulation was rerun.",
+            "Per-sample timestamps and the original run start time are unavailable; date_basis records the summary commit date.",
+            "Python version and Windows build were not captured in the pilot provenance.",
+        ],
+        "supersedes": protocol.get("evidence_supersedes", []),
     }
 
 
@@ -187,8 +339,22 @@ def _pipe_fields(line: str) -> tuple[str, dict[str, str]] | None:
     return chunks[0], fields
 
 
-def _normalize_m3_05(lines: list[str], protocol: dict[str, Any], settings: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    parsed = [item for line in lines if (item := _pipe_fields(line)) is not None]
+def _numeric_list(value: Any) -> list[float]:
+    parts = value.split(",") if isinstance(value, str) else value
+    if not isinstance(parts, list):
+        raise ValueError("A-5 sample durations must be a list")
+    return [float(part) for part in parts]
+
+
+def _normalize_m3_05(records: list[str] | list[dict[str, Any]], protocol: dict[str, Any], settings: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    if records and isinstance(records[0], str):
+        parsed = [item for line in records if isinstance(line, str) and (item := _pipe_fields(line)) is not None]
+    else:
+        parsed = [
+            (str(row.get("record", "")), row)
+            for row in records
+            if isinstance(row, dict) and str(row.get("record", "")).startswith("SCALE_")
+        ]
     host = next((fields for kind, fields in parsed if kind == "SCALE_HOST"), None)
     if host is None or host.get("mode") != "a5" or int(host.get("samples", 0)) != settings["samples"]:
         raise ValueError("M3-05 raw output is not a completed A-5 run")
@@ -196,7 +362,7 @@ def _normalize_m3_05(lines: list[str], protocol: dict[str, Any], settings: dict[
         raise ValueError("M3-05 raw output does not confirm the registered A-5 process controls")
     cell_ids = [str(cell) for cell in protocol.get("ordered_cell_ids", [])]
     if protocol.get("predicate_kind") == "completion":
-        completed = any(kind == "SCALE_COMPLETE" and fields.get("largest_N") == "1000000" for kind, fields in parsed)
+        completed = any(kind == "SCALE_COMPLETE" and int(fields.get("largest_N", 0)) == 1_000_000 for kind, fields in parsed)
         full_rows = {(int(fields["N"]), int(fields["k"]), int(fields["horizon"]))
                      for kind, fields in parsed if kind == "SCALE_FULL_TICK"}
         result = {}
@@ -248,10 +414,14 @@ def _normalize_m3_05(lines: list[str], protocol: dict[str, Any], settings: dict[
             raise ValueError(f"M3-05 A-5 raw output lacks alpha endpoints for {cell_id}")
         valid = [item for item in candidates if item[4] <= settings["max_path_mad_over_median"] and item[5] <= settings["max_path_mad_over_median"]]
         alpha, phase, low, high, low_spread, high_spread = max(valid or candidates, key=lambda item: item[0])
-        low_seconds = [float(value) for value in low["sample_seconds"].split(",")]
-        high_seconds = [float(value) for value in high["sample_seconds"].split(",")]
+        low_seconds = _numeric_list(low["sample_seconds"])
+        high_seconds = _numeric_list(high["sample_seconds"])
         if len(low_seconds) != settings["samples"] or len(high_seconds) != settings["samples"]:
             raise ValueError(f"M3-05 A-5 phase series lacks {settings['samples']} samples for {cell_id}")
+        low_repetitions = int(low.get("repetitions_per_sample", low.get("r", 0)))
+        high_repetitions = int(high.get("repetitions_per_sample", high.get("r", 0)))
+        if low_repetitions < 1 or high_repetitions < 1:
+            raise ValueError(f"M3-05 A-5 raw output lacks endpoint repetition counts for {cell_id}")
         result[cell_id] = {
             "cell_id": cell_id,
             "value": alpha,
@@ -260,7 +430,7 @@ def _normalize_m3_05(lines: list[str], protocol: dict[str, Any], settings: dict[
             "validity": {
                 "warmups": int(host["warmups"]),
                 "sample_count": int(host["samples"]),
-                "repetitions_per_sample": {"lower_endpoint": int(low["repetitions_per_sample"]), "upper_endpoint": int(high["repetitions_per_sample"])},
+                "repetitions_per_sample": {"lower_endpoint": low_repetitions, "upper_endpoint": high_repetitions},
                 "sample_seconds": [min(left, right) for left, right in zip(low_seconds, high_seconds)],
                 "path_mad_over_median": {"lower_endpoint": low_spread, "upper_endpoint": high_spread},
             },
@@ -295,8 +465,7 @@ def build_evidence_record(
     if rustc is None or toolchain.get("rustc") != rustc["first_line"]:
         raise ValueError("run manifest lacks an exact rustc -Vv identity")
     for overlay in manifest.get("harness_overlays", []):
-        file = _repo_file(root, str(overlay["path"]))
-        if file is None or not file.is_file() or _digest(file) != overlay["sha256"]:
+        if _overlay_bytes(root, overlay) is None:
             raise ValueError(f"run overlay bytes differ from the manifest: {overlay.get('path')}")
     expected_cells = [str(cell) for cell in protocol.get("ordered_cell_ids", [])]
     raw_lines = raw_path.read_text(encoding="utf-8").splitlines()
@@ -304,19 +473,22 @@ def build_evidence_record(
         results = _normalize_m3_05(raw_lines, protocol, manifest["a5_settings"])
     else:
         decoded = [json.loads(line) for line in raw_lines if line.strip()]
-        cells = {}
-        for row in decoded:
-            if row.get("record") == "A5_CELL_RESULT" or row.get("kind") == "A5_CELL_RESULT":
-                normalized = row
-            elif row.get("kind") == "series":
-                normalized = _normalize_series(row)
-            else:
-                continue
-            cell_id = normalized["cell_id"]
-            if cell_id in cells:
-                raise ValueError(f"duplicate A-5 cell result: {cell_id}")
-            cells[cell_id] = normalized
-        results = cells
+        if any(row.get("record") == "SCALE_HOST" for row in decoded):
+            results = _normalize_m3_05(decoded, protocol, manifest["a5_settings"])
+        else:
+            cells = {}
+            for row in decoded:
+                if row.get("record") == "A5_CELL_RESULT" or row.get("kind") == "A5_CELL_RESULT":
+                    normalized = row
+                elif row.get("kind") == "series":
+                    normalized = _normalize_series(row)
+                else:
+                    continue
+                cell_id = normalized["cell_id"]
+                if cell_id in cells:
+                    raise ValueError(f"duplicate A-5 cell result: {cell_id}")
+                cells[cell_id] = normalized
+            results = cells
     if list(results) != expected_cells:
         raise ValueError("A-5 results must contain the registered ordered cells exactly once")
     settings = manifest["a5_settings"]
@@ -358,13 +530,19 @@ def build_evidence_record(
         processed.append({**item, "cell_id": cell_id, "observed": observed, "validity": validity, "valid": is_valid})
     raw = raw_path.resolve()
     raw_relative = raw.relative_to(root.resolve()).as_posix()
-    artifacts = [{"path": raw_relative, "sha256": _digest(raw)}]
+    raw_artifact = manifest.get("raw_artifact")
+    artifacts = [
+        {"path": raw_artifact["path"], "sha256": raw_artifact["sha256"]}
+        if isinstance(raw_artifact, dict)
+        else {"path": raw_relative, "sha256": _digest(raw)}
+    ]
     if manifest_path is not None:
         manifest_file = manifest_path.resolve()
         artifacts.append({"path": manifest_file.relative_to(root.resolve()).as_posix(), "sha256": _digest(manifest_file)})
-    for overlay in manifest.get("harness_overlays", []):
-        artifacts.append({"path": overlay["path"], "sha256": overlay["sha256"]})
-    return {
+    source_summary = manifest.get("source_summary")
+    if isinstance(source_summary, dict):
+        artifacts.append({"path": source_summary["path"], "sha256": source_summary["sha256"]})
+    record = {
         "id": f"{manifest['run_id']}-report",
         "conclusion_id": manifest["conclusion_id"],
         "role": "report",
@@ -374,12 +552,16 @@ def build_evidence_record(
         "protocol_id": manifest["protocol_id"],
         "date": manifest["date"],
         "commands": manifest.get("commands", []),
+        "notes": manifest.get("notes", []),
         "artifacts": artifacts,
         "harness_overlays": manifest.get("harness_overlays", []),
         "overlay_build_ok": True,
         "cell_results": processed,
         "raw_outputs": [{"path": raw_relative, "sha256": _digest(raw)}],
     }
+    if manifest.get("supersedes"):
+        record["supersedes"] = manifest["supersedes"]
+    return record
 
 
 def append_evidence(record: dict[str, Any], path: Path = EVIDENCE) -> None:
@@ -586,6 +768,13 @@ def main(argv: list[str] | None = None) -> int:
     ingest_parser = modes.add_parser("ingest")
     ingest_parser.add_argument("manifest", type=Path)
     ingest_parser.add_argument("raw", type=Path)
+    retro_parser = modes.add_parser("retrospective-manifest")
+    retro_parser.add_argument("protocol_id")
+    retro_parser.add_argument("run_id")
+    retro_parser.add_argument("summary", type=Path)
+    retro_parser.add_argument("raw", type=Path)
+    retro_parser.add_argument("harness_commit")
+    retro_parser.add_argument("output", type=Path)
     args = parser.parse_args(argv)
     try:
         if args.mode == "dry-run":
@@ -601,6 +790,20 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("manifest output must stay inside the repository")
             write_text_lf(output, json.dumps(manifest, separators=(",", ":"), sort_keys=True) + "\n")
             print(f"wrote A-5 run manifest: {output.relative_to(ROOT).as_posix()}")
+        elif args.mode == "retrospective-manifest":
+            protocol = protocols[args.protocol_id]
+            manifest = build_retrospective_manifest(
+                protocol,
+                run_id=args.run_id,
+                summary_path=args.summary,
+                raw_path=args.raw,
+                harness_commit=args.harness_commit,
+            )
+            output = _repo_file(ROOT, args.output.as_posix())
+            if output is None:
+                raise ValueError("manifest output must stay inside the repository")
+            write_text_lf(output, json.dumps(manifest, separators=(",", ":"), sort_keys=True) + "\n")
+            print(f"wrote retrospective A-5 manifest: {output.relative_to(ROOT).as_posix()}")
         else:
             manifest_path = _repo_file(ROOT, args.manifest.as_posix())
             raw_path = _repo_file(ROOT, args.raw.as_posix())
