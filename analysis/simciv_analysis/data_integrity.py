@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[2]
 DATA_ROOT = ROOT / "docs" / "data"
 MANIFEST = DATA_ROOT / "SHA256SUMS"
 GENERATED_DATA_STATUS = "docs/data/m5_05/STATUS.md"
+DATA_DELETION_ALLOWLIST = {
+    GENERATED_DATA_STATUS: "Superseded by the registry-generated verdict table; the local DVC cache status is not evidence and cannot remain a gate input because it depends on later Rust harness sources."
+}
 
 
 def data_files(root: Path) -> dict[str, Path]:
@@ -83,7 +86,12 @@ def _is_dvc_metadata(relative: str) -> bool:
 
 
 def _can_refresh_data_checksum(relative: str) -> bool:
-    return _is_dvc_metadata(relative) or relative == GENERATED_DATA_STATUS
+    return _is_dvc_metadata(relative)
+
+
+def _data_deletion_reason(relative: str) -> str | None:
+    reason = DATA_DELETION_ALLOWLIST.get(relative)
+    return reason if isinstance(reason, str) and reason.strip() else None
 
 
 def _content_bytes(root: Path, relative: str, path: Path) -> bytes:
@@ -257,9 +265,9 @@ def _frozen_lock_range_violations(root: Path, base: str, head: str) -> list[str]
 def base_range_violations(root: Path, base: str, head: str = "HEAD") -> list[str]:
     """Reject changes to existing data blobs or their checksums in a pushed range.
 
-    DVC pipeline YAML/lock files and the generated M5-05 cache-status summary are
-    control metadata; raw data and their manifest entries remain protected. A
-    new DVC output path may be registered normally.
+    DVC pipeline YAML/lock files are control metadata; raw data and their
+    manifest entries remain protected. A new DVC output path may be registered
+    normally.
     """
     try:
         base_manifest = _manifest_at(root, base)
@@ -272,7 +280,7 @@ def base_range_violations(root: Path, base: str, head: str = "HEAD") -> list[str
     for relative, old_digest in sorted(base_manifest.items()):
         new_digest = head_manifest.get(relative)
         if new_digest is None:
-            if not _can_refresh_data_checksum(relative):
+            if not _can_refresh_data_checksum(relative) and _data_deletion_reason(relative) is None:
                 errors.append(f"existing data checksum removed in {base}..{head}: {relative}")
         elif new_digest != old_digest and not _can_refresh_data_checksum(relative):
             errors.append(f"existing data checksum changed in {base}..{head}: {relative}")
@@ -305,6 +313,8 @@ def base_range_violations(root: Path, base: str, head: str = "HEAD") -> list[str
             continue
         before = _blob_at(root, base, relative)
         after = _blob_at(root, head, relative)
+        if before is not None and after is None and _data_deletion_reason(relative) is not None:
+            continue
         if before is not None and before != after:
             errors.append(f"existing data bytes changed in {base}..{head}: {relative}")
         elif before is None and after is not None:
@@ -325,6 +335,13 @@ def check(root: Path = ROOT) -> list[str]:
     committed = _committed_manifest(root)
     for relative, digest in committed.items():
         if expected.get(relative) != digest:
+            if (
+                _data_deletion_reason(relative) is not None
+                and relative not in expected
+                and not (root / relative).exists()
+                and _git_index_blob_bytes(root, relative) is None
+            ):
+                continue
             if relative not in expected or not _can_refresh_data_checksum(relative):
                 return [f"committed checksum entry changed or removed: {relative}"]
             staged = _git_index_blob_bytes(root, relative)
@@ -376,6 +393,8 @@ def write(root: Path = ROOT) -> None:
             if relative not in files and _is_dvc_output(relative, outputs):
                 entries[relative] = digest
             elif relative not in files:
+                if _data_deletion_reason(relative) is not None:
+                    continue
                 raise FileNotFoundError(f"refusing to drop missing non-DVC data file: {relative}")
             else:
                 actual = _digest(root, relative, files[relative])

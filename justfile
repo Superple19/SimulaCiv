@@ -110,7 +110,7 @@ reconstruct-all *ARGS: analysis-sync
 
 lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
-    vale --config analysis/vale/.vale.ini docs/data/m5_05/STATUS.md docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
+    vale --config analysis/vale/.vale.ini docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
 check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check large-file-range-check data-integrity-range-check gitleaks-range-check decisions-check conclusions-check dvc-freeze-check check-autocrlf data-integrity-check links analysis-output-check lint-prose
 
@@ -162,12 +162,6 @@ recovered-claim-audit-check: analysis-sync
 generated-artifacts-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.generated_artifacts
 
-m5-05-dvc-status: analysis-sync
-    uv run --directory analysis --project . python -m simciv_analysis.m5_05_dvc_status
-
-m5-05-dvc-status-check: analysis-sync
-    uv run --directory analysis --project . python -m simciv_analysis.m5_05_dvc_status --check
-
 m3-05-pilot-report: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.m3_05_pilot_runtime --summary-only
 
@@ -179,7 +173,6 @@ check-local-data: analysis-sync
     just recovered-claim-audit-check
     just m3-05-pilot-classify-check
     just m3-05-pilot-runtime-check
-    just m5-05-dvc-status-check
 
 
 m5-05-deterministic: m5-05-plan

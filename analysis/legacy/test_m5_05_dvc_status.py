@@ -1,10 +1,10 @@
 import json
 
-from simciv_analysis.m5_05_dvc_status import _cache_object_state, status_report_matches
+from legacy.m5_05_dvc_status import _cache_object_state, status_report_matches
 
 
 def test_dvc_directory_cache_manifest_keeps_dir_suffix(tmp_path, monkeypatch):
-    from simciv_analysis import m5_05_dvc_status
+    from legacy import m5_05_dvc_status
 
     monkeypatch.setattr(m5_05_dvc_status, "CACHE", tmp_path)
     directory_md5 = "0123456789abcdef0123456789abcdef.dir"

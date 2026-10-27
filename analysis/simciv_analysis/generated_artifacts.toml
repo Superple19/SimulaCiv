@@ -104,11 +104,6 @@ generator = "analysis/simciv_analysis/report_m5_05.py"
 check = "analysis-reports-check"
 
 [[artifact]]
-file = "docs/data/m5_05/STATUS.md"
-generator = "analysis/simciv_analysis/m5_05_dvc_status.py"
-check = "m5-05-dvc-status-check"
-
-[[artifact]]
 file = "docs/data/SHA256SUMS"
 generator = "analysis/simciv_analysis/data_integrity.py"
 check = "data-integrity-check"

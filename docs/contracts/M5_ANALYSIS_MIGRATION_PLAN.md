@@ -52,6 +52,8 @@ Source-map parsing and validation now live beside the claims reference-index ext
 
 Later update (2026-10-27): Phase 2 is accepted with M5-01/04/05 report-module consolidation deferred. Trigger: after a registry-backed report exists and covers the same evidence, archive or merge the old report modules and re-measure gate size.
 
+Later update (2026-10-27): `docs/data/m5_05/STATUS.md` was retired as a machine-local cache inventory, not evidence. Its deletion is allowlisted by exact path and reason in `data_integrity.py`; the generator, test, and `just` recipes are archived or removed. The registry-generated verdict table is the current verdict view. This single-path deletion was separately authorized; the plan text above records the earlier migration constraint.
+
 ## Import and gate graph
 
 `analysis/simciv_analysis/__init__.py` exports no runtime API. The report entry points import shared I/O, table/figure, findings, provenance, and data-source helpers. M5-01 additionally imports ledger extraction and recovered-claim audit/triage; M5-04 imports claim overrides and source mapping; M5-05 imports its separate conclusion file and computes the historical-run report. The `just` recipes invoke these entry points directly. The intended convergence is one explicit registry/evidence/report path; shared byte-writing, hashing, tools, links, integrity, and delivery checks stay shared.

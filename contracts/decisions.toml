@@ -406,7 +406,7 @@ stage = "M5-00"
 status = "frozen"
 enforcement = "exists"
 summary = "Clean-checkout analysis validation requires no DVC pull and reads only committed summaries."
-enforced_by = ["analysis/simciv_analysis/ci_clean.py", "analysis/tests/test_m5_05_dvc_status.py", "just:ci-clean"]
+enforced_by = ["analysis/simciv_analysis/ci_clean.py", "just:ci-clean"]
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#144-m5-00-a-1a-2-decision-register-frozen"
 date = "2026-10-23"
 
@@ -452,7 +452,7 @@ stage = "M5-05"
 status = "superseded"
 enforcement = "exists"
 summary = "The 13 selected conclusions run in three recorded sessions, each bounded by six hours."
-enforced_by = ["docs/reproducibility/m5_05_conclusions.toml", "analysis/simciv_analysis/m5_05.py", "docs/data/m5_05/STATUS.md"]
+enforced_by = ["docs/reproducibility/m5_05_conclusions.toml", "analysis/simciv_analysis/m5_05.py"]
 superseded_by = "M5-05-REGISTRY-SUPERSESSION"
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#156-frozen-decision-register"
 date = "2026-10-23"
