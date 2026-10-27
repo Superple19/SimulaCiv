@@ -401,12 +401,37 @@ predicate_parameters = { "historical_values" = [1.21, 1.23, 1.49, 1.47], "ratio_
 scope = "M3-09 follow-up; day-400 checkpoint; live populations 10,341 and 103,241; three days/sample."
 harness_paths = [
   "crates/sim-model/examples/m5_05_m3_09_revision.rs",
-  "crates/sim-model/examples/m5_05_sessions23.rs",
+  "crates/sim-model/examples/common/a5.rs",
+  "crates/sim-model/examples/common/process_controls.rs",
+  "crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml",
 ]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "Day-400 checkpoint; 2 warmups; 11 samples; three public-API days/call; paired rotation of M3P serial, M3P incremental, and M3."
-harness_overlays = [{ "path" = "crates/sim-model/examples/m5_05_m3_09_revision.rs", "sha256" = "0d66cb0cc690d38e03e3fb6a50551c3a1003be7b710fe3f6a5a7d6fddc0734b8", "origin_commit" = "aa1e9e5563d391b80786002beed32dd2fdffbdb2" }, { "path" = "crates/sim-model/examples/m5_05_sessions23.rs", "sha256" = "2c99efa793c151648c30e808de3832c79369edabf4e665db55c2926773d8abed", "origin_commit" = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" }]
+harness_overlays = [
+  { path = "crates/sim-model/examples/m5_05_m3_09_revision.rs", sha256 = "37455f2bf5922d1d483649bcc72d67cdabfced2f83c26741efc14ffb91f156fd", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
+  { path = "crates/sim-model/examples/common/a5.rs", sha256 = "23d443ff87c6ba80e1c78d5cdcf3e965c0cd988ade0ab9c8a6cd15a6c3ba6bfe", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
+  { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
+  { path = "crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml", sha256 = "2fa70574e9e2ea30a1f34b8cfaefc107dde8298fb148170bad2ebee836ad2679", origin_commit = "de13b23509d4a868ed990f5a9c51cc9ec3c7c763" },
+]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "report_revision_a5_adapter_overlay_registered"
+source_report = "681bf296ea07d3ddc4391f5f1dfd49255876300c:docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md#equal-live-m3pm3-rerun-and-interleaving"
+source_code = "681bf296ea07d3ddc4391f5f1dfd49255876300c:crates/sim-model/tests/m3p_sustained_gate_tests.rs::sustained_config"
+reason = "Register the A-5 streaming adapter and exact M3-08 sustained fixture as overlays. The fixture matches the report-SHA sustained_config inputs; it was absent at the report revision, so the historical source tree is not edited."
+registry_values_changed = false
+prior_harness_paths = ["crates/sim-model/examples/m5_05_m3_09_revision.rs", "crates/sim-model/examples/m5_05_sessions23.rs"]
+prior_harness_overlays = [{ path = "crates/sim-model/examples/m5_05_m3_09_revision.rs", sha256 = "0d66cb0cc690d38e03e3fb6a50551c3a1003be7b710fe3f6a5a7d6fddc0734b8", origin_commit = "aa1e9e5563d391b80786002beed32dd2fdffbdb2" }, { path = "crates/sim-model/examples/m5_05_sessions23.rs", sha256 = "2c99efa793c151648c30e808de3832c79369edabf4e665db55c2926773d8abed", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" }]
+report_sha_build = "passed: cargo +1.98.1 check --locked --release -p sim-model --example m5_05_m3_09_revision"
+report_sha_smoke = ["N10k-paired: parity passed; no timing recorded", "N10k-noninterleaved: parity passed; no timing recorded", "N100k-paired: parity passed; no timing recorded", "N100k-noninterleaved: parity passed; no timing recorded"]
+protocol_field_comparison = ["cells: N10k/N100k paired and noninterleaved, exact order unchanged", "configuration: M3-08 sustained M2-40 deltas, K=N/200, k=8, p_local=0.5, seed=81985529216486895, replicate=7, births=0.0001 unlimited, compaction=50", "checkpoint: after executed day 400; contexts prepared from the checkpoint before each timed three-day public API call", "sampling: 2 warmups, 41 samples, one r per cell calibrated to 1.25 s target and 1.0 s floor, high priority and affinity 0x555", "pairing: paired rotation over M3P serial/incremental/M3; noninterleaved blocks in that runner order", "timer: API calls only, metrics/events enabled, snapshots off; parity and digest checks retained"]
+prior_ordered_cell_ids = ["N10k-paired", "N10k-noninterleaved", "N100k-paired", "N100k-noninterleaved"]
+prior_predicate_parameters = { historical_values = [1.21, 1.23, 1.49, 1.47], ratio_direction = "incremental_M3P_median / M3_median", deviation_bands_pct = [10, 20] }
+prior_scope = "M3-09 follow-up; day-400 checkpoint; live populations 10,341 and 103,241; three days/sample."
+prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+prior_historical_sampling = "Day-400 checkpoint; 2 warmups; 11 samples; three public-API days/call; paired rotation of M3P serial, M3P incremental, and M3."
 
 [[experiment]]
 id = "m3_09_phase9b_normal_day_profile"
@@ -433,9 +458,33 @@ ordered_cell_ids = ["N100000-k16-hops16-transmit0.2-pool6-day0"]
 predicate_kind = "ratio_band"
 predicate_parameters = { "historical_values" = [3.196766], "ratio_direction" = "serial_phase9c_median / pool6_phase9c_median", "deviation_bands_pct" = [10, 20] }
 scope = "Fixed-topology M3; N=100k, K=500, k=16, max_hops=16, transmit=0.2, initial frontier=29,753."
-harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
+harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "crates/sim-model/examples/common/a5.rs", "crates/sim-model/examples/common/process_controls.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "2 warmups and 11 samples; three days/sample for whole tick; Phase 9c state prepared outside timed call."
+harness_overlays = [
+  { path = "crates/sim-model/benches/m3_11_propagation_bench.rs", sha256 = "5e16062c59adb9e3f5b4cceb378982bd8caef35cdb8439b246c7b1e635975874", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
+  { path = "crates/sim-model/examples/common/a5.rs", sha256 = "23d443ff87c6ba80e1c78d5cdcf3e965c0cd988ade0ab9c8a6cd15a6c3ba6bfe", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
+  { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
+]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "report_revision_a5_adapter_overlay_registered"
+source_report = "734627800b99e3865d9a0cd4a1d62e38a03c3bb3:docs/performance/M3_11_PROPAGATION.md#summary"
+source_code = "734627800b99e3865d9a0cd4a1d62e38a03c3bb3:crates/sim-model/benches/m3_11_propagation_bench.rs"
+reason = "Register a selective streaming A-5 mode in the existing bench; default sweep behavior and all registered protocol values stay unchanged."
+registry_values_changed = false
+prior_harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
+prior_harness_overlays = []
+report_sha_build = "passed: cargo +1.98.1 bench --locked --no-run -p sim-model --bench m3_11_propagation_bench"
+report_sha_smoke = ["N100000-k16-hops16-transmit0.2-pool6-day0: parity passed; no timing recorded"]
+protocol_field_comparison = ["cell: N=100000, K=500, k=16, max_hops=16, transmit=0.2, pool=6, day=0, initial frontier 29,753", "randomness: seed=81985529216486895, replicate=7", "sampling: 2 warmups, 41 samples, per-cell r calibrated to 1.25 s target and 1.0 s floor, high priority and affinity 0x555", "pairing: serial/pool6 pair alternates order by operation", "timer: apply_phase9c_storage only; base world, graph, propagation state, oracle and pool are prepared outside the timer; state/count parity checks follow the timer"]
+prior_ordered_cell_ids = ["N100000-k16-hops16-transmit0.2-pool6-day0"]
+prior_predicate_parameters = { historical_values = [3.196766], ratio_direction = "serial_phase9c_median / pool6_phase9c_median", deviation_bands_pct = [10, 20] }
+prior_scope = "Fixed-topology M3; N=100k, K=500, k=16, max_hops=16, transmit=0.2, initial frontier=29,753."
+prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+prior_historical_sampling = "2 warmups and 11 samples; three days/sample for whole tick; Phase 9c state prepared outside timed call."
 
 [[experiment]]
 id = "m3_11_whole_tick_speedup"
@@ -450,9 +499,33 @@ ordered_cell_ids = ["large-frontier-interleaved-pool6", "large-frontier-noninter
 predicate_kind = "ratio_band"
 predicate_parameters = { "historical_values" = [2.26, 2.29], "ratio_direction" = "serial_tick_median / pool6_tick_median", "deviation_bands_pct" = [10, 20] }
 scope = "Same large-frontier workload as the Phase 9c cell; three consecutive days/sample."
-harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
+harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs", "crates/sim-model/examples/common/a5.rs", "crates/sim-model/examples/common/process_controls.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "2 warmups and 11 samples; three days/sample for whole tick; Phase 9c state prepared outside timed call."
+harness_overlays = [
+  { path = "crates/sim-model/benches/m3_11_propagation_bench.rs", sha256 = "5e16062c59adb9e3f5b4cceb378982bd8caef35cdb8439b246c7b1e635975874", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
+  { path = "crates/sim-model/examples/common/a5.rs", sha256 = "23d443ff87c6ba80e1c78d5cdcf3e965c0cd988ade0ab9c8a6cd15a6c3ba6bfe", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
+  { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
+]
+report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "report_revision_a5_adapter_overlay_registered"
+source_report = "734627800b99e3865d9a0cd4a1d62e38a03c3bb3:docs/performance/M3_11_PROPAGATION.md#summary"
+source_code = "734627800b99e3865d9a0cd4a1d62e38a03c3bb3:crates/sim-model/benches/m3_11_propagation_bench.rs"
+reason = "Register the selective streaming A-5 tick modes in the existing bench; default sweep behavior and all registered protocol values stay unchanged."
+registry_values_changed = false
+prior_harness_paths = ["crates/sim-model/benches/m3_11_propagation_bench.rs"]
+prior_harness_overlays = []
+report_sha_build = "passed: cargo +1.98.1 bench --locked --no-run -p sim-model --bench m3_11_propagation_bench"
+report_sha_smoke = ["large-frontier-interleaved-pool6: parity passed; no timing recorded", "large-frontier-noninterleaved-pool6: parity passed; no timing recorded"]
+protocol_field_comparison = ["cells: N=100000, K=500, k=16, max_hops=16, transmit=0.2, pool=6, three days/call, interleaved and noninterleaved", "randomness: seed=81985529216486895, replicate=7", "sampling: 2 warmups, 41 samples, per-cell r calibrated to 1.25 s target and 1.0 s floor, high priority and affinity 0x555", "pairing: interleaved samples alternate serial/pool6 order; noninterleaved samples complete serial then pool6 blocks", "timer: public M3 propagation storage API over three days; fresh world/context built before each timed API call, metrics/events on and snapshots off; per-day records/digests compared"]
+prior_ordered_cell_ids = ["large-frontier-interleaved-pool6", "large-frontier-noninterleaved-pool6"]
+prior_predicate_parameters = { historical_values = [2.26, 2.29], ratio_direction = "serial_tick_median / pool6_tick_median", deviation_bands_pct = [10, 20] }
+prior_scope = "Same large-frontier workload as the Phase 9c cell; three consecutive days/sample."
+prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+prior_historical_sampling = "2 warmups and 11 samples; three days/sample for whole tick; Phase 9c state prepared outside timed call."
 
 [[experiment]]
 id = "m3_reference_storage_parity"
