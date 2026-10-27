@@ -144,6 +144,16 @@ generator = "analysis/simciv_analysis/a5_tonight.py"
 check = "a5-tonight-summary-check"
 
 [[artifact]]
+file = "docs/data/m5_08/manifests/m3_11_phase9c_speedup.json"
+generator = "analysis/simciv_analysis/a5_tonight.py"
+check = "a5-tonight-summary-check"
+
+[[artifact]]
+file = "docs/data/m5_08/manifests/m3_11_whole_tick_speedup.json"
+generator = "analysis/simciv_analysis/a5_tonight.py"
+check = "a5-tonight-summary-check"
+
+[[artifact]]
 file = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md"
 generator = "analysis/simciv_analysis/decisions.py"
 check = "decisions-check"

@@ -467,6 +467,7 @@ harness_overlays = [
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
 ]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+evidence_supersedes = ["m5-08-report-build-failed-m3_11_phase9c_speedup-overlay-build-failed"]
 
 [[experiment.amendment]]
 date = "2026-10-27"
@@ -485,6 +486,15 @@ prior_predicate_parameters = { historical_values = [3.196766], ratio_direction =
 prior_scope = "Fixed-topology M3; N=100k, K=500, k=16, max_hops=16, transmit=0.2, initial frontier=29,753."
 prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 prior_historical_sampling = "2 warmups and 11 samples; three days/sample for whole tick; Phase 9c state prepared outside timed call."
+[[experiment.amendment]]
+date = "2026-10-28"
+classification = "shared_target_collision_diagnostic_superseded"
+source_code = "45d12de:analysis/simciv_analysis/a5_tonight.py"
+reason = "The earlier report-SHA build failure came from reusing one Cargo target directory across report revisions. With a target directory isolated by report SHA, the report revision built and all registered smoke cells passed parity; no timing was recorded and protocol values are unchanged."
+registry_values_changed = false
+report_sha_build = "passed with target/a5_tonight/cargo-target/<report_revision>"
+report_sha_smoke = ["N100000-k16-hops16-transmit0.2-pool6-day0: parity passed; no timing recorded"]
+prior_report_sha_build = "shared target directory failed with unresolved imports; superseded by isolated target build"
 
 [[experiment]]
 id = "m3_11_whole_tick_speedup"
@@ -508,6 +518,7 @@ harness_overlays = [
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
 ]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+evidence_supersedes = ["m5-08-report-build-failed-m3_11_whole_tick_speedup-overlay-build-failed"]
 
 [[experiment.amendment]]
 date = "2026-10-27"
@@ -526,6 +537,15 @@ prior_predicate_parameters = { historical_values = [2.26, 2.29], ratio_direction
 prior_scope = "Same large-frontier workload as the Phase 9c cell; three consecutive days/sample."
 prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 prior_historical_sampling = "2 warmups and 11 samples; three days/sample for whole tick; Phase 9c state prepared outside timed call."
+[[experiment.amendment]]
+date = "2026-10-28"
+classification = "shared_target_collision_diagnostic_superseded"
+source_code = "45d12de:analysis/simciv_analysis/a5_tonight.py"
+reason = "The earlier report-SHA build failure came from reusing one Cargo target directory across report revisions. With a target directory isolated by report SHA, the report revision built and all registered smoke cells passed parity; no timing was recorded and protocol values are unchanged."
+registry_values_changed = false
+report_sha_build = "passed with target/a5_tonight/cargo-target/<report_revision>"
+report_sha_smoke = ["large-frontier-interleaved-pool6: parity passed; no timing recorded", "large-frontier-noninterleaved-pool6: parity passed; no timing recorded"]
+prior_report_sha_build = "shared target directory failed with unresolved imports; superseded by isolated target build"
 
 [[experiment]]
 id = "m3_reference_storage_parity"
