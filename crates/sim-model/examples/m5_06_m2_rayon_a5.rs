@@ -1,5 +1,4 @@
 use rayon::ThreadPoolBuilder;
-use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sim_model::hashing::{canonical_event_hash, canonical_metrics_hash};
 use sim_model::runner::{
@@ -205,7 +204,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let pair = pair_once(&initial, &config, &context, &pool, 1)?;
             append(
                 &output,
-                json!({"kind":"series","cell_id":cell.id,"config_hash":config_hash,"setup_ns":setup_ns,"series_started_unix_ms":series_started_ms,"series_completed_unix_ms":timestamp_ms(),"smoke":true,"serial_us":pair.serial_us,"rayon_us":pair.rayon_us,"parity":true,"complete":true}),
+                &format!(
+                    "{{\"kind\":\"series\",\"cell_id\":\"{}\",\"config_hash\":\"{}\",\"setup_ns\":{},\"series_started_unix_ms\":{},\"series_completed_unix_ms\":{},\"smoke\":true,\"serial_us\":{},\"rayon_us\":{},\"parity\":true,\"complete\":true}}",
+                    cell.id,
+                    config_hash,
+                    setup_ns,
+                    series_started_ms,
+                    timestamp_ms(),
+                    pair.serial_us,
+                    pair.rayon_us
+                ),
             )?;
             eprintln!(
                 "cell {}/{} {} smoke complete",
@@ -232,7 +240,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let series = measure_cell(&initial, &config, &context, &pool)?;
         append(
             &output,
-            json!({"kind":"series","cell_id":cell.id,"workload":cell.workload,"N":cell.population,"K":cell.settlements,"config_hash":config_hash,"setup_ns":setup_ns,"series_started_unix_ms":series_started_ms,"series_completed_unix_ms":timestamp_ms(),"execution_options":{"days_per_call":DAYS,"metrics":true,"events":true,"snapshots":false,"pool_threads":6,"chunk_size":CHUNK.get()},"process_controls":{"priority_set":settings.priority_set,"affinity_set":settings.affinity_set},"series":series,"complete":true}),
+            &format!(
+                "{{\"kind\":\"series\",\"cell_id\":\"{}\",\"workload\":\"{}\",\"N\":{},\"K\":{},\"config_hash\":\"{}\",\"setup_ns\":{},\"series_started_unix_ms\":{},\"series_completed_unix_ms\":{},\"execution_options\":{{\"days_per_call\":{},\"metrics\":true,\"events\":true,\"snapshots\":false,\"pool_threads\":6,\"chunk_size\":{}}},\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{},\"complete\":true}}",
+                cell.id,
+                cell.workload,
+                cell.population,
+                cell.settlements,
+                config_hash,
+                setup_ns,
+                series_started_ms,
+                timestamp_ms(),
+                DAYS,
+                CHUNK.get(),
+                settings.priority_set,
+                settings.affinity_set,
+                series
+            ),
         )?;
         eprintln!(
             "cell {}/{} {} elapsed={:.1}s",
@@ -342,7 +365,7 @@ fn measure_cell(
     config: &SimConfig,
     context: &M0RunContext,
     pool: &rayon::ThreadPool,
-) -> Result<Value, Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error>> {
     let mut warmup_ns = Vec::with_capacity(WARMUPS);
     for warmup in 0..WARMUPS {
         let started = Instant::now();
@@ -388,7 +411,7 @@ fn measure_cell(
                 short = true;
                 break;
             }
-            values.push(json!({"sample":sample,"started_unix_ms":sample_started_ms,"timed_pair_elapsed_ns":timed_ns,"wall_elapsed_ns":elapsed.as_nanos(),"serial_us_per_call":serial_us/repetitions as f64,"rayon_us_per_call":rayon_us/repetitions as f64}));
+            values.push(format!("{{\"sample\":{},\"started_unix_ms\":{},\"timed_pair_elapsed_ns\":{},\"wall_elapsed_ns\":{},\"serial_us_per_call\":{},\"rayon_us_per_call\":{}}}",sample,sample_started_ms,timed_ns,elapsed.as_nanos(),serial_us/repetitions as f64,rayon_us/repetitions as f64));
         }
         if !short {
             break values;
@@ -400,11 +423,28 @@ fn measure_cell(
         }
         let old = repetitions;
         repetitions = ((repetitions as f64) * 1.5).ceil() as usize;
-        recalibrations.push(json!({"old_r":old,"new_r":repetitions,"reason":"recorded paired sample below one-second floor; discarded and restarted series"}));
+        recalibrations.push(format!("{{\"old_r\":{},\"new_r\":{},\"reason\":\"recorded paired sample below one-second floor; discarded and restarted series\"}}",old,repetitions));
     };
-    Ok(
-        json!({"warmups":WARMUPS,"warmup_elapsed_ns":warmup_ns,"samples":SAMPLES,"target_sample_ns":SAMPLE_TARGET.as_nanos(),"floor_sample_ns":SAMPLE_FLOOR.as_nanos(),"calibration_batches_elapsed_ns":calibration_ns,"repetitions_per_sample":repetitions,"recalibrations":recalibrations,"sample_records":samples}),
-    )
+    Ok(format!(
+        "{{\"warmups\":{},\"warmup_elapsed_ns\":[{}],\"samples\":{},\"target_sample_ns\":{},\"floor_sample_ns\":{},\"calibration_batches_elapsed_ns\":[{}],\"repetitions_per_sample\":{},\"recalibrations\":[{}],\"sample_records\":[{}]}}",
+        WARMUPS,
+        warmup_ns
+            .iter()
+            .map(u128::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        SAMPLES,
+        SAMPLE_TARGET.as_nanos(),
+        SAMPLE_FLOOR.as_nanos(),
+        calibration_ns
+            .iter()
+            .map(u128::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        repetitions,
+        recalibrations.join(","),
+        samples.join(",")
+    ))
 }
 
 fn ensure_header(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -416,7 +456,11 @@ fn ensure_header(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     }
     append(
         path,
-        json!({"kind":"header","stage":"M5-06","adapter":"m2-explicit-rayon","host_os":std::env::consts::OS,"host_arch":std::env::consts::ARCH}),
+        &format!(
+            "{{\"kind\":\"header\",\"stage\":\"M5-06\",\"adapter\":\"m2-explicit-rayon\",\"host_os\":\"{}\",\"host_arch\":\"{}\"}}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ),
     )
 }
 
@@ -430,27 +474,35 @@ fn completed(
     }
     let file = fs::File::open(path)?;
     for line in BufReader::new(file).lines() {
-        let value: Value = serde_json::from_str(&line?)?;
-        if value["kind"] == "series" && value["cell_id"] == cell_id {
-            if value["config_hash"] != config_hash {
+        let value = line?;
+        if json_field(&value, "kind") == Some("series")
+            && json_field(&value, "cell_id") == Some(cell_id)
+        {
+            if json_field(&value, "config_hash") != Some(config_hash) {
                 return Err(format!("resume config hash differs for {cell_id}").into());
             }
-            return Ok(value["complete"] == true);
+            return Ok(value.contains("\"complete\":true"));
         }
     }
     Ok(false)
 }
 
-fn append(path: &Path, value: Value) -> Result<(), Box<dyn std::error::Error>> {
+fn append(path: &Path, value: &str) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let file = OpenOptions::new().create(true).append(true).open(path)?;
     let mut writer = BufWriter::new(file);
-    serde_json::to_writer(&mut writer, &value)?;
-    writeln!(writer)?;
+    writer.write_all(value.as_bytes())?;
+    writer.write_all(b"\n")?;
     writer.flush()?;
     Ok(())
+}
+
+fn json_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let marker = format!("\"{key}\":\"");
+    let value = line.get(line.find(&marker)? + marker.len()..)?;
+    value.split_once('"').map(|(field, _)| field)
 }
 
 fn hex(bytes: &[u8]) -> String {
