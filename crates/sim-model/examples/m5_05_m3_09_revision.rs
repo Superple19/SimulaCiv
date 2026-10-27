@@ -111,12 +111,12 @@ fn make_checkpoint(config: &SimConfig, checkpoint_cursor: u32) -> M3pReferenceSt
     let world = initialize_world(config).expect("M3P world initializes");
     let mut hybrid = HybridWorldState::hybrid(world);
     let run_context = M0RunContext::new(SEED, REPLICATE);
-    let mut context = M3pStorageRunContext::new(&hybrid, config, &run_context)
-        .expect("M3P storage context initializes");
+    let mut context = M3pIncrementalTopologyStorageRunContext::new(&hybrid, config, &run_context)
+        .expect("incremental M3P storage context initializes");
     let warm_days = checkpoint_cursor
         .checked_sub(1)
         .expect("checkpoint cursor must be positive");
-    let _ = run_m3p_storage_days(
+    let _ = run_m3p_storage_days_incremental_topology(
         &mut hybrid,
         config,
         &mut context,
@@ -124,8 +124,14 @@ fn make_checkpoint(config: &SimConfig, checkpoint_cursor: u32) -> M3pReferenceSt
         &options(false),
     )
     .expect("M3P checkpoint warm-up");
-    let outcome = run_m3p_storage_days(&mut hybrid, config, &mut context, 1, &options(true))
-        .expect("M3P checkpoint boundary");
+    let outcome = run_m3p_storage_days_incremental_topology(
+        &mut hybrid,
+        config,
+        &mut context,
+        1,
+        &options(true),
+    )
+    .expect("incremental M3P checkpoint boundary");
     let snapshot = outcome
         .last()
         .and_then(|day| day.snapshot.as_ref())
@@ -149,15 +155,11 @@ fn prepare_for(initial_population: i64, settlement_count: i64, checkpoint_cursor
     let live_population = m3_world.agents.len() as u64;
     let m3_config = parse_config("m3", live_population as i64, settlement_count);
 
-    let checkpoint_scope = if checkpoint_cursor == 400 && initial_population == N {
-        format!("checkpoint_day=400;days={DAYS}")
-    } else {
-        let timed_days = (checkpoint_cursor..checkpoint_cursor + DAYS)
-            .map(|day| day.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("checkpoint_cursor={checkpoint_cursor};timed_days={timed_days}")
-    };
+    let timed_days = (checkpoint_cursor..checkpoint_cursor + DAYS)
+        .map(|day| day.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let checkpoint_scope = format!("checkpoint_cursor={checkpoint_cursor};timed_days={timed_days}");
     let options_record = format!(
         "initial_population={initial_population};settlements={settlement_count};k={DEGREE};p_local={LOCALITY};seed={SEED};replicate={REPLICATE};{checkpoint_scope};metrics=true;events=true;snapshots=false;policy=serial;pool=0;chunk=256;propagation=false;live_population={live_population}"
     );
@@ -399,7 +401,7 @@ fn m3_09_cells() -> [&'static str; 4] {
 
 fn cell_config(cell: &str, smoke: bool) -> (i64, i64, bool, u32) {
     if smoke {
-        return (300, 3, cell.contains("paired"), 4);
+        return (300, 3, cell.contains("paired"), 401);
     }
     let population = if cell.starts_with("N10k-") {
         10_000
@@ -411,7 +413,22 @@ fn cell_config(cell: &str, smoke: bool) -> (i64, i64, bool, u32) {
     let paired = cell.ends_with("-paired");
     let noninterleaved = cell.ends_with("-noninterleaved");
     assert!(paired ^ noninterleaved, "cell schedule is explicit");
-    (population, population / 200, paired, 400)
+    (population, population / 200, paired, 401)
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::{DAYS, cell_config, m3_09_cells};
+
+    #[test]
+    fn registered_m3_09_cells_start_after_day_400_compaction() {
+        for cell in m3_09_cells() {
+            let (_, _, _, cursor) = cell_config(cell, false);
+            assert_eq!(cursor, 401, "{cell} checkpoint cursor");
+            assert_eq!((cursor..cursor + DAYS).collect::<Vec<_>>(), [401, 402, 403]);
+            assert!(!(cursor..cursor + DAYS).any(|day| day % 50 == 0));
+        }
+    }
 }
 
 fn m3_09_config_hash(
