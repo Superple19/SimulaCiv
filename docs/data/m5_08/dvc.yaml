@@ -1,0 +1,77 @@
+stages:
+  a5_m2_explicit_rayon:
+    wdir: ../../..
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.a5_tonight stage m2
+    deps:
+    - Cargo.lock
+    - analysis/simciv_analysis/a5_evidence.py
+    - analysis/simciv_analysis/a5_tonight.py
+    - contracts/experiments.toml
+    - contracts/hosts.toml
+    - crates/sim-core/src
+    - crates/sim-model/src
+    - crates/sim-model/examples/m5_06_m2_rayon_a5.rs
+    - crates/sim-model/examples/common/process_controls.rs
+    - rust-toolchain.toml
+    outs:
+    - docs/data/m5_08/m2_explicit_rayon/raw
+    meta:
+      kind: timing
+  a5_m3_09_equal_live:
+    wdir: ../../..
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.a5_tonight stage m3_09
+    deps:
+    - Cargo.lock
+    - analysis/simciv_analysis/a5_evidence.py
+    - analysis/simciv_analysis/a5_tonight.py
+    - contracts/experiments.toml
+    - contracts/hosts.toml
+    - crates/sim-core/src
+    - crates/sim-model/src
+    - crates/sim-model/examples/m5_05_m3_09_revision.rs
+    - crates/sim-model/examples/common/a5.rs
+    - crates/sim-model/examples/common/process_controls.rs
+    - crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
+    - rust-toolchain.toml
+    outs:
+    - docs/data/m5_08/m3_09_equal_live/raw
+    meta:
+      kind: timing
+  a5_m3_11_propagation:
+    wdir: ../../..
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.a5_tonight stage m3_11
+    deps:
+    - Cargo.lock
+    - analysis/simciv_analysis/a5_evidence.py
+    - analysis/simciv_analysis/a5_tonight.py
+    - contracts/experiments.toml
+    - contracts/hosts.toml
+    - crates/sim-core/src
+    - crates/sim-model/src
+    - crates/sim-model/benches/m3_11_propagation_bench.rs
+    - crates/sim-model/examples/common/a5.rs
+    - crates/sim-model/examples/common/process_controls.rs
+    - rust-toolchain.toml
+    outs:
+    - docs/data/m5_08/m3_11/raw
+    meta:
+      kind: timing
+  a5_m4_search_parallel:
+    wdir: ../../..
+    cmd: uv run --directory analysis --project . python -m simciv_analysis.a5_tonight stage m4
+    deps:
+    - Cargo.lock
+    - analysis/simciv_analysis/a5_evidence.py
+    - analysis/simciv_analysis/a5_tonight.py
+    - contracts/experiments.toml
+    - contracts/hosts.toml
+    - crates/sim-core/src
+    - crates/sim-model/src
+    - crates/sim-model/examples/m5_06_m4_parallel_a5.rs
+    - crates/sim-model/examples/common/process_controls.rs
+    - crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml
+    - rust-toolchain.toml
+    outs:
+    - docs/data/m5_08/m4_search_parallel/raw
+    meta:
+      kind: timing

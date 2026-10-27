@@ -40,3 +40,5 @@ New DVC-backed stage directories are indexed here after their measurement summar
 The byte-exact recovered archive is indexed in [`m5_recovered/`](m5_recovered/README.md); its DVC payload remains in the maintainer’s local cache until upload.
 
 The M5-05 pipeline definition and lockfile live together in [`m5_05/dvc.yaml`](m5_05/dvc.yaml) and [`m5_05/dvc.lock`](m5_05/dvc.lock). DVC targets use that pipeline path, for example `dvc status docs/data/m5_05/dvc.yaml`.
+
+The report-revision A-5 runs are defined by [`m5_08/dvc.yaml`](m5_08/dvc.yaml); see [`m5_08/README.md`](m5_08/README.md) for the run and post-upload `dvc pull` procedure. The raw outputs are currently only in the maintainer's local DVC cache.

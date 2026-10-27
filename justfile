@@ -112,7 +112,7 @@ lint-prose: analysis-sync
     vale test --config analysis/vale/.vale.ini
     vale --config analysis/vale/.vale.ini docs/reproducibility/M5_01_INVENTORY.md docs/reproducibility/M5_04_M4_REGENERATION.md docs/reproducibility/M5_05_M0_M3_REGENERATION.md
 
-check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check large-file-range-check data-integrity-range-check gitleaks-range-check decisions-check conclusions-check dvc-freeze-check check-autocrlf data-integrity-check links analysis-output-check lint-prose
+check: check-quarto tool-versions-check check-tools analysis-test action-refs-check commit-messages-check large-file-range-check data-integrity-range-check gitleaks-range-check decisions-check conclusions-check dvc-freeze-check check-autocrlf data-integrity-check links analysis-output-check a5-tonight-summary-check lint-prose
 
 ci-analysis: check
     uv run --directory analysis --project . python -m simciv_analysis.ci_analysis
@@ -134,6 +134,21 @@ ci-linux:
 
 a5-dry-run: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.a5_evidence dry-run
+
+a5-tonight-dry-run: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_tonight dry-run
+
+a5-tonight-prepare: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_tonight prepare
+
+a5-tonight-run GROUP: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_tonight run {{GROUP}}
+
+a5-tonight-ingest GROUP: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_tonight ingest {{GROUP}}
+
+a5-tonight-summary-check: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_tonight check-summaries
 
 a5-manifest PROTOCOL RUN_ID OUTPUT: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.a5_evidence manifest {{PROTOCOL}} {{RUN_ID}} {{OUTPUT}}
