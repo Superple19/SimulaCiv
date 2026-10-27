@@ -601,45 +601,67 @@ def _population_value(value: str) -> int:
     return int(normalized)
 
 
-def _m3_tables(text: str) -> tuple[dict[tuple[int, int, int], dict[str, float]], dict[tuple[int, int, int], list[float]], dict[tuple[int, int], float]]:
-    ticks: dict[tuple[int, int, int], dict[str, float]] = {}
-    phase_profiles: dict[tuple[int, int, int], list[float]] = {}
-    setup: dict[tuple[int, int], float] = {}
-    section = ""
+def _setup_build_seconds(root: Path, population: int, degree: int) -> float:
+    text = (root / "docs/reports/M3_05_SCALE_LIMIT.md").read_text(encoding="utf-8")
     for line in text.splitlines():
-        if line.startswith("## "):
-            section = line
-            continue
-        if not line.startswith("|") or line.lstrip().startswith("|---"):
+        if not line.startswith("|"):
             continue
         cells = _table_cells(line)
-        if section == "## Whole-tick measurements" and len(cells) == 7 and cells[0].replace(",", "").isdigit():
-            n, kcount, degree, day = (int(cells[index].replace(",", "")) for index in range(4))
-            try:
-                ticks[(n, degree, day)] = {"serial": _median_us(cells[4]), "parallel": _median_us(cells[5])}
-            except ValueError:
-                continue
-        elif section == "## Serial per-phase profile" and len(cells) == 16 and cells[0].replace(",", "").isdigit():
-            n, degree, day = (int(cells[index].replace(",", "")) for index in range(3))
-            phase_profiles[(n, degree, day)] = [_median_us(value) for value in cells[3:]]
-        elif section == "## Initialization, graph, projection, and memory" and len(cells) == 7 and cells[0].replace(",", "").isdigit():
-            n = int(cells[0].replace(",", ""))
-            degree = int(cells[2])
-            setup[(n, degree)] = sum(float(value.replace(",", "")) for value in cells[3:6]) / 1_000_000.0
-    return ticks, phase_profiles, setup
+        if len(cells) == 7 and cells[0].replace(",", "").isdigit() and int(cells[0].replace(",", "")) == population and int(cells[2]) == degree:
+            return sum(float(value.replace(",", "")) for value in cells[3:6]) / 1_000_000.0
+    raise ValueError(f"M3-05 setup row is missing for N={population}, k={degree}")
 
 
-def _series_estimate(pair_seconds: float, settings: dict[str, Any], *, probe_count: int) -> dict[str, float | int]:
+def _m3_01_graph_projection_seconds(root: Path, population: int, degree: int) -> float:
+    text = (root / "docs/reports/M3_01_SERIAL_BASELINE.md").read_text(encoding="utf-8")
+    in_section = False
+    for line in text.splitlines():
+        if line.startswith("### "):
+            in_section = line == "### One-time graph and projection costs"
+            continue
+        if not in_section or not line.startswith("|"):
+            continue
+        cells = _table_cells(line)
+        if len(cells) == 6 and cells[0].replace(",", "").isdigit() and int(cells[0].replace(",", "")) == population and int(cells[2]) == degree and float(cells[3]) == 0.5:
+            return (_median_us(cells[4]) + _median_us(cells[5])) / 1_000_000.0
+    raise ValueError(f"M3-01 graph/projection row is missing for N={population}, k={degree}, p_local=0.5")
+
+
+def _m3_08_checkpoint_seconds(root: Path, population: int, days: int, interval: int) -> float:
+    text = (root / "docs/reports/M3_08_POPULATION_DYNAMICS.md").read_text(encoding="utf-8")
+    normal = compaction = None
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = _table_cells(line)
+        if len(cells) == 8 and cells[0].replace(",", "").isdigit() and int(cells[0].replace(",", "")) == population and int(cells[1]) == interval:
+            normal = _median_us(cells[4]) / 1_000_000.0
+            compaction = _median_us(cells[5]) / 1_000_000.0
+            break
+    if normal is None or compaction is None:
+        raise ValueError(f"M3-08 normal/compaction timing row is missing for N={population}, interval={interval}")
+    compaction_days = sum(day % interval == 0 for day in range(days))
+    return (days - compaction_days) * normal + compaction_days * compaction
+
+
+def _series_estimate(
+    pair_seconds: float,
+    settings: dict[str, Any],
+    *,
+    probe_count: int,
+    setup_per_operation_seconds: float = 0.0,
+) -> dict[str, float | int]:
     target = float(settings["sample_target_seconds"])
-    repetitions = max(1, math.ceil(target / pair_seconds))
-    sample = repetitions * pair_seconds
-    calibration = probe_count * pair_seconds if probe_count else (
-        pair_seconds if pair_seconds >= target else pair_seconds + target * 1.1
-    )
-    warmup = int(settings["warmups"]) * pair_seconds
+    operation_seconds = pair_seconds + setup_per_operation_seconds
+    repetitions = max(1, math.ceil(target / operation_seconds))
+    sample = repetitions * operation_seconds
+    calibration = probe_count * operation_seconds
+    warmup = int(settings["warmups"]) * sample
     timed = int(settings["samples"]) * sample
     return {
         "pair_seconds": pair_seconds,
+        "setup_per_operation_seconds": setup_per_operation_seconds,
+        "estimated_operation_wall_seconds": operation_seconds,
         "repetitions_per_sample": repetitions,
         "sample_seconds": sample,
         "calibration_seconds": calibration,
@@ -649,8 +671,72 @@ def _series_estimate(pair_seconds: float, settings: dict[str, Any], *, probe_cou
     }
 
 
+def _m3_05_setup_seconds(root: Path, population: int, degree: int) -> float:
+    text = (root / "docs/reports/M3_05_SCALE_LIMIT.md").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = _table_cells(line)
+        if len(cells) == 7 and cells[0].replace(",", "").isdigit() and int(cells[0].replace(",", "")) == population and int(cells[2]) == degree:
+            return sum(float(value.replace(",", "")) for value in cells[3:6]) / 1_000_000.0
+    raise ValueError(f"M3-05 setup row is missing for N={population}, k={degree}")
+
+
+def _m3_01_graph_projection_seconds(root: Path, population: int, degree: int) -> float:
+    text = (root / "docs/reports/M3_01_SERIAL_BASELINE.md").read_text(encoding="utf-8")
+    in_section = False
+    for line in text.splitlines():
+        if line.startswith("### "):
+            in_section = line == "### One-time graph and projection costs"
+            continue
+        if not in_section or not line.startswith("|"):
+            continue
+        cells = _table_cells(line)
+        if len(cells) == 6 and cells[0].replace(",", "").isdigit() and int(cells[0].replace(",", "")) == population and int(cells[2]) == degree and float(cells[3]) == 0.5:
+            return (_median_us(cells[4]) + _median_us(cells[5])) / 1_000_000.0
+    raise ValueError(f"M3-01 graph/projection row is missing for N={population}, k={degree}, p_local=0.5")
+
+
+def _m3_01_tick_seconds(root: Path, population: int, degree: int) -> float:
+    text = (root / "docs/reports/M3_01_SERIAL_BASELINE.md").read_text(encoding="utf-8")
+    in_section = False
+    for line in text.splitlines():
+        if line.startswith("### "):
+            in_section = line == "### Full-tick samples"
+            continue
+        if not in_section or not line.startswith("|"):
+            continue
+        cells = _table_cells(line)
+        if len(cells) == 5 and cells[0].replace(",", "").isdigit() and int(cells[0].replace(",", "")) == population and int(cells[2]) == degree and float(cells[3]) == 0.5:
+            return _median_us(cells[4]) / 1_000_000.0
+    raise ValueError(f"M3-01 full-tick row is missing for N={population}, k={degree}, p_local=0.5")
+
+
+def _m3_08_checkpoint_seconds(root: Path, population: int, days: int, interval: int) -> float:
+    text = (root / "docs/reports/M3_08_POPULATION_DYNAMICS.md").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = _table_cells(line)
+        if len(cells) == 8 and cells[0].replace(",", "").isdigit() and int(cells[0].replace(",", "")) == population and int(cells[1]) == interval:
+            normal = _median_us(cells[4]) / 1_000_000.0
+            compaction = _median_us(cells[5]) / 1_000_000.0
+            compaction_days = sum(day % interval == 0 for day in range(days))
+            return (days - compaction_days) * normal + compaction_days * compaction
+    raise ValueError(f"M3-08 normal/compaction timing row is missing for N={population}, interval={interval}")
+
+
+def _report_section(text: str, heading: str) -> str:
+    start = text.find(heading)
+    if start < 0:
+        raise ValueError(f"report section is missing: {heading}")
+    tail = text[start + len(heading):]
+    end = tail.find("\n### ")
+    return tail if end < 0 else tail[:end]
+
+
 def tonight_plan(root: Path = ROOT) -> list[dict[str, Any]]:
-    """Estimate the 17 scheduled cells from their report-revision timing tables."""
+    """Estimate tonight's 16 passed-gate cells from report data and setup costs."""
     experiments = tomllib.loads((root / "contracts/experiments.toml").read_text(encoding="utf-8"))["experiment"]
     by_id = {item["id"]: item for item in experiments}
     hosts = tomllib.loads((root / "contracts/hosts.toml").read_text(encoding="utf-8"))["host"]
@@ -670,42 +756,108 @@ def tonight_plan(root: Path = ROOT) -> list[dict[str, Any]]:
         n = _population_value(cells[1].split("/", 1)[0])
         m2_pairs[f"{cells[0]}-N{n}"] = (_median_us(cells[2]) + _median_us(cells[4])) / 1_000_000.0
     for cell_id in m2["ordered_cell_ids"]:
-        pair = m2_pairs[cell_id]
-        series = _series_estimate(pair, settings, probe_count=0)
+        pair = 3.0 * m2_pairs[cell_id]
+        series = _series_estimate(pair, settings, probe_count=3)
         setup = 1.0
         rows.append({"cell_id": cell_id, "protocol_id": m2["id"], "series": [series], "setup_seconds": setup,
-                     "setup_basis": "1-second planning reserve; the report excludes initialization from its timer.",
+                     "setup_basis": "1-second process/config setup reserve; three-day API calls repeat from prepared states.",
                      "estimated_seconds": float(series["total_seconds"]) + setup})
 
-    def add_m3(experiment_id: str, *, alpha: bool) -> None:
-        protocol = by_id[experiment_id]
-        ticks, profiles, setup_values = _m3_tables(_report_text(protocol, root))
-        for cell_id in protocol["ordered_cell_ids"]:
-            if alpha:
-                match = re.fullmatch(r"k(\d+)-day(\d+)", cell_id)
-                degree, day = int(match.group(1)), int(match.group(2))
-                endpoints = (100_000, 250_000)
-            else:
-                match = re.fullmatch(r"N1M-k(\d+)-day(\d+)", cell_id)
-                degree, day = int(match.group(1)), int(match.group(2))
-                endpoints = (1_000_000,)
-            series = []
-            for population in endpoints:
-                tick = ticks[(population, degree, day)]
-                series.append(_series_estimate(3.0 * (tick["serial"] + tick["parallel"]) / 1_000_000.0, settings, probe_count=3))
-                profile_us = sum(profiles[(population, degree, day)]) * 3.0
-                series.append(_series_estimate(profile_us / 1_000_000.0, settings, probe_count=3))
-            if day == 0:
-                setup = sum(setup_values[(population, degree)] for population in endpoints)
-                basis = "report initialization + graph + projection timers for the sampled endpoint configurations."
-            else:
-                setup = sum(50.0 * ticks[(population, degree, 0)]["serial"] / 1_000_000.0 for population in endpoints)
-                basis = "50-day checkpoint preparation estimated from the report's serial per-day median at each endpoint."
-            rows.append({"cell_id": cell_id, "protocol_id": protocol["id"], "series": series, "setup_seconds": setup,
-                         "setup_basis": basis, "estimated_seconds": sum(float(item["total_seconds"]) for item in series) + setup})
+    m3_11_phase = by_id["m3_11_phase9c_speedup"]
+    m3_11_tick = by_id["m3_11_whole_tick_speedup"]
+    m3_11_text = _report_text(m3_11_phase, root)
+    phase_section = _report_section(m3_11_text, "### Phase 9c — paired interleaved")
+    phase_cells = next(
+        _table_cells(line)
+        for line in phase_section.splitlines()
+        if line.startswith("|")
+        and len(_table_cells(line)) == 12
+        and _table_cells(line)[:5] == ["100000", "500", "16", "16", "0.20"]
+    )
+    phase_pair = (_median_us(phase_cells[7]) + _median_us(phase_cells[11])) / 1_000_000.0
+    setup_graph = _m3_05_setup_seconds(root, 100_000, 16)
+    setup_base_tick = _m3_01_tick_seconds(root, 100_000, 16)
+    phase_series = _series_estimate(
+        phase_pair,
+        settings,
+        probe_count=3,
+        setup_per_operation_seconds=setup_base_tick,
+    )
+    phase_setup = setup_graph + setup_base_tick + 1.0
+    rows.append({
+        "cell_id": m3_11_phase["ordered_cell_ids"][0],
+        "protocol_id": m3_11_phase["id"],
+        "series": [phase_series],
+        "setup_seconds": phase_setup,
+        "setup_basis": "M3-05 measured N=100k,k=16 initialization+graph+projection; one M3 base-day setup; 1-second pool/config reserve. The M3-01 tick is a proxy for repeated propagation-state reset, whose cost is not separately reported.",
+        "estimated_seconds": float(phase_series["total_seconds"]) + phase_setup,
+    })
 
-    add_m3("m3_05_any_phase_alpha_first_break", alpha=True)
-    add_m3("m3_05_static_scale_completion", alpha=False)
+    tick_text = _report_text(m3_11_tick, root)
+    for cell_id, schedule, label in [
+        (m3_11_tick["ordered_cell_ids"][0], "interleaved", "### Whole tick — paired interleaved"),
+        (m3_11_tick["ordered_cell_ids"][1], "noninterleaved", "### Whole tick — paired noninterleaved"),
+    ]:
+        section = _report_section(tick_text, label)
+        tick_cells = next(
+            _table_cells(line)
+            for line in section.splitlines()
+            if line.startswith("|")
+            and len(_table_cells(line)) == 9
+            and _table_cells(line)[:6] == ["100000", "500", "16", "16", "0.20", "6"]
+        )
+        pair = 3.0 * (_median_us(tick_cells[6]) + _median_us(tick_cells[7])) / 1_000_000.0
+        tick_series = _series_estimate(
+            pair,
+            settings,
+            probe_count=6 if schedule == "noninterleaved" else 3,
+            setup_per_operation_seconds=2.0 * setup_graph,
+        )
+        setup = 1.0
+        rows.append({
+            "cell_id": cell_id,
+            "protocol_id": m3_11_tick["id"],
+            "series": [tick_series],
+            "setup_seconds": setup,
+            "setup_basis": "1-second pool/config reserve; repeated fresh-world graph/projection setup is estimated per operation from M3-05 N=100k,k=16 measurements.",
+            "estimated_seconds": float(tick_series["total_seconds"]) + setup,
+        })
+
+    m3_09 = by_id["m3_09_incremental_equal_live"]
+    m3_09_text = _report_text(m3_09, root)
+    equal_live = _report_section(m3_09_text, "### Equal-live M3P/M3 rerun and interleaving")
+    equal_rows = {}
+    for line in equal_live.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = _table_cells(line)
+        if len(cells) == 6 and cells[0].replace(",", "").isdigit() and cells[1] in {"Paired", "Non-interleaved"}:
+            n = int(cells[0].replace(",", ""))
+            schedule = "paired" if cells[1] == "Paired" else "noninterleaved"
+            equal_rows[(n, schedule)] = [_median_us(value) for value in cells[2:5]]
+    for cell_id in m3_09["ordered_cell_ids"]:
+        population = 10_000 if cell_id.startswith("N10k-") else 100_000
+        schedule = "paired" if cell_id.endswith("-paired") else "noninterleaved"
+        values = equal_rows[(population, schedule)]
+        pair = 3.0 * sum(values) / 1_000_000.0
+        context_setup = 3.0 * _m3_01_graph_projection_seconds(root, population, 8)
+        series = _series_estimate(
+            pair,
+            settings,
+            probe_count=3 if schedule == "paired" else 9,
+            setup_per_operation_seconds=context_setup,
+        )
+        checkpoint = _m3_08_checkpoint_seconds(root, population, 400, 50)
+        parity_call_setup = pair + context_setup
+        setup = checkpoint + parity_call_setup + 1.0
+        rows.append({
+            "cell_id": cell_id,
+            "protocol_id": m3_09["id"],
+            "series": [series],
+            "setup_seconds": setup,
+            "setup_basis": f"400-day M3-08 M3P checkpoint at N={population} (normal/compaction report medians), one three-day parity pass, plus 1-second process/config reserve.",
+            "estimated_seconds": float(series["total_seconds"]) + setup,
+        })
 
     m4 = by_id["m4_07_case_a_search_parallel_speedup"]
     line = next((line for line in _report_text(m4, root).splitlines() if "Exhaustive case (a), R=10, H=90" in line and line.startswith("|")), None)
@@ -713,14 +865,14 @@ def tonight_plan(root: Path = ROOT) -> list[dict[str, Any]]:
         raise ValueError("M4-07 report-revision case-a timing row is missing")
     cells = _table_cells(line)
     pair = float(cells[1].split("s", 1)[0].replace(",", "")) + float(cells[2].split("s", 1)[0].replace(",", ""))
-    series = _series_estimate(pair, settings, probe_count=0)
+    series = _series_estimate(pair, settings, probe_count=1)
     setup = 1.0
     rows.append({"cell_id": m4["ordered_cell_ids"][0], "protocol_id": m4["id"], "series": [series], "setup_seconds": setup,
                  "setup_basis": "1-second planning reserve; the report does not time branch-cache setup separately.",
                  "estimated_seconds": float(series["total_seconds"]) + setup})
 
-    if len(rows) != 17:
-        raise ValueError(f"expected 17 report-revision cells for tonight; found {len(rows)}")
+    if len(rows) != 16:
+        raise ValueError(f"expected 16 passed-gate report-revision cells for tonight; found {len(rows)}")
     evidence_path = root / "contracts/evidence.jsonl"
     if evidence_path.is_file():
         for line in evidence_path.read_text(encoding="utf-8").splitlines():
@@ -743,23 +895,24 @@ def tonight_plan(root: Path = ROOT) -> list[dict[str, Any]]:
 def print_tonight_plan(root: Path = ROOT) -> None:
     rows = tonight_plan(root)
     total = sum(row["estimated_seconds"] for row in rows)
-    print("A-5 report-revision cells; estimates use report medians, fixed 41 samples, 2 warmups, and calibrated repeats.")
+    print("A-5 passed-gate report-revision cells only: M2 explicit Rayon (8), M4 search parallel (1), M3-11 (3), M3-09 (4). M3-05 pilot is already complete.")
     for row in rows:
         series = row["series"]
         details = "; ".join(
-            f"pair={float(item['pair_seconds'])*1000:.3f}ms r={item['repetitions_per_sample']} "
+            f"pair={float(item['pair_seconds'])*1000:.3f}ms + setup/op={float(item['setup_per_operation_seconds'])*1000:.3f}ms "
+            f"r={item['repetitions_per_sample']} "
             f"sample={float(item['sample_seconds']):.3f}s x41 + warmup {float(item['warmup_seconds']):.3f}s + calibration {float(item['calibration_seconds']):.3f}s"
             for item in series
         )
         blocked = f"; BLOCKED: {row['blocked_reason']}" if row.get("blocked_reason") else ""
         print(f"{row['protocol_id']} / {row['cell_id']}: {details}; setup {row['setup_seconds']:.3f}s ({row['setup_basis']}) -> {row['estimated_seconds']:.1f}s{blocked}")
-    print(f"Total: {total:.1f}s ({total / 3600:.2f}h) across {len(rows)} cells; recalibration retries and clean-worktree compilation are not included.")
+    print(f"Total: {total:.1f}s ({total / 3600:.2f}h) across {len(rows)} cells; setup includes the reported checkpoint/graph costs and setup proxies above, but excludes recalibration retries and clean-worktree compilation.")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_subparsers(dest="mode", required=True)
-    modes.add_parser("dry-run", help="estimate the 17 registered M2/M3/M4 cells without sampling")
+    modes.add_parser("dry-run", help="estimate 16 passed-gate report-revision cells without sampling")
     manifest_parser = modes.add_parser("manifest")
     manifest_parser.add_argument("protocol_id")
     manifest_parser.add_argument("run_id")

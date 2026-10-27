@@ -462,15 +462,30 @@ def test_evidence_append_keeps_old_bytes_and_rejects_duplicate_id(tmp_path: Path
         append_evidence({"id": "new"}, path)
 
 
-def test_tonight_dry_run_lists_all_17_cells_and_models_pair_samples_and_setup():
+def test_tonight_dry_run_lists_passed_gate_cells_and_models_setup():
     from simciv_analysis.provenance import ROOT
 
     rows = tonight_plan(ROOT)
-    assert len(rows) == 17
+    assert len(rows) == 16
     assert all(row["estimated_seconds"] >= row["setup_seconds"] > 0 for row in rows)
+    by_protocol = {}
+    for row in rows:
+        by_protocol[row["protocol_id"]] = by_protocol.get(row["protocol_id"], 0) + 1
+    assert by_protocol == {
+        "m2_explicit_rayon_speedup": 8,
+        "m3_11_phase9c_speedup": 1,
+        "m3_11_whole_tick_speedup": 2,
+        "m3_09_incremental_equal_live": 4,
+        "m4_07_case_a_search_parallel_speedup": 1,
+    }
+    assert not any(row["protocol_id"].startswith("m3_05_") for row in rows)
+    m3_09_100k = next(row for row in rows if row["cell_id"] == "N100k-paired")
+    assert m3_09_100k["setup_seconds"] > 70
+    assert m3_09_100k["series"][0]["setup_per_operation_seconds"] > 0
+    m3_11_phase = next(row for row in rows if row["protocol_id"] == "m3_11_phase9c_speedup")
+    assert m3_11_phase["series"][0]["pair_seconds"] == pytest.approx(0.2739754, rel=1e-6)
     m4 = next(row for row in rows if row["protocol_id"] == "m4_07_case_a_search_parallel_speedup")
     assert m4["series"][0]["pair_seconds"] > 1.25
     assert m4["series"][0]["repetitions_per_sample"] == 1
+    assert m4["series"][0]["calibration_seconds"] == m4["series"][0]["pair_seconds"]
     assert m4["estimated_seconds"] > 41 * 1.25
-    m3 = next(row for row in rows if row["protocol_id"] == "m3_05_any_phase_alpha_first_break")
-    assert m3["blocked_reason"]
