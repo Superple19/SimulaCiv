@@ -19,7 +19,7 @@ from .a5_evidence import (
     append_evidence,
     build_evidence_record,
     build_run_manifest,
-    print_tonight_plan,
+    tonight_plan,
 )
 from .conclusions import EXPERIMENTS, ROOT
 from .io import write_text_lf
@@ -82,6 +82,14 @@ def _sha256(data: bytes) -> str:
 
 def _exceeds_invalid_limit(invalid_count: int, expected_count: int) -> bool:
     return expected_count > 0 and invalid_count / expected_count > 0.10
+
+
+def _available_protocol_ids(preflight: dict[str, Any]) -> set[str]:
+    return {
+        protocol_id
+        for group_id in preflight.get("prepared_groups", [])
+        for protocol_id in GROUPS[group_id]["protocols"]
+    }
 
 
 def _git(root: Path, *args: str) -> str:
@@ -200,14 +208,26 @@ def prepare() -> None:
             revision = protocol["report_revision"]
             worktree = worktrees.setdefault(revision, _worktree(revision))
             _apply_overlays(worktree, protocol)
+    preflight: dict[str, Any] = {"prepared_groups": [], "blocked_groups": {}}
     for group_id in ORDER:
         revision = protocols[GROUPS[group_id]["protocols"][0]]["report_revision"]
         worktree = worktrees[revision]
-        smoke_cells = _smoke_worktree(group_id, worktree)
+        try:
+            smoke_cells = _smoke_worktree(group_id, worktree)
+        except (OSError, subprocess.CalledProcessError) as error:
+            preflight["blocked_groups"][group_id] = {
+                "report_revision": revision,
+                "reason": str(error),
+            }
+            print(f"report-SHA smoke blocked: {group_id}: {error}")
+            continue
+        preflight["prepared_groups"].append(group_id)
         print(f"report-SHA smoke passed: {group_id}; cells={','.join(smoke_cells)}")
 
     observation = _host_observation()
     for group_id in ORDER:
+        if group_id not in preflight["prepared_groups"]:
+            continue
         spec = GROUPS[group_id]
         temp_raw = SCRATCH / "raw" / spec["temp"]
         for protocol_id in spec["protocols"]:
@@ -224,6 +244,34 @@ def prepare() -> None:
             output = _manifest_path(protocol_id)
             write_text_lf(output, json.dumps(manifest, separators=(",", ":"), sort_keys=True) + "\n")
             print(f"manifest ready: {output.relative_to(ROOT).as_posix()} ({protocol['report_revision']})")
+    preflight["host_observation_before"] = observation
+    write_text_lf(SCRATCH / "preflight.json", json.dumps(preflight, separators=(",", ":"), sort_keys=True) + "\n")
+
+
+def print_dry_run() -> None:
+    rows = tonight_plan()
+    preflight_path = SCRATCH / "preflight.json"
+    blocked: dict[str, Any] = {}
+    if preflight_path.is_file():
+        preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+        ready = _available_protocol_ids(preflight)
+        rows = [row for row in rows if row["protocol_id"] in ready]
+        blocked = preflight.get("blocked_groups", {})
+    print(f"A-5 report-revision cells available after overlay gate: {len(rows)}")
+    for row in rows:
+        series = row["series"]
+        details = "; ".join(
+            f"pair={float(item['pair_seconds'])*1000:.3f}ms + setup/op={float(item['setup_per_operation_seconds'])*1000:.3f}ms "
+            f"r={item['repetitions_per_sample']} sample={float(item['sample_seconds']):.3f}s x41 "
+            f"+ warmup {float(item['warmup_seconds']):.3f}s + calibration {float(item['calibration_seconds']):.3f}s"
+            for item in series
+        )
+        print(f"{row['protocol_id']} / {row['cell_id']}: {details}; setup {row['setup_seconds']:.3f}s -> {row['estimated_seconds']:.1f}s")
+    if blocked:
+        for group_id, details in blocked.items():
+            print(f"BLOCKED {group_id} at {details['report_revision']}: {details['reason']}")
+    total = sum(row["estimated_seconds"] for row in rows)
+    print(f"Total estimated time: {total:.1f}s ({total / 3600:.2f}h); excludes recalibration retries and clean-worktree compilation.")
 
 
 def _host_observation() -> dict[str, Any]:
@@ -260,6 +308,9 @@ def _split_by_cell(data: bytes, expected: dict[str, list[str]]) -> dict[str, byt
 def _stage_command(group_id: str) -> int:
     spec = GROUPS[group_id]
     protocols = _protocols()
+    for protocol_id in spec["protocols"]:
+        if not _manifest_path(protocol_id).is_file():
+            raise ValueError(f"blocked by report-SHA preflight; no manifest for {protocol_id}")
     report_revision = protocols[spec["protocols"][0]]["report_revision"]
     worktree = SCRATCH / "worktrees" / report_revision
     if not worktree.is_dir() or _git(worktree, "rev-parse", "HEAD") != report_revision:
@@ -410,6 +461,9 @@ def _run_group(group_id: str) -> None:
     if group_id not in GROUPS:
         raise ValueError(f"unknown A-5 group: {group_id}")
     stage_name = GROUPS[group_id]["stage"]
+    missing = [protocol_id for protocol_id in GROUPS[group_id]["protocols"] if not _manifest_path(protocol_id).is_file()]
+    if missing:
+        raise ValueError(f"report-SHA preflight blocked {group_id}: {', '.join(missing)}")
     start = time.perf_counter()
     subprocess.run(["dvc", "repro", f"{PIPELINE}:{stage_name}"], cwd=ROOT, check=True)
     elapsed = time.perf_counter() - start
@@ -496,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "prepare":
             prepare()
         elif args.mode == "dry-run":
-            print_tonight_plan()
+            print_dry_run()
         elif args.mode == "check-summaries":
             errors = check_summaries()
             if errors:

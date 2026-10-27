@@ -4,7 +4,14 @@ import json
 
 import pytest
 
-from simciv_analysis.a5_tonight import GROUPS, ORDER, _exceeds_invalid_limit, _protocols, _split_by_cell
+from simciv_analysis.a5_tonight import (
+    GROUPS,
+    ORDER,
+    _available_protocol_ids,
+    _exceeds_invalid_limit,
+    _protocols,
+    _split_by_cell,
+)
 
 
 def test_tonight_plan_covers_the_registered_cells_once_in_execution_order():
@@ -46,3 +53,14 @@ def test_stage_validity_limit_uses_strictly_more_than_ten_percent():
     assert _exceeds_invalid_limit(1, 8)
     assert not _exceeds_invalid_limit(1, 10)
     assert not _exceeds_invalid_limit(0, 0)
+
+
+def test_blocked_report_sha_group_is_excluded_from_prepared_protocols():
+    available = _available_protocol_ids({"prepared_groups": ["m2", "m3_09", "m4"]})
+    assert "m3_11_phase9c_speedup" not in available
+    assert "m3_11_whole_tick_speedup" not in available
+    assert available == {
+        "m2_explicit_rayon_speedup",
+        "m3_09_incremental_equal_live",
+        "m4_07_case_a_search_parallel_speedup",
+    }
