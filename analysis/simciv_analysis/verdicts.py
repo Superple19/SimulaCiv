@@ -79,6 +79,15 @@ def _has_artifact_hashes(record: Mapping[str, Any]) -> bool:
     )
 
 
+def valid_repetitions_per_sample(value: Any) -> bool:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value >= 1
+    return isinstance(value, Mapping) and bool(value) and all(
+        isinstance(repetitions, int) and not isinstance(repetitions, bool) and repetitions >= 1
+        for repetitions in value.values()
+    )
+
+
 def _compatible_kind(kind: str, conclusion_type: str, role: str) -> int | None:
     if kind in _ARCHIVAL:
         return None
@@ -483,7 +492,7 @@ def _a5_cell_validity(cell: Mapping[str, Any], settings: Mapping[str, Any]) -> t
     if validity.get("warmups") != warmups or validity.get("sample_count") != sample_count:
         return False, "A-5 warmup or sample count differs from the registered host protocol"
     repetitions = validity.get("repetitions_per_sample")
-    if not isinstance(repetitions, int) or isinstance(repetitions, bool) or repetitions < 1:
+    if not valid_repetitions_per_sample(repetitions):
         return False, "A-5 repetition factor is missing or invalid"
     sample_seconds = validity.get("sample_seconds")
     minimum = settings.get("minimum_sample_seconds")

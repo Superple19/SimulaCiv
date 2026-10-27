@@ -1,0 +1,621 @@
+"""Write pre-run manifests and ingest completed report-revision A-5 runs."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import os
+import platform
+import re
+import subprocess
+import sys
+import tomllib
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .conclusions import EVIDENCE, HOSTS, EXPERIMENTS, ROOT, _git, _repo_file, validate_evidence_append_only
+from .io import write_text_lf
+from .verdicts import _parse_rustc_vv, valid_repetitions_per_sample
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _runtime_identity(root: Path) -> dict[str, Any]:
+    rustc_vv = subprocess.check_output(["rustc", "-Vv"], cwd=root, text=True)
+    parsed = _parse_rustc_vv(rustc_vv)
+    if parsed is None:
+        raise ValueError("rustc -Vv output is invalid")
+    if sys.platform == "win32":
+        command = (
+            "$p=Get-CimInstance Win32_Processor; $s=Get-CimInstance Win32_ComputerSystem; "
+            "$o=Get-CimInstance Win32_OperatingSystem; "
+            "[pscustomobject]@{cpu=($p | Select-Object -First 1 -ExpandProperty Name); "
+            "physical=($p | Measure-Object -Property NumberOfCores -Sum).Sum; "
+            "logical=$s.NumberOfLogicalProcessors; os=$o.Caption} | ConvertTo-Json -Compress"
+        )
+        hardware = json.loads(subprocess.check_output(["powershell", "-NoProfile", "-Command", command], text=True))
+        cpu_model, physical, logical = hardware["cpu"], int(hardware["physical"]), int(hardware["logical"])
+        os_family = hardware["os"].removeprefix("Microsoft ")
+    else:
+        cpu_model = platform.processor() or platform.machine()
+        physical = logical = os.cpu_count() or 0
+        os_family = platform.system()
+        if sys.platform == "darwin":
+            cpu_model = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
+            physical = int(subprocess.check_output(["sysctl", "-n", "hw.physicalcpu"], text=True))
+            logical = int(subprocess.check_output(["sysctl", "-n", "hw.logicalcpu"], text=True))
+    toolchain = {
+        "rustc": parsed["first_line"],
+        "rustc_vv": rustc_vv,
+        "rust_target": parsed["host"],
+        "cargo_lock_sha256": _digest(root / "Cargo.lock"),
+        "analysis_lock_sha256": _digest(root / "analysis" / "uv.lock") if (root / "analysis" / "uv.lock").is_file() else None,
+        "python": platform.python_version(),
+        "uv": subprocess.check_output(["uv", "--version"], text=True).strip().removeprefix("uv "),
+        "os_family": os_family,
+        "os_build": platform.version(),
+        "cpu_model": cpu_model,
+        "physical_cores": physical,
+        "logical_cores": logical,
+        "external_tools": {
+            "cargo": subprocess.check_output(["cargo", "--version"], text=True).split()[1],
+            "rustc": parsed["release"],
+            "uv": subprocess.check_output(["uv", "--version"], text=True).strip().removeprefix("uv "),
+        },
+    }
+    return {"revision": _git(root, "rev-parse", "HEAD").stdout.decode().strip(), "toolchain": toolchain}
+
+
+def build_run_manifest(
+    protocol: dict[str, Any],
+    *,
+    run_id: str,
+    root: Path = ROOT,
+    hosts: dict[str, Any] | None = None,
+    identity: dict[str, Any] | None = None,
+    started_at: str | None = None,
+    commands: list[str] | None = None,
+) -> dict[str, Any]:
+    host_rows = (hosts or tomllib.loads((root / "contracts/hosts.toml").read_text(encoding="utf-8"))).get("host", [])
+    host = next((item for item in host_rows if item.get("id") == protocol.get("host_id")), None)
+    if host is None or host.get("reference") is not True:
+        raise ValueError("A-5 protocol must name the registered reference host")
+    identity = identity or _runtime_identity(root)
+    revision = str(protocol.get("report_revision", ""))
+    if identity.get("revision") != revision:
+        raise ValueError("manifest worktree HEAD must equal the protocol report revision")
+    toolchain = identity.get("toolchain")
+    rustc = _parse_rustc_vv(toolchain.get("rustc_vv")) if isinstance(toolchain, dict) else None
+    if rustc is None or toolchain.get("rustc") != rustc["first_line"]:
+        raise ValueError("manifest requires a valid rustc -Vv capture")
+    if (
+        rustc["release"] != host.get("rustc")
+        or rustc["commit_hash"] != host.get("rustc_commit_hash")
+        or rustc["commit_date"] != host.get("rustc_commit_date")
+        or rustc["host"] != host.get("rustc_host")
+    ):
+        raise ValueError("manifest rustc -Vv identity differs from the registered reference toolchain")
+    for key in ("cpu_model", "physical_cores", "logical_cores", "rust_target", "os_family"):
+        if toolchain.get(key) != host.get(key):
+            raise ValueError(f"manifest host differs from registered reference host: {key}")
+    overlays = []
+    for overlay in protocol.get("harness_overlays", []):
+        path = str(overlay["path"])
+        file = _repo_file(root, path)
+        if file is None or not file.is_file() or _digest(file) != overlay["sha256"]:
+            raise ValueError(f"registered overlay bytes are absent or changed: {path}")
+        overlays.append({key: overlay[key] for key in ("path", "sha256", "origin_commit")})
+    if overlays != protocol.get("harness_overlays", []):
+        raise ValueError("manifest overlay list differs from the protocol")
+    started_at = started_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return {
+        "schema_version": 1,
+        "run_id": run_id,
+        "started_at": started_at,
+        "date": started_at[:10],
+        "conclusion_id": protocol["conclusion_id"],
+        "protocol_id": protocol["id"],
+        "role": "report",
+        "revision": revision,
+        "worktree_head": identity["revision"],
+        "host_id": host["id"],
+        "toolchain": {**toolchain, "a5_settings": host["a5"]},
+        "a5_settings": host["a5"],
+        "harness_overlays": overlays,
+        "commands": commands or [],
+    }
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2]
+
+
+def _mad_over_median(values: list[float]) -> float:
+    center = _median(values)
+    return _median([abs(value - center) for value in values]) / center if center > 0 else math.inf
+
+
+def _normalize_series(row: dict[str, Any]) -> dict[str, Any]:
+    series = row.get("series")
+    if not isinstance(series, dict) or row.get("complete") is not True or row.get("smoke") is True:
+        raise ValueError(f"completed non-smoke A-5 series is required for {row.get('cell_id')}")
+    controls = row.get("process_controls")
+    if not isinstance(controls, dict) or controls.get("priority_set") is not True or controls.get("affinity_set") is not True:
+        raise ValueError(f"A-5 process priority and affinity were not confirmed for {row.get('cell_id')}")
+    samples = series.get("sample_records")
+    if not isinstance(samples, list) or not samples:
+        raise ValueError(f"A-5 series has no sample records: {row.get('cell_id')}")
+    serial_key, parallel_key = (
+        ("serial_us_per_call", "rayon_us_per_call")
+        if "serial_us_per_call" in samples[0]
+        else ("serial_ns_per_call", "parallel_ns_per_call")
+    )
+    serial = [float(sample[serial_key]) for sample in samples]
+    parallel = [float(sample[parallel_key]) for sample in samples]
+    seconds = [int(sample["timed_pair_elapsed_ns"]) / 1_000_000_000.0 for sample in samples]
+    result = {
+        "cell_id": row["cell_id"],
+        "process_controls": controls,
+        "observed_ratio": _median(serial) / _median(parallel),
+        "observed": {"serial_median_per_call": _median(serial), "parallel_median_per_call": _median(parallel)},
+        "validity": {
+            "warmups": int(series["warmups"]),
+            "sample_count": int(series["samples"]),
+            "repetitions_per_sample": int(series["repetitions_per_sample"]),
+            "sample_seconds": seconds,
+            "path_mad_over_median": {"serial": _mad_over_median(serial), "parallel": _mad_over_median(parallel)},
+        },
+    }
+    return result
+
+
+def _pipe_fields(line: str) -> tuple[str, dict[str, str]] | None:
+    chunks = line.split("|")
+    if len(chunks) < 2 or not chunks[0].startswith("SCALE_"):
+        return None
+    fields = {}
+    for chunk in chunks[1:]:
+        key, separator, value = chunk.partition("=")
+        if separator:
+            fields[key] = value
+    return chunks[0], fields
+
+
+def _normalize_m3_05(lines: list[str], protocol: dict[str, Any], settings: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    parsed = [item for line in lines if (item := _pipe_fields(line)) is not None]
+    host = next((fields for kind, fields in parsed if kind == "SCALE_HOST"), None)
+    if host is None or host.get("mode") != "a5" or int(host.get("samples", 0)) != settings["samples"]:
+        raise ValueError("M3-05 raw output is not a completed A-5 run")
+    if host.get("process_controls") != f"priority=high;affinity_mask={settings['affinity_mask']}":
+        raise ValueError("M3-05 raw output does not confirm the registered A-5 process controls")
+    cell_ids = [str(cell) for cell in protocol.get("ordered_cell_ids", [])]
+    if protocol.get("predicate_kind") == "completion":
+        completed = any(kind == "SCALE_COMPLETE" and fields.get("largest_N") == "1000000" for kind, fields in parsed)
+        full_rows = {(int(fields["N"]), int(fields["k"]), int(fields["horizon"]))
+                     for kind, fields in parsed if kind == "SCALE_FULL_TICK"}
+        result = {}
+        for cell_id in cell_ids:
+            match = re.fullmatch(r"N1M-k(\d+)-day(\d+)", cell_id)
+            key = (1_000_000, int(match.group(1)), int(match.group(2)))
+            result[cell_id] = {"cell_id": cell_id, "completed": completed and key in full_rows,
+                               "process_controls": {"priority_set": True, "affinity_set": True}}
+        return result
+    if protocol.get("id") != "m3_05_any_phase_alpha_first_break":
+        raise ValueError(f"unsupported M3-05 A-5 protocol: {protocol.get('id')}")
+    phase_rows = {
+        (int(fields["N"]), int(fields["k"]), int(fields["horizon"]), fields.get("phase", fields.get("stage", ""))): fields
+        for kind, fields in parsed if kind in {"SCALE_PHASE", "SCALE_P6B_STAGE"}
+    }
+    full_rows = {
+        (int(fields["N"]), int(fields["k"]), int(fields["horizon"])): fields
+        for kind, fields in parsed if kind == "SCALE_FULL_TICK"
+    }
+    alpha_rows = [fields for kind, fields in parsed if kind == "SCALE_ALPHA"]
+    result = {}
+    for cell_id in cell_ids:
+        match = re.fullmatch(r"k(\d+)-day(\d+)", cell_id)
+        degree, day = int(match.group(1)), int(match.group(2))
+        candidates = []
+        for fields in alpha_rows:
+            if int(fields.get("k", -1)) != degree or int(fields.get("horizon", -1)) != day:
+                continue
+            if int(fields.get("from_N", -1)) != 100_000 or int(fields.get("to_N", -1)) != 250_000:
+                continue
+            try:
+                alpha = float(fields["alpha"])
+                if fields["phase"] == "full_tick":
+                    low = full_rows[(100_000, degree, day)]
+                    high = full_rows[(250_000, degree, day)]
+                    low_median, low_mad = float(low["serial_median_us"]), float(low["serial_mad_us"])
+                    high_median, high_mad = float(high["serial_median_us"]), float(high["serial_mad_us"])
+                else:
+                    low = phase_rows[(100_000, degree, day, fields["phase"])]
+                    high = phase_rows[(250_000, degree, day, fields["phase"])]
+                    low_median, low_mad = float(low["median_us"]), float(low["mad_us"])
+                    high_median, high_mad = float(high["median_us"]), float(high["mad_us"])
+                low_spread = low_mad / low_median
+                high_spread = high_mad / high_median
+            except (KeyError, ValueError, ZeroDivisionError):
+                continue
+            candidates.append((alpha, fields["phase"], low, high, low_spread, high_spread))
+        if not candidates:
+            raise ValueError(f"M3-05 A-5 raw output lacks alpha endpoints for {cell_id}")
+        valid = [item for item in candidates if item[4] <= settings["max_path_mad_over_median"] and item[5] <= settings["max_path_mad_over_median"]]
+        alpha, phase, low, high, low_spread, high_spread = max(valid or candidates, key=lambda item: item[0])
+        low_seconds = [float(value) for value in low["sample_seconds"].split(",")]
+        high_seconds = [float(value) for value in high["sample_seconds"].split(",")]
+        if len(low_seconds) != settings["samples"] or len(high_seconds) != settings["samples"]:
+            raise ValueError(f"M3-05 A-5 phase series lacks {settings['samples']} samples for {cell_id}")
+        result[cell_id] = {
+            "cell_id": cell_id,
+            "value": alpha,
+            "observed": {"alpha": alpha, "maximum_phase": phase},
+            "process_controls": {"priority_set": True, "affinity_set": True},
+            "validity": {
+                "warmups": int(host["warmups"]),
+                "sample_count": int(host["samples"]),
+                "repetitions_per_sample": {"lower_endpoint": int(low["repetitions_per_sample"]), "upper_endpoint": int(high["repetitions_per_sample"])},
+                "sample_seconds": [min(left, right) for left, right in zip(low_seconds, high_seconds)],
+                "path_mad_over_median": {"lower_endpoint": low_spread, "upper_endpoint": high_spread},
+            },
+        }
+    return result
+
+
+def build_evidence_record(
+    manifest: dict[str, Any],
+    raw_path: Path,
+    protocol: dict[str, Any],
+    *,
+    root: Path = ROOT,
+    manifest_path: Path | None = None,
+    hosts_doc: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if manifest.get("protocol_id") != protocol.get("id") or manifest.get("conclusion_id") != protocol.get("conclusion_id"):
+        raise ValueError("run manifest does not match the registered conclusion protocol")
+    if manifest.get("role") != "report" or manifest.get("revision") != protocol.get("report_revision"):
+        raise ValueError("report evidence must use the protocol's report revision")
+    if manifest.get("worktree_head") != manifest.get("revision"):
+        raise ValueError("report evidence worktree HEAD differs from its revision")
+    if manifest.get("harness_overlays") != protocol.get("harness_overlays", []):
+        raise ValueError("run manifest overlays differ from the registered protocol")
+    hosts_doc = hosts_doc or tomllib.loads((root / "contracts/hosts.toml").read_text(encoding="utf-8"))
+    host_rows = hosts_doc.get("host", [])
+    host = next((item for item in host_rows if item.get("id") == manifest.get("host_id")), None)
+    if host is None or manifest.get("host_id") != protocol.get("host_id") or manifest.get("a5_settings") != host.get("a5"):
+        raise ValueError("run manifest host or A-5 settings differ from the registered reference")
+    toolchain = manifest.get("toolchain", {})
+    rustc = _parse_rustc_vv(toolchain.get("rustc_vv"))
+    if rustc is None or toolchain.get("rustc") != rustc["first_line"]:
+        raise ValueError("run manifest lacks an exact rustc -Vv identity")
+    for overlay in manifest.get("harness_overlays", []):
+        file = _repo_file(root, str(overlay["path"]))
+        if file is None or not file.is_file() or _digest(file) != overlay["sha256"]:
+            raise ValueError(f"run overlay bytes differ from the manifest: {overlay.get('path')}")
+    expected_cells = [str(cell) for cell in protocol.get("ordered_cell_ids", [])]
+    raw_lines = raw_path.read_text(encoding="utf-8").splitlines()
+    if any(line.startswith("SCALE_HOST|") for line in raw_lines):
+        results = _normalize_m3_05(raw_lines, protocol, manifest["a5_settings"])
+    else:
+        decoded = [json.loads(line) for line in raw_lines if line.strip()]
+        cells = {}
+        for row in decoded:
+            if row.get("record") == "A5_CELL_RESULT" or row.get("kind") == "A5_CELL_RESULT":
+                normalized = row
+            elif row.get("kind") == "series":
+                normalized = _normalize_series(row)
+            else:
+                continue
+            cell_id = normalized["cell_id"]
+            if cell_id in cells:
+                raise ValueError(f"duplicate A-5 cell result: {cell_id}")
+            cells[cell_id] = normalized
+        results = cells
+    if list(results) != expected_cells:
+        raise ValueError("A-5 results must contain the registered ordered cells exactly once")
+    settings = manifest["a5_settings"]
+    processed = []
+    completion = protocol.get("predicate_kind") == "completion"
+    for cell_id in expected_cells:
+        item = results[cell_id]
+        controls = item.get("process_controls")
+        if not isinstance(controls, dict) or controls.get("priority_set") is not True or controls.get("affinity_set") is not True:
+            raise ValueError(f"A-5 process priority and affinity were not confirmed for {cell_id}")
+        if completion:
+            if not isinstance(item.get("completed"), bool):
+                raise ValueError(f"completion cell must record a boolean result: {cell_id}")
+            processed.append({**item, "cell_id": cell_id})
+            continue
+        validity = item.get("validity")
+        observed = item.get("observed")
+        if not isinstance(observed, dict) or not isinstance(validity, dict):
+            raise ValueError(f"A-5 cell lacks observed values or validity: {cell_id}")
+        samples = validity.get("sample_seconds")
+        spreads = validity.get("path_mad_over_median")
+        repetitions = validity.get("repetitions_per_sample")
+        if validity.get("warmups") != settings["warmups"] or validity.get("sample_count") != settings["samples"]:
+            raise ValueError(f"A-5 cell warmups/sample count differ from the registered settings: {cell_id}")
+        if not isinstance(samples, list) or len(samples) != settings["samples"] or not all(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in samples
+        ):
+            raise ValueError(f"A-5 cell must record all {settings['samples']} sample durations: {cell_id}")
+        if not valid_repetitions_per_sample(repetitions):
+            raise ValueError(f"A-5 cell repetition factor is missing or invalid: {cell_id}")
+        if not isinstance(spreads, dict) or len(spreads) != 2 or not all(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+            for value in spreads.values()
+        ):
+            raise ValueError(f"A-5 cell must record two finite path MAD/median values: {cell_id}")
+        is_valid = all(value >= settings["minimum_sample_seconds"] for value in samples) and all(
+            value <= settings["max_path_mad_over_median"] for value in spreads.values()
+        )
+        processed.append({**item, "cell_id": cell_id, "observed": observed, "validity": validity, "valid": is_valid})
+    raw = raw_path.resolve()
+    raw_relative = raw.relative_to(root.resolve()).as_posix()
+    artifacts = [{"path": raw_relative, "sha256": _digest(raw)}]
+    if manifest_path is not None:
+        manifest_file = manifest_path.resolve()
+        artifacts.append({"path": manifest_file.relative_to(root.resolve()).as_posix(), "sha256": _digest(manifest_file)})
+    for overlay in manifest.get("harness_overlays", []):
+        artifacts.append({"path": overlay["path"], "sha256": overlay["sha256"]})
+    return {
+        "id": f"{manifest['run_id']}-report",
+        "conclusion_id": manifest["conclusion_id"],
+        "role": "report",
+        "kind": "a5_report_revision",
+        "revision": manifest["revision"],
+        "toolchain": manifest["toolchain"],
+        "protocol_id": manifest["protocol_id"],
+        "date": manifest["date"],
+        "commands": manifest.get("commands", []),
+        "artifacts": artifacts,
+        "harness_overlays": manifest.get("harness_overlays", []),
+        "overlay_build_ok": True,
+        "cell_results": processed,
+        "raw_outputs": [{"path": raw_relative, "sha256": _digest(raw)}],
+    }
+
+
+def append_evidence(record: dict[str, Any], path: Path = EVIDENCE) -> None:
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    for line in existing.splitlines():
+        if line and json.loads(line).get("id") == record["id"]:
+            raise ValueError(f"evidence id already exists: {record['id']}")
+    new_line = json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n"
+    validate_evidence_append_only(existing.encode("utf-8"), (existing + new_line).encode("utf-8"))
+    write_text_lf(path, new_line, append=True, flush=True)
+
+
+def _report_text(protocol: dict[str, Any], root: Path) -> str:
+    result = _git(root, "show", f"{protocol['report_revision']}:{protocol['report_path_at_revision']}")
+    if result.returncode:
+        raise ValueError(f"could not read report source for {protocol['id']}")
+    return result.stdout.decode("utf-8")
+
+
+def _table_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _median_us(value: str) -> float:
+    match = re.match(r"\s*([\d,]+(?:\.\d+)?)", value)
+    if match is None:
+        raise ValueError(f"report cell is not a numeric timing: {value!r}")
+    return float(match.group(1).replace(",", ""))
+
+
+def _population_value(value: str) -> int:
+    normalized = value.replace(",", "").strip().lower()
+    if normalized.endswith("k"):
+        return int(float(normalized[:-1]) * 1_000)
+    if normalized.endswith("m"):
+        return int(float(normalized[:-1]) * 1_000_000)
+    return int(normalized)
+
+
+def _m3_tables(text: str) -> tuple[dict[tuple[int, int, int], dict[str, float]], dict[tuple[int, int, int], list[float]], dict[tuple[int, int], float]]:
+    ticks: dict[tuple[int, int, int], dict[str, float]] = {}
+    phase_profiles: dict[tuple[int, int, int], list[float]] = {}
+    setup: dict[tuple[int, int], float] = {}
+    section = ""
+    for line in text.splitlines():
+        if line.startswith("## "):
+            section = line
+            continue
+        if not line.startswith("|") or line.lstrip().startswith("|---"):
+            continue
+        cells = _table_cells(line)
+        if section == "## Whole-tick measurements" and len(cells) == 7 and cells[0].replace(",", "").isdigit():
+            n, kcount, degree, day = (int(cells[index].replace(",", "")) for index in range(4))
+            try:
+                ticks[(n, degree, day)] = {"serial": _median_us(cells[4]), "parallel": _median_us(cells[5])}
+            except ValueError:
+                continue
+        elif section == "## Serial per-phase profile" and len(cells) == 16 and cells[0].replace(",", "").isdigit():
+            n, degree, day = (int(cells[index].replace(",", "")) for index in range(3))
+            phase_profiles[(n, degree, day)] = [_median_us(value) for value in cells[3:]]
+        elif section == "## Initialization, graph, projection, and memory" and len(cells) == 7 and cells[0].replace(",", "").isdigit():
+            n = int(cells[0].replace(",", ""))
+            degree = int(cells[2])
+            setup[(n, degree)] = sum(float(value.replace(",", "")) for value in cells[3:6]) / 1_000_000.0
+    return ticks, phase_profiles, setup
+
+
+def _series_estimate(pair_seconds: float, settings: dict[str, Any], *, probe_count: int) -> dict[str, float | int]:
+    target = float(settings["sample_target_seconds"])
+    repetitions = max(1, math.ceil(target / pair_seconds))
+    sample = repetitions * pair_seconds
+    calibration = probe_count * pair_seconds if probe_count else (
+        pair_seconds if pair_seconds >= target else pair_seconds + target * 1.1
+    )
+    warmup = int(settings["warmups"]) * pair_seconds
+    timed = int(settings["samples"]) * sample
+    return {
+        "pair_seconds": pair_seconds,
+        "repetitions_per_sample": repetitions,
+        "sample_seconds": sample,
+        "calibration_seconds": calibration,
+        "warmup_seconds": warmup,
+        "timed_seconds": timed,
+        "total_seconds": calibration + warmup + timed,
+    }
+
+
+def tonight_plan(root: Path = ROOT) -> list[dict[str, Any]]:
+    """Estimate the 17 scheduled cells from their report-revision timing tables."""
+    experiments = tomllib.loads((root / "contracts/experiments.toml").read_text(encoding="utf-8"))["experiment"]
+    by_id = {item["id"]: item for item in experiments}
+    hosts = tomllib.loads((root / "contracts/hosts.toml").read_text(encoding="utf-8"))["host"]
+    host = next(item for item in hosts if item.get("reference") is True)
+    settings = host["a5"]
+    rows: list[dict[str, Any]] = []
+
+    m2 = by_id["m2_explicit_rayon_speedup"]
+    m2_text = _report_text(m2, root)
+    m2_pairs: dict[str, float] = {}
+    for line in m2_text.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = _table_cells(line)
+        if len(cells) != 7 or cells[0] not in {"A", "B"} or "/" not in cells[1]:
+            continue
+        n = _population_value(cells[1].split("/", 1)[0])
+        m2_pairs[f"{cells[0]}-N{n}"] = (_median_us(cells[2]) + _median_us(cells[4])) / 1_000_000.0
+    for cell_id in m2["ordered_cell_ids"]:
+        pair = m2_pairs[cell_id]
+        series = _series_estimate(pair, settings, probe_count=0)
+        setup = 1.0
+        rows.append({"cell_id": cell_id, "protocol_id": m2["id"], "series": [series], "setup_seconds": setup,
+                     "setup_basis": "1-second planning reserve; the report excludes initialization from its timer.",
+                     "estimated_seconds": float(series["total_seconds"]) + setup})
+
+    def add_m3(experiment_id: str, *, alpha: bool) -> None:
+        protocol = by_id[experiment_id]
+        ticks, profiles, setup_values = _m3_tables(_report_text(protocol, root))
+        for cell_id in protocol["ordered_cell_ids"]:
+            if alpha:
+                match = re.fullmatch(r"k(\d+)-day(\d+)", cell_id)
+                degree, day = int(match.group(1)), int(match.group(2))
+                endpoints = (100_000, 250_000)
+            else:
+                match = re.fullmatch(r"N1M-k(\d+)-day(\d+)", cell_id)
+                degree, day = int(match.group(1)), int(match.group(2))
+                endpoints = (1_000_000,)
+            series = []
+            for population in endpoints:
+                tick = ticks[(population, degree, day)]
+                series.append(_series_estimate(3.0 * (tick["serial"] + tick["parallel"]) / 1_000_000.0, settings, probe_count=3))
+                profile_us = sum(profiles[(population, degree, day)]) * 3.0
+                series.append(_series_estimate(profile_us / 1_000_000.0, settings, probe_count=3))
+            if day == 0:
+                setup = sum(setup_values[(population, degree)] for population in endpoints)
+                basis = "report initialization + graph + projection timers for the sampled endpoint configurations."
+            else:
+                setup = sum(50.0 * ticks[(population, degree, 0)]["serial"] / 1_000_000.0 for population in endpoints)
+                basis = "50-day checkpoint preparation estimated from the report's serial per-day median at each endpoint."
+            rows.append({"cell_id": cell_id, "protocol_id": protocol["id"], "series": series, "setup_seconds": setup,
+                         "setup_basis": basis, "estimated_seconds": sum(float(item["total_seconds"]) for item in series) + setup})
+
+    add_m3("m3_05_any_phase_alpha_first_break", alpha=True)
+    add_m3("m3_05_static_scale_completion", alpha=False)
+
+    m4 = by_id["m4_07_case_a_search_parallel_speedup"]
+    line = next((line for line in _report_text(m4, root).splitlines() if "Exhaustive case (a), R=10, H=90" in line and line.startswith("|")), None)
+    if line is None:
+        raise ValueError("M4-07 report-revision case-a timing row is missing")
+    cells = _table_cells(line)
+    pair = float(cells[1].split("s", 1)[0].replace(",", "")) + float(cells[2].split("s", 1)[0].replace(",", ""))
+    series = _series_estimate(pair, settings, probe_count=0)
+    setup = 1.0
+    rows.append({"cell_id": m4["ordered_cell_ids"][0], "protocol_id": m4["id"], "series": [series], "setup_seconds": setup,
+                 "setup_basis": "1-second planning reserve; the report does not time branch-cache setup separately.",
+                 "estimated_seconds": float(series["total_seconds"]) + setup})
+
+    if len(rows) != 17:
+        raise ValueError(f"expected 17 report-revision cells for tonight; found {len(rows)}")
+    evidence_path = root / "contracts/evidence.jsonl"
+    if evidence_path.is_file():
+        for line in evidence_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            if record.get("role") != "report" or record.get("overlay_build_ok") is not False:
+                continue
+            failures = {
+                str(result.get("cell_id")): str(result.get("reason", "overlay failed"))
+                for result in record.get("cell_results", [])
+                if isinstance(result, dict) and result.get("overlay_build_ok") is False
+            }
+            for row in rows:
+                if row["protocol_id"] == record.get("protocol_id") and row["cell_id"] in failures:
+                    row["blocked_reason"] = failures[row["cell_id"]]
+    return rows
+
+
+def print_tonight_plan(root: Path = ROOT) -> None:
+    rows = tonight_plan(root)
+    total = sum(row["estimated_seconds"] for row in rows)
+    print("A-5 report-revision cells; estimates use report medians, fixed 41 samples, 2 warmups, and calibrated repeats.")
+    for row in rows:
+        series = row["series"]
+        details = "; ".join(
+            f"pair={float(item['pair_seconds'])*1000:.3f}ms r={item['repetitions_per_sample']} "
+            f"sample={float(item['sample_seconds']):.3f}s x41 + warmup {float(item['warmup_seconds']):.3f}s + calibration {float(item['calibration_seconds']):.3f}s"
+            for item in series
+        )
+        blocked = f"; BLOCKED: {row['blocked_reason']}" if row.get("blocked_reason") else ""
+        print(f"{row['protocol_id']} / {row['cell_id']}: {details}; setup {row['setup_seconds']:.3f}s ({row['setup_basis']}) -> {row['estimated_seconds']:.1f}s{blocked}")
+    print(f"Total: {total:.1f}s ({total / 3600:.2f}h) across {len(rows)} cells; recalibration retries and clean-worktree compilation are not included.")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    modes = parser.add_subparsers(dest="mode", required=True)
+    modes.add_parser("dry-run", help="estimate the 17 registered M2/M3/M4 cells without sampling")
+    manifest_parser = modes.add_parser("manifest")
+    manifest_parser.add_argument("protocol_id")
+    manifest_parser.add_argument("run_id")
+    manifest_parser.add_argument("output", type=Path)
+    manifest_parser.add_argument("--command", action="append", default=[])
+    ingest_parser = modes.add_parser("ingest")
+    ingest_parser.add_argument("manifest", type=Path)
+    ingest_parser.add_argument("raw", type=Path)
+    args = parser.parse_args(argv)
+    try:
+        if args.mode == "dry-run":
+            print_tonight_plan()
+            return 0
+        experiments = tomllib.loads(EXPERIMENTS.read_text(encoding="utf-8"))
+        protocols = {item["id"]: item for item in experiments.get("experiment", [])}
+        if args.mode == "manifest":
+            protocol = protocols[args.protocol_id]
+            manifest = build_run_manifest(protocol, run_id=args.run_id, commands=args.command)
+            output = _repo_file(ROOT, args.output.as_posix())
+            if output is None:
+                raise ValueError("manifest output must stay inside the repository")
+            write_text_lf(output, json.dumps(manifest, separators=(",", ":"), sort_keys=True) + "\n")
+            print(f"wrote A-5 run manifest: {output.relative_to(ROOT).as_posix()}")
+        else:
+            manifest_path = _repo_file(ROOT, args.manifest.as_posix())
+            raw_path = _repo_file(ROOT, args.raw.as_posix())
+            if manifest_path is None or raw_path is None:
+                raise ValueError("manifest and raw output paths must stay inside the repository")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            protocol = protocols[manifest["protocol_id"]]
+            record = build_evidence_record(manifest, raw_path, protocol, manifest_path=manifest_path)
+            append_evidence(record)
+            print(f"appended A-5 report evidence: {record['id']}")
+    except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as error:
+        print(f"A-5 evidence error: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

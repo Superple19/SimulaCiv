@@ -111,3 +111,5 @@ The deadline is for a reviewed disposition, not permission to weaken or remove t
 ## Follow-up list
 
 - **M5-07:** design a whole-runtime M2-versus-M0 experiment. The current M2-01-to-M2-12 allocation-phase comparison cannot represent that question as one report-role result. This follow-up is not yet registered as a conclusion.
+
+Later update (2026-10-27): the overnight report-revision A-5 schedule is limited to the 17 M2 explicit-Rayon, M3-05 first-break/static-completion, and M4-07 case-a cells. The three M4-04 CRN cells (about 52 hours by the recorded estimate) are excluded because they exceed the overnight window. The three M3-11 propagation cells and four M3-09 incremental cells are deferred until their report-revision paths have a completed manifest/ingestion smoke check; their harnesses are not being changed or run in this preparation. The M3-05 cells remain listed for planning, but the unchanged report-revision overlay fails to compile and the verdict table marks those cells `needs-decision`.

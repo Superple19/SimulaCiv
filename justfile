@@ -132,6 +132,15 @@ ci-clean: analysis-sync
 ci-linux:
     mise exec -- uv run --directory analysis --project . python -m simciv_analysis.ci_linux
 
+a5-dry-run: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_evidence dry-run
+
+a5-manifest PROTOCOL RUN_ID OUTPUT: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_evidence manifest {{PROTOCOL}} {{RUN_ID}} {{OUTPUT}}
+
+a5-ingest MANIFEST RAW: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_evidence ingest {{MANIFEST}} {{RAW}}
+
 provenance SUMMARY: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.provenance {{SUMMARY}}
 

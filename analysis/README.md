@@ -34,6 +34,10 @@ just report-m5-01
 
 This regenerates the tidy claim ledger, `.qmd`, and rendered GitHub-flavored Markdown with the pinned tools. Use `just claims` alone when only the ledger needs regeneration.
 
+## Report-revision A-5 provenance
+
+In the report-revision worktree, after registered harness overlays are in place and before starting a timed stage, run `just a5-manifest <protocol-id> <run-id> <manifest-path>` under `docs/reproducibility/evidence/`. It records the worktree revision, exact `rustc -Vv`, host identity, A-5 settings, and overlay hashes. After a completed raw run, `just a5-ingest <manifest-path> <raw-jsonl-path>` validates the ordered cells, 41 sample durations, path spreads, and hashes, then appends the report-role evidence record. M2/M4 adapter JSONL and M3-05 `SCALE_*` output are normalized by the ingester; smoke output is rejected. `just a5-dry-run` lists the 17 tonight cells and estimates each from report-revision timing rows, including warmups, calibration, samples, and setup.
+
 ## Delivery
 
 Normal delivery is `just ship`: it runs local checks, then pushes the tested `HEAD` to `ci-check`. The same CI run promotes a successful commit to `main` automatically by fast-forward; no second CI run is dispatched. Never push directly to `main`.

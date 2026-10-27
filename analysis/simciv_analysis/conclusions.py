@@ -15,7 +15,13 @@ from typing import Any
 
 from .git_hooks import dvc_output_paths
 from .io import write_text_lf
-from .verdicts import _STRENGTH, _parse_rustc_vv, _supersession_state, compute_verdicts
+from .verdicts import (
+    _STRENGTH,
+    _parse_rustc_vv,
+    _supersession_state,
+    compute_verdicts,
+    valid_repetitions_per_sample,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -432,8 +438,8 @@ def _evidence_errors(
                 else:
                     if not isinstance(validity.get("warmups"), int) or not isinstance(validity.get("sample_count"), int):
                         errors.append(f"A-5 validity needs warmup and sample counts: {identifier}: {cell_id}")
-                    if not isinstance(validity.get("repetitions_per_sample"), int) or validity.get("repetitions_per_sample", 0) < 1:
-                        errors.append(f"A-5 validity needs a positive fixed repetition factor: {identifier}: {cell_id}")
+                    if not valid_repetitions_per_sample(validity.get("repetitions_per_sample")):
+                        errors.append(f"A-5 validity needs a positive repetition factor per measured path: {identifier}: {cell_id}")
                     seconds = validity.get("sample_seconds")
                     if not isinstance(seconds, list) or not all(
                         isinstance(value, (int, float)) and not isinstance(value, bool) for value in seconds

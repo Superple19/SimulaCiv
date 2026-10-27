@@ -359,6 +359,18 @@ def test_missing_rustc_verbose_capture_disqualifies_timing_record():
     assert _one(registry, experiments, hosts, evidence)["verdict"] == "inconclusive"
 
 
+def test_a5_repetition_map_is_valid_for_two_endpoint_cells():
+    registry, experiments, hosts, evidence = _case(cell={
+        "cell_id": "cell-a",
+        "observed_ratio": 2.0,
+        "validity": {
+            **deepcopy(A5_VALIDITY),
+            "repetitions_per_sample": {"lower_endpoint": 10, "upper_endpoint": 20},
+        },
+    })
+    assert _one(registry, experiments, hosts, evidence)["verdict"] == "reproduced"
+
+
 def test_completion_predicate_passes_only_completed_without_error():
     registry, experiments, hosts, evidence = _case("completion", cell={"cell_id": "cell-a", "completed": True})
     assert _one(registry, experiments, hosts, evidence)["verdict"] == "reproduced"
