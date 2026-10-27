@@ -1,0 +1,3 @@
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running `target\release\examples\m4_05_experiment.exe --enumerate-size4 --output target/m5_07_m4_05_enum.jsonl`
+ENUMERATION|case=a|subset_size=4|evaluated=70|satisfying=15

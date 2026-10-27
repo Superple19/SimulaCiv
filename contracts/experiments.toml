@@ -491,16 +491,36 @@ report_path_at_revision = "docs/performance/M3_08_POPULATION_DYNAMICS.md"
 protocol_source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#findings"
 host_id = "ryzen5-9600x-windows-reference"
 status = "complete"
-ordered_cell_ids = ["m3p-sustained-N10000-days100-1000", "m3p-sustained-ci-N1000-days100-1000"]
+ordered_cell_ids = ["m3p-sustained-ci-N1000-days100-1000"]
 predicate_kind = "exact"
-predicate_parameters = { "fields" = ["alive_population_checkpoints"], "expected_values" = { "m3p-sustained-N10000-days100-1000" = { "window_end_days" = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000], "alive_at_window_end" = [10045, 10089, 10139, 10174, 10222, 10264, 10303, 10341, 10380, 10429, 10461, 10505, 10561, 10589, 10618, 10667, 10691, 10720, 10744, 10755] }, "m3p-sustained-ci-N1000-days100-1000" = { "days_checked" = [100, 1000], "alive_min" = 1010, "alive_max" = 1076 } }, "comparison" = "exact equality" }
-scope = "Frozen M3P sustained configuration; N=10,000 recorded 50-day alive checkpoints plus N=1,000 CI trajectory min/max on days 100..1000."
+predicate_parameters = { "fields" = ["gate_result"], "expected_values" = { "m3p-sustained-ci-N1000-days100-1000" = "report-revision 1000-day sustained CI assertion passes" }, "comparison" = "exact equality" }
+scope = "Report-revision M3P sustained CI test at N=1,000, K=5; per-day alive-population bound on days 100..1000."
 harness_paths = [
   "crates/sim-model/tests/m3p_sustained_gate_tests.rs",
-  "crates/sim-model/tests/m3p_incremental_topology_tests.rs",
 ]
-harness_overlays = [{ "path" = "crates/sim-model/tests/m3p_incremental_topology_tests.rs", "sha256" = "4ec08fb665894dc0783264dc721207714f4d39670e56456efeca90c65acca6b1", "origin_commit" = "4dd991914996178d1ad7dc554ac88db459619e57" }]
-report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+report_role_harness_policy = "The report-revision source test is run unchanged in a temporary worktree."
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "report_revision_test_source_correction"
+source_report = "c7def1f0f2347ebfe2cb597f6c7380b35458146b:docs/performance/M3_08_POPULATION_DYNAMICS.md#sustained-gate"
+source_code = "c7def1f0f2347ebfe2cb597f6c7380b35458146b:crates/sim-model/tests/m3p_sustained_gate_tests.rs"
+reason = "The registered m3p_incremental_topology_tests overlay postdated the report and was not the source test. The report-revision m3p_sustained_gate_tests test asserts the N=1,000 daily ±10% gate but does not emit exact min/max values or the N=10,000 checkpoints, so this protocol is limited to the assertion it actually verifies."
+registry_values_changed = true
+prior_ordered_cell_ids = ["m3p-sustained-N10000-days100-1000", "m3p-sustained-ci-N1000-days100-1000"]
+prior_expected_values = { "m3p-sustained-N10000-days100-1000" = { "window_end_days" = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000], "alive_at_window_end" = [10045, 10089, 10139, 10174, 10222, 10264, 10303, 10341, 10380, 10429, 10461, 10505, 10561, 10589, 10618, 10667, 10691, 10720, 10744, 10755] }, "m3p-sustained-ci-N1000-days100-1000" = { "days_checked" = [100, 1000], "alive_min" = 1010, "alive_max" = 1076 } }
+prior_harness_paths = ["crates/sim-model/tests/m3p_sustained_gate_tests.rs", "crates/sim-model/tests/m3p_incremental_topology_tests.rs"]
+prior_harness_overlays = [{ "path" = "crates/sim-model/tests/m3p_incremental_topology_tests.rs", "sha256" = "4ec08fb665894dc0783264dc721207714f4d39670e56456efeca90c65acca6b1", "origin_commit" = "4dd991914996178d1ad7dc554ac88db459619e57" }]
+
+[[experiment.protocol_history]]
+date = "2026-10-27"
+source = "c7def1f0f2347ebfe2cb597f6c7380b35458146b:crates/sim-model/tests/m3p_sustained_gate_tests.rs"
+reason = "The old evidence was based on a later overlay test. The report-revision test only asserts the N=1,000 per-day ±10% bound, so exact trajectory values and the separate N=10,000 checkpoints are retained as prior protocol data but are no longer claimed as test-verified by this conclusion."
+superseded_evidence_ids = ["m5-06-report-m3-det-m3p-sustained-gate"]
+prior_ordered_cell_ids = ["m3p-sustained-N10000-days100-1000", "m3p-sustained-ci-N1000-days100-1000"]
+prior_expected_values = { "m3p-sustained-N10000-days100-1000" = { "window_end_days" = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000], "alive_at_window_end" = [10045, 10089, 10139, 10174, 10222, 10264, 10303, 10341, 10380, 10429, 10461, 10505, 10561, 10589, 10618, 10667, 10691, 10720, 10744, 10755] }, "m3p-sustained-ci-N1000-days100-1000" = { "days_checked" = [100, 1000], "alive_min" = 1010, "alive_max" = 1076 } }
+prior_harness_paths = ["crates/sim-model/tests/m3p_sustained_gate_tests.rs", "crates/sim-model/tests/m3p_incremental_topology_tests.rs"]
+prior_harness_overlays = [{ "path" = "crates/sim-model/tests/m3p_incremental_topology_tests.rs", "sha256" = "4ec08fb665894dc0783264dc721207714f4d39670e56456efeca90c65acca6b1", "origin_commit" = "4dd991914996178d1ad7dc554ac88db459619e57" }]
 
 [[experiment]]
 id = "m4_02_a5_overhead_gate"

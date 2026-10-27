@@ -1028,6 +1028,39 @@ milestone = "M5"
 status = "planned"
 summary = "Audit M5 reproducibility and research-hardening results."
 doc = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md#5-m5-stage-plan-planned-each-stage-needs-its-own-draft-review-frozen-contract"
+
+[[decision]]
+id = "M5-ANALYSIS-REPORT-PRINTED-PRECISION"
+milestone = "M5"
+stage = "M5-06"
+status = "frozen"
+enforcement = "verified"
+summary = "For deterministic numeric fields printed at fixed decimal precision, compare the observation after rounding to the source's displayed precision because the report table itself rounds those fields."
+enforced_by = ["test:analysis/tests/test_verdicts.py::test_report_printed_precision_rounds_only_the_observation", "analysis/simciv_analysis/verdicts.py"]
+doc = "docs/contracts/M5_ANALYSIS_CONTRACT.md#3-verdicts"
+date = "2026-10-27"
+
+[[decision]]
+id = "M4-02-NOOP-HORIZON-3"
+milestone = "M4"
+stage = "M4"
+status = "frozen"
+enforcement = "documented"
+summary = "The no-op identity horizon is three days because the report-revision source test passes horizon_days=3; the H=30 worked example was not the test protocol."
+enforced_by = ["docs/contracts/M5_ANALYSIS_CONTRACT.md"]
+doc = "docs/contracts/M4_COUNTERFACTUAL_CONTRACT.md#11-m4-02-branching-and-divergence-detection"
+date = "2026-10-27"
+
+[[decision]]
+id = "M4-05-PROTOCOL-HISTORY"
+milestone = "M4"
+stage = "M4"
+status = "frozen"
+enforcement = "verified"
+summary = "A changed report-revision protocol preserves the old cells, expected values, harnesses, and superseded evidence IDs in protocol_history so validation remains tied to the protocol that produced each append-only record."
+enforced_by = ["test:analysis/tests/test_conclusions.py::test_superseded_evidence_uses_its_dated_protocol_snapshot", "analysis/simciv_analysis/conclusions.py"]
+doc = "docs/contracts/M5_ANALYSIS_CONTRACT.md#2-evidence-records"
+date = "2026-10-27"
 [[decision]]
 id = "M5-05-REPRODUCTION-CRITERIA"
 milestone = "M5"

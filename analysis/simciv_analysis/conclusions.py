@@ -421,7 +421,11 @@ def _evidence_errors(
                     or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in precision.values())
                 ):
                     errors.append(f"report printed-precision normalization needs nonnegative decimal places: {identifier}: {cell_id}")
-            if record.get("kind") in {"a5_report_revision", "a5_head"} and experiment.get("predicate_kind") != "completion":
+            if (
+                record.get("kind") in {"a5_report_revision", "a5_head"}
+                and experiment.get("predicate_kind") != "completion"
+                and record.get("overlay_build_ok") is not False
+            ):
                 validity = result.get("validity")
                 if not isinstance(validity, dict):
                     errors.append(f"timing evidence cell needs A-5 validity measurements: {identifier}: {cell_id}")

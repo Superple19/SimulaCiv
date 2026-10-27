@@ -1,0 +1,44 @@
+    Checking typenum v1.20.1
+    Checking winnow v1.0.4
+    Checking serde_core v1.0.229
+    Checking crossbeam-utils v0.8.23
+    Checking cfg-if v1.0.5
+    Checking either v1.18.0
+    Checking toml_writer v1.1.2+spec-1.1.0
+    Checking cpufeatures v0.2.17
+    Checking libm v0.2.16
+    Checking toml_parser v1.1.3+spec-1.1.0
+    Checking crossbeam-epoch v0.9.21
+    Checking crossbeam-deque v0.8.8
+    Checking rayon-core v1.13.0
+    Checking generic-array v0.14.7
+    Checking rayon v1.12.0
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking digest v0.10.7
+    Checking sha2 v0.10.9
+    Checking serde v1.0.229
+    Checking serde_spanned v1.1.1
+    Checking toml_datetime v1.1.1+spec-1.1.0
+    Checking toml v1.1.6+spec-1.1.0
+    Checking sim-core v0.1.0 (C:\AI\SimulaCiv\target\m5_07_m3_05\crates\sim-core)
+    Checking sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_07_m3_05\crates\sim-model)
+error[E0061]: this method takes 1 argument but 2 arguments were supplied
+   --> crates\sim-model\examples\m3_05_a5_reconstruction.rs:300:16
+    |
+300 |         manual.step(config, false)
+    |                ^^^^         ----- unexpected argument #2 of type `bool`
+    |
+note: method defined here
+   --> crates\sim-model\examples\../benches/m3_scale_limit_bench.rs:676:8
+    |
+676 |     fn step(&mut self, config: &SimConfig) -> (M3DayOutcome, ProfileSample) {
+    |        ^^^^
+help: remove the extra argument
+    |
+300 -         manual.step(config, false)
+300 +         manual.step(config)
+    |
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `sim-model` (example "m3_05_a5_reconstruction") due to 1 previous error

@@ -215,6 +215,61 @@ def test_evidence_checker_rejects_incompatible_kind_type_role():
     assert any("combination is not accepted" in error for error in errors)
 
 
+def test_report_overlay_build_failure_is_evidence_without_timing_samples():
+    import subprocess
+
+    from simciv_analysis.conclusions import ROOT, _evidence_errors
+
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    overlay_bytes = (ROOT / "Cargo.toml").read_bytes()
+    overlay = {
+        "path": "Cargo.toml",
+        "sha256": hashlib.sha256(overlay_bytes).hexdigest(),
+        "origin_commit": revision,
+    }
+    record = {
+        "id": "overlay-build-failure",
+        "conclusion_id": "C-1",
+        "role": "report",
+        "kind": "a5_report_revision",
+        "revision": revision,
+        "toolchain": {
+            "rustc": "1.98.1 (48a229cea 2026-09-01)",
+            "rustc_vv": (
+                "rustc 1.98.1 (48a229cea 2026-09-01)\n"
+                "commit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\n"
+                "commit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\n"
+            ),
+            "rust_target": "x86_64-pc-windows-msvc",
+            "cargo_lock_sha256": "a" * 64,
+            "python": "3.15.1",
+            "uv": "0.13.5",
+            "analysis_lock_sha256": "b" * 64,
+            "os_family": "Windows 11 Pro",
+            "os_build": "10.0.26300",
+            "cpu_model": "AMD Ryzen 5 9600X 6-Core Processor",
+            "physical_cores": 6,
+            "logical_cores": 12,
+            "external_tools": {},
+            "a5_settings": {"warmups": 2, "samples": 41},
+        },
+        "protocol_id": "E-1",
+        "date": "2026-10-27",
+        "artifacts": [{"path": "Cargo.lock", "sha256": hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()}],
+        "harness_overlays": [overlay],
+        "overlay_build_ok": False,
+        "cell_results": [{"cell_id": "c1", "overlay_build_ok": False}],
+    }
+    errors = _evidence_errors(
+        [record],
+        {"C-1": {"type": "timing", "experiment": "E-1", "report_revision": revision}},
+        {"E-1": {"ordered_cell_ids": ["c1"], "harness_overlays": [overlay]}},
+        {"host": []},
+        ROOT,
+    )
+    assert errors == []
+
+
 def test_protocol_checker_rejects_missing_harness_and_nonclosed_parameter_keys():
     conclusion = {"id": "C-1", "tier": 1, "type": "timing"}
     protocol = {

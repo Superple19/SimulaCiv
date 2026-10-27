@@ -89,10 +89,10 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M3-TIM-SERIAL-BASELINE` | report | 6931a9b3884eb51e21256676f1033dab92a8ac58 | unverified | — | unverified | — |
 | `M3-TIM-PHASE6B-NO-WHOLE-TICK-GAIN` | report | db4d482d96840d1f7320c13f908d767f9c31f050 | unverified | — | unverified | — |
 | `M3-TIM-SEARCH-REDUCTION-NO-GAIN` | report | 3f8eb78013e466b1dc6b47515c002dd3cac78d9d | unverified | — | unverified | — |
-| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | N1M-k8-day0 | unverified | — |
-| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | N1M-k8-day50 | unverified | — |
-| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | N1M-k16-day0 | unverified | — |
-| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | N1M-k16-day50 | unverified | — |
+| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | N1M-k8-day0 | needs-decision | — |
+| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | N1M-k8-day50 | needs-decision | — |
+| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | N1M-k16-day0 | needs-decision | — |
+| `M3-TIM-STATIC-SCALE` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | N1M-k16-day50 | needs-decision | — |
 | `M3-TIM-SETTLEMENT-INDEX` | report | ee7970737de4c8f0bc4ee745bf445368a954fd2a | unverified | — | unverified | — |
 | `M3-TIM-REVERSED-SLOTS` | report | 7926bed68101eb5de6f8cffe0961925311f3bc41 | unverified | — | unverified | — |
 | `M3-TIM-FULL-REBUILD-EQUAL-LIVE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | unverified | — | unverified | — |
@@ -100,8 +100,7 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N10k-noninterleaved | unverified | — |
 | `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N100k-paired | unverified | — |
 | `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N100k-noninterleaved | unverified | — |
-| `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | needs-decision | m3p-sustained-N10000-days100-1000 | needs-decision | — |
-| `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | needs-decision | m3p-sustained-ci-N1000-days100-1000 | needs-decision | — |
+| `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | reproduced | m3p-sustained-ci-N1000-days100-1000 | reproduced | m5-07-report-m3-det-m3p-sustained-ci-gate |
 | `M3-TIM-PROP-PHASE9C` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | N100000-k16-hops16-transmit0.2-pool6-day0 | unverified | — |
 | `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | large-frontier-interleaved-pool6 | unverified | — |
 | `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | large-frontier-noninterleaved-pool6 | unverified | — |
@@ -112,11 +111,11 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | reproduced | m3p-propagation-noop-H3 | reproduced | m5-06-report-m4-det-branch-identity-h3 |
 | `M4-TIM-BRANCH-A5-GATE` | report | d9b08fdcb05f813ab525531bb2ec08e87622a31d | unverified | — | unverified | — |
 | `M4-TIM-DIVERGENCE-SERIES-GATE` | report | 37d33ef9f71f9120bf523f8aeaf6e97ef130c2da | unverified | — | unverified | — |
-| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-0-H365 | not reproduced | m5-06-report-m4-det-divergence-h365 |
-| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-1-H365 | not reproduced | m5-06-report-m4-det-divergence-h365 |
-| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-3-H365 | not reproduced | m5-06-report-m4-det-divergence-h365 |
-| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-7-H365 | not reproduced | m5-06-report-m4-det-divergence-h365 |
-| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-81985529216486895-H365 | not reproduced | m5-06-report-m4-det-divergence-h365 |
+| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-0-H365 | reproduced | m5-07-report-m4-det-divergence-h365-printed-precision |
+| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-1-H365 | not reproduced | m5-07-report-m4-det-divergence-h365-printed-precision |
+| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-3-H365 | reproduced | m5-07-report-m4-det-divergence-h365-printed-precision |
+| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-7-H365 | reproduced | m5-07-report-m4-det-divergence-h365-printed-precision |
+| `M4-DET-DIVERGENCE-H365` | report | bfe162baee95130a268707fef6e1489ef96cc414 | not reproduced | food-zero-seed-81985529216486895-H365 | reproduced | m5-07-report-m4-det-divergence-h365-printed-precision |
 | `M4-DET-CRN-EFFECTS` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-alive-H365 | reproduced | m5-06-report-m4-det-crn-effects |
 | `M4-DET-CRN-EFFECTS` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-total-wealth-H365 | reproduced | m5-06-report-m4-det-crn-effects |
 | `M4-DET-CRN-EFFECTS` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-mean-health-H365 | reproduced | m5-06-report-m4-det-crn-effects |
@@ -158,10 +157,10 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M1-DET-SNAPSHOT-V1` | report | 1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab | reproduced | header-metadata | reproduced | m5-06-report-m1-det-snapshot-v1 |
 | `M1-DET-SNAPSHOT-V1` | report | 1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab | reproduced | canonical-entity-order | reproduced | m5-06-report-m1-det-snapshot-v1 |
 | `M1-DET-SNAPSHOT-V1` | report | 1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab | reproduced | f32-bit-preservation | reproduced | m5-06-report-m1-det-snapshot-v1 |
-| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | k8-day0 | unverified | — |
-| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | k8-day50 | unverified | — |
-| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | k16-day0 | unverified | — |
-| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | k16-day50 | unverified | — |
+| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | k8-day0 | needs-decision | — |
+| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | k8-day50 | needs-decision | — |
+| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | k16-day0 | needs-decision | — |
+| `M3-TIM-PHASE-ALPHA-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | needs-decision | k16-day50 | needs-decision | — |
 | `M3-TIM-SERIAL-PER-AGENT-FIRST-BREAK` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | — | unverified | — |
 | `M3-TIM-SETUP-TICK-EQUIVALENT` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | — | unverified | — |
 | `M3-TIM-MEMORY-THRESHOLD` | report | 5df006c150179f67078588dfaf83a355a81d5f9f | unverified | — | unverified | — |
@@ -176,7 +175,7 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M4-DET-MIGRATION-FAILURE-ATOMICITY` | report | 392f6064b6a5ac4132722af0dc8941e8d3908d9d | reproduced | invalid-migration-config | reproduced | m5-06-report-m4-det-migration-failure-atomicity |
 | `M4-DET-MIGRATION-FAILURE-ATOMICITY` | report | 392f6064b6a5ac4132722af0dc8941e8d3908d9d | reproduced | migration-plan-failure | reproduced | m5-06-report-m4-det-migration-failure-atomicity |
 | `M4-TIM-CAUSE-SEARCH-PARALLEL` | report | fb0878ba1fa370e178aca3f763d08512c28ee122 | unverified | case-a-exhaustive-R10-H90 | unverified | — |
-| `M4-DET-MINIMAL-CAUSE-NONUNIQUENESS` | report | 6b925b91d565d98706fe6cac3cdf14164abc7a32 | reproduced | case-a-all-70-size4-subsets | reproduced | m5-06-report-m4-det-minimal-cause-nonuniqueness-enumerated |
+| `M4-DET-MINIMAL-CAUSE-NONUNIQUENESS` | report | 6b925b91d565d98706fe6cac3cdf14164abc7a32 | reproduced | case-a-all-70-size4-subsets | reproduced | m5-07-report-m4-det-minimal-cause-nonuniqueness-enumerated-rerun |
 | `M4-DET-CRN-EFFICIENCY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-alive-H365 | reproduced | m5-06-report-m4-det-crn-efficiency |
 | `M4-DET-CRN-EFFICIENCY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-total-wealth-H365 | reproduced | m5-06-report-m4-det-crn-efficiency |
 | `M4-DET-CRN-EFFICIENCY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-mean-health-H365 | reproduced | m5-06-report-m4-det-crn-efficiency |
