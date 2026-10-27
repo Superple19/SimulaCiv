@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if smoke {
             let exact = if cell.starts_with("smoke-crn") {
-                crn_pair("food_0", 100, 1, vec![1], 1, &pool, 0)?.2
+                crn_pair("food_0", 100, 3, vec![1], 1, &pool, 0)?.2
             } else {
                 search_pair(true, &pool, Path::new("target/m5_06_m4_smoke"), 0)?.2
             };
@@ -233,7 +233,7 @@ fn search_pair(
 ) -> Result<(u128, u128, bool), Box<dyn std::error::Error>> {
     let (population, settlements, candidate_count, replicates, horizon, max_evaluations) = if smoke
     {
-        (100, 1, 2, 1, 2, 32)
+        (100, 3, 2, 1, 2, 32)
     } else {
         (2_000, 3, 8, 10, 90, 5_000)
     };
