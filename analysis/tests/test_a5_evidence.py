@@ -14,6 +14,8 @@ from simciv_analysis.a5_evidence import (
     build_run_manifest,
     tonight_plan,
 )
+import simciv_analysis.a5_evidence as a5_module
+from simciv_analysis.conclusions import ROOT
 from simciv_analysis.io import write_text_lf
 from simciv_analysis.provenance import digest_files
 
@@ -119,6 +121,30 @@ def test_manifest_pins_revision_toolchain_and_registered_overlay(tmp_path: Path)
     assert manifest["worktree_head"] == protocol["report_revision"]
     assert manifest["toolchain"]["rustc_vv"].startswith("rustc 1.98.1")
     assert manifest["harness_overlays"] == protocol["harness_overlays"]
+
+
+def test_windows_manifest_trims_wmi_cpu_model_padding(monkeypatch):
+    rustc_vv = (
+        "rustc 1.98.1 (48a229cea 2026-09-01)\n"
+        "commit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\n"
+        "commit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\n"
+    )
+
+    def check_output(args, **_kwargs):
+        if args[0] == "rustc":
+            return rustc_vv
+        if args[0] == "powershell":
+            return json.dumps({"cpu": "Reference CPU   ", "physical": 6, "logical": 12, "os": "Microsoft Windows 11 Pro"})
+        if args[0] == "cargo":
+            return "cargo test"
+        if args[0] == "uv":
+            return "uv test"
+        raise AssertionError(args)
+
+    monkeypatch.setattr(a5_module.sys, "platform", "win32")
+    monkeypatch.setattr(a5_module.subprocess, "check_output", check_output)
+    identity = a5_module._runtime_identity(ROOT)
+    assert identity["toolchain"]["cpu_model"] == "Reference CPU"
 
 
 def test_manifest_rejects_a_different_worktree_revision(tmp_path: Path):

@@ -54,7 +54,7 @@ def _runtime_identity(root: Path) -> dict[str, Any]:
             "logical=$s.NumberOfLogicalProcessors; os=$o.Caption} | ConvertTo-Json -Compress"
         )
         hardware = json.loads(subprocess.check_output(["powershell", "-NoProfile", "-Command", command], text=True))
-        cpu_model, physical, logical = hardware["cpu"], int(hardware["physical"]), int(hardware["logical"])
+        cpu_model, physical, logical = hardware["cpu"].strip(), int(hardware["physical"]), int(hardware["logical"])
         os_family = hardware["os"].removeprefix("Microsoft ")
     else:
         cpu_model = platform.processor() or platform.machine()
