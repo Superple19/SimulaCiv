@@ -398,7 +398,7 @@ status = "complete"
 ordered_cell_ids = ["N10k-paired", "N10k-noninterleaved", "N100k-paired", "N100k-noninterleaved"]
 predicate_kind = "ratio_band"
 predicate_parameters = { "historical_values" = [1.21, 1.23, 1.49, 1.47], "ratio_direction" = "incremental_M3P_median / M3_median", "deviation_bands_pct" = [10, 20] }
-scope = "M3-09 follow-up; day-400 checkpoint; live populations 10,341 and 103,241; three days/sample."
+scope = "M3-09 follow-up; checkpoint after executed day 400 (resume cursor 401); timed internal days 401, 402, and 403 with no compaction; live populations 10,341 and 103,241; three days/public call."
 harness_paths = [
   "crates/sim-model/examples/m5_05_m3_09_revision.rs",
   "crates/sim-model/examples/common/a5.rs",
@@ -406,9 +406,9 @@ harness_paths = [
   "crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml",
 ]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
-historical_sampling = "Day-400 checkpoint; 2 warmups; 11 samples; three public-API days/call; paired rotation of M3P serial, M3P incremental, and M3."
+historical_sampling = "Checkpoint after executed day 400 (resume cursor 401); timed internal days 401, 402, and 403, with no compaction; 2 warmups; 11 samples; one three-day public-API call per sample; paired rotation of M3P serial, M3P incremental, and M3."
 harness_overlays = [
-  { path = "crates/sim-model/examples/m5_05_m3_09_revision.rs", sha256 = "37455f2bf5922d1d483649bcc72d67cdabfced2f83c26741efc14ffb91f156fd", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
+  { path = "crates/sim-model/examples/m5_05_m3_09_revision.rs", sha256 = "fe100623d8b4085d3cee7fa5a0cf4bda6dc67c4f1e9edad6851e3eff65552444", origin_commit = "93940619bc1934e3af417a168fe4a6908fc8efed" },
   { path = "crates/sim-model/examples/common/a5.rs", sha256 = "23d443ff87c6ba80e1c78d5cdcf3e965c0cd988ade0ab9c8a6cd15a6c3ba6bfe", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
   { path = "crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml", sha256 = "2fa70574e9e2ea30a1f34b8cfaefc107dde8298fb148170bad2ebee836ad2679", origin_commit = "de13b23509d4a868ed990f5a9c51cc9ec3c7c763" },
@@ -432,6 +432,33 @@ prior_predicate_parameters = { historical_values = [1.21, 1.23, 1.49, 1.47], rat
 prior_scope = "M3-09 follow-up; day-400 checkpoint; live populations 10,341 and 103,241; three days/sample."
 prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 prior_historical_sampling = "Day-400 checkpoint; 2 warmups; 11 samples; three public-API days/call; paired rotation of M3P serial, M3P incremental, and M3."
+
+[[experiment.protocol_history]]
+date = "2026-10-28"
+source = "docs/data/m5_08/manifests/m3_09_incremental_equal_live.json; docs/data/m5_05/m3_09_scope_check/summary.json; docs/data/m5_recovered/recovered/session-history/C/AI/SimulaCiv/crates/sim-model/examples/m3p_09_followup_measure.rs"
+reason = "The superseded M5-08 A-5 record used checkpoint cursor 400 and timed days 400-402, including compaction day 400. The report and recovered follow-up protocol checkpoint after executed day 400 (cursor 401) and time days 401-403. The old record is retained but invalid for these registered cells; no timing was repeated."
+superseded_evidence_ids = ["m5-08-20261027T142128Z-m3_09_incremental_equal_live-report"]
+prior_ordered_cell_ids = ["N10k-paired", "N10k-noninterleaved", "N100k-paired", "N100k-noninterleaved"]
+prior_harness_paths = ["crates/sim-model/examples/m5_05_m3_09_revision.rs", "crates/sim-model/examples/common/a5.rs", "crates/sim-model/examples/common/process_controls.rs", "crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml"]
+prior_harness_overlays = [
+  { path = "crates/sim-model/examples/m5_05_m3_09_revision.rs", sha256 = "37455f2bf5922d1d483649bcc72d67cdabfced2f83c26741efc14ffb91f156fd", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
+  { path = "crates/sim-model/examples/common/a5.rs", sha256 = "23d443ff87c6ba80e1c78d5cdcf3e965c0cd988ade0ab9c8a6cd15a6c3ba6bfe", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
+  { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
+  { path = "crates/sim-model/tests/fixtures/m3p_propagation_sustained.toml", sha256 = "2fa70574e9e2ea30a1f34b8cfaefc107dde8298fb148170bad2ebee836ad2679", origin_commit = "de13b23509d4a868ed990f5a9c51cc9ec3c7c763" },
+]
+
+[[experiment.amendment]]
+date = "2026-10-28"
+classification = "invalid_m5_08_run_scope_corrected"
+source_report = "681bf296ea07d3ddc4391f5f1dfd49255876300c:docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md#equal-live-m3pm3-rerun-and-interleaving"
+source_scope_check = "docs/data/m5_05/m3_09_scope_check/summary.json:details.cells (report revision 681bf296ea07d3ddc4391f5f1dfd49255876300c)"
+source_recovered_harness = "docs/data/m5_recovered/recovered/session-history/C/AI/SimulaCiv/crates/sim-model/examples/m3p_09_followup_measure.rs:16,309-332,343-429"
+reason = "Correct the adapter to resume at cursor 401 after the day-400 checkpoint and time 401-403. The M5-08 2.11-2.35x record is invalid because it included compaction day 400; preserve the historical ratio parameters and supersede that record."
+registry_values_changed = false
+prior_scope = "M5-08 adapter: cursor 400, timed days 400-402, compaction day 400 included."
+corrected_scope = "M3-09 follow-up: cursor 401 after executed day 400, timed days 401-403, no compaction day."
+report_sha_build = "passed at 681bf296ea07d3ddc4391f5f1dfd49255876300c: cargo +1.98.1 run --release --locked -p sim-model --example m5_05_m3_09_revision -- --a5-smoke N100k-paired"
+report_sha_smoke = ["N100k-paired: parity passed at cursor 401; no timing recorded"]
 
 [[experiment]]
 id = "m3_09_phase9b_normal_day_profile"

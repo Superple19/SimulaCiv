@@ -96,10 +96,10 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M3-TIM-SETTLEMENT-INDEX` | report | ee7970737de4c8f0bc4ee745bf445368a954fd2a | unverified | — | unverified | — |
 | `M3-TIM-REVERSED-SLOTS` | report | 7926bed68101eb5de6f8cffe0961925311f3bc41 | unverified | — | unverified | — |
 | `M3-TIM-FULL-REBUILD-EQUAL-LIVE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | unverified | — | unverified | — |
-| `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | not reproduced | N10k-paired | not reproduced | m5-08-20261027T142128Z-m3_09_incremental_equal_live-report |
-| `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | not reproduced | N10k-noninterleaved | not reproduced | m5-08-20261027T142128Z-m3_09_incremental_equal_live-report |
-| `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | not reproduced | N100k-paired | not reproduced | m5-08-20261027T142128Z-m3_09_incremental_equal_live-report |
-| `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | not reproduced | N100k-noninterleaved | not reproduced | m5-08-20261027T142128Z-m3_09_incremental_equal_live-report |
+| `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N10k-paired | unverified | — |
+| `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N10k-noninterleaved | unverified | — |
+| `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N100k-paired | unverified | — |
+| `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N100k-noninterleaved | unverified | — |
 | `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | inconclusive | m3p-sustained-N10000-days100-1000 | unverified | — |
 | `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | inconclusive | m3p-sustained-ci-N1000-days100-1000 | reproduced | m5-07-report-m3-det-m3p-sustained-ci-gate |
 | `M3-TIM-PROP-PHASE9C` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | reproduced | N100000-k16-hops16-transmit0.2-pool6-day0 | reproduced | m5-08-20261027T170707Z-m3_11_phase9c_speedup-report, m5-08-20261027T170707Z-m3_11_phase9c_speedup-report-supersession |
