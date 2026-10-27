@@ -1,0 +1,57 @@
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\581ff6c109c24dfd24b430299d768c7e31ab6b45\crates\sim-model)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.55s
+     Running tests\phase11_snapshot_tests.rs (C:\AI\SimulaCiv\target\m5_phase3\build\581ff6c109c24dfd24b430299d768c7e31ab6b45\debug\deps\phase11_snapshot_tests-f041362507efa965.exe)
+
+running 50 tests
+test test_08_all_authoritative_settlement_fields_preserved ... ok
+test test_01_empty_valid_world_round_trip ... ok
+test test_04_settlement_state_round_trip ... ok
+test test_03_multiple_agents_round_trip ... ok
+test test_12_health_exact_bits_preserved ... ok
+test test_07_all_authoritative_agent_fields_preserved ... ok
+test test_10_negative_zero_preserves_exact_bits ... ok
+test test_11_food_exact_bits_preserved ... ok
+test test_06_money_preserved_exactly ... ok
+test test_05_dead_tombstone_preserved ... ok
+test test_02_one_agent_round_trip ... ok
+test test_09_representative_f32_bit_patterns_preserve_exact_bits ... ok
+test test_13_trait_exact_bits_preserved ... ok
+test test_14_settlement_resource_exact_bits_preserved ... ok
+test test_15_shuffled_agent_vec_identical_snapshot_bytes ... ok
+test test_16_shuffled_settlement_vec_identical_snapshot_bytes ... ok
+test test_17_different_dense_slot_assignment_identical_snapshot_bytes ... ok
+test test_18_restored_agents_ordered_ascending_agent_id ... ok
+test test_19_restored_dense_slots_rebuilt_densely_from_zero ... ok
+test test_20_restored_settlements_ordered_ascending_group_id ... ok
+test test_21_day_round_trip ... ok
+test test_22_master_seed_round_trip ... ok
+test test_23_replicate_id_round_trip ... ok
+test test_24_model_version_round_trip ... ok
+test test_25_config_version_round_trip ... ok
+test test_26_at_epoch_boundary_false_returns_none ... ok
+test test_27_false_boundary_performs_no_encoding_visible_state_change ... ok
+test test_28_true_boundary_returns_canonical_payload ... ok
+test test_29_hook_does_not_mutate_world ... ok
+test test_30_invalid_magic_rejected ... ok
+test test_31_unsupported_version_rejected ... ok
+test test_32_truncated_header_rejected ... ok
+test test_33_truncated_agent_rejected ... ok
+test test_34_truncated_settlement_rejected ... ok
+test test_35_invalid_boolean_byte_rejected ... ok
+test test_36_invalid_utf8_rejected ... ok
+test test_37_duplicate_agent_id_rejected ... ok
+test test_38_duplicate_group_id_rejected ... ok
+test test_39_trailing_bytes_rejected ... ok
+test test_40_malformed_count_or_length_fails_safely ... ok
+test test_41_repeated_encode_returns_byte_identical_payload ... ok
+test test_42_encode_consumes_zero_rng ... ok
+test test_43_snapshot_vs_skipped_snapshot_leaves_state_identical ... ok
+test test_44_original_world_remains_unchanged_after_encode ... ok
+test test_45_encode_restore_encode_produces_byte_identical_canonical_payload ... ok
+test test_46_phase9_dead_status_survives_snapshot_restore ... ok
+test test_47_phase8_welfare_wealth_survives_snapshot_restore ... ok
+test test_48_phase7_treasury_tax_state_survives_snapshot_restore ... ok
+test test_49_phase10_observation_before_vs_after_restore_yields_identical_daily_metrics ... ok
+test test_50_all_existing_m0_tests_remain_unchanged_and_passing ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

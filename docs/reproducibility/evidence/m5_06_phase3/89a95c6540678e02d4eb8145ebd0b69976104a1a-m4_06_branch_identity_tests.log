@@ -1,0 +1,25 @@
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\89a95c6540678e02d4eb8145ebd0b69976104a1a\crates\sim-model)
+error[E0432]: unresolved imports `sim_model::MigrationConfig`, `sim_model::run_counterfactual_branch_with_divergence_series`
+ --> crates\sim-model\tests\m4_06_branch_identity_tests.rs:5:60
+  |
+5 |     M3pPropagationStorageRunContext, M3pStorageRunContext, MigrationConfig, SimConfig,
+  |                                                            ^^^^^^^^^^^^^^^ no `MigrationConfig` in the root
+6 |     SimulationConfig, SimulationProfile, SimulationRunnerSelection, SimulationSystems,
+7 |     initialize_world, run_counterfactual_branch_with_divergence_series, run_m3_storage_days,
+  |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `run_counterfactual_branch_with_divergence_series` in the root
+  |
+help: a similar name exists in the module
+  |
+5 -     M3pPropagationStorageRunContext, M3pStorageRunContext, MigrationConfig, SimConfig,
+5 +     M3pPropagationStorageRunContext, M3pStorageRunContext, SimulationConfig, SimConfig,
+  |
+
+error[E0599]: no method named `enable_migration` found for struct `SimConfig` in the current scope
+  --> crates\sim-model\tests\m4_06_branch_identity_tests.rs:34:12
+   |
+34 |     config.enable_migration(MigrationConfig {
+   |     -------^^^^^^^^^^^^^^^^ method not found in `SimConfig`
+
+Some errors have detailed explanations: E0432, E0599.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `sim-model` (test "m4_06_branch_identity_tests") due to 2 previous errors

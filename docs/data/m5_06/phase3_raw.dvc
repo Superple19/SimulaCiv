@@ -1,0 +1,6 @@
+outs:
+- md5: 5b6f42a6389a9fe818372880460337e1.dir
+  size: 12950846
+  nfiles: 16
+  hash: md5
+  path: phase3_raw

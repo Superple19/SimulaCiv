@@ -1,0 +1,57 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling serde_core v1.0.229
+   Compiling version_check v0.9.5
+   Compiling crossbeam-utils v0.8.23
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling crossbeam-epoch v0.9.21
+   Compiling typenum v1.20.1
+   Compiling crossbeam-deque v0.8.8
+   Compiling rayon-core v1.13.0
+   Compiling serde v1.0.229
+   Compiling winnow v1.0.4
+   Compiling cpufeatures v0.2.17
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling generic-array v0.14.7
+   Compiling cfg-if v1.0.5
+   Compiling either v1.18.0
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling syn v3.0.6
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling rayon v1.12.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling serde_derive v1.0.229
+   Compiling sim-core v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\581ff6c109c24dfd24b430299d768c7e31ab6b45\crates\sim-core)
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\581ff6c109c24dfd24b430299d768c7e31ab6b45\crates\sim-model)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.49s
+     Running tests\m2_soa_gate_tests.rs (C:\AI\SimulaCiv\target\m5_phase3\build\581ff6c109c24dfd24b430299d768c7e31ab6b45\debug\deps\m2_soa_gate_tests-5bd568b785bbb2c8.exe)
+
+running 21 tests
+test phase8_one_pass_validation_error_keeps_entire_state_unchanged ... ok
+test phase8_one_pass_handles_unbalanced_recipient_groups ... ok
+test phase8_one_pass_matches_full_scan_boundary_cases ... ok
+test phase8_one_pass_preserves_three_day_runner_outputs_and_state ... ok
+test phase3_direct_lookup_matches_linear_edge_cases ... ok
+test phase5_production_phase4_stream_uses_owned_ordered_bucketing ... ok
+test test_07_phase4_variants_semantic_parity ... ok
+test phase3_direct_lookup_preserves_three_day_runner_results ... ok
+test phase5_owned_production_runner_matches_canonical_runner ... ok
+test test_09_phase4_candidate_index_edge_case_parity ... ok
+test phase6b_scratch_production_runner_matches_existing_storage_resolver ... ok
+test test_03_hybrid_authority_500_day_trajectory_parity ... ok
+test test_01_500_day_trajectory_parity ... ok
+test test_04_hybrid_authority_snapshot_parity_at_day_100_250_500 ... ok
+test test_02_snapshot_parity_at_day_100_250_500 ... ok
+test test_05_hybrid_scope_isolated_500_day_trajectory_parity ... ok
+test test_06_hybrid_scope_isolated_snapshot_parity_at_day_100_250_500 ... ok
+test test_08_phase4_candidate_scratch_reuse_preserves_runner_outputs ... ok
+test phase3_direct_lookup_randomized_population_and_layout_parity ... ok
+test test_10_phase4_candidate_index_randomized_storage_parity ... ok
+test phase8_one_pass_randomized_parity_for_population_and_storage_layouts ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s

@@ -1,0 +1,32 @@
+    Finished `release` profile [optimized] target(s) in 0.05s
+     Running `C:\AI\SimulaCiv\target\m5_phase3\build\bfe162baee95130a268707fef6e1489ef96cc414\release\examples\m4_03_experiment.exe`
+DONE,H90/food0,0,class=Cascade,Dpeak=495,fraction=0.049083,day=Some(80),forced_matches=None
+DONE,H90/food0,1,class=Cascade,Dpeak=526,fraction=0.052095,day=Some(88),forced_matches=None
+DONE,H90/food0,3,class=Cascade,Dpeak=753,fraction=0.074562,day=Some(89),forced_matches=None
+DONE,H90/food0,7,class=Cascade,Dpeak=892,fraction=0.088343,day=Some(88),forced_matches=None
+DONE,H90/food0,81985529216486895,class=Cascade,Dpeak=495,fraction=0.049083,day=Some(86),forced_matches=None
+DONE,H90/health001,0,class=Cascade,Dpeak=891,fraction=0.088262,day=Some(89),forced_matches=None
+DONE,H90/health001,1,class=Cascade,Dpeak=428,fraction=0.042380,day=Some(89),forced_matches=None
+DONE,H90/health001,3,class=Cascade,Dpeak=485,fraction=0.048025,day=Some(89),forced_matches=None
+DONE,H90/health001,7,class=Cascade,Dpeak=819,fraction=0.081113,day=Some(89),forced_matches=None
+DONE,H90/health001,81985529216486895,class=Cascade,Dpeak=848,fraction=0.084060,day=Some(89),forced_matches=None
+DONE,H90/idle,0,class=NoDivergence,Dpeak=0,fraction=0.000000,day=None,forced_matches=Some(false)
+DONE,H90/idle,1,class=NoCascade,Dpeak=1,fraction=0.000100,day=Some(0),forced_matches=Some(false)
+DONE,H90/idle,3,class=Cascade,Dpeak=286,fraction=0.028320,day=Some(89),forced_matches=Some(false)
+DONE,H90/idle,7,class=NoDivergence,Dpeak=0,fraction=0.000000,day=None,forced_matches=Some(false)
+DONE,H90/idle,81985529216486895,class=NoCascade,Dpeak=1,fraction=0.000100,day=Some(0),forced_matches=Some(false)
+DONE,H90/cost1pct,0,class=ImmediateGlobalDivergence,Dpeak=10093,fraction=0.999802,day=Some(89),forced_matches=None
+DONE,H90/cost1pct,1,class=ImmediateGlobalDivergence,Dpeak=10096,fraction=0.999901,day=Some(88),forced_matches=None
+DONE,H90/cost1pct,3,class=ImmediateGlobalDivergence,Dpeak=10093,fraction=0.999406,day=Some(89),forced_matches=None
+DONE,H90/cost1pct,7,class=ImmediateGlobalDivergence,Dpeak=10094,fraction=0.999703,day=Some(88),forced_matches=None
+DONE,H90/cost1pct,81985529216486895,class=ImmediateGlobalDivergence,Dpeak=10086,fraction=0.999901,day=Some(88),forced_matches=None
+DONE,H365/food0,0,class=Cascade,Dpeak=10150,fraction=0.985246,day=Some(364),forced_matches=None
+DONE,H365/food0,1,class=Cascade,Dpeak=10165,fraction=0.986510,day=Some(362),forced_matches=None
+DONE,H365/food0,3,class=Cascade,Dpeak=10171,fraction=0.988051,day=Some(364),forced_matches=None
+DONE,H365/food0,7,class=Cascade,Dpeak=10188,fraction=0.989703,day=Some(364),forced_matches=None
+DONE,H365/food0,81985529216486895,class=Cascade,Dpeak=10153,fraction=0.983913,day=Some(364),forced_matches=None
+DONE,H365/health001,0,class=Cascade,Dpeak=10183,fraction=0.988449,day=Some(364),forced_matches=None
+DONE,H365/health001,1,class=Cascade,Dpeak=10157,fraction=0.985351,day=Some(363),forced_matches=None
+DONE,H365/health001,3,class=Cascade,Dpeak=10200,fraction=0.990772,day=Some(364),forced_matches=None
+DONE,H365/health001,7,class=Cascade,Dpeak=10194,fraction=0.990189,day=Some(364),forced_matches=None
+DONE,H365/health001,81985529216486895,class=Cascade,Dpeak=10188,fraction=0.987305,day=Some(364),forced_matches=None

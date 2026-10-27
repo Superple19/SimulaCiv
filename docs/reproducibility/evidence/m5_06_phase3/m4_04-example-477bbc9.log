@@ -1,0 +1,6 @@
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running `C:\AI\SimulaCiv\target\m5_phase3\build\477bbc9bb716a34a6942b4bd7032b2d8ad46a791\release\examples\m4_04_crn_experiment.exe`
+completed food_0 in 20.6 minutes
+completed health_0_01 in 20.6 minutes
+completed base_metabolic_cost_plus_1pct in 20.7 minutes
+TOTAL_SECONDS=3712.298

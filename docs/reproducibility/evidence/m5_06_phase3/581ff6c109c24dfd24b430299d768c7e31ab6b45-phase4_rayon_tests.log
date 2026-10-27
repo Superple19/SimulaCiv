@@ -1,0 +1,21 @@
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\581ff6c109c24dfd24b430299d768c7e31ab6b45\crates\sim-model)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.62s
+     Running tests\phase4_rayon_tests.rs (C:\AI\SimulaCiv\target\m5_phase3\build\581ff6c109c24dfd24b430299d768c7e31ab6b45\debug\deps\phase4_rayon_tests-79ca106cb346e2dc.exe)
+
+running 14 tests
+test execution_policy_threshold_is_explicit_and_inclusive ... ok
+test runner_level_errors_are_policy_independent ... ok
+test empty_indexed_intent_input_matches_serial ... ok
+test auto_policy_switches_on_current_eligible_count_and_survives_synthetic_crossings ... ok
+test end_to_end_phase4_choices_and_indexed_intents_match_all_pool_settings ... ok
+test intent_error_precedence_and_partial_outputs_match_serial ... ok
+test selection_error_precedence_and_partial_output_match_serial ... ok
+test selection_matches_serial_for_chunk_boundaries_and_shuffled_storage ... ok
+test canonical_hashes_match_existing_gate_for_one_six_and_twelve_threads ... ok
+test serial_explicit_rayon_and_auto_policies_match_short_trajectories ... ok
+test auto_policy_snapshot_restore_and_500_day_hashes_match_serial ... ok
+test hybrid_trajectories_match_for_three_and_forty_days_at_all_thread_counts ... ok
+test indexed_intents_match_serial_for_actions_groups_candidates_and_layouts ... ok
+test snapshots_match_on_days_100_250_and_500 ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s

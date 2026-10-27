@@ -1,0 +1,19 @@
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\c7def1f0f2347ebfe2cb597f6c7380b35458146b\crates\sim-model)
+error[E0432]: unresolved imports `sim_model::M3pIncrementalTopologyStorageRunContext`, `sim_model::run_m3p_storage_days_incremental_topology`
+  --> crates\sim-model\tests\m3p_incremental_topology_tests.rs:10:5
+   |
+10 |     M3pIncrementalTopologyStorageRunContext, M3pReferenceState, M3pStorageRunContext,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `M3pIncrementalTopologyStorageRunContext` in the root
+11 |     SegmentedAgentStorage, SimConfig, decode_m3p_snapshot, initialize_world, run_m3p_reference_day,
+12 |     run_m3p_storage_days, run_m3p_storage_days_incremental_topology,
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `run_m3p_storage_days_incremental_topology` in the root
+
+error[E0614]: type `sim_core::primitives::AgentId` cannot be dereferenced
+   --> crates\sim-model\tests\m3p_incremental_topology_tests.rs:264:56
+    |
+264 |                 M3pEvent::Birth { parent, .. } => Some(*parent),
+    |                                                        ^^^^^^^ can't be dereferenced
+
+Some errors have detailed explanations: E0432, E0614.
+For more information about an error, try `rustc --explain E0432`.
+error: could not compile `sim-model` (test "m3p_incremental_topology_tests") due to 2 previous errors

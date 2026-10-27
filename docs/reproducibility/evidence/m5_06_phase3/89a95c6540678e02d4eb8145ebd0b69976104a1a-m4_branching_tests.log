@@ -1,0 +1,44 @@
+   Compiling serde_core v1.0.229
+   Compiling proc-macro2 v1.0.107
+   Compiling version_check v0.9.5
+   Compiling quote v1.0.47
+   Compiling crossbeam-utils v0.8.23
+   Compiling unicode-ident v1.0.26
+   Compiling typenum v1.20.1
+   Compiling crossbeam-epoch v0.9.21
+   Compiling crossbeam-deque v0.8.8
+   Compiling serde v1.0.229
+   Compiling rayon-core v1.13.0
+   Compiling winnow v1.0.4
+   Compiling libm v0.2.16
+   Compiling generic-array v0.14.7
+   Compiling cpufeatures v0.2.17
+   Compiling cfg-if v1.0.5
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling either v1.18.0
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling syn v3.0.6
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling rayon v1.12.0
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling serde_derive v1.0.229
+   Compiling sim-core v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\89a95c6540678e02d4eb8145ebd0b69976104a1a\crates\sim-core)
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\89a95c6540678e02d4eb8145ebd0b69976104a1a\crates\sim-model)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.88s
+     Running tests\m4_branching_tests.rs (C:\AI\SimulaCiv\target\m5_phase3\build\89a95c6540678e02d4eb8145ebd0b69976104a1a\debug\deps\m4_branching_tests-06dff4a209f64e89.exe)
+
+running 7 tests
+test explicit_parallel_is_rejected_with_typed_error ... ok
+test branch_snapshot_pause_resume_matches_uninterrupted_run ... ok
+test repeated_request_is_deterministic_and_missing_target_fails_before_mutation ... ok
+test forced_action_without_neighbors_reports_the_existing_fallback ... ok
+test field_and_forced_action_interventions_change_only_the_branch ... ok
+test m3p_propagation_phase9b_divergence_is_attributed_to_its_hook ... ok
+test no_op_intervention_is_identity_for_all_supported_profiles ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s

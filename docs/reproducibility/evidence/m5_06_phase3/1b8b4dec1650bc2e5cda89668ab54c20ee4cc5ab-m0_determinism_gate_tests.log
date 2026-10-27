@@ -1,0 +1,43 @@
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab\crates\sim-model)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.48s
+     Running tests\m0_determinism_gate_tests.rs (C:\AI\SimulaCiv\target\m5_phase3\build\1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab\debug\deps\m0_determinism_gate_tests-feba998330b165b6.exe)
+
+running 36 tests
+test test_05_restored_world_current_day_equals_200 ... ok
+test test_03_boundary_snapshot_occurs_on_executed_day_199 ... ok
+test test_04_boundary_snapshot_resume_cursor_equals_200 ... ok
+test test_07_boundary_live_state_hash_equals_restored_state_hash ... ok
+test test_06_first_post_restore_executed_day_equals_200 ... ok
+test test_12_exactly_500_metric_days_0_to_499_once_each ... ok
+test test_01_500_day_continuous_run_completes ... ok
+test test_02_final_continuous_current_day_equals_500 ... ok
+test test_15_independent_100_day_replay_state_hash_equal ... ok
+test test_16_independent_100_day_replay_metrics_hash_equal ... ok
+test test_17_independent_100_day_replay_event_hash_equal ... ok
+test test_20_metrics_on_off_final_state_hash_equal ... ok
+test test_14_continuous_vs_restored_snapshot_bytes_identical_at_boundary ... ok
+test test_22_snapshot_on_off_final_state_hash_equal ... ok
+test test_21_events_on_off_final_state_hash_equal ... ok
+test test_18_independent_replay_snapshot_bytes_equal ... ok
+test test_19_full_telemetry_vs_no_telemetry_final_state_hash_equal ... ok
+test test_26_25_day_dense_slot_permuted_trajectory_hashes_equal ... ok
+test test_24_25_day_shuffled_agent_trajectory_hashes_equal ... ok
+test test_29_repeated_state_hash_call_stable ... ok
+test test_25_25_day_shuffled_settlement_trajectory_hashes_equal ... ok
+test test_30_repeated_metrics_hash_call_stable ... ok
+test test_31_repeated_event_hash_call_stable ... ok
+test test_27_physical_layout_metrics_hash_equal ... ok
+test test_28_physical_layout_event_hash_equal ... ok
+test test_36_all_pre_m0_16b_tests_unchanged_and_passing ... ok
+test test_11_continuous_vs_restored_metrics_records_equal ... ok
+test test_08_continuous_vs_restored_final_state_hash_equal ... ok
+test test_09_continuous_vs_restored_metrics_hash_equal ... ok
+test test_10_continuous_vs_restored_event_hash_equal ... ok
+test test_33_no_duplicated_day_around_restore ... ok
+test test_34_no_missing_day_around_restore ... ok
+test test_32_snapshot_round_trip_at_boundary_stable ... ok
+test test_23_observer_switches_preserve_current_day ... ok
+test test_13_exactly_one_matching_snapshot_emitted_boundary_occurrence ... ok
+test test_35_restore_introduces_no_extra_m0_event ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s

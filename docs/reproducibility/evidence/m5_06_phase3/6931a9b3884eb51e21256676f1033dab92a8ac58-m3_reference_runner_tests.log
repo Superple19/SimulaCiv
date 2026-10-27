@@ -1,0 +1,9 @@
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\6931a9b3884eb51e21256676f1033dab92a8ac58\crates\sim-model)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests\m3_reference_runner_tests.rs (C:\AI\SimulaCiv\target\m5_phase3\build\6931a9b3884eb51e21256676f1033dab92a8ac58\debug\deps\m3_reference_runner_tests-d5f50b79cb3add6e.exe)
+
+running 2 tests
+test m2_runners_reject_m3_profile_and_m3_runner_rejects_m2 ... ok
+test m3_golden_replay_and_snapshot_resume_match ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s

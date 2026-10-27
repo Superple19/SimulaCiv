@@ -11,7 +11,7 @@ verbatim = "Final graduation gate: 500-day pause/resume equivalence, replay, and
 type = "deterministic"
 source = "docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary"
 experiment = "m0_replay_and_layout_gate"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab"
 report_path_at_revision = "docs/contracts/M1_CONTRACT_FREEZE.md"
@@ -24,7 +24,7 @@ verbatim = "| Canonical State/Metrics/Events exact | **PASS** | Frozen digests b
 type = "deterministic"
 source = "docs/reports/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#20-graduation-criteria"
 experiment = "m2_canonical_digest_parity"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "581ff6c109c24dfd24b430299d768c7e31ab6b45"
 report_path_at_revision = "docs/performance/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
@@ -104,7 +104,7 @@ verbatim = "The same runner differential and parity gates passed for the committ
 type = "deterministic"
 source = "docs/reports/M3_01_SERIAL_BASELINE.md#release-differential-and-parity"
 experiment = "m3_reference_storage_parity"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "6931a9b3884eb51e21256676f1033dab92a8ac58"
 report_path_at_revision = "docs/performance/M3_01_SERIAL_BASELINE.md"
@@ -229,7 +229,7 @@ verbatim = "The CI-size run at `N=1,000`, `K=5` stayed within **1,010–1,076 al
 type = "deterministic"
 source = "docs/reports/M3_08_POPULATION_DYNAMICS.md#sustained-gate"
 experiment = "m3p_sustained_population_gate"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "partial", head = "missing" }
 tier = 1
 report_revision = "c7def1f0f2347ebfe2cb597f6c7380b35458146b"
 report_path_at_revision = "docs/performance/M3_08_POPULATION_DYNAMICS.md"
@@ -284,7 +284,7 @@ verbatim = "The existing M2/M3/M3P/propagation tests, goldens, and snapshot chec
 type = "deterministic"
 source = "docs/reports/M4_02_BRANCHING.md#correctness-and-completion-status"
 experiment = "m4_02_noop_branch_identity"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "missing", head = "missing" }
 tier = 1
 report_revision = "89a95c6540678e02d4eb8145ebd0b69976104a1a"
 report_path_at_revision = "docs/performance/M4_02_BRANCHING.md"
@@ -323,7 +323,7 @@ verbatim = "Across the five H=365 runs, food=0 peak fractions have median/range 
 type = "deterministic"
 source = "docs/reports/M4_03_DIVERGENCE.md#h365-extension"
 experiment = "m4_03_food_zero_h365_divergence"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "bfe162baee95130a268707fef6e1489ef96cc414"
 report_path_at_revision = "docs/performance/M4_03_DIVERGENCE.md"
@@ -336,7 +336,7 @@ verbatim = "At H=365, food=0 is distinguishable only for target-settlement alive
 type = "deterministic"
 source = "docs/reports/M4_04_CRN_EFFICIENCY.md#local-versus-global-intervention-effects"
 experiment = "m4_04_paired_effect_intervals"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "739004cf6eee9c03d6f462f1852dcf10ffe43293"
 report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
@@ -349,7 +349,7 @@ verbatim = "Mean cumulative newborn CRN loss is zero through H=90 for all three 
 type = "deterministic"
 source = "docs/reports/M4_04_CRN_EFFICIENCY.md#newborn-crn-identity"
 experiment = "m4_04_newborn_rng_identity"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "739004cf6eee9c03d6f462f1852dcf10ffe43293"
 report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
@@ -362,7 +362,7 @@ verbatim = "The exhaustive search established minimum size four."
 type = "deterministic"
 source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
 experiment = "m4_05_case_a_minimum_cause"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "6b925b91d565d98706fe6cac3cdf14164abc7a32"
 report_path_at_revision = "docs/performance/M4_05_MINIMAL_CAUSE.md"
@@ -414,7 +414,7 @@ verbatim = "Deterministic agent trait sampling, resource allocation, and initial
 type = "deterministic"
 source = "docs/contracts/M1_CONTRACT_FREEZE.md#2-m0-empirical-validation-evidence-summary"
 experiment = "m0_initialization_invariants"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab"
 report_path_at_revision = "docs/contracts/M1_CONTRACT_FREEZE.md"
@@ -427,7 +427,7 @@ verbatim = "Trajectory A (continuous 500 days) $\\equiv$ Trajectory B (day 0..19
 type = "deterministic"
 source = "docs/contracts/M1_CONTRACT_FREEZE.md#3-c01c10-frozen-contract-matrix"
 experiment = "m0_snapshot_resume_trajectory"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab"
 report_path_at_revision = "docs/contracts/M1_CONTRACT_FREEZE.md"
@@ -440,7 +440,7 @@ verbatim = "Magic `\"SIMCIVM0\"`, schema version 1, header metadata, sorted enti
 type = "deterministic"
 source = "docs/contracts/M1_CONTRACT_FREEZE.md#3-c01c10-frozen-contract-matrix"
 experiment = "m1_snapshot_v1_encoding"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab"
 report_path_at_revision = "docs/contracts/M1_CONTRACT_FREEZE.md"
@@ -518,7 +518,7 @@ verbatim = "The reference and storage paths, including both propagation combinat
 type = "deterministic"
 source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
 experiment = "m4_06_daily_digest_parity"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "392f6064b6a5ac4132722af0dc8941e8d3908d9d"
 report_path_at_revision = "docs/performance/M4_06_MIGRATION.md"
@@ -531,7 +531,7 @@ verbatim = "The reference and storage paths, including both propagation combinat
 type = "deterministic"
 source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
 experiment = "m4_06_snapshot_v4_resume"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "392f6064b6a5ac4132722af0dc8941e8d3908d9d"
 report_path_at_revision = "docs/performance/M4_06_MIGRATION.md"
@@ -544,7 +544,7 @@ verbatim = "The reference and storage paths, including both propagation combinat
 type = "deterministic"
 source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
 experiment = "m4_06_shuffled_slots"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "392f6064b6a5ac4132722af0dc8941e8d3908d9d"
 report_path_at_revision = "docs/performance/M4_06_MIGRATION.md"
@@ -557,7 +557,7 @@ verbatim = "The reference and storage paths, including both propagation combinat
 type = "deterministic"
 source = "docs/reports/M4_06_MIGRATION.md#implementation-and-forward-gate"
 experiment = "m4_06_failure_atomicity"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "392f6064b6a5ac4132722af0dc8941e8d3908d9d"
 report_path_at_revision = "docs/performance/M4_06_MIGRATION.md"
@@ -583,7 +583,7 @@ verbatim = "Fifteen satisfied `mean effect <= -1`; all use `health=0.01` for the
 type = "deterministic"
 source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
 experiment = "m4_05_case_a_nonunique_minima"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "missing", head = "missing" }
 tier = 1
 report_revision = "6b925b91d565d98706fe6cac3cdf14164abc7a32"
 report_path_at_revision = "docs/performance/M4_05_MINIMAL_CAUSE.md"
@@ -596,7 +596,7 @@ verbatim = "8.121883318690e1 [5.938024309250e1, 1.135139498861e2]"
 type = "deterministic"
 source = "docs/reports/M4_04_CRN_EFFICIENCY.md#results"
 experiment = "m4_04_crn_variance_ratio_grid"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "739004cf6eee9c03d6f462f1852dcf10ffe43293"
 report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
@@ -609,7 +609,7 @@ verbatim = "**Signal versus noise:** at H=365, `|D_H|` exceeds 99% of records, y
 type = "deterministic"
 source = "docs/reports/M4_04_CRN_EFFICIENCY.md#follow-ups"
 experiment = "m4_04_health_local_aggregate_effect"
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 tier = 1
 report_revision = "477bbc9bb716a34a6942b4bd7032b2d8ad46a791"
 report_path_at_revision = "docs/performance/M4_04_CRN_EFFICIENCY.md"
@@ -703,7 +703,7 @@ experiment = "m2_snapshot_byte_parity"
 report_revision = "581ff6c109c24dfd24b430299d768c7e31ab6b45"
 report_path_at_revision = "docs/performance/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md"
 tier = 1
-coverage = { report = "rerunnable", head = "missing" }
+coverage = { report = "sufficient", head = "missing" }
 prior_verbatim_conclusion = ""
 
 [[limitation]]

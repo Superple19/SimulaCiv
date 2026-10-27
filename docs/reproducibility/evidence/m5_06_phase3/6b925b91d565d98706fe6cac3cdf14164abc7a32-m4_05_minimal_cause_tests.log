@@ -1,0 +1,53 @@
+   Compiling serde_core v1.0.229
+   Compiling proc-macro2 v1.0.107
+   Compiling version_check v0.9.5
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling crossbeam-utils v0.8.23
+   Compiling typenum v1.20.1
+   Compiling crossbeam-epoch v0.9.21
+   Compiling crossbeam-deque v0.8.8
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling rayon-core v1.13.0
+   Compiling libm v0.2.16
+   Compiling generic-array v0.14.7
+   Compiling winnow v1.0.4
+   Compiling serde_json v1.0.154
+   Compiling cfg-if v1.0.5
+   Compiling memchr v2.8.3
+   Compiling cpufeatures v0.2.17
+   Compiling itoa v1.0.18
+   Compiling either v1.18.0
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling syn v3.0.6
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling rayon v1.12.0
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling serde_derive v1.0.229
+   Compiling sim-core v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\6b925b91d565d98706fe6cac3cdf14164abc7a32\crates\sim-core)
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\6b925b91d565d98706fe6cac3cdf14164abc7a32\crates\sim-model)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.32s
+     Running tests\m4_05_minimal_cause_tests.rs (C:\AI\SimulaCiv\target\m5_phase3\build\6b925b91d565d98706fe6cac3cdf14164abc7a32\debug\deps\m4_05_minimal_cause_tests-9e5085fbcdc4ea80.exe)
+
+running 12 tests
+test batch_rejects_duplicate_targets_before_running ... ok
+test candidate_builders_sort_ids_and_filter_settlement_scope ... ok
+test minimal_cause_incomplete_result_replays_from_jsonl_log ... ok
+test m3_batch_of_one_matches_the_reference_branch_path ... ok
+test batch_application_order_is_independent_of_caller_order ... ok
+test batch_of_one_forced_action_matches_m4_02_outcome ... ok
+test batch_of_one_config_override_matches_m4_02 ... ok
+test exhaustive_absence_and_ddmin_not_found_have_distinct_guarantees ... ok
+test batch_of_one_matches_m4_02_records_and_snapshot_bytes ... ok
+test exhaustive_tie_break_selects_the_smallest_sorted_id_set ... ok
+test ddmin_returns_a_one_minimal_set_after_single_removal_checks ... ok
+test committed_minimal_cause_ci_golden ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.40s

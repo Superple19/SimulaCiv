@@ -1,0 +1,37 @@
+   Compiling version_check v0.9.5
+   Compiling serde_core v1.0.229
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling crossbeam-utils v0.8.23
+   Compiling crossbeam-epoch v0.9.21
+   Compiling typenum v1.20.1
+   Compiling crossbeam-deque v0.8.8
+   Compiling rayon-core v1.13.0
+   Compiling serde v1.0.229
+   Compiling winnow v1.0.4
+   Compiling libm v0.2.16
+   Compiling generic-array v0.14.7
+   Compiling cpufeatures v0.2.17
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling either v1.18.0
+   Compiling cfg-if v1.0.5
+   Compiling syn v3.0.6
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling rayon v1.12.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_derive v1.0.229
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling sim-core v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\739004cf6eee9c03d6f462f1852dcf10ffe43293\crates\sim-core)
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\739004cf6eee9c03d6f462f1852dcf10ffe43293\crates\sim-model)
+    Finished `release` profile [optimized] target(s) in 13.00s
+     Running `C:\AI\SimulaCiv\target\m5_phase3\build\739004cf6eee9c03d6f462f1852dcf10ffe43293\release\examples\m4_04_crn_experiment.exe`
+completed food_0 in 21.7 minutes
+completed health_0_01 in 20.5 minutes
+completed base_metabolic_cost_plus_1pct in 20.6 minutes
+TOTAL_SECONDS=3764.867

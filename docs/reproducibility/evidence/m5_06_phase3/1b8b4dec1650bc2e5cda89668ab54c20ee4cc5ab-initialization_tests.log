@@ -1,0 +1,15 @@
+   Compiling sim-model v0.1.0 (C:\AI\SimulaCiv\target\m5_phase3\worktrees\1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab\crates\sim-model)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+     Running tests\initialization_tests.rs (C:\AI\SimulaCiv\target\m5_phase3\build\1b8b4dec1650bc2e5cda89668ab54c20ee4cc5ab\debug\deps\initialization_tests-4aee3fda576d1f62.exe)
+
+running 8 tests
+test test_money_calculation_overflow_fails_explicitly ... ok
+test test_external_day0_golden_fixture ... ok
+test test_money_conservation_at_day_0 ... ok
+test test_group_assignment_modular_distribution ... ok
+test test_zero_population_initialization ... ok
+test test_no_accidental_phase_execution ... ok
+test test_deterministic_replay ... ok
+test test_replicate_isolation ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
