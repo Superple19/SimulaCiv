@@ -98,9 +98,26 @@ ordered_cell_ids = ["A-N10000", "A-N20000", "A-N50000", "A-N100000", "B-N10000",
 predicate_kind = "ratio_band"
 predicate_parameters = { "historical_values" = [1.122, 1.147, 1.205, 1.199, 1.108, 1.137, 1.164, 1.188], "ratio_direction" = "serial_median / explicit_rayon_median", "deviation_bands_pct" = [10, 20] }
 scope = "M2-40 workloads A/B at N={10k,20k,50k,100k}; caller-owned pool 6, chunk 256; three days/sample."
-harness_paths = ["crates/sim-model/benches/m0_baseline_bench.rs"]
+harness_paths = ["crates/sim-model/benches/m0_baseline_bench.rs", "crates/sim-model/examples/m5_06_m2_rayon_a5.rs", "crates/sim-model/examples/common/process_controls.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "2 warmups, 7 timed samples, 3 consecutive days/sample, alternating serial/Rayon order."
+
+harness_overlays = [{ path = "crates/sim-model/examples/m5_06_m2_rayon_a5.rs", sha256 = "1cc716b10c265daffa328e6f6483264a9e7056cb565614d5d05ce51af7251c7f", origin_commit = "9196341bdafd82e2490aac8249321d59ce67f4d0" }, { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" }]
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "a5_adapter_overlay_registered"
+source_report = "581ff6c109c24dfd24b430299d768c7e31ab6b45:docs/performance/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#3-serial-and-explicit-rayon-full-tick-results"
+source_code = "581ff6c109c24dfd24b430299d768c7e31ab6b45:crates/sim-model/benches/m0_baseline_bench.rs"
+reason = "Register a streaming/resumable adapter for the frozen report protocol; ordered cells, predicate values, and sampling specification are unchanged. A non-A-5 smoke checks build and parity only and does not support a timing verdict."
+registry_values_changed = false
+prior_ordered_cell_ids = ["A-N10000", "A-N20000", "A-N50000", "A-N100000", "B-N10000", "B-N20000", "B-N50000", "B-N100000"]
+prior_predicate_parameters = { historical_values = [1.122, 1.147, 1.205, 1.199, 1.108, 1.137, 1.164, 1.188], ratio_direction = "serial_median / explicit_rayon_median", deviation_bands_pct = [10, 20] }
+prior_scope = "M2-40 workloads A/B at N={10k,20k,50k,100k}; caller-owned pool 6, chunk 256; three days/sample."
+prior_harness_paths = ["crates/sim-model/benches/m0_baseline_bench.rs"]
+prior_harness_overlays = []
+prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+prior_historical_sampling = "2 warmups, 7 timed samples, 3 consecutive days/sample, alternating serial/Rayon order."
 
 [[experiment]]
 id = "m2_allocation_phase_disabled"
@@ -219,6 +236,20 @@ historical_sampling = "M3-05 report protocol: 2 warmups and 7 timed samples of 3
 exclusion_note = "The N=1,000,000,k=16 graph+projection setup 10.0286x cell is a separate borderline setup threshold, not an alpha first-break cell; its 0.286% margin is not pass/fail."
 harness_overlays = [{ "path" = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", "sha256" = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", "origin_commit" = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "head_role_adapter_required"
+source_report = "5df006c150179f67078588dfaf83a355a81d5f9f:docs/performance/M3_SCALE_LIMIT.md#first-break-findings"
+source_code = "5df006c150179f67078588dfaf83a355a81d5f9f:crates/sim-model/benches/m3_scale_limit_bench.rs"
+head_source_code = "4e929857ef846d64caf9607f0f9074779706b9c1:crates/sim-model/benches/m3_scale_limit_bench.rs"
+reason = "The report-role overlay targets the report-revision ManualProfile::step(config) signature. The later HEAD bench adds a collect_settlement_scans argument, so a HEAD-role M3-05 run needs its own adapter; the report-role overlay does not. This is source inspection only and no timing was run."
+registry_values_changed = false
+prior_ordered_cell_ids = ["k8-day0", "k8-day50", "k16-day0", "k16-day50"]
+prior_predicate_parameters = { metric = "maximum valid phase alpha on 100k-to-250k interval", historical_values = [1.63734, 1.61217, 1.65224, 1.60054], threshold = 1.15, relation = ">", noise_rule = "Only valid cells are evaluated; comparisons within the frozen criteria noise bound are inconclusive." }
+prior_harness_paths = ["crates/sim-model/benches/m3_scale_limit_bench.rs", "crates/sim-model/examples/m3_05_a5_reconstruction.rs"]
+prior_harness_overlays = [{ path = "crates/sim-model/examples/m3_05_a5_reconstruction.rs", sha256 = "8891d6fc58bc6f818d37b2f318f728087f5aefc467df58bd39824dd306673f0a", origin_commit = "d58fd56105c4113b405665d3e170ce41b7f92b74" }]
+
 
 [[experiment]]
 id = "m3_05_graph_projection_first_break"
@@ -800,9 +831,26 @@ ordered_cell_ids = ["case-a-exhaustive-R10-H90"]
 predicate_kind = "ratio_band"
 predicate_parameters = { "historical_values" = [4.3], "ratio_direction" = "serial_search_wall_time / six_thread_parallel_search_wall_time", "deviation_bands_pct" = [10, 20] }
 scope = "M4-05 case (a), N=2000, candidate set 8, R=10, H=90, caller-owned six-thread pool."
-harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates/sim-model/tests/m4_07_parallel_tests.rs"]
+harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates/sim-model/tests/m4_07_parallel_tests.rs", "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", "crates/sim-model/examples/common/process_controls.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
+
+harness_overlays = [{ path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "63c1bcc8e4411d72dabe4d58e1b0c485e0acf59676b24a2cbca86ebde2c4ca2f", origin_commit = "4e929857ef846d64caf9607f0f9074779706b9c1" }, { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" }]
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "a5_adapter_overlay_registered"
+source_report = "fb0878ba1fa370e178aca3f763d08512c28ee122:docs/performance/M4_07_MANY_BRANCH.md#m4-05-case-a-serial-versus-parallel-search"
+source_code = "fb0878ba1fa370e178aca3f763d08512c28ee122:crates/sim-model/examples/m4_07_many_branch.rs"
+reason = "Register a streaming/resumable adapter for the frozen report protocol; ordered cells, predicate values, and sampling specification are unchanged. A non-A-5 smoke checks build and parity only and does not support a timing verdict."
+registry_values_changed = false
+prior_ordered_cell_ids = ["case-a-exhaustive-R10-H90"]
+prior_predicate_parameters = { historical_values = [4.3], ratio_direction = "serial_search_wall_time / six_thread_parallel_search_wall_time", deviation_bands_pct = [10, 20] }
+prior_scope = "M4-05 case (a), N=2000, candidate set 8, R=10, H=90, caller-owned six-thread pool."
+prior_harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates/sim-model/tests/m4_07_parallel_tests.rs"]
+prior_harness_overlays = []
+prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+prior_historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
 
 [[experiment]]
 id = "m4_07_copy_on_write_share"
@@ -823,9 +871,26 @@ ordered_cell_ids = ["food-zero-full-R100-H7-30-90-365"]
 predicate_kind = "ratio_band"
 predicate_parameters = { "historical_values" = [5.11], "ratio_direction" = "serial_wall_time / six_thread_parallel_wall_time", "deviation_bands_pct" = [10, 20] }
 scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, food=0."
-harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", "crates/sim-model/examples/common/process_controls.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
+
+harness_overlays = [{ path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "63c1bcc8e4411d72dabe4d58e1b0c485e0acf59676b24a2cbca86ebde2c4ca2f", origin_commit = "4e929857ef846d64caf9607f0f9074779706b9c1" }, { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" }]
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "a5_adapter_overlay_registered"
+source_report = "fb0878ba1fa370e178aca3f763d08512c28ee122:docs/performance/M4_07_MANY_BRANCH.md#m4-04-replicate-experiment-serial-versus-parallel"
+source_code = "fb0878ba1fa370e178aca3f763d08512c28ee122:crates/sim-model/examples/m4_07_many_branch.rs"
+reason = "Register a streaming/resumable adapter for the frozen report protocol; ordered cells, predicate values, and sampling specification are unchanged. A non-A-5 smoke checks build and parity only and does not support a timing verdict."
+registry_values_changed = false
+prior_ordered_cell_ids = ["food-zero-full-R100-H7-30-90-365"]
+prior_predicate_parameters = { historical_values = [5.11], ratio_direction = "serial_wall_time / six_thread_parallel_wall_time", deviation_bands_pct = [10, 20] }
+prior_scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, food=0."
+prior_harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+prior_harness_overlays = []
+prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+prior_historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
 
 [[experiment]]
 id = "m4_07_crn_parallel_global_cost"
@@ -840,9 +905,26 @@ ordered_cell_ids = ["global-cost-plus-1pct-full-R100-H7-30-90-365"]
 predicate_kind = "ratio_band"
 predicate_parameters = { "historical_values" = [4.25], "ratio_direction" = "serial_wall_time / six_thread_parallel_wall_time", "deviation_bands_pct" = [10, 20] }
 scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, BaseMetabolicCost +1%."
-harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", "crates/sim-model/examples/common/process_controls.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
+
+harness_overlays = [{ path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "63c1bcc8e4411d72dabe4d58e1b0c485e0acf59676b24a2cbca86ebde2c4ca2f", origin_commit = "4e929857ef846d64caf9607f0f9074779706b9c1" }, { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" }]
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "a5_adapter_overlay_registered"
+source_report = "fb0878ba1fa370e178aca3f763d08512c28ee122:docs/performance/M4_07_MANY_BRANCH.md#m4-04-replicate-experiment-serial-versus-parallel"
+source_code = "fb0878ba1fa370e178aca3f763d08512c28ee122:crates/sim-model/examples/m4_07_many_branch.rs"
+reason = "Register a streaming/resumable adapter for the frozen report protocol; ordered cells, predicate values, and sampling specification are unchanged. A non-A-5 smoke checks build and parity only and does not support a timing verdict."
+registry_values_changed = false
+prior_ordered_cell_ids = ["global-cost-plus-1pct-full-R100-H7-30-90-365"]
+prior_predicate_parameters = { historical_values = [4.25], ratio_direction = "serial_wall_time / six_thread_parallel_wall_time", deviation_bands_pct = [10, 20] }
+prior_scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, BaseMetabolicCost +1%."
+prior_harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+prior_harness_overlays = []
+prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+prior_historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
 
 [[experiment]]
 id = "m4_07_crn_parallel_health001"
@@ -857,6 +939,23 @@ ordered_cell_ids = ["health-0.01-full-R100-H7-30-90-365"]
 predicate_kind = "ratio_band"
 predicate_parameters = { "historical_values" = [4.67], "ratio_direction" = "serial_wall_time / six_thread_parallel_wall_time", "deviation_bands_pct" = [10, 20] }
 scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, health=0.01."
-harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", "crates/sim-model/examples/common/process_controls.rs"]
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
+
+harness_overlays = [{ path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "63c1bcc8e4411d72dabe4d58e1b0c485e0acf59676b24a2cbca86ebde2c4ca2f", origin_commit = "4e929857ef846d64caf9607f0f9074779706b9c1" }, { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" }]
+
+[[experiment.amendment]]
+date = "2026-10-27"
+classification = "a5_adapter_overlay_registered"
+source_report = "fb0878ba1fa370e178aca3f763d08512c28ee122:docs/performance/M4_07_MANY_BRANCH.md#m4-04-replicate-experiment-serial-versus-parallel"
+source_code = "fb0878ba1fa370e178aca3f763d08512c28ee122:crates/sim-model/examples/m4_07_many_branch.rs"
+reason = "Register a streaming/resumable adapter for the frozen report protocol; ordered cells, predicate values, and sampling specification are unchanged. A non-A-5 smoke checks build and parity only and does not support a timing verdict."
+registry_values_changed = false
+prior_ordered_cell_ids = ["health-0.01-full-R100-H7-30-90-365"]
+prior_predicate_parameters = { historical_values = [4.67], ratio_direction = "serial_wall_time / six_thread_parallel_wall_time", deviation_bands_pct = [10, 20] }
+prior_scope = "M3P sustained M4-04 replicate API; N=10000, 100 paired replicates, four horizons, health=0.01."
+prior_harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs"]
+prior_harness_overlays = []
+prior_sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
+prior_historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
