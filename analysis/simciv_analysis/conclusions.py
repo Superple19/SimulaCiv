@@ -13,8 +13,9 @@ from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .git_hooks import dvc_output_paths
 from .io import write_text_lf
-from .verdicts import _STRENGTH, _supersession_state, compute_verdicts
+from .verdicts import _STRENGTH, _parse_rustc_vv, _supersession_state, compute_verdicts
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,6 +37,7 @@ NORMALIZATIONS = {
     "m4_04_unbounded_ci_high",
     "m4_05_schema_v1_to_v2",
     "m4_05_guarantee_labels_v1_to_v2",
+    "report_printed_precision",
 }
 EVIDENCE_KINDS = set(_STRENGTH)
 TOOLCHAIN_FIELDS = {
@@ -299,10 +301,29 @@ def validate_artifact_hashes(record: dict[str, Any], root: Path = ROOT) -> list[
             errors.append(f"evidence artifact needs a repository path and SHA-256: {label}")
             continue
         path = _repo_file(root, artifact["path"])
-        if path is None or not path.is_file():
+        if path is None:
             errors.append(f"evidence artifact is missing: {label}: {artifact['path']}")
-        elif hashlib.sha256(path.read_bytes()).hexdigest() != artifact["sha256"]:
-            errors.append(f"evidence artifact SHA-256 mismatch: {label}: {artifact['path']}")
+            continue
+        if path.is_file():
+            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        elif artifact["path"] in dvc_output_paths(root):
+            manifest = root / "docs" / "data" / "SHA256SUMS"
+            entries = {}
+            if manifest.is_file():
+                for line in manifest.read_text(encoding="utf-8").splitlines():
+                    digest, separator, relative = line.partition("  ")
+                    if separator and len(digest) == 64:
+                        entries[relative] = digest
+            actual = entries.get(artifact["path"])
+            if actual is None:
+                errors.append(f"DVC artifact is absent from docs/data/SHA256SUMS: {label}: {artifact['path']}")
+                continue
+        else:
+            errors.append(f"evidence artifact is missing: {label}: {artifact['path']}")
+            continue
+        if actual != artifact["sha256"]:
+            prefix = "DVC SHA256SUMS mismatch" if not path.is_file() else "SHA-256 mismatch"
+            errors.append(f"evidence artifact {prefix}: {label}: {artifact['path']}")
     return errors
 
 
@@ -362,6 +383,12 @@ def _evidence_errors(
             except ValueError:
                 errors.append(f"evidence date must be ISO format: {identifier}")
         errors.extend(_toolchain_errors(record, identifier))
+        if record.get("kind") in {"a5_report_revision", "a5_head"}:
+            identity = _parse_rustc_vv(record.get("toolchain", {}).get("rustc_vv") if isinstance(record.get("toolchain"), dict) else None)
+            if identity is None:
+                errors.append(f"timing evidence requires a valid rustc -Vv capture: {identifier}")
+            elif record.get("toolchain", {}).get("rustc") != identity["first_line"]:
+                errors.append(f"timing evidence rustc label differs from rustc -Vv: {identifier}")
         if role == "report" and record.get("revision") != conclusion.get("report_revision"):
             errors.append(f"report-role evidence revision must equal report_revision: {identifier}")
         if role == "head" and not HEX_SHA256.fullmatch(str(record.get("results_relevant_digest", ""))):
@@ -386,6 +413,14 @@ def _evidence_errors(
             seen_cells.add(cell_id)
             if result.get("normalization_id") is not None and result.get("normalization_id") not in NORMALIZATIONS:
                 errors.append(f"evidence uses an unregistered normalization: {identifier}: {cell_id}")
+            if result.get("normalization_id") == "report_printed_precision":
+                precision = result.get("normalization_fields")
+                if (
+                    not isinstance(precision, dict)
+                    or not precision
+                    or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in precision.values())
+                ):
+                    errors.append(f"report printed-precision normalization needs nonnegative decimal places: {identifier}: {cell_id}")
             if record.get("kind") in {"a5_report_revision", "a5_head"} and experiment.get("predicate_kind") != "completion":
                 validity = result.get("validity")
                 if not isinstance(validity, dict):
@@ -405,15 +440,15 @@ def _evidence_errors(
                         isinstance(value, (int, float)) and not isinstance(value, bool) for value in spreads.values()
                     ):
                         errors.append(f"A-5 validity needs two numeric path MAD/median values: {identifier}: {cell_id}")
-        if role == "report" and evidence_protocol.get("harness_overlays"):
+        if evidence_protocol.get("harness_overlays") or record.get("harness_overlays"):
             expected = [
                 {key: overlay[key] for key in ("path", "sha256", "origin_commit")}
-                for overlay in evidence_protocol["harness_overlays"]
+                for overlay in evidence_protocol.get("harness_overlays", [])
             ]
-            actual = record.get("harness_overlays")
+            actual = record.get("harness_overlays", [])
             if actual != expected:
-                errors.append(f"report evidence overlay provenance differs from protocol: {identifier}")
-            if not isinstance(record.get("overlay_build_ok"), bool):
+                errors.append(f"evidence overlay provenance differs from protocol: {identifier}")
+            if evidence_protocol.get("harness_overlays") and not isinstance(record.get("overlay_build_ok"), bool):
                 errors.append(f"report evidence must record overlay_build_ok: {identifier}")
 
     # A duplicate identifier is reported by load_evidence; preserving this map here
@@ -527,9 +562,18 @@ def validate_hosts(hosts_doc: dict[str, Any]) -> list[str]:
         if identifier in ids:
             errors.append(f"duplicate host id: {identifier}")
         ids.add(identifier)
-        required = {"cpu_model", "physical_cores", "logical_cores", "ram_bytes", "os_family", "rustc", "rust_target", "reference", "a5"}
+        required = {"cpu_model", "physical_cores", "logical_cores", "ram_bytes", "os_family", "rustc", "rustc_commit_hash", "rustc_commit_date", "rustc_host", "rust_target", "reference", "a5"}
         if not required <= host.keys():
             errors.append(f"host {identifier} omits required fields: {sorted(required - host.keys())}")
+        if "rustc_commit_hash" in host and not FULL_SHA1.fullmatch(str(host["rustc_commit_hash"])):
+            errors.append(f"host {identifier} rustc_commit_hash must be a full SHA-1")
+        if "rustc_commit_date" in host:
+            try:
+                date.fromisoformat(str(host["rustc_commit_date"]))
+            except ValueError:
+                errors.append(f"host {identifier} rustc_commit_date must be ISO format")
+        if "rustc_host" in host and (not isinstance(host["rustc_host"], str) or not host["rustc_host"]):
+            errors.append(f"host {identifier} rustc_host must be non-empty")
         if not isinstance(host.get("a5"), dict):
             errors.append(f"host {identifier} must declare A-5 settings")
     if sum(host.get("reference") is True for host in hosts if isinstance(host, dict)) != 1:

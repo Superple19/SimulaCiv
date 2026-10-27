@@ -11,6 +11,9 @@ ram_bytes = 102663720960
 os_family = "Windows 11 Pro"
 os_build = "10.0.26300"
 rustc = "1.98.1"
+rustc_commit_hash = "48a229ceaefd4985c50990b14116b6d856af0985"
+rustc_commit_date = "2026-09-01"
+rustc_host = "x86_64-pc-windows-msvc"
 rust_target = "x86_64-pc-windows-msvc"
 reference = true
 

@@ -29,10 +29,15 @@ _STRENGTH = {
 }
 _ARCHIVAL = {"structured_recovered_output", "historical_protocol", "none"}
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_RUSTC_FIRST_LINE = re.compile(r"^rustc (?P<release>\S+) \((?P<short>[0-9a-f]+) (?P<date>\d{4}-\d{2}-\d{2})\)$")
+_RUSTC_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_THRESHOLD_NOISE_RULE = "Only valid cells are evaluated; comparisons within the frozen criteria noise bound are inconclusive."
+_FROZEN_RATIO_NOISE_PCT = 20.0
 _NORMALIZATIONS = {
     "m4_04_unbounded_ci_high",
     "m4_05_schema_v1_to_v2",
     "m4_05_guarantee_labels_v1_to_v2",
+    "report_printed_precision",
 }
 
 
@@ -101,10 +106,11 @@ def _relation(value: float, threshold: float, relation: str) -> bool | None:
 def _normal(
     value: Any,
     normalization_id: str | None,
-    fields: set[str],
+    fields: Any,
     key: str = "",
     *,
     search_complete: bool = False,
+    apply_printed_precision: bool = True,
 ) -> Any:
     if normalization_id is None:
         return value
@@ -112,11 +118,28 @@ def _normal(
         return _Unknown
     if isinstance(value, Mapping):
         return {
-            str(k): _normal(v, normalization_id, fields, str(k), search_complete=search_complete)
+            str(k): _normal(
+                v,
+                normalization_id,
+                fields,
+                str(k),
+                search_complete=search_complete,
+                apply_printed_precision=apply_printed_precision,
+            )
             for k, v in value.items()
         }
     if isinstance(value, list):
-        return [_normal(v, normalization_id, fields, key, search_complete=search_complete) for v in value]
+        return [
+            _normal(
+                v,
+                normalization_id,
+                fields,
+                key,
+                search_complete=search_complete,
+                apply_printed_precision=apply_printed_precision,
+            )
+            for v in value
+        ]
     if normalization_id == "m4_04_unbounded_ci_high" and key in fields:
         if value is None or value == "inf" or value == "Infinity" or (
             isinstance(value, float) and math.isinf(value) and value > 0
@@ -132,6 +155,13 @@ def _normal(
             return "one_minimal"
         if value == "None":
             return "exhausted_no_cause" if search_complete else "incomplete"
+    if normalization_id == "report_printed_precision" and apply_printed_precision and isinstance(fields, Mapping) and key in fields:
+        places = fields[key]
+        if not isinstance(places, int) or isinstance(places, bool) or places < 0:
+            return _Unknown
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value)):
+            return round(float(value), places)
+        return _Unknown
     return value
 
 
@@ -176,12 +206,16 @@ def _predicate_result(
             return "needs-decision", "named-oracle evidence needs an exact_match result"
         observed = _observed_value(cell_result)
         normalization_id = cell_result.get("normalization_id")
-        normalization_fields = set(cell_result.get("normalization_fields", []))
+        normalization_fields = cell_result.get("normalization_fields", [])
         if normalization_id is not None and normalization_id not in _NORMALIZATIONS:
             return "needs-decision", "normalization is not registered"
         search_complete = cell_result.get("search_complete") is True
         normalized_expected = _normal(
-            expected, normalization_id, normalization_fields, search_complete=search_complete
+            expected,
+            normalization_id,
+            normalization_fields,
+            search_complete=search_complete,
+            apply_printed_precision=False,
         )
         normalized_observed = _normal(
             observed, normalization_id, normalization_fields, search_complete=search_complete
@@ -223,10 +257,12 @@ def _predicate_result(
             old = float(values[index])
             observed = float(_observed_value(cell_result, "value"))
             threshold = float(params["threshold"])
-            noise = float(cell_result.get("noise_bound", 0.0))
             relation = str(params["relation"])
         except (ValueError, TypeError, KeyError, IndexError):
             return "needs-decision", "threshold evidence or protocol parameters are incomplete"
+        noise = _threshold_noise_bound(params, threshold)
+        if noise is None:
+            return "needs-decision", "threshold noise rule is not a registered frozen rule"
         old_side = _relation(old, threshold, relation)
         new_side = _relation(observed, threshold, relation)
         if old_side is None or new_side is None or noise < 0:
@@ -284,11 +320,73 @@ def _tie_verdicts(values: Sequence[str]) -> str:
         return "unverified"
     if "needs-decision" in values:
         return "needs-decision"
-    if "reproduced" in values and "not reproduced" in values:
+    passes = {"reproduced", "reproduced (loose)"}
+    if passes.intersection(values) and "not reproduced" in values:
         return "inconclusive"
     if "reproduced" in values and "reproduced (loose)" in values:
         return "reproduced (loose)"
     return max(values, key=lambda value: _VERDICT_RANK.get(value, _VERDICT_RANK["needs-decision"]))
+
+
+def _threshold_noise_bound(parameters: Mapping[str, Any], threshold: float) -> float | None:
+    if parameters.get("noise_rule") != _THRESHOLD_NOISE_RULE:
+        return None
+    # The frozen criteria's outer ratio band supplies the threshold-side noise margin.
+    return abs(threshold) * (_FROZEN_RATIO_NOISE_PCT / 100.0)
+
+
+def _parse_rustc_vv(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, str):
+        return None
+    lines = value.splitlines()
+    if not lines:
+        return None
+    match = _RUSTC_FIRST_LINE.fullmatch(lines[0].strip())
+    fields: dict[str, str] = {}
+    for line in lines[1:]:
+        key, separator, field_value = line.partition(":")
+        if separator:
+            fields[key.strip()] = field_value.strip()
+    commit = fields.get("commit-hash", "")
+    commit_date = fields.get("commit-date", "")
+    host = fields.get("host", "")
+    release = fields.get("release", "")
+    if (
+        match is None
+        or not _RUSTC_COMMIT.fullmatch(commit)
+        or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", commit_date)
+        or not host
+        or match.group("release") != release
+        or not commit.startswith(match.group("short"))
+        or match.group("date") != commit_date
+    ):
+        return None
+    return {
+        "release": release,
+        "commit_hash": commit,
+        "commit_date": commit_date,
+        "host": host,
+        "first_line": lines[0].strip().removeprefix("rustc "),
+    }
+
+
+def _overlay_provenance_matches(record: Mapping[str, Any], experiment: Mapping[str, Any]) -> bool:
+    expected = [
+        {key: overlay[key] for key in ("path", "sha256", "origin_commit")}
+        for overlay in experiment.get("harness_overlays", [])
+        if isinstance(overlay, Mapping) and {"path", "sha256", "origin_commit"} <= overlay.keys()
+    ]
+    actual = record.get("harness_overlays", [])
+    if actual is None:
+        actual = []
+    if not isinstance(actual, list):
+        return False
+    normalized = []
+    for overlay in actual:
+        if not isinstance(overlay, Mapping) or not {"path", "sha256", "origin_commit"} <= overlay.keys():
+            return False
+        normalized.append({key: overlay[key] for key in ("path", "sha256", "origin_commit")})
+    return normalized == expected
 
 
 def _supersession_state(records: Sequence[Mapping[str, Any]]) -> tuple[set[str], dict[tuple[str, str], str]]:
@@ -356,8 +454,16 @@ def _timing_host_matches(record: Mapping[str, Any], reference: Mapping[str, Any]
         return False
     if toolchain.get("logical_cores") != reference.get("logical_cores"):
         return False
-    rustc = str(toolchain.get("rustc", ""))
-    if not rustc.startswith(str(reference.get("rustc", ""))):
+    rustc = _parse_rustc_vv(toolchain.get("rustc_vv"))
+    if rustc is None:
+        return False
+    if (
+        rustc["release"] != reference.get("rustc")
+        or rustc["commit_hash"] != reference.get("rustc_commit_hash")
+        or rustc["commit_date"] != reference.get("rustc_commit_date")
+        or rustc["host"] != reference.get("rustc_host")
+        or toolchain.get("rustc") != rustc["first_line"]
+    ):
         return False
     if toolchain.get("rust_target", toolchain.get("target")) != reference.get("rust_target"):
         return False
@@ -472,6 +578,11 @@ def compute_verdicts(
                         kind = str(record.get("kind", ""))
                         if kind in _ARCHIVAL:
                             continue
+                        result = _cells_by_id(record).get(cell_id)
+                        if result is None:
+                            continue
+                        if not _has_artifact_hashes(record):
+                            continue
                         strength = _compatible_kind(kind, str(conclusion.get("type", "")), role)
                         if strength is None:
                             continue
@@ -482,26 +593,24 @@ def compute_verdicts(
                             hard_needs.append((100, "needs-decision", "evidence protocol_id does not match the registered experiment"))
                             continue
                         if role == "report" and record.get("revision") != conclusion.get("report_revision"):
+                            hard_needs.append((100, "needs-decision", "report-role evidence is recorded at the wrong report revision"))
                             continue
                         if role == "head" and _record_is_stale(record, revision, head_digests.get(conclusion_id)):
                             stale_seen = True
                             continue
-                        if not _has_artifact_hashes(record):
+                        if not _overlay_provenance_matches(record, experiment):
+                            hard_needs.append((100, "needs-decision", "evidence overlay hashes differ from the registered protocol"))
+                            continue
+                        if record.get("overlay_build_ok") is False:
+                            hard_needs.append((100, "needs-decision", "registered harness overlay does not build against the report-revision API"))
+                            continue
+                        if experiment.get("harness_overlays") and record.get("overlay_build_ok") is not True:
+                            hard_needs.append((100, "needs-decision", "overlay build result is missing"))
                             continue
                         if kind in {"a5_report_revision", "a5_head"} and experiment.get("predicate_kind") != "completion":
                             if not _timing_host_matches(record, reference):
                                 validity_failures += 1
                                 continue
-                        if role == "report" and experiment.get("harness_overlays"):
-                            if record.get("overlay_build_ok") is False:
-                                hard_needs.append((100, "needs-decision", "registered harness overlay does not build against the report-revision API"))
-                                continue
-                            if record.get("overlay_build_ok") is not True:
-                                hard_needs.append((100, "needs-decision", "overlay build result is missing"))
-                                continue
-                        result = _cells_by_id(record).get(cell_id)
-                        if result is None:
-                            continue
                         if result.get("overlay_build_ok") is False:
                             hard_needs.append((100, "needs-decision", "registered harness overlay does not build against the report-revision API"))
                             continue

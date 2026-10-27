@@ -85,6 +85,34 @@ def test_artifact_hash_check_detects_mismatch_and_unhashed_record(tmp_path: Path
     assert "needs at least one hashed artifact" in validate_artifact_hashes({"id": "no-hash"}, tmp_path)[0]
 
 
+def test_artifact_hash_check_accepts_unmaterialized_dvc_output_only_with_blob_manifest(tmp_path: Path, monkeypatch):
+    import simciv_analysis.conclusions as conclusions
+
+    digest = hashlib.sha256(b"raw output\n").hexdigest()
+    artifact_path = "docs/data/stage/raw.csv"
+    manifest = tmp_path / "docs/data/SHA256SUMS"
+    manifest.parent.mkdir(parents=True)
+    write_text_lf(manifest, f"{digest}  {artifact_path}\n")
+    monkeypatch.setattr(conclusions, "dvc_output_paths", lambda root: {"docs/data/stage/raw.csv"})
+    record = {"id": "dvc-artifact", "artifacts": [{"path": artifact_path, "sha256": digest}]}
+
+    assert validate_artifact_hashes(record, tmp_path) == []
+    write_text_lf(manifest, f"{'0' * 64}  {artifact_path}\n")
+    assert "DVC SHA256SUMS mismatch" in validate_artifact_hashes(record, tmp_path)[0]
+
+
+def test_hosts_registry_requires_full_rustc_identity():
+    valid_host = {
+        "id": "ref", "reference": True, "cpu_model": "CPU", "physical_cores": 4,
+        "logical_cores": 8, "ram_bytes": 1024, "os_family": "OS", "rustc": "1.98.1",
+        "rustc_commit_hash": "a" * 40, "rustc_commit_date": "2026-09-01", "rustc_host": "target",
+        "rust_target": "target", "a5": {"samples": 41},
+    }
+    assert validate_hosts({"host": [valid_host]}) == []
+    invalid_host = {**valid_host, "rustc_commit_hash": "not-a-full-hash"}
+    assert any("rustc_commit_hash" in error for error in validate_hosts({"host": [invalid_host]}))
+
+
 def test_complete_protocol_requires_exact_predicate_parameter_keys():
     conclusion = {"id": "C-1", "tier": 1, "type": "timing"}
     protocol = {
@@ -117,6 +145,7 @@ def test_hosts_registry_requires_one_well_formed_reference():
         "host": [{
             "id": "ref", "reference": True, "cpu_model": "CPU", "physical_cores": 4,
             "logical_cores": 8, "ram_bytes": 1024, "os_family": "OS", "rustc": "1.98.1",
+            "rustc_commit_hash": "a" * 40, "rustc_commit_date": "2026-09-01", "rustc_host": "target",
             "rust_target": "target", "a5": {"samples": 41},
         }]
     }

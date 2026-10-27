@@ -15,6 +15,9 @@ REF = {
     "physical_cores": 6,
     "logical_cores": 12,
     "rustc": "1.98.1",
+    "rustc_commit_hash": "48a229ceaefd4985c50990b14116b6d856af0985",
+    "rustc_commit_date": "2026-09-01",
+    "rustc_host": "x86_64-pc-windows-msvc",
     "rust_target": "x86_64-pc-windows-msvc",
     "a5": {
         "warmups": 2, "samples": 41, "sample_target_seconds": 1.25,
@@ -26,7 +29,8 @@ TOOLCHAIN = {
     "cpu_model": REF["cpu_model"],
     "physical_cores": REF["physical_cores"],
     "logical_cores": REF["logical_cores"],
-    "rustc": "1.98.1 (test build)",
+    "rustc": "1.98.1 (48a229cea 2026-09-01)",
+    "rustc_vv": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-pc-windows-msvc\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
     "rust_target": REF["rust_target"],
     "a5_settings": REF["a5"],
 }
@@ -43,7 +47,7 @@ def _case(kind="ratio_band", *, conclusion_type="timing", role="report", expecte
     expected = expected or {"cell-a": [2.0]}
     parameters = {
         "ratio_band": {"historical_values": [2.0], "ratio_direction": "test ratio", "deviation_bands_pct": [10, 20]},
-        "threshold_side": {"metric": "metric", "historical_values": [1.5], "threshold": 1.0, "relation": ">", "noise_rule": "test"},
+        "threshold_side": {"metric": "metric", "historical_values": [1.5], "threshold": 1.0, "relation": ">", "noise_rule": "Only valid cells are evaluated; comparisons within the frozen criteria noise bound are inconclusive."},
         "exact": {"fields": ["value"], "expected_values": expected, "comparison": "exact equality"},
         "completion": {"required_result": "completed", "error_policy": "errors fail"},
         "no_gain": {"paired_effect_field": "effect", "paired_mad_field": "mad", "relation": "abs(effect) <= MAD"},
@@ -109,6 +113,10 @@ def test_same_strength_conflicts_use_conservative_contract_tie_rule():
     assert _one(registry, experiments, hosts, [evidence[0], fail])["cells"][0]["verdict"] == "inconclusive"
     assert _tie_verdicts(["reproduced", "unverified"]) == "unverified"
     assert _tie_verdicts(["inconclusive", "unverified (stale)"]) == "unverified (stale)"
+
+
+def test_loose_pass_conflicting_with_failure_is_inconclusive():
+    assert _tie_verdicts(["reproduced (loose)", "not reproduced"]) == "inconclusive"
 
 
 def test_failed_validity_is_inconclusive_but_completion_ignores_timing_validity():
@@ -233,6 +241,25 @@ def test_exact_predicate_supports_the_other_registered_normalizations():
     )
     assert _one(registry, experiments, hosts, evidence)["verdict"] == "reproduced"
 
+
+def test_report_printed_precision_rounds_only_the_observation():
+    registry, experiments, hosts, evidence = _case(
+        "exact",
+        conclusion_type="deterministic",
+        expected={"cell-a": {"peak_fraction": 0.9852}},
+        cell={
+            "cell_id": "cell-a",
+            "observed": {"peak_fraction": 0.985245583382},
+            "normalization_id": "report_printed_precision",
+            "normalization_fields": {"peak_fraction": 4},
+        },
+    )
+    assert _one(registry, experiments, hosts, evidence)["verdict"] == "reproduced"
+    experiments["experiment"][0]["predicate_parameters"]["expected_values"]["cell-a"] = {
+        "peak_fraction": 0.98524
+    }
+    assert _one(registry, experiments, hosts, evidence)["verdict"] == "not reproduced"
+
     registry, experiments, hosts, evidence = _case(
         "exact",
         conclusion_type="deterministic",
@@ -261,6 +288,74 @@ def test_threshold_side_respects_old_noise_margin():
     evidence[0]["cell_results"][0]["value"] = 0.9
     assert _one(registry, experiments, hosts, evidence)["verdict"] == "not reproduced"
     experiments["experiment"][0]["predicate_parameters"]["historical_values"] = [1.05]
+    assert _one(registry, experiments, hosts, evidence)["verdict"] == "inconclusive"
+
+
+def test_threshold_noise_comes_from_registered_rule_not_evidence():
+    registry, experiments, hosts, evidence = _case(
+        "threshold_side",
+        cell={"cell_id": "cell-a", "value": 1.15, "noise_bound": 0.0, "valid": True},
+    )
+    experiments["experiment"][0]["predicate_parameters"]["historical_values"] = [1.15]
+    assert _one(registry, experiments, hosts, evidence)["verdict"] == "inconclusive"
+    evidence[0]["cell_results"][0]["noise_bound"] = 1000.0
+    experiments["experiment"][0]["predicate_parameters"]["historical_values"] = [1.5]
+    evidence[0]["cell_results"][0]["value"] = 1.6
+    assert _one(registry, experiments, hosts, evidence)["verdict"] == "reproduced"
+
+
+def test_invalid_record_only_affects_cells_it_covers():
+    registry, experiments, hosts, evidence = _case()
+    experiments["experiment"][0]["ordered_cell_ids"] = ["cell-a", "cell-b"]
+    experiments["experiment"][0]["predicate_parameters"]["historical_values"] = [2.0, 2.0]
+    experiments["experiment"][0]["harness_overlays"] = [
+        {"path": "overlay.rs", "sha256": "a" * 64, "origin_commit": REPORT_SHA}
+    ]
+    bad = {**evidence[0], "overlay_build_ok": False}
+    bad["cell_results"] = [{"cell_id": "cell-a", "observed_ratio": 2.0, "validity": deepcopy(A5_VALIDITY)}]
+    good = {**evidence[0], "id": "ev-b", "overlay_build_ok": True}
+    good["harness_overlays"] = deepcopy(experiments["experiment"][0]["harness_overlays"])
+    good["cell_results"] = [{"cell_id": "cell-b", "observed_ratio": 2.0, "validity": deepcopy(A5_VALIDITY)}]
+    cells = _one(registry, experiments, hosts, [bad, good])["cells"]
+    assert [(cell["cell_id"], cell["verdict"]) for cell in cells] == [
+        ("cell-a", "needs-decision"), ("cell-b", "reproduced")
+    ]
+
+
+def test_report_record_at_wrong_revision_is_reported_for_covered_cell():
+    registry, experiments, hosts, evidence = _case()
+    evidence[0]["revision"] = HEAD_SHA
+    result = _one(registry, experiments, hosts, evidence)
+    assert result["cells"][0]["verdict"] == "needs-decision"
+    assert "wrong report revision" in result["cells"][0]["reason"]
+
+
+def test_report_overlay_hash_must_match_protocol_for_only_covered_cells():
+    registry, experiments, hosts, evidence = _case()
+    experiments["experiment"][0]["ordered_cell_ids"] = ["cell-a", "cell-b"]
+    experiments["experiment"][0]["predicate_parameters"]["historical_values"] = [2.0, 2.0]
+    expected_overlay = {"path": "overlay.rs", "sha256": "a" * 64, "origin_commit": REPORT_SHA}
+    experiments["experiment"][0]["harness_overlays"] = [expected_overlay]
+    bad = {**evidence[0], "harness_overlays": [{**expected_overlay, "sha256": "b" * 64}]}
+    bad["cell_results"] = [{"cell_id": "cell-a", "observed_ratio": 2.0, "validity": deepcopy(A5_VALIDITY)}]
+    good = {**evidence[0], "id": "ev-b", "harness_overlays": [expected_overlay], "overlay_build_ok": True}
+    good["cell_results"] = [{"cell_id": "cell-b", "observed_ratio": 2.0, "validity": deepcopy(A5_VALIDITY)}]
+    cells = _one(registry, experiments, hosts, [bad, good])["cells"]
+    assert [(cell["cell_id"], cell["verdict"]) for cell in cells] == [
+        ("cell-a", "needs-decision"), ("cell-b", "reproduced")
+    ]
+
+
+def test_rustc_patch_version_is_compared_exactly_from_verbose_capture():
+    registry, experiments, hosts, evidence = _case()
+    evidence[0]["toolchain"]["rustc"] = "1.98.10 (48a229cea 2026-09-01)"
+    evidence[0]["toolchain"]["rustc_vv"] = TOOLCHAIN["rustc_vv"].replace("1.98.1", "1.98.10")
+    assert _one(registry, experiments, hosts, evidence)["verdict"] == "inconclusive"
+
+
+def test_missing_rustc_verbose_capture_disqualifies_timing_record():
+    registry, experiments, hosts, evidence = _case()
+    evidence[0]["toolchain"].pop("rustc_vv")
     assert _one(registry, experiments, hosts, evidence)["verdict"] == "inconclusive"
 
 
