@@ -9,6 +9,7 @@ from simciv_analysis.a5_tonight import (
     ORDER,
     _available_protocol_ids,
     _exceeds_invalid_limit,
+    _overlay_failure_record,
     _protocols,
     _split_by_cell,
 )
@@ -64,3 +65,25 @@ def test_blocked_report_sha_group_is_excluded_from_prepared_protocols():
         "m3_09_incremental_equal_live",
         "m4_07_case_a_search_parallel_speedup",
     }
+
+
+def test_overlay_build_failure_maps_every_protocol_cell_to_the_build_gate():
+    protocol = {
+        "id": "m3_11",
+        "conclusion_id": "M3-11",
+        "report_revision": "a" * 40,
+        "ordered_cell_ids": ["phase", "whole-a", "whole-b"],
+        "harness_overlays": [{"path": "bench.rs", "sha256": "b" * 64, "origin_commit": "c" * 40}],
+    }
+    manifest = {
+        "run_id": "build-failed",
+        "revision": "a" * 40,
+        "toolchain": {"rustc": "test"},
+        "date": "2026-10-28",
+        "commands": ["cargo bench --no-run"],
+        "harness_overlays": protocol["harness_overlays"],
+    }
+    record = _overlay_failure_record(manifest, protocol, "diagnostic.json", "d" * 64)
+    assert record["overlay_build_ok"] is False
+    assert [row["cell_id"] for row in record["cell_results"]] == protocol["ordered_cell_ids"]
+    assert all(row["overlay_build_ok"] is False for row in record["cell_results"])

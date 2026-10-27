@@ -15,6 +15,7 @@ stages:
     - rust-toolchain.toml
     outs:
     - docs/data/m5_08/m2_explicit_rayon/raw
+    frozen: true
     meta:
       kind: timing
   a5_m3_09_equal_live:
@@ -35,6 +36,7 @@ stages:
     - rust-toolchain.toml
     outs:
     - docs/data/m5_08/m3_09_equal_live/raw
+    frozen: true
     meta:
       kind: timing
   a5_m3_11_propagation:
@@ -73,5 +75,6 @@ stages:
     - rust-toolchain.toml
     outs:
     - docs/data/m5_08/m4_search_parallel/raw
+    frozen: true
     meta:
       kind: timing

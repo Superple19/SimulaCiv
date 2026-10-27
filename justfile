@@ -147,6 +147,9 @@ a5-tonight-run GROUP: analysis-sync
 a5-tonight-ingest GROUP: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.a5_tonight ingest {{GROUP}}
 
+a5-tonight-record-blocked-m3-11: analysis-sync
+    uv run --directory analysis --project . python -m simciv_analysis.a5_tonight record-blocked-m3-11
+
 a5-tonight-summary-check: analysis-sync
     uv run --directory analysis --project . python -m simciv_analysis.a5_tonight check-summaries
 

@@ -124,6 +124,26 @@ generator = "analysis/simciv_analysis/a5_tonight.py"
 check = "a5-tonight-summary-check"
 
 [[artifact]]
+file = "docs/data/m5_08/m2_explicit_rayon_speedup/summary.json"
+generator = "analysis/simciv_analysis/a5_tonight.py"
+check = "a5-tonight-summary-check"
+
+[[artifact]]
+file = "docs/data/m5_08/m3_09_incremental_equal_live/summary.json"
+generator = "analysis/simciv_analysis/a5_tonight.py"
+check = "a5-tonight-summary-check"
+
+[[artifact]]
+file = "docs/data/m5_08/m4_07_case_a_search_parallel_speedup/summary.json"
+generator = "analysis/simciv_analysis/a5_tonight.py"
+check = "a5-tonight-summary-check"
+
+[[artifact]]
+file = "docs/data/m5_08/m3_11_report_build_failure.json"
+generator = "analysis/simciv_analysis/a5_tonight.py"
+check = "a5-tonight-summary-check"
+
+[[artifact]]
 file = "docs/contracts/M5_REPRODUCIBILITY_CONTRACT.md"
 generator = "analysis/simciv_analysis/decisions.py"
 check = "decisions-check"

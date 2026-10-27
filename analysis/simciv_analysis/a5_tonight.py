@@ -92,6 +92,30 @@ def _available_protocol_ids(preflight: dict[str, Any]) -> set[str]:
     }
 
 
+def _overlay_failure_record(
+    manifest: dict[str, Any], protocol: dict[str, Any], artifact_path: str, artifact_sha256: str
+) -> dict[str, Any]:
+    return {
+        "id": f"{manifest['run_id']}-overlay-build-failed",
+        "conclusion_id": protocol["conclusion_id"],
+        "role": "report",
+        "kind": "a5_report_revision",
+        "revision": protocol["report_revision"],
+        "toolchain": manifest["toolchain"],
+        "protocol_id": protocol["id"],
+        "date": manifest["date"],
+        "commands": manifest["commands"],
+        "notes": ["Report-revision overlay failed to build before any A-5 samples; timing was not run."],
+        "artifacts": [{"path": artifact_path, "sha256": artifact_sha256}],
+        "harness_overlays": manifest["harness_overlays"],
+        "overlay_build_ok": False,
+        "cell_results": [
+            {"cell_id": cell_id, "overlay_build_ok": False}
+            for cell_id in protocol["ordered_cell_ids"]
+        ],
+    }
+
+
 def _git(root: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
 
@@ -530,7 +554,79 @@ def check_summaries(root: Path = ROOT) -> list[str]:
                     errors.append(f"complete summary has wrong cells: {summary_path.relative_to(root).as_posix()}")
             except (OSError, json.JSONDecodeError) as error:
                 errors.append(f"invalid summary {summary_path}: {error}")
+    blocked_path = root / "docs" / "data" / "m5_08" / "m3_11_report_build_failure.json"
+    if blocked_path.is_file():
+        try:
+            blocked = json.loads(blocked_path.read_text(encoding="utf-8"))
+            expected = [
+                cell
+                for protocol_id in GROUPS["m3_11"]["protocols"]
+                for cell in protocols[protocol_id]["ordered_cell_ids"]
+            ]
+            if blocked.get("status") != "blocked" or blocked.get("cell_ids") != expected:
+                errors.append("M3-11 report-SHA build diagnostic does not cover the blocked protocol cells")
+        except (OSError, json.JSONDecodeError) as error:
+            errors.append(f"invalid M3-11 report-SHA build diagnostic: {error}")
     return errors
+
+
+def record_blocked_m3_11() -> None:
+    preflight_path = SCRATCH / "preflight.json"
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    blocked = preflight.get("blocked_groups", {}).get("m3_11")
+    if not blocked:
+        raise ValueError("M3-11 is not recorded as blocked by report-SHA preflight")
+    protocols = _protocols()
+    first_protocol = protocols[GROUPS["m3_11"]["protocols"][0]]
+    worktree = SCRATCH / "worktrees" / first_protocol["report_revision"]
+    command = [
+        "cargo", "+1.98.1", "bench", "--locked", "--no-run", "-p", "sim-model",
+        "--bench", "m3_11_propagation_bench",
+    ]
+    result = subprocess.run(command, cwd=worktree, env=_cargo_env(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if result.returncode == 0:
+        raise ValueError("M3-11 report-SHA build now passes; do not record a stale block")
+    compiler_errors = [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.lstrip().startswith("error[") or "could not find" in line or "no `" in line
+    ]
+    protocols_doc = _protocols()
+    host_doc = tomllib.loads((ROOT / "contracts" / "hosts.toml").read_text(encoding="utf-8"))
+    cell_ids = [
+        cell
+        for protocol_id in GROUPS["m3_11"]["protocols"]
+        for cell in protocols_doc[protocol_id]["ordered_cell_ids"]
+    ]
+    diagnostic = {
+        "schema_version": 1,
+        "status": "blocked",
+        "group": "m3_11",
+        "report_revision": first_protocol["report_revision"],
+        "report_worktree_head": _git(worktree, "rev-parse", "HEAD"),
+        "exit_status": result.returncode,
+        "command": " ".join(command),
+        "preflight_reason": blocked["reason"],
+        "compiler_errors": compiler_errors,
+        "cell_ids": cell_ids,
+        "overlay_build_ok": False,
+        "a5_samples_run": False,
+    }
+    diagnostic_path = ROOT / "docs" / "data" / "m5_08" / "m3_11_report_build_failure.json"
+    write_text_lf(diagnostic_path, json.dumps(diagnostic, separators=(",", ":"), sort_keys=True) + "\n")
+    relative = diagnostic_path.relative_to(ROOT).as_posix()
+    digest = _sha256(diagnostic_path.read_bytes())
+    for protocol_id in GROUPS["m3_11"]["protocols"]:
+        protocol = protocols_doc[protocol_id]
+        manifest = build_run_manifest(
+            protocol,
+            run_id=f"m5-08-report-build-failed-{protocol_id}",
+            root=worktree,
+            hosts=host_doc,
+            commands=[" ".join(command)],
+        )
+        append_evidence(_overlay_failure_record(manifest, protocol, relative, digest))
+    print(f"recorded report-SHA build failure for {len(GROUPS['m3_11']['protocols'])} M3-11 protocols; A-5 was not run")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -545,6 +641,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("group", choices=ORDER)
     ingest_parser = sub.add_parser("ingest")
     ingest_parser.add_argument("group", choices=ORDER)
+    sub.add_parser("record-blocked-m3-11")
     args = parser.parse_args(argv)
     try:
         if args.mode == "prepare":
@@ -561,6 +658,8 @@ def main(argv: list[str] | None = None) -> int:
             return _stage_command(args.group)
         elif args.mode == "run":
             _run_group(args.group)
+        elif args.mode == "record-blocked-m3-11":
+            record_blocked_m3_11()
         else:
             _ingest(args.group)
     except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
