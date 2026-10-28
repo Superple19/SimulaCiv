@@ -86,6 +86,21 @@ def test_artifact_hash_check_detects_mismatch_and_unhashed_record(tmp_path: Path
     assert "needs at least one hashed artifact" in validate_artifact_hashes({"id": "no-hash"}, tmp_path)[0]
 
 
+def test_only_named_raw_guard_invalidation_records_may_be_artifactless(tmp_path: Path):
+    allowed = {
+        "id": "m5-08-20261028-m3_11-phase9c-raw-guard-invalidation",
+        "artifacts": [],
+        "raw_outputs": [],
+        "cell_results": [],
+        "supersedes": ["prior-run"],
+    }
+    assert validate_artifact_hashes(allowed, tmp_path) == []
+    unregistered = {**allowed, "id": "unregistered-invalidation"}
+    assert "needs at least one hashed artifact" in validate_artifact_hashes(unregistered, tmp_path)[0]
+    with_cells = {**allowed, "cell_results": [{"cell_id": "cell"}]}
+    assert "needs at least one hashed artifact" in validate_artifact_hashes(with_cells, tmp_path)[0]
+
+
 def test_artifact_hash_check_accepts_unmaterialized_dvc_output_only_with_blob_manifest(tmp_path: Path, monkeypatch):
     import simciv_analysis.conclusions as conclusions
 

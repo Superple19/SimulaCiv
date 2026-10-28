@@ -32,6 +32,13 @@ EVIDENCE = ROOT / "contracts" / "evidence.jsonl"
 OUTPUT = ROOT / "docs" / "reproducibility" / "VERDICTS.md"
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 FULL_SHA1 = re.compile(r"^[0-9a-f]{40}$")
+ARTIFACTLESS_INVALIDATION_IDS = frozenset(
+    {
+        "m5-08-20261028-m3_11-phase9c-raw-guard-invalidation",
+        "m5-08-20261028-m3_11-whole-tick-raw-guard-invalidation",
+        "m5-08-20261028-m4-search-raw-guard-invalidation",
+    }
+)
 PREDICATE_KEYS = {
     "exact": {"fields", "expected_values", "comparison"},
     "ratio_band": {"historical_values", "ratio_direction", "deviation_bands_pct"},
@@ -298,6 +305,13 @@ def validate_artifact_hashes(record: dict[str, Any], root: Path = ROOT) -> list[
     artifacts = record.get("artifacts")
     label = str(record.get("id", "<missing>"))
     if not isinstance(artifacts, list) or not artifacts:
+        if (
+            label in ARTIFACTLESS_INVALIDATION_IDS
+            and record.get("supersedes")
+            and record.get("cell_results") == []
+            and record.get("raw_outputs") == []
+        ):
+            return []
         return [f"evidence needs at least one hashed artifact: {label}"]
     for artifact in artifacts:
         if not isinstance(artifact, dict) or not isinstance(artifact.get("path"), str) or not HEX_SHA256.fullmatch(str(artifact.get("sha256", ""))):

@@ -102,9 +102,9 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M3-TIM-INCREMENTAL-EQUAL-LIVE` | report | 681bf296ea07d3ddc4391f5f1dfd49255876300c | unverified | N100k-noninterleaved | unverified | — |
 | `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | inconclusive | m3p-sustained-N10000-days100-1000 | unverified | — |
 | `M3-DET-M3P-SUSTAINED-GATE` | report | c7def1f0f2347ebfe2cb597f6c7380b35458146b | inconclusive | m3p-sustained-ci-N1000-days100-1000 | reproduced | m5-07-report-m3-det-m3p-sustained-ci-gate |
-| `M3-TIM-PROP-PHASE9C` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | reproduced | N100000-k16-hops16-transmit0.2-pool6-day0 | reproduced | m5-08-20261027T170707Z-m3_11_phase9c_speedup-report, m5-08-20261027T170707Z-m3_11_phase9c_speedup-report-supersession |
-| `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | reproduced | large-frontier-interleaved-pool6 | reproduced | m5-08-20261027T170708Z-m3_11_whole_tick_speedup-report, m5-08-20261027T170708Z-m3_11_whole_tick_speedup-report-supersession |
-| `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | reproduced | large-frontier-noninterleaved-pool6 | reproduced | m5-08-20261027T170708Z-m3_11_whole_tick_speedup-report, m5-08-20261027T170708Z-m3_11_whole_tick_speedup-report-supersession |
+| `M3-TIM-PROP-PHASE9C` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | N100000-k16-hops16-transmit0.2-pool6-day0 | unverified | — |
+| `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | large-frontier-interleaved-pool6 | unverified | — |
+| `M3-TIM-PROP-WHOLE-TICK` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | large-frontier-noninterleaved-pool6 | unverified | — |
 | `M3-TIM-PROP-FRONTIER-CROSSOVER` | report | 734627800b99e3865d9a0cd4a1d62e38a03c3bb3 | unverified | — | unverified | — |
 | `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | reproduced | m3-noop-H3 | reproduced | m5-06-report-m4-det-branch-identity-h3 |
 | `M4-DET-BRANCH-IDENTITY` | report | 89a95c6540678e02d4eb8145ebd0b69976104a1a | reproduced | m3p-noop-H3 | reproduced | m5-06-report-m4-det-branch-identity-h3 |
@@ -175,7 +175,7 @@ Each conclusion-role revision expands to ordered per-cell results; a conclusion 
 | `M4-DET-MIGRATION-SHUFFLED-SLOTS` | report | 392f6064b6a5ac4132722af0dc8941e8d3908d9d | reproduced | m3p-migration-permuted-slots | reproduced | m5-06-report-m4-det-migration-shuffled-slots |
 | `M4-DET-MIGRATION-FAILURE-ATOMICITY` | report | 392f6064b6a5ac4132722af0dc8941e8d3908d9d | reproduced | invalid-migration-config | reproduced | m5-06-report-m4-det-migration-failure-atomicity |
 | `M4-DET-MIGRATION-FAILURE-ATOMICITY` | report | 392f6064b6a5ac4132722af0dc8941e8d3908d9d | reproduced | migration-plan-failure | reproduced | m5-06-report-m4-det-migration-failure-atomicity |
-| `M4-TIM-CAUSE-SEARCH-PARALLEL` | report | fb0878ba1fa370e178aca3f763d08512c28ee122 | reproduced | case-a-exhaustive-R10-H90 | reproduced | m5-08-20261027T142130Z-m4_07_case_a_search_parallel_speedup-report |
+| `M4-TIM-CAUSE-SEARCH-PARALLEL` | report | fb0878ba1fa370e178aca3f763d08512c28ee122 | unverified | case-a-exhaustive-R10-H90 | unverified | — |
 | `M4-DET-MINIMAL-CAUSE-NONUNIQUENESS` | report | 6b925b91d565d98706fe6cac3cdf14164abc7a32 | reproduced | case-a-all-70-size4-subsets | reproduced | m5-07-report-m4-det-minimal-cause-nonuniqueness-enumerated-rerun |
 | `M4-DET-CRN-EFFICIENCY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-alive-H365 | reproduced | m5-06-report-m4-det-crn-efficiency |
 | `M4-DET-CRN-EFFICIENCY` | report | 739004cf6eee9c03d6f462f1852dcf10ffe43293 | reproduced | food-zero-total-wealth-H365 | reproduced | m5-06-report-m4-det-crn-efficiency |

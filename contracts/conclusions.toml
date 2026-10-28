@@ -775,3 +775,13 @@ milestone = "M4"
 statement = "The M4-05 seed follow-up reported no cause for seeds 0 and 1 and a three-item minimum for seed 3."
 source = "docs/reports/M4_05_MINIMAL_CAUSE.md#a-1-report-addendum-direct-full-set-effect-and-cause-non-uniqueness"
 reason = "The dedicated seed-variation helper is incomplete; the remaining outputs have no complete Tier 1 protocol."
+
+[[limitation]]
+id = "M2-P6A-F32-FIXED-RESOURCE-BUDGET"
+milestone = "M2"
+statement = "Under the unscaled N=20,000, K=2 fixed-resource input, Phase 6A can exceed the aggregate f32 resource budget in both serial and six-thread Rayon execution; this is not a Rayon summation-order defect."
+source = "crates/sim-model/examples/m5_08_m2_budget_repro.rs; 581ff6c109c24dfd24b430299d768c7e31ab6b45:crates/sim-model/benches/m0_baseline_bench.rs::m2_35_production_intents"
+minimal_reproducer = { N = 20000, K = 2, master_seed = 81985529216486895, replicate_id = 7, carrying_capacity = 10000.0, initial_settlement_resource = 2000.0, days = 3 }
+affected_modes = ["serial", "6-thread Rayon, chunk 256"]
+control = { carrying_capacity = 20000000.0, initial_settlement_resource = 4000000.0, result = "both modes pass under M2-40 scaling" }
+reason = "The f32 Phase 6A accumulated total can exceed a fixed resource budget; the M2-40 source configuration scales capacity and resources with N."
