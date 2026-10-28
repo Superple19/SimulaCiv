@@ -14,6 +14,7 @@ from simciv_analysis.a5_tonight import (
     _ingest_record_id,
     _overlay_failure_record,
     _protocols,
+    _apply_overlay_patch,
     _split_by_cell,
 )
 
@@ -72,6 +73,27 @@ def test_m3_11_split_rejects_unregistered_cell_records():
             (json.dumps({"cell_id": "wrong"}) + "\n").encode(),
             {"phase-protocol": ["phase"]},
         )
+
+
+def test_registered_patch_overlay_applies_once_and_rejects_wrong_source(tmp_path):
+    target = tmp_path / "crates" / "sim-model" / "src" / "sample.rs"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"fn source() {}\n")
+    patch = tmp_path / "bridge.patch"
+    patch.write_bytes(
+        b"--- a/crates/sim-model/src/sample.rs\n"
+        b"+++ b/crates/sim-model/src/sample.rs\n"
+        b"@@ -1 +1,2 @@\n"
+        b" fn source() {}\n"
+        b"+fn bridge() {}\n"
+    )
+    assert _apply_overlay_patch(tmp_path, patch)
+    assert target.read_bytes() == b"fn source() {}\nfn bridge() {}\n"
+    assert not _apply_overlay_patch(tmp_path, patch)
+
+    target.write_bytes(b"fn different() {}\n")
+    with pytest.raises(ValueError, match="patch cannot apply"):
+        _apply_overlay_patch(tmp_path, patch)
 
 
 def test_stage_validity_limit_uses_strictly_more_than_ten_percent():

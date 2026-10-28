@@ -173,7 +173,37 @@ def _apply_overlays(worktree: Path, protocol: dict[str, Any]) -> list[dict[str, 
             path.write_bytes(content)
         if _sha256(path.read_bytes()) != overlay["sha256"]:
             raise ValueError(f"overlay verification failed in report worktree: {overlay['path']}")
+        if path.suffix == ".patch":
+            _apply_overlay_patch(worktree, path)
     return overlays
+
+
+def _apply_overlay_patch(worktree: Path, patch_path: Path) -> bool:
+    """Apply a registered patch overlay once; return whether it changed the worktree."""
+    patch_arg = patch_path.relative_to(worktree).as_posix()
+    apply_check = subprocess.run(
+        ["git", "-c", "core.autocrlf=false", "apply", "--check", patch_arg],
+        cwd=worktree,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if apply_check.returncode == 0:
+        subprocess.run(["git", "-c", "core.autocrlf=false", "apply", patch_arg], cwd=worktree, check=True)
+        return True
+    reverse_check = subprocess.run(
+        ["git", "-c", "core.autocrlf=false", "apply", "--reverse", "--check", patch_arg],
+        cwd=worktree,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if reverse_check.returncode == 0:
+        return False
+    raise ValueError(
+        f"registered config/day-guard patch cannot apply to report worktree: {patch_path.name}: "
+        f"{apply_check.stderr.strip()}"
+    )
 
 
 def _cargo_env(report_revision: str) -> dict[str, str]:
