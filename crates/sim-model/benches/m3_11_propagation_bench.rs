@@ -89,6 +89,7 @@ const WARMUPS: usize = 2;
 const SAMPLES: usize = 11;
 const CHUNK_SIZE: NonZeroUsize = NonZeroUsize::new(256).expect("nonzero chunk size");
 const SAMPLE_DAYS: u32 = 3;
+const PHASE9C_DAY: u32 = 0;
 const GOLDEN_CONFIG: &str = include_str!("../tests/fixtures/m3_propagation.toml");
 
 struct TimedRun {
@@ -131,6 +132,15 @@ impl TimedRun {
             ),
         }
         .expect("propagation runner succeeds");
+        let timed_day_ids = outcomes
+            .iter()
+            .map(|outcome| outcome.executed_day)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            timed_day_ids,
+            (0..SAMPLE_DAYS).collect::<Vec<_>>(),
+            "M3-11 tick timed days"
+        );
         let elapsed_us = started.elapsed().as_secs_f64() * 1_000_000.0 / f64::from(SAMPLE_DAYS);
         let storage = self.world.storage().expect("hybrid storage exists");
         let state_hash = canonical_m3prop_state_hash_from_storage(
@@ -155,6 +165,7 @@ impl TimedRun {
                 state_hash,
                 metrics,
                 event_hashes,
+                day_ids: timed_day_ids,
             },
         )
     }
@@ -165,6 +176,7 @@ struct Trace {
     state_hash: CanonicalHash,
     metrics: Vec<sim_model::M3PropDailyMetrics>,
     event_hashes: Vec<CanonicalHash>,
+    day_ids: Vec<u32>,
 }
 
 fn options() -> DayExecutionOptions {
@@ -671,6 +683,7 @@ impl PhaseSetup {
         f64,
         PropagationDailyCounts,
         BTreeMap<AgentId, PropagationAgentState>,
+        u32,
     ) {
         let storage = self.world.storage().expect("storage exists");
         let mut state = initial_propagation(storage);
@@ -683,7 +696,7 @@ impl PhaseSetup {
                 self.prop_config,
                 SEED,
                 REPLICATE,
-                0,
+                PHASE9C_DAY,
                 pool,
                 CHUNK_SIZE,
             ),
@@ -694,7 +707,7 @@ impl PhaseSetup {
                 self.prop_config,
                 SEED,
                 REPLICATE,
-                0,
+                PHASE9C_DAY,
             ),
         };
         let elapsed_us = started.elapsed().as_secs_f64() * 1_000_000.0;
@@ -707,7 +720,7 @@ impl PhaseSetup {
             state, self.oracle_state,
             "Phase 9c state matches the serial oracle"
         );
-        (elapsed_us, counts, state)
+        (elapsed_us, counts, state, PHASE9C_DAY)
     }
 }
 
@@ -722,13 +735,46 @@ fn controls_record() -> (bool, bool) {
     (status.priority_set, status.affinity_set)
 }
 
-fn a5_record(
-    cell: &str,
-    config_hash: &str,
-    paths: &[&str],
-    series: &a5::Series,
+fn day_ids_json(days: &[u32]) -> String {
+    format!(
+        "[{}]",
+        days.iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+fn source_config_hash(config: &SimConfig) -> String {
+    a5::config_hash(&toml::to_string(config).expect("historical config function output serializes"))
+}
+
+fn protocol_hash(cell: &str, config_hash: &str, timer: &str) -> String {
+    a5::config_hash(&format!(
+        "{config_hash}|{cell}|pool=6|chunk=256|days={SAMPLE_DAYS}|metrics=true|events=true|timer={timer}"
+    ))
+}
+
+struct A5RecordContext<'a> {
+    cell: &'a str,
+    config_hash: &'a str,
+    protocol_hash: &'a str,
+    checkpoint_path: &'a str,
+    timed_day_ids: &'a [u32],
+    paths: &'a [&'a str],
     controls: (bool, bool),
-) -> String {
+}
+
+fn a5_record(context: A5RecordContext<'_>, series: &a5::Series) -> String {
+    let A5RecordContext {
+        cell,
+        config_hash,
+        protocol_hash,
+        checkpoint_path,
+        timed_day_ids,
+        paths,
+        controls,
+    } = context;
     let records = (0..a5::SAMPLES)
         .map(|sample| {
             let values = paths
@@ -743,8 +789,9 @@ fn a5_record(
                 .collect::<Vec<_>>()
                 .join(",");
             format!(
-                "{{{values},\"timed_pair_elapsed_ns\":{:.0}}}",
-                series.sample_seconds[sample] * 1_000_000_000.0
+                "{{{values},\"timed_pair_elapsed_ns\":{:.0},\"timed_day_ids\":{}}}",
+                series.sample_seconds[sample] * 1_000_000_000.0,
+                day_ids_json(timed_day_ids)
             )
         })
         .collect::<Vec<_>>()
@@ -763,7 +810,8 @@ fn a5_record(
     let repetitions = series.repetitions_per_path.first().copied().unwrap_or(1);
     let recalibrations = a5::recalibrations_json(series);
     format!(
-        "{{\"kind\":\"series\",\"cell_id\":\"{cell}\",\"complete\":true,\"smoke\":false,\"config_hash\":\"{config_hash}\",\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{{\"warmups\":{},\"samples\":{},\"repetitions_per_sample\":{repetitions},\"sample_records\":[{records}],\"path_mad_over_median\":{{{spreads}}},\"recalibrations\":{recalibrations}}}}}",
+        "{{\"kind\":\"series\",\"cell_id\":\"{cell}\",\"complete\":true,\"smoke\":false,\"config_hash\":\"{config_hash}\",\"protocol_hash\":\"{protocol_hash}\",\"checkpoint_path\":\"{checkpoint_path}\",\"timed_day_ids\":{},\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{{\"warmups\":{},\"samples\":{},\"repetitions_per_sample\":{repetitions},\"sample_records\":[{records}],\"path_mad_over_median\":{{{spreads}}},\"recalibrations\":{recalibrations}}}}}",
+        day_ids_json(timed_day_ids),
         controls.0,
         controls.1,
         a5::WARMUPS,
@@ -786,21 +834,28 @@ fn a5_phase9c(
     population: u64,
     smoke: bool,
     controls: (bool, bool),
-) -> (String, String, a5::Series, (bool, bool)) {
+) -> (String, String, String, Vec<u32>, a5::Series, (bool, bool)) {
     let config = config(population, 16, 16, 0.2);
+    let config_hash = source_config_hash(&config);
     let setup = PhaseSetup::new(&config);
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(6)
         .build()
         .expect("six-thread pool builds");
     let id = format!("N{population}-k16-hops16-transmit0.2-pool6-day0");
+    let timed_day_ids = vec![PHASE9C_DAY];
+    let protocol_hash = protocol_hash(&id, &config_hash, "apply_phase9c_storage");
     if smoke {
-        let (_, _, serial_state) = setup.run(None);
-        let (_, _, parallel_state) = setup.run(Some(&pool));
+        let (_, _, serial_state, serial_day) = setup.run(None);
+        let (_, _, parallel_state, parallel_day) = setup.run(Some(&pool));
+        assert_eq!(serial_day, PHASE9C_DAY);
+        assert_eq!(parallel_day, PHASE9C_DAY);
         assert_eq!(serial_state, parallel_state, "Phase 9c smoke parity");
         return (
             id,
-            "smoke".into(),
+            config_hash,
+            protocol_hash,
+            timed_day_ids,
             a5::Series {
                 repetitions_per_path: vec![1],
                 sample_seconds: vec![],
@@ -812,31 +867,38 @@ fn a5_phase9c(
     }
     let series = a5::paired_series(2, |sample, repeat| {
         let started = Instant::now();
-        let (serial_us, _, serial_state, parallel_us, _, parallel_state) =
+        let (serial_us, _, serial_state, serial_day, parallel_us, _, parallel_state, parallel_day) =
             if (sample + repeat) % 2 == 0 {
                 let serial = setup.run(None);
                 let parallel = setup.run(Some(&pool));
                 (
-                    serial.0, serial.1, serial.2, parallel.0, parallel.1, parallel.2,
+                    serial.0, serial.1, serial.2, serial.3, parallel.0, parallel.1, parallel.2,
+                    parallel.3,
                 )
             } else {
                 let parallel = setup.run(Some(&pool));
                 let serial = setup.run(None);
                 (
-                    serial.0, serial.1, serial.2, parallel.0, parallel.1, parallel.2,
+                    serial.0, serial.1, serial.2, serial.3, parallel.0, parallel.1, parallel.2,
+                    parallel.3,
                 )
             };
+        assert_eq!(serial_day, PHASE9C_DAY);
+        assert_eq!(parallel_day, PHASE9C_DAY);
         assert_eq!(serial_state, parallel_state, "Phase 9c paired parity");
         (
             vec![serial_us, parallel_us],
             started.elapsed().as_secs_f64(),
         )
     });
-    let hash = a5::config_hash(&format!(
-        "{id}|seed={SEED}|replicate={REPLICATE}|K={}|phase=9c|pool=6|chunk=256|timer=apply_phase9c_storage",
-        population / 200
-    ));
-    (id, hash, series, controls)
+    (
+        id,
+        config_hash,
+        protocol_hash,
+        timed_day_ids,
+        series,
+        controls,
+    )
 }
 
 fn a5_tick(
@@ -845,8 +907,11 @@ fn a5_tick(
     interleaved: bool,
     smoke: bool,
     controls: (bool, bool),
-) -> (String, String, a5::Series, (bool, bool)) {
+) -> (String, String, String, Vec<u32>, a5::Series, (bool, bool)) {
     let config = config(population, 16, 16, 0.2);
+    let config_hash = source_config_hash(&config);
+    let expected_days = (0..SAMPLE_DAYS).collect::<Vec<_>>();
+    let protocol_hash = protocol_hash(cell, &config_hash, "public storage API");
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(6)
         .build()
@@ -858,9 +923,12 @@ fn a5_tick(
             let (_, serial_trace) = serial.advance(&config, None);
             let (_, parallel_trace) = parallel.advance(&config, Some(&pool));
             assert_trace_equal(&serial_trace, &parallel_trace);
+            assert_eq!(serial_trace.day_ids, expected_days);
             return (
                 cell.into(),
-                "smoke".into(),
+                config_hash,
+                protocol_hash,
+                serial_trace.day_ids,
                 a5::Series {
                     repetitions_per_path: vec![1],
                     sample_seconds: vec![],
@@ -887,6 +955,7 @@ fn a5_tick(
                 (serial.0, serial.1, parallel.0, parallel.1)
             };
             assert_trace_equal(&serial_trace, &parallel_trace);
+            assert_eq!(serial_trace.day_ids, expected_days);
             (
                 vec![serial_us, parallel_us],
                 started.elapsed().as_secs_f64(),
@@ -899,9 +968,12 @@ fn a5_tick(
             let (_, serial_trace) = serial.advance(&config, None);
             let (_, parallel_trace) = parallel.advance(&config, Some(&pool));
             assert_trace_equal(&serial_trace, &parallel_trace);
+            assert_eq!(serial_trace.day_ids, expected_days);
             return (
                 cell.into(),
-                "smoke".into(),
+                config_hash,
+                protocol_hash,
+                serial_trace.day_ids,
                 a5::Series {
                     repetitions_per_path: vec![1],
                     sample_seconds: vec![],
@@ -918,14 +990,18 @@ fn a5_tick(
             let mut run = TimedRun::new(&config);
             let (elapsed, trace) = run.advance(&config, if path == 0 { None } else { Some(&pool) });
             assert_trace_equal(&expected, &trace);
+            assert_eq!(trace.day_ids, expected_days);
             (elapsed, started.elapsed().as_secs_f64())
         })
     };
-    let hash = a5::config_hash(&format!(
-        "{cell}|seed={SEED}|replicate={REPLICATE}|N={population}|K={}|k=16|hops=16|tx=0.2|threads=6|days=3|metrics=events=true|timer=public storage API",
-        population / 200
-    ));
-    (cell.into(), hash, series, controls)
+    (
+        cell.into(),
+        config_hash,
+        protocol_hash,
+        expected_days,
+        series,
+        controls,
+    )
 }
 
 fn run_a5(output: &std::path::Path) {
@@ -937,24 +1013,29 @@ fn run_a5(output: &std::path::Path) {
     ];
     for (cell, population, _) in cells {
         let existing = std::fs::read_to_string(output).unwrap_or_default();
-        let hash_scope = if cell.starts_with("N") {
-            format!(
-                "{cell}|seed={SEED}|replicate={REPLICATE}|K={}|phase=9c|pool=6|chunk=256|timer=apply_phase9c_storage",
-                population / 200
-            )
+        let source_config_hash = source_config_hash(&config(population, 16, 16, 0.2));
+        let timer = if cell.starts_with("N") {
+            "apply_phase9c_storage"
         } else {
-            format!(
-                "{cell}|seed={SEED}|replicate={REPLICATE}|N={population}|K={}|k=16|hops=16|tx=0.2|threads=6|days=3|metrics=events=true|timer=public storage API",
-                population / 200
-            )
+            "public storage API"
         };
-        let expected_hash = a5::config_hash(&hash_scope);
+        let expected_protocol_hash = protocol_hash(cell, &source_config_hash, timer);
+        let expected_days = if cell.starts_with("N") {
+            vec![PHASE9C_DAY]
+        } else {
+            (0..SAMPLE_DAYS).collect::<Vec<_>>()
+        };
         if let Some(line) = existing
             .lines()
             .find(|line| line.contains(&format!("\"cell_id\":\"{cell}\"")))
         {
             assert!(
-                line.contains(&format!("\"config_hash\":\"{expected_hash}\"")),
+                line.contains(&format!("\"config_hash\":\"{source_config_hash}\""))
+                    && line.contains(&format!("\"protocol_hash\":\"{expected_protocol_hash}\""))
+                    && line.contains(&format!(
+                        "\"timed_day_ids\":{}",
+                        day_ids_json(&expected_days)
+                    )),
                 "existing A-5 cell has a stale config hash: {cell}"
             );
             println!("A5_SKIP|cell={cell}");
@@ -965,14 +1046,25 @@ fn run_a5(output: &std::path::Path) {
             "large-frontier-interleaved-pool6" => a5_tick(cell, population, true, false, controls),
             _ => a5_tick(cell, population, false, false, controls),
         };
+        assert_eq!(result.3, expected_days, "M3-11 timed-day protocol");
+        let checkpoint_path = if cell.starts_with("N") {
+            "M3 base state prepared during setup; Phase9c coordinate day 0"
+        } else {
+            "fresh initialized world at cursor 0 for each pair"
+        };
         append_record(
             output,
             &a5_record(
-                &result.0,
-                &result.1,
-                &["serial", "rayon"],
-                &result.2,
-                result.3,
+                A5RecordContext {
+                    cell: &result.0,
+                    config_hash: &result.1,
+                    protocol_hash: &result.2,
+                    checkpoint_path,
+                    timed_day_ids: &result.3,
+                    paths: &["serial", "rayon"],
+                    controls: result.5,
+                },
+                &result.4,
             ),
         );
         println!("A5_CELL_COMPLETE|cell={cell}");

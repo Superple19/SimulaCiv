@@ -1,0 +1,34 @@
+diff --git a/crates/sim-model/examples/m4_07_many_branch.rs b/crates/sim-model/examples/m4_07_many_branch.rs
+index 3b4b7df..81fe3b3 100644
+--- a/crates/sim-model/examples/m4_07_many_branch.rs
++++ b/crates/sim-model/examples/m4_07_many_branch.rs
+@@ -31,8 +31,27 @@ const REPLICATE: u32 = 7;
+ const GOLDEN_HORIZONS: [u32; 4] = [7, 30, 90, 365];
+
+ fn main() -> Result<(), Box<dyn std::error::Error>> {
+-    let only = std::env::args()
+-        .skip(1)
++    let args = std::env::args().skip(1).collect::<Vec<_>>();
++    if args.first().map(String::as_str) == Some("--m5-08-export-configs") {
++        use sha2::{Digest, Sha256};
++        let directory = PathBuf::from(args.get(1).expect("export directory"));
++        fs::create_dir_all(&directory)?;
++        for (population, settlements) in [(100, 3), (2_000, 3), (10_000, 50)] {
++            let config = config_for(population, settlements)?;
++            let text = toml::to_string(&config)?;
++            let hash = Sha256::digest(text.as_bytes())
++                .iter()
++                .map(|byte| format!("{byte:02x}"))
++                .collect::<String>();
++            let stem = format!("N{population}-K{settlements}");
++            fs::write(directory.join(format!("{stem}.toml")), text)?;
++            fs::write(directory.join(format!("{stem}.sha256")), format!("sha256:{hash}\n"))?;
++            println!("M5_08_CONFIG|cell={stem}|sha256:{hash}");
++        }
++        return Ok(());
++    }
++    let only = args
++        .iter()
+         .find_map(|arg| arg.strip_prefix("--only=").map(str::to_owned));
+     let output = PathBuf::from(match only.as_deref() {
+         Some("crn") => "docs/data/m4_07/crn_parallel.jsonl",

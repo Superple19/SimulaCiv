@@ -17,52 +17,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[path = "common/process_controls.rs"]
 mod process_controls;
 
-const BASE_CONFIG: &str = r#"
-[world]
-master_seed = 81985529216486895
-replicate_id = 7
-initial_population = 10
-settlement_count = 2
-initial_health = 1.0
-initial_food = 25.0
-initial_wealth = 10000
-initial_settlement_resource = 2000.0
-initial_treasury = 5000
-[traits]
-prod_min = 0.8
-prod_max = 1.5
-coop_min = 0.2
-coop_max = 0.8
-aggr_min = 0.1
-aggr_max = 0.5
-risk_min = 0.1
-risk_max = 0.5
-[environment]
-carrying_capacity = 10000.0
-regrowth_rate = 0.1
-base_metabolic_cost = 1.0
-health_decay_rate = 0.05
-[economy]
-base_work_yield = 2.0
-food_price = 100
-target_food = 20.0
-target_reserve = 5000
-tax_rate = 0.1
-welfare_payment = 50
-[interaction]
-gift_amount = 2.0
-theft_amount = 3.0
-theft_success_probability = 0.5
-starvation_threshold = 5.0
-[decision]
-decision_temperature = 1.0
-action_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-base_weight_matrix = [[0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0]]
-trait_weight_cooperation = 1.0
-trait_weight_aggression = 1.0
-trait_weight_risk_tolerance = 1.0
-"#;
-
 const DAYS: u32 = 3;
 const WARMUPS: usize = 2;
 const SAMPLES: usize = 41;
@@ -139,6 +93,7 @@ struct Digests {
 struct Pair {
     serial_us: f64,
     rayon_us: f64,
+    timed_day_ids: Vec<u32>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -147,6 +102,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let resume = args.iter().any(|arg| arg == "--resume");
     let dry_run = args.iter().any(|arg| arg == "--dry-run");
     let selected = args.iter().find_map(|arg| arg.strip_prefix("--cell="));
+    let config_dir = args
+        .iter()
+        .find_map(|arg| arg.strip_prefix("--config-dir="))
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("SIMCIV_M5_08_M2_CONFIG_DIR").map(PathBuf::from));
     let output = args
         .iter()
         .find_map(|arg| arg.strip_prefix("--output="))
@@ -161,20 +121,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    let cells: Vec<Cell> = if smoke {
-        vec![Cell {
-            id: "smoke-A-N100",
-            workload: "A",
-            population: 100,
-            settlements: 2,
-        }]
-    } else {
-        CELLS
-            .iter()
-            .copied()
-            .filter(|cell| selected.is_none_or(|id| id == cell.id))
-            .collect()
-    };
+    let cells: Vec<Cell> = CELLS
+        .iter()
+        .copied()
+        .filter(|cell| selected.is_none_or(|id| id == cell.id))
+        .collect();
     if cells.is_empty() {
         return Err(format!("unknown M2 cell: {}", selected.unwrap_or("<none>")).into());
     }
@@ -186,9 +137,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (index, cell) in cells.iter().enumerate() {
         let series_started_ms = timestamp_ms();
         let setup_started = Instant::now();
-        let config = config_for(*cell)?;
-        let config_hash = config_hash(&config, cell);
-        if completed(&output, cell.id, &config_hash)? {
+        let (config, config_hash) = config_for(
+            *cell,
+            config_dir
+                .as_deref()
+                .ok_or("historical M2 config directory is required")?,
+        )?;
+        let protocol_hash = protocol_hash(&config, cell);
+        if completed(&output, cell.id, &config_hash, &protocol_hash)? {
             eprintln!(
                 "skip {}/{} {} (matching config hash already complete)",
                 index + 1,
@@ -197,7 +153,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             continue;
         }
-        let initial = HybridWorldState::hybrid(initialize_world(&config)?);
+        let initialized_world = initialize_world(&config)?;
+        if initialized_world.current_day.as_u32() != 0 {
+            return Err("M2 source configuration must initialize at day 0".into());
+        }
+        let initial = HybridWorldState::hybrid(initialized_world);
         let context = M0RunContext::new(config.world.master_seed, config.world.replicate_id);
         let setup_ns = setup_started.elapsed().as_nanos();
         if smoke {
@@ -205,12 +165,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             append(
                 &output,
                 &format!(
-                    "{{\"kind\":\"series\",\"cell_id\":\"{}\",\"config_hash\":\"{}\",\"setup_ns\":{},\"series_started_unix_ms\":{},\"series_completed_unix_ms\":{},\"smoke\":true,\"serial_us\":{},\"rayon_us\":{},\"parity\":true,\"complete\":true}}",
+                    "{{\"kind\":\"series\",\"cell_id\":\"{}\",\"config_hash\":\"{}\",\"protocol_hash\":\"{}\",\"checkpoint_path\":\"initialize_world at day 0\",\"setup_ns\":{},\"series_started_unix_ms\":{},\"series_completed_unix_ms\":{},\"timed_day_ids\":{},\"smoke\":true,\"serial_us\":{},\"rayon_us\":{},\"parity\":true,\"complete\":true}}",
                     cell.id,
                     config_hash,
+                    protocol_hash,
                     setup_ns,
                     series_started_ms,
                     timestamp_ms(),
+                    format_day_ids(&pair.timed_day_ids),
                     pair.serial_us,
                     pair.rayon_us
                 ),
@@ -241,12 +203,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         append(
             &output,
             &format!(
-                "{{\"kind\":\"series\",\"cell_id\":\"{}\",\"workload\":\"{}\",\"N\":{},\"K\":{},\"config_hash\":\"{}\",\"setup_ns\":{},\"series_started_unix_ms\":{},\"series_completed_unix_ms\":{},\"execution_options\":{{\"days_per_call\":{},\"metrics\":true,\"events\":true,\"snapshots\":false,\"pool_threads\":6,\"chunk_size\":{}}},\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{},\"complete\":true}}",
+                "{{\"kind\":\"series\",\"cell_id\":\"{}\",\"workload\":\"{}\",\"N\":{},\"K\":{},\"config_hash\":\"{}\",\"protocol_hash\":\"{}\",\"checkpoint_path\":\"initialize_world at day 0\",\"setup_ns\":{},\"series_started_unix_ms\":{},\"series_completed_unix_ms\":{},\"timed_day_ids\":[0,1,2],\"execution_options\":{{\"days_per_call\":{},\"metrics\":true,\"events\":true,\"snapshots\":false,\"pool_threads\":6,\"chunk_size\":{}}},\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{},\"complete\":true}}",
                 cell.id,
                 cell.workload,
                 cell.population,
                 cell.settlements,
                 config_hash,
+                protocol_hash,
                 setup_ns,
                 series_started_ms,
                 timestamp_ms(),
@@ -268,23 +231,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn config_for(cell: Cell) -> Result<SimConfig, Box<dyn std::error::Error>> {
-    let mut config = SimConfig::parse_and_validate(BASE_CONFIG)?;
-    config.world.initial_population = cell.population;
-    config.world.settlement_count = cell.settlements;
-    config.validate()?;
-    Ok(config)
+fn config_for(
+    cell: Cell,
+    config_dir: &Path,
+) -> Result<(SimConfig, String), Box<dyn std::error::Error>> {
+    let path = config_dir.join(format!("{}.toml", cell.id));
+    let text = fs::read_to_string(&path)?;
+    let hash = format!("sha256:{}", hex(&Sha256::digest(text.as_bytes())));
+    let expected = fs::read_to_string(config_dir.join(format!("{}.sha256", cell.id)))?;
+    if expected.trim() != hash {
+        return Err(format!("historical M2 config hash mismatch for {}", cell.id).into());
+    }
+    let config = SimConfig::parse_and_validate(&text)?;
+    if config.world.initial_population != cell.population
+        || config.world.settlement_count != cell.settlements
+    {
+        return Err(format!("historical M2 config dimensions mismatch for {}", cell.id).into());
+    }
+    Ok((config, hash))
 }
 
-fn config_hash(config: &SimConfig, cell: &Cell) -> String {
+fn protocol_hash(config: &SimConfig, cell: &Cell) -> String {
     let bytes = format!(
-        "{BASE_CONFIG}|{}|{}|{}|days={DAYS}|metrics=1|events=1|snapshot=0|pool=6|chunk={}",
+        "M2-40-source-config|{}|{}|days={DAYS}|metrics=1|events=1|snapshot=0|pool=6|chunk={}",
         cell.id,
         config.world.initial_population,
-        config.world.settlement_count,
         CHUNK.get()
     );
     format!("sha256:{}", hex(&Sha256::digest(bytes.as_bytes())))
+}
+
+fn format_day_ids(days: &[u32]) -> String {
+    format!(
+        "[{}]",
+        days.iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 fn pair_once(
@@ -294,19 +278,29 @@ fn pair_once(
     pool: &rayon::ThreadPool,
     order: usize,
 ) -> Result<Pair, Box<dyn std::error::Error>> {
-    let (serial_us, serial_digest, rayon_us, rayon_digest) = if order.is_multiple_of(2) {
-        let serial = run_one(initial, config, context, None)?;
-        let rayon = run_one(initial, config, context, Some(pool))?;
-        (serial.0, serial.1, rayon.0, rayon.1)
-    } else {
-        let rayon = run_one(initial, config, context, Some(pool))?;
-        let serial = run_one(initial, config, context, None)?;
-        (serial.0, serial.1, rayon.0, rayon.1)
-    };
+    let (serial_us, serial_digest, serial_days, rayon_us, rayon_digest, rayon_days) =
+        if order.is_multiple_of(2) {
+            let serial = run_one(initial, config, context, None)?;
+            let rayon = run_one(initial, config, context, Some(pool))?;
+            (serial.0, serial.1, serial.2, rayon.0, rayon.1, rayon.2)
+        } else {
+            let rayon = run_one(initial, config, context, Some(pool))?;
+            let serial = run_one(initial, config, context, None)?;
+            (serial.0, serial.1, serial.2, rayon.0, rayon.1, rayon.2)
+        };
     assert_eq!(serial_digest, rayon_digest, "M2 serial/Rayon digest parity");
+    assert_eq!(serial_days, rayon_days, "M2 serial/Rayon timed day ids");
+    let expected_days = (0..DAYS).collect::<Vec<_>>();
+    if serial_days != expected_days {
+        return Err(format!(
+            "M2 timed day ids differ: expected {expected_days:?}, got {serial_days:?}"
+        )
+        .into());
+    }
     Ok(Pair {
         serial_us,
         rayon_us,
+        timed_day_ids: serial_days,
     })
 }
 
@@ -315,7 +309,7 @@ fn run_one(
     config: &SimConfig,
     context: &M0RunContext,
     pool: Option<&rayon::ThreadPool>,
-) -> Result<(f64, Digests), Box<dyn std::error::Error>> {
+) -> Result<(f64, Digests, Vec<u32>), Box<dyn std::error::Error>> {
     let mut hybrid = initial.clone();
     let options = DayExecutionOptions {
         metrics_enabled: true,
@@ -336,6 +330,13 @@ fn run_one(
         None => run_hybrid_authority_days(&mut hybrid, config, context, DAYS, &options)?,
     };
     let elapsed_us = started.elapsed().as_secs_f64() * 1_000_000.0;
+    let timed_day_ids = outcomes
+        .iter()
+        .map(|outcome| outcome.executed_day)
+        .collect::<Vec<_>>();
+    if timed_day_ids != (0..DAYS).collect::<Vec<_>>() {
+        return Err(format!("M2 runner returned unexpected timed days: {timed_day_ids:?}").into());
+    }
     let storage = hybrid.segmented_storage.as_ref().expect("M2 SoA storage");
     let metrics = outcomes
         .iter()
@@ -357,6 +358,7 @@ fn run_one(
             metrics: canonical_metrics_hash(&metrics)?.to_hex(),
             events: canonical_event_hash(&events)?.to_hex(),
         },
+        timed_day_ids,
     ))
 }
 
@@ -411,7 +413,7 @@ fn measure_cell(
                 short = true;
                 break;
             }
-            values.push(format!("{{\"sample\":{},\"started_unix_ms\":{},\"timed_pair_elapsed_ns\":{},\"wall_elapsed_ns\":{},\"serial_us_per_call\":{},\"rayon_us_per_call\":{}}}",sample,sample_started_ms,timed_ns,elapsed.as_nanos(),serial_us/repetitions as f64,rayon_us/repetitions as f64));
+            values.push(format!("{{\"sample\":{},\"started_unix_ms\":{},\"timed_pair_elapsed_ns\":{},\"wall_elapsed_ns\":{},\"timed_day_ids\":[0,1,2],\"serial_us_per_call\":{},\"rayon_us_per_call\":{}}}",sample,sample_started_ms,timed_ns,elapsed.as_nanos(),serial_us/repetitions as f64,rayon_us/repetitions as f64));
         }
         if !short {
             break values;
@@ -468,6 +470,7 @@ fn completed(
     path: &Path,
     cell_id: &str,
     config_hash: &str,
+    protocol_hash: &str,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     if !path.exists() {
         return Ok(false);
@@ -478,7 +481,9 @@ fn completed(
         if json_field(&value, "kind") == Some("series")
             && json_field(&value, "cell_id") == Some(cell_id)
         {
-            if json_field(&value, "config_hash") != Some(config_hash) {
+            if json_field(&value, "config_hash") != Some(config_hash)
+                || json_field(&value, "protocol_hash") != Some(protocol_hash)
+            {
                 return Err(format!("resume config hash differs for {cell_id}").into());
             }
             return Ok(value.contains("\"complete\":true"));

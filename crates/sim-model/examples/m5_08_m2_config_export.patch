@@ -1,0 +1,37 @@
+diff --git a/crates/sim-model/benches/m0_baseline_bench.rs b/crates/sim-model/benches/m0_baseline_bench.rs
+index 150e315..7c0851c 100644
+--- a/crates/sim-model/benches/m0_baseline_bench.rs
++++ b/crates/sim-model/benches/m0_baseline_bench.rs
+@@ -10050,6 +10050,32 @@ fn measure_m2_39_production_matrix(
+ fn main() {
+     println!("=================================================================");
+     println!("SimulaCiv M0 Reference Runtime Performance Baseline Benchmark");
++    let args = std::env::args().skip(1).collect::<Vec<_>>();
++    if args.first().map(String::as_str) == Some("--m5-08-export-configs") {
++        use sha2::{Digest, Sha256};
++        let directory = std::path::PathBuf::from(args.get(1).expect("export directory"));
++        std::fs::create_dir_all(&directory).expect("create config export directory");
++        let base = SimConfig::parse_and_validate(GATE_CONFIG_TOML).expect("gate config is valid");
++        let context = M0RunContext::new(81985529216486895, 7);
++        for item in args.iter().skip(2).filter(|arg| arg.matches(':').count() == 2) {
++            let fields = item.split(':').collect::<Vec<_>>();
++            assert_eq!(fields.len(), 3, "cell spec is id:N:K");
++            let population = fields[1].parse::<u64>().expect("population");
++            let settlements = fields[2].parse::<u32>().expect("settlement count");
++            let (config, _, _) = m2_35_production_intents(&base, &context, population, settlements);
++            let text = toml::to_string(&config).expect("historical config serializes");
++            let hash = Sha256::digest(text.as_bytes())
++                .iter()
++                .map(|byte| format!("{byte:02x}"))
++                .collect::<String>();
++            std::fs::write(directory.join(format!("{}.toml", fields[0])), text)
++                .expect("write historical config");
++            std::fs::write(directory.join(format!("{}.sha256", fields[0])), format!("sha256:{hash}\n"))
++                .expect("write historical config hash");
++            println!("M5_08_CONFIG|cell={}|sha256:{hash}", fields[0]);
++        }
++        return;
++    }
+     println!("=================================================================");
+
+     let config = SimConfig::parse_and_validate(GATE_CONFIG_TOML).expect("gate config is valid");

@@ -1,0 +1,29 @@
+diff --git a/crates/sim-model/tests/m3p_sustained_gate_tests.rs b/crates/sim-model/tests/m3p_sustained_gate_tests.rs
+index 0000000..0000000 100644
+--- a/crates/sim-model/tests/m3p_sustained_gate_tests.rs
++++ b/crates/sim-model/tests/m3p_sustained_gate_tests.rs
+@@ -120,0 +121,24 @@
++
++#[test]
++fn m5_08_export_sustained_configs_for_a5() {
++    let Ok(directory) = std::env::var("SIMCIV_M5_08_CONFIG_EXPORT_DIR") else {
++        return;
++    };
++    use sha2::{Digest, Sha256};
++    let directory = std::path::PathBuf::from(directory);
++    std::fs::create_dir_all(&directory).expect("create config export directory");
++    for (population, settlements) in [(10_000, 50), (100_000, 500)] {
++        let config = sustained_config(population, settlements);
++        let text = toml::to_string(&config).expect("historical sustained config serializes");
++        let hash = Sha256::digest(text.as_bytes())
++            .iter()
++            .map(|byte| format!("{byte:02x}"))
++            .collect::<String>();
++        let stem = format!("N{population}-K{settlements}");
++        std::fs::write(directory.join(format!("{stem}.toml")), text)
++            .expect("write historical config");
++        std::fs::write(directory.join(format!("{stem}.sha256")), format!("sha256:{hash}\n"))
++            .expect("write historical config hash");
++        println!("M5_08_CONFIG|cell={stem}|sha256:{hash}");
++    }
++}

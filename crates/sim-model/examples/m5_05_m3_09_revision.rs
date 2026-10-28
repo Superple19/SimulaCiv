@@ -24,6 +24,9 @@ const LOCALITY: f64 = 0.5;
 const SEED: u64 = 81_985_529_216_486_895;
 const REPLICATE: u32 = 7;
 const DAYS: u32 = 3;
+const CHECKPOINT_CURSOR: u32 = 401;
+const CHECKPOINT_PATH: &str =
+    "incremental M3P storage from day 0 through executed day 400; snapshot cursor 401";
 
 #[path = "common/process_controls.rs"]
 mod process_controls;
@@ -45,6 +48,7 @@ struct Prepared {
     options: String,
     live_population: u64,
     config_sha256: String,
+    checkpoint_path: String,
 }
 
 fn options(snapshot_boundary: bool) -> DayExecutionOptions {
@@ -68,20 +72,32 @@ fn windows_controls() -> String {
     }
 }
 
-fn fixture_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("SIMCIV_M5_05_CONFIG") {
-        return PathBuf::from(path);
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("m3p_propagation_sustained.toml")
+fn source_config(initial_population: i64, settlement_count: i64) -> (String, String) {
+    let directory = std::env::var_os("SIMCIV_M5_09_CONFIG_DIR")
+        .map(PathBuf::from)
+        .expect("historical M3-09 config directory is required");
+    let stem = format!("N{initial_population}-K{settlement_count}");
+    let source = std::fs::read_to_string(directory.join(format!("{stem}.toml")))
+        .expect("read config emitted by historical sustained_config");
+    let hash = hex(&sha2::Sha256::digest(source.as_bytes()));
+    let expected = std::fs::read_to_string(directory.join(format!("{stem}.sha256")))
+        .expect("read historical config hash");
+    assert_eq!(
+        expected.trim(),
+        format!("sha256:{hash}"),
+        "historical M3-09 config hash"
+    );
+    (source, format!("sha256:{hash}"))
 }
 
-fn parse_config(profile: &str, initial_population: i64, settlement_count: i64) -> SimConfig {
-    let source =
-        std::fs::read_to_string(fixture_path()).expect("read frozen M3P sustained fixture");
-    let mut value: toml::Value = toml::from_str(&source).expect("M3P fixture parses");
+fn parse_config(
+    profile: &str,
+    initial_population: i64,
+    settlement_count: i64,
+    source: &str,
+) -> SimConfig {
+    let mut value: toml::Value =
+        toml::from_str(source).expect("historical sustained config parses");
     value["profile"] = toml::Value::String(profile.to_owned());
     value["world"]["initial_population"] = toml::Value::Integer(initial_population);
     value["world"]["settlement_count"] = toml::Value::Integer(settlement_count);
@@ -108,6 +124,10 @@ fn parse_config(profile: &str, initial_population: i64, settlement_count: i64) -
 }
 
 fn make_checkpoint(config: &SimConfig, checkpoint_cursor: u32) -> M3pReferenceState {
+    assert_eq!(
+        checkpoint_cursor, CHECKPOINT_CURSOR,
+        "registered M3-09 checkpoint cursor"
+    );
     let world = initialize_world(config).expect("M3P world initializes");
     let mut hybrid = HybridWorldState::hybrid(world);
     let run_context = M0RunContext::new(SEED, REPLICATE);
@@ -148,31 +168,37 @@ fn make_checkpoint(config: &SimConfig, checkpoint_cursor: u32) -> M3pReferenceSt
 }
 
 fn prepare_for(initial_population: i64, settlement_count: i64, checkpoint_cursor: u32) -> Prepared {
-    let m3p_config = parse_config("m3p", initial_population, settlement_count);
+    let (source_config, config_sha256) = source_config(initial_population, settlement_count);
+    let m3p_config = parse_config("m3p", initial_population, settlement_count, &source_config);
     let reference = make_checkpoint(&m3p_config, checkpoint_cursor);
     let mut m3_world = reference.world().clone();
     m3_world.agents.retain(|agent| agent.alive);
     let live_population = m3_world.agents.len() as u64;
-    let m3_config = parse_config("m3", live_population as i64, settlement_count);
+    let m3_config = parse_config(
+        "m3",
+        live_population as i64,
+        settlement_count,
+        &source_config,
+    );
 
     let timed_days = (checkpoint_cursor..checkpoint_cursor + DAYS)
         .map(|day| day.to_string())
         .collect::<Vec<_>>()
         .join(",");
-    let checkpoint_scope = format!("checkpoint_cursor={checkpoint_cursor};timed_days={timed_days}");
+    let checkpoint_scope = format!(
+        "checkpoint_path={CHECKPOINT_PATH};checkpoint_cursor={checkpoint_cursor};timed_days={timed_days}"
+    );
     let options_record = format!(
         "initial_population={initial_population};settlements={settlement_count};k={DEGREE};p_local={LOCALITY};seed={SEED};replicate={REPLICATE};{checkpoint_scope};metrics=true;events=true;snapshots=false;policy=serial;pool=0;chunk=256;propagation=false;live_population={live_population}"
     );
 
-    let (_, expected_m3p) = run_m3p(&m3p_config, &reference, false);
-    let (_, expected_incremental) = run_m3p(&m3p_config, &reference, true);
+    let (_, expected_m3p, _) = run_m3p(&m3p_config, &reference, false);
+    let (_, expected_incremental, _) = run_m3p(&m3p_config, &reference, true);
     assert_eq!(
         expected_m3p, expected_incremental,
         "M3P serial/incremental parity"
     );
-    let (_, expected_m3) = run_m3(&m3_config, &m3_world);
-    let fixture = std::fs::read(fixture_path()).expect("read fixture for config hash");
-    let config_sha256 = hex(&sha2::Sha256::digest(fixture));
+    let (_, expected_m3, _) = run_m3(&m3_config, &m3_world);
 
     Prepared {
         m3p_config,
@@ -184,6 +210,7 @@ fn prepare_for(initial_population: i64, settlement_count: i64, checkpoint_cursor
         options: options_record,
         live_population,
         config_sha256,
+        checkpoint_path: CHECKPOINT_PATH.to_owned(),
     }
 }
 
@@ -199,12 +226,22 @@ fn prepare() -> Prepared {
     let checkpoint_cursor = std::env::var("SIMCIV_M5_05_CHECKPOINT_CURSOR")
         .ok()
         .map(|value| value.parse::<u32>().expect("checkpoint cursor is a u32"))
-        .unwrap_or(400);
+        .unwrap_or(CHECKPOINT_CURSOR);
     prepare_for(initial_population, settlement_count, checkpoint_cursor)
 }
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn day_ids_json(days: &[u32]) -> String {
+    format!(
+        "[{}]",
+        days.iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 fn m3p_digests(
@@ -243,7 +280,11 @@ fn m3p_digests(
     }
 }
 
-fn run_m3p(config: &SimConfig, reference: &M3pReferenceState, incremental: bool) -> (f64, Digests) {
+fn run_m3p(
+    config: &SimConfig,
+    reference: &M3pReferenceState,
+    incremental: bool,
+) -> (f64, Digests, Vec<u32>) {
     let mut hybrid = HybridWorldState::hybrid(reference.world().clone());
     let run_context = M0RunContext::new(SEED, REPLICATE);
     if incremental {
@@ -270,7 +311,15 @@ fn run_m3p(config: &SimConfig, reference: &M3pReferenceState, incremental: bool)
             context.relationship_graph(),
             context.next_agent_id(),
         );
-        (elapsed, hashes)
+        let days = outcomes
+            .iter()
+            .map(|day| day.executed_day)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            days,
+            (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>()
+        );
+        (elapsed, hashes, days)
     } else {
         let mut context =
             M3pStorageRunContext::from_reference_state(&hybrid, config, &run_context, reference)
@@ -286,7 +335,15 @@ fn run_m3p(config: &SimConfig, reference: &M3pReferenceState, incremental: bool)
             context.relationship_graph(),
             context.next_agent_id(),
         );
-        (elapsed, hashes)
+        let days = outcomes
+            .iter()
+            .map(|day| day.executed_day)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            days,
+            (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>()
+        );
+        (elapsed, hashes, days)
     }
 }
 
@@ -324,7 +381,7 @@ fn m3_digests(
     }
 }
 
-fn run_m3(config: &SimConfig, world: &WorldState) -> (f64, Digests) {
+fn run_m3(config: &SimConfig, world: &WorldState) -> (f64, Digests, Vec<u32>) {
     let mut hybrid = HybridWorldState::hybrid(world.clone());
     let run_context = M0RunContext::new(SEED, REPLICATE);
     let mut context = M3StorageRunContext::new(&hybrid, config, &run_context).expect("M3 context");
@@ -334,7 +391,15 @@ fn run_m3(config: &SimConfig, world: &WorldState) -> (f64, Digests) {
         .expect("M3 runner");
     let elapsed = started.elapsed().as_secs_f64() * 1_000_000.0;
     let hashes = m3_digests(&hybrid, &outcomes, &graph);
-    (elapsed, hashes)
+    let days = outcomes
+        .iter()
+        .map(|day| day.executed_day)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        days,
+        (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>()
+    );
+    (elapsed, hashes, days)
 }
 
 fn validate_m3p_call(prepared: &Prepared) -> f64 {
@@ -359,8 +424,12 @@ fn validate_m3p_call(prepared: &Prepared) -> f64 {
     started.elapsed().as_secs_f64() * 1_000_000.0
 }
 
-fn run_path(prepared: &Prepared, path: usize) -> (f64, Digests) {
-    let (elapsed, digests) = match path {
+fn run_path(prepared: &Prepared, path: usize) -> (f64, Digests, Vec<u32>) {
+    assert_eq!(
+        prepared.checkpoint_path, CHECKPOINT_PATH,
+        "M3-09 checkpoint provenance"
+    );
+    let (elapsed, digests, days) = match path {
         0 => run_m3p(&prepared.m3p_config, &prepared.reference, false),
         1 => run_m3p(&prepared.m3p_config, &prepared.reference, true),
         2 => run_m3(&prepared.m3_config, &prepared.m3_world),
@@ -372,10 +441,14 @@ fn run_path(prepared: &Prepared, path: usize) -> (f64, Digests) {
         &prepared.expected_m3
     };
     assert_eq!(digests, *expected, "equal-live runner repeat digest");
-    (elapsed, digests)
+    assert_eq!(
+        days,
+        (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>()
+    );
+    (elapsed, digests, days)
 }
 
-fn pair_once(prepared: &Prepared, rotation: usize) -> ([f64; 3], f64) {
+fn pair_once(prepared: &Prepared, rotation: usize) -> ([f64; 3], f64, Vec<u32>) {
     let started = Instant::now();
     let order = match rotation % 3 {
         0 => [0, 1, 2],
@@ -383,11 +456,21 @@ fn pair_once(prepared: &Prepared, rotation: usize) -> ([f64; 3], f64) {
         _ => [2, 0, 1],
     };
     let mut timings = [0.0; 3];
+    let mut timed_days = None;
     for path in order {
-        let (elapsed, _) = run_path(prepared, path);
+        let (elapsed, _, days) = run_path(prepared, path);
+        if let Some(expected) = &timed_days {
+            assert_eq!(expected, &days, "all M3-09 paths time the same days");
+        } else {
+            timed_days = Some(days);
+        }
         timings[path] = elapsed;
     }
-    (timings, started.elapsed().as_secs_f64() * 1_000_000.0)
+    (
+        timings,
+        started.elapsed().as_secs_f64() * 1_000_000.0,
+        timed_days.expect("three paths ran"),
+    )
 }
 
 fn m3_09_cells() -> [&'static str; 4] {
@@ -399,10 +482,7 @@ fn m3_09_cells() -> [&'static str; 4] {
     ]
 }
 
-fn cell_config(cell: &str, smoke: bool) -> (i64, i64, bool, u32) {
-    if smoke {
-        return (300, 3, cell.contains("paired"), 401);
-    }
+fn cell_config(cell: &str, _smoke: bool) -> (i64, i64, bool, u32) {
     let population = if cell.starts_with("N10k-") {
         10_000
     } else if cell.starts_with("N100k-") {
@@ -431,15 +511,16 @@ mod protocol_tests {
     }
 }
 
-fn m3_09_config_hash(
+fn m3_09_protocol_hash(
     cell: &str,
     population: i64,
     settlement_count: i64,
     paired: bool,
     cursor: u32,
+    source_config_hash: &str,
 ) -> String {
     a5::config_hash(&format!(
-        "{cell}|N={population}|K={settlement_count}|k={DEGREE}|p_local={LOCALITY}|seed={SEED}|replicate={REPLICATE}|checkpoint_cursor={cursor}|days={DAYS}|metrics=true|events=true|snapshots=false|schedule={}",
+        "{source_config_hash}|{cell}|N={population}|K={settlement_count}|k={DEGREE}|p_local={LOCALITY}|seed={SEED}|replicate={REPLICATE}|checkpoint_cursor={cursor}|checkpoint_path={CHECKPOINT_PATH}|days={DAYS}|metrics=true|events=true|snapshots=false|schedule={}",
         if paired {
             "paired-rotation-m3p-serial-incremental-m3"
         } else {
@@ -459,20 +540,34 @@ fn a5_controls() -> (bool, bool) {
     (status.priority_set, status.affinity_set)
 }
 
-fn a5_record(
-    cell: &str,
-    config_hash: &str,
+struct A5RecordContext<'a> {
+    cell: &'a str,
+    config_hash: &'a str,
+    protocol_hash: &'a str,
     paired: bool,
-    series: &a5::Series,
+    checkpoint_path: &'a str,
+    timed_day_ids: &'a [u32],
     controls: (bool, bool),
-) -> String {
+}
+
+fn a5_record(context: A5RecordContext<'_>, series: &a5::Series) -> String {
+    let A5RecordContext {
+        cell,
+        config_hash,
+        protocol_hash,
+        paired,
+        checkpoint_path,
+        timed_day_ids,
+        controls,
+    } = context;
     let samples = (0..a5::SAMPLES).map(|sample| {
         format!(
-            "{{\"serial_us_per_call\":{:.9},\"rayon_us_per_call\":{:.9},\"m3p_serial_us_per_call\":{:.9},\"timed_pair_elapsed_ns\":{:.0}}}",
+            "{{\"serial_us_per_call\":{:.9},\"rayon_us_per_call\":{:.9},\"m3p_serial_us_per_call\":{:.9},\"timed_pair_elapsed_ns\":{:.0},\"timed_day_ids\":{}}}",
             series.path_samples_us[1][sample],
             series.path_samples_us[2][sample],
             series.path_samples_us[0][sample],
             series.sample_seconds[sample] * 1_000_000_000.0,
+            day_ids_json(timed_day_ids),
         )
     }).collect::<Vec<_>>().join(",");
     let repetitions = series.repetitions_per_path.first().copied().unwrap_or(1);
@@ -486,7 +581,8 @@ fn a5_record(
         a5::mad_over_median(&series.path_samples_us[2]),
     );
     format!(
-        "{{\"kind\":\"series\",\"cell_id\":\"{cell}\",\"complete\":true,\"smoke\":false,\"config_hash\":\"{config_hash}\",\"schedule\":\"{}\",\"paths\":[\"m3p_serial\",\"m3p_incremental\",\"m3\"],\"ratio_mapping\":\"m3p_incremental/m3\",\"parity_asserted\":true,\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{series_json}}}",
+        "{{\"kind\":\"series\",\"cell_id\":\"{cell}\",\"complete\":true,\"smoke\":false,\"config_hash\":\"{config_hash}\",\"protocol_hash\":\"{protocol_hash}\",\"checkpoint_path\":\"{checkpoint_path}\",\"timed_day_ids\":{},\"schedule\":\"{}\",\"paths\":[\"m3p_serial\",\"m3p_incremental\",\"m3\"],\"ratio_mapping\":\"m3p_incremental/m3\",\"parity_asserted\":true,\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{series_json}}}",
+        day_ids_json(timed_day_ids),
         if paired {
             "paired-rotation"
         } else {
@@ -509,7 +605,15 @@ fn append_a5(path: &std::path::Path, record: &str) {
 
 fn run_a5_cell(cell: &str, output: &std::path::Path, smoke: bool) {
     let (population, settlements, paired, cursor) = cell_config(cell, smoke);
-    let config_hash = m3_09_config_hash(cell, population, settlements, paired, cursor);
+    let controls = a5_controls();
+    let prepared = prepare_for(population, settlements, cursor);
+    assert_eq!(
+        prepared.checkpoint_path, CHECKPOINT_PATH,
+        "M3-09 checkpoint path"
+    );
+    let config_hash = prepared.config_sha256.clone();
+    let protocol_hash =
+        m3_09_protocol_hash(cell, population, settlements, paired, cursor, &config_hash);
     if !smoke {
         let existing = std::fs::read_to_string(output).unwrap_or_default();
         if let Some(line) = existing
@@ -517,44 +621,77 @@ fn run_a5_cell(cell: &str, output: &std::path::Path, smoke: bool) {
             .find(|line| line.contains(&format!("\"cell_id\":\"{cell}\"")))
         {
             assert!(
-                line.contains(&format!("\"config_hash\":\"{config_hash}\"")),
+                line.contains(&format!("\"config_hash\":\"{config_hash}\""))
+                    && line.contains(&format!("\"protocol_hash\":\"{protocol_hash}\"")),
                 "existing M3-09 cell has a stale config hash: {cell}"
             );
             println!("A5_SKIP|cell={cell}");
             return;
         }
     }
-    let controls = a5_controls();
-    let prepared = prepare_for(population, settlements, cursor);
     if smoke {
-        let expected = if paired {
-            let (times, _) = pair_once(&prepared, 0);
-            times
+        let (days, times) = if paired {
+            let (times, _, days) = pair_once(&prepared, 0);
+            (days, times)
         } else {
-            [
-                run_path(&prepared, 0).0,
-                run_path(&prepared, 1).0,
-                run_path(&prepared, 2).0,
-            ]
+            let outputs = [
+                run_path(&prepared, 0),
+                run_path(&prepared, 1),
+                run_path(&prepared, 2),
+            ];
+            assert_eq!(outputs[0].2, outputs[1].2);
+            assert_eq!(outputs[0].2, outputs[2].2);
+            (
+                outputs[0].2.clone(),
+                [outputs[0].0, outputs[1].0, outputs[2].0],
+            )
         };
-        assert!(expected.iter().all(|value| *value > 0.0));
-        println!("A5_SMOKE_OK|cell={cell}|parity=true|timing_recorded=false");
+        assert_eq!(
+            days,
+            (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>()
+        );
+        assert!(times.iter().all(|value| *value > 0.0));
+        println!(
+            "A5_SMOKE_OK|cell={cell}|config_hash={config_hash}|checkpoint_path={}|timed_day_ids={}|parity=true|timing_recorded=false",
+            prepared.checkpoint_path,
+            day_ids_json(&days)
+        );
         return;
     }
     let series = if paired {
         a5::paired_series(3, |sample, repeat| {
-            let (values, wall_us) = pair_once(&prepared, sample + repeat);
+            let (values, wall_us, days) = pair_once(&prepared, sample + repeat);
+            assert_eq!(
+                days,
+                (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>()
+            );
             let paths = values.to_vec();
             (paths, wall_us / 1_000_000.0)
         })
     } else {
         a5::noninterleaved_series(3, |path, _, _| {
             let started = Instant::now();
-            let (elapsed, _) = run_path(&prepared, path);
+            let (elapsed, _, days) = run_path(&prepared, path);
+            assert_eq!(
+                days,
+                (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>()
+            );
             (elapsed, started.elapsed().as_secs_f64())
         })
     };
-    let record = a5_record(cell, &config_hash, paired, &series, controls);
+    let timed_day_ids = (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>();
+    let record = a5_record(
+        A5RecordContext {
+            cell,
+            config_hash: &config_hash,
+            protocol_hash: &protocol_hash,
+            paired,
+            checkpoint_path: &prepared.checkpoint_path,
+            timed_day_ids: &timed_day_ids,
+            controls,
+        },
+        &series,
+    );
     append_a5(output, &record);
     println!("A5_CELL_COMPLETE|cell={cell}");
 }
@@ -633,7 +770,11 @@ fn server() {
             break;
         }
         if op == "probe" {
-            let (times, wall) = pair_once(&prepared, sample as usize);
+            let (times, wall, days) = pair_once(&prepared, sample as usize);
+            assert_eq!(
+                days,
+                (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>()
+            );
             reply(
                 &mut writer,
                 &format!(
@@ -656,7 +797,11 @@ fn server() {
         let started = Instant::now();
         let mut path_sums = [0.0; 3];
         for repeat in 0..repetitions {
-            let (times, _) = pair_once(&prepared, (sample + repeat) as usize);
+            let (times, _, days) = pair_once(&prepared, (sample + repeat) as usize);
+            assert_eq!(
+                days,
+                (CHECKPOINT_CURSOR..CHECKPOINT_CURSOR + DAYS).collect::<Vec<_>>()
+            );
             for (sum, time) in path_sums.iter_mut().zip(times) {
                 *sum += time;
             }

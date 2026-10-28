@@ -3,7 +3,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sim_core::{AgentId, GroupId};
 use sim_model::counterfactual::{
-    AgentField, AgentFieldValue, BranchIntervention, ConfigParameter, ConfigValue,
+    AgentField, AgentFieldValue, BranchExecutionOption, BranchIntervention, BranchRequest,
+    ConfigParameter, ConfigValue, run_counterfactual_branch,
 };
 use sim_model::crn_efficiency::{
     CrnEfficiencyRequest, run_crn_efficiency, run_crn_efficiency_parallel,
@@ -15,7 +16,7 @@ use sim_model::minimal_cause::{
 };
 use sim_model::runner::{DEFAULT_CONFIG_VERSION, DEFAULT_MODEL_VERSION};
 use sim_model::snapshot::SnapshotMetadata;
-use sim_model::{M0RunContext, SimConfig, SimulationProfile, initialize_world};
+use sim_model::{M0RunContext, SimConfig, initialize_world};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::num::NonZeroUsize;
@@ -25,7 +26,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[path = "common/process_controls.rs"]
 mod process_controls;
 
-const FIXTURE: &str = include_str!("../tests/fixtures/m3p_propagation_sustained.toml");
 const SEED: u64 = 81_985_529_216_486_895;
 const REPLICATE: u32 = 7;
 const HORIZONS: [u32; 4] = [7, 30, 90, 365];
@@ -35,6 +35,7 @@ const SAMPLE_TARGET: Duration = Duration::from_millis(1250);
 const SAMPLE_FLOOR: Duration = Duration::from_secs(1);
 const CHUNK: NonZeroUsize = NonZeroUsize::new(1).unwrap();
 const THREADS: usize = 6;
+type TimedPair = (u128, u128, bool, Vec<u32>, String, String);
 
 const CELLS: [&str; 4] = [
     "case-a-exhaustive-R10-H90",
@@ -79,8 +80,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     for (index, cell) in cells.iter().enumerate() {
         let series_started_ms = timestamp_ms();
-        let hash = config_hash(cell);
-        if completed(&output, cell, &hash)? {
+        let (population, settlements) = config_dimensions(cell);
+        let (_, source_config_hash) = config_for(population, settlements)?;
+        let protocol_hash = config_hash(cell, &source_config_hash);
+        if completed(&output, cell, &source_config_hash, &protocol_hash)? {
             eprintln!(
                 "skip {}/{} {cell} (matching config hash already complete)",
                 index + 1,
@@ -89,15 +92,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         if smoke {
-            let exact = if cell.starts_with("smoke-crn") {
-                crn_pair("food_0", 100, 3, vec![1], 10, &pool, 0)?.2
-            } else {
-                search_pair(true, &pool, Path::new("target/m5_06_m4_smoke"), 0)?.2
-            };
+            let (exact, timed_day_ids, config_hash, checkpoint_path) =
+                if cell.starts_with("smoke-crn") {
+                    let result = crn_pair("food_0", 100, 3, vec![1], 10, &pool, 0)?;
+                    (result.2, result.3, result.4, result.5)
+                } else {
+                    let result = search_pair(true, &pool, Path::new("target/m5_06_m4_smoke"), 0)?;
+                    (result.2, result.3, result.4, result.5)
+                };
             assert!(exact);
+            assert_eq!(config_hash, source_config_hash);
+            let (smoke_config, _) = config_for(population, settlements)?;
+            let smoke_snapshot = snapshot_for(&smoke_config, &M0RunContext::new(SEED, REPLICATE))?;
+            assert_eq!(
+                timed_day_ids,
+                verify_branch_day_ids(&smoke_config, &smoke_snapshot, timed_day_ids.len() as u32)?,
+                "M4 smoke timed day IDs"
+            );
             append(
                 &output,
-                json!({"kind":"series","cell_id":cell,"config_hash":hash,"series_started_unix_ms":series_started_ms,"series_completed_unix_ms":timestamp_ms(),"smoke":true,"parity":true,"complete":true}),
+                json!({"kind":"series","cell_id":cell,"config_hash":config_hash,"protocol_hash":protocol_hash,"timed_day_ids":timed_day_ids,"checkpoint_path":checkpoint_path,"series_started_unix_ms":series_started_ms,"series_completed_unix_ms":timestamp_ms(),"smoke":true,"parity":true,"complete":true}),
             )?;
             eprintln!("cell {}/{} {cell} smoke complete", index + 1, cells.len());
             continue;
@@ -121,9 +135,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             measure_crn(cell, &pool)?
         };
+        if series["config_hash"] != source_config_hash || series["protocol_hash"] != protocol_hash {
+            return Err(format!("M4 source config/protocol hash mismatch for {cell}").into());
+        }
         append(
             &output,
-            json!({"kind":"series","cell_id":cell,"config_hash":hash,"series_started_unix_ms":series_started_ms,"series_completed_unix_ms":timestamp_ms(),"pool_threads":THREADS,"chunk_size":CHUNK.get(),"process_controls":{"priority_set":applied.priority_set,"affinity_set":applied.affinity_set},"series":series,"complete":true}),
+            json!({"kind":"series","cell_id":cell,"config_hash":source_config_hash,"protocol_hash":protocol_hash,"timed_day_ids":series["timed_day_ids"],"checkpoint_path":series["checkpoint_path"],"series_started_unix_ms":series_started_ms,"series_completed_unix_ms":timestamp_ms(),"pool_threads":THREADS,"chunk_size":CHUNK.get(),"process_controls":{"priority_set":applied.priority_set,"affinity_set":applied.affinity_set},"series":series,"complete":true}),
         )?;
         eprintln!(
             "cell {}/{} {} elapsed={:.1}s",
@@ -136,17 +153,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn config_for(population: u64, settlements: u32) -> Result<SimConfig, Box<dyn std::error::Error>> {
-    let mut config = SimConfig::parse_and_validate(FIXTURE)?;
-    config.profile = SimulationProfile::M3p;
-    config.simulation = None;
-    config.propagation = None;
-    config.world.initial_population = population;
-    config.world.settlement_count = settlements;
-    config.world.master_seed = SEED;
-    config.world.replicate_id = REPLICATE;
-    config.validate()?;
-    Ok(config)
+fn config_dimensions(cell: &str) -> (u64, u32) {
+    if cell.starts_with("case-a") {
+        (2_000, 3)
+    } else if cell.starts_with("smoke-") {
+        (100, 3)
+    } else {
+        (10_000, 50)
+    }
+}
+
+fn config_for(
+    population: u64,
+    settlements: u32,
+) -> Result<(SimConfig, String), Box<dyn std::error::Error>> {
+    let directory = std::env::var_os("SIMCIV_M5_08_M4_CONFIG_DIR")
+        .map(PathBuf::from)
+        .ok_or("historical M4 config directory is required")?;
+    let stem = format!("N{population}-K{settlements}");
+    let text = fs::read_to_string(directory.join(format!("{stem}.toml")))?;
+    let config_hash = format!("sha256:{}", hex(&Sha256::digest(text.as_bytes())));
+    let expected = fs::read_to_string(directory.join(format!("{stem}.sha256")))?;
+    if expected.trim() != config_hash {
+        return Err(format!("historical M4 config hash mismatch for {stem}").into());
+    }
+    let config = SimConfig::parse_and_validate(&text)?;
+    if config.world.initial_population != population || config.world.settlement_count != settlements
+    {
+        return Err(format!("historical M4 config dimensions mismatch for {stem}").into());
+    }
+    Ok((config, config_hash))
 }
 
 fn snapshot_for(
@@ -154,6 +190,11 @@ fn snapshot_for(
     context: &M0RunContext,
 ) -> Result<sim_model::CanonicalSnapshot, Box<dyn std::error::Error>> {
     let world = initialize_world(config)?;
+    assert_eq!(
+        world.current_day.as_u32(),
+        0,
+        "M4 source snapshot starts at day 0"
+    );
     let metadata = SnapshotMetadata::new(
         world.current_day.as_u32(),
         context.master_seed,
@@ -165,6 +206,41 @@ fn snapshot_for(
     Ok(encode_m3p_snapshot(&state, &metadata)?)
 }
 
+fn verify_branch_day_ids(
+    config: &SimConfig,
+    snapshot: &sim_model::CanonicalSnapshot,
+    horizon: u32,
+) -> Result<Vec<u32>, Box<dyn std::error::Error>> {
+    let start = snapshot.metadata.day;
+    let request = BranchRequest {
+        snapshot: snapshot.clone(),
+        config: config.clone(),
+        run_context: M0RunContext::new(SEED, REPLICATE),
+        intervention: BranchIntervention::ConfigOverride {
+            parameter: ConfigParameter::BaseMetabolicCost,
+            value: ConfigValue::F32(config.environment.base_metabolic_cost),
+        },
+        horizon_days: horizon,
+        execution: BranchExecutionOption::Serial,
+        snapshot_days: Vec::new(),
+    };
+    let result = run_counterfactual_branch(&request)?;
+    let expected = (start..start + horizon).collect::<Vec<_>>();
+    let base = result
+        .base_days
+        .iter()
+        .map(|day| day.day)
+        .collect::<Vec<_>>();
+    let branch = result
+        .branch_days
+        .iter()
+        .map(|day| day.day)
+        .collect::<Vec<_>>();
+    assert_eq!(base, expected, "M4 branch API base day IDs");
+    assert_eq!(branch, expected, "M4 branch API intervention day IDs");
+    Ok(branch)
+}
+
 fn crn_pair(
     name: &str,
     population: u64,
@@ -173,10 +249,16 @@ fn crn_pair(
     replicates: usize,
     pool: &rayon::ThreadPool,
     order: usize,
-) -> Result<(u128, u128, bool), Box<dyn std::error::Error>> {
-    let config = config_for(population, settlements)?;
+) -> Result<TimedPair, Box<dyn std::error::Error>> {
+    let (config, config_hash) = config_for(population, settlements)?;
     let context = M0RunContext::new(SEED, REPLICATE);
     let snapshot = snapshot_for(&config, &context)?;
+    let checkpoint_day = snapshot.metadata.day;
+    assert_eq!(checkpoint_day, 0, "M4 CRN checkpoint cursor");
+    let expected_days = (checkpoint_day
+        ..checkpoint_day + *horizons.last().ok_or("empty M4 horizons")?)
+        .collect::<Vec<_>>();
+    let checkpoint_path = "M4 snapshot generated from initialized world at cursor 0".to_owned();
     let intervention = match name {
         "food_0" => BranchIntervention::AgentFieldOverride {
             agent_id: AgentId(0),
@@ -199,7 +281,7 @@ fn crn_pair(
         branch_point: snapshot,
         intervention,
         target_group_id: GroupId(0),
-        horizons,
+        horizons: horizons.clone(),
         replicate_count: replicates,
     };
     let first_parallel = order % 2 == 1;
@@ -222,7 +304,25 @@ fn crn_pair(
     };
     let exact = serial == parallel;
     assert!(exact, "M4 serial/parallel CRN result mismatch: {name}");
-    Ok((serial_ns, parallel_ns, exact))
+    let mut observed_horizons = serial
+        .estimates
+        .iter()
+        .map(|estimate| estimate.horizon_days)
+        .collect::<Vec<_>>();
+    observed_horizons.sort_unstable();
+    observed_horizons.dedup();
+    assert_eq!(
+        observed_horizons, horizons,
+        "M4 CRN evaluated registered horizons"
+    );
+    Ok((
+        serial_ns,
+        parallel_ns,
+        exact,
+        expected_days,
+        config_hash,
+        checkpoint_path,
+    ))
 }
 
 fn search_pair(
@@ -230,16 +330,20 @@ fn search_pair(
     pool: &rayon::ThreadPool,
     log_root: &Path,
     order: usize,
-) -> Result<(u128, u128, bool), Box<dyn std::error::Error>> {
+) -> Result<TimedPair, Box<dyn std::error::Error>> {
     let (population, settlements, candidate_count, replicates, horizon, max_evaluations) = if smoke
     {
         (100, 3, 2, 10, 2, 32)
     } else {
         (2_000, 3, 8, 10, 90, 5_000)
     };
-    let config = config_for(population, settlements)?;
+    let (config, config_hash) = config_for(population, settlements)?;
     let context = M0RunContext::new(SEED, REPLICATE);
     let snapshot = snapshot_for(&config, &context)?;
+    let checkpoint_day = snapshot.metadata.day;
+    assert_eq!(checkpoint_day, 0, "M4 minimal-cause checkpoint cursor");
+    let timed_day_ids = (checkpoint_day..checkpoint_day + horizon).collect::<Vec<_>>();
+    let checkpoint_path = "M4 snapshot generated from initialized world at cursor 0".to_owned();
     let world = initialize_world(&config)?;
     let mut ids = world
         .agents
@@ -314,7 +418,15 @@ fn search_pair(
     );
     let _ = fs::remove_file(serial_path);
     let _ = fs::remove_file(parallel_path);
-    Ok((serial_ns, parallel_ns, exact))
+    assert_eq!(timed_day_ids.len(), horizon as usize, "M4 search day range");
+    Ok((
+        serial_ns,
+        parallel_ns,
+        exact,
+        timed_day_ids,
+        config_hash,
+        checkpoint_path,
+    ))
 }
 
 fn read_log(path: &Path) -> Result<Vec<Value>, Box<dyn std::error::Error>> {
@@ -339,30 +451,51 @@ fn measure_crn(cell: &str, pool: &rayon::ThreadPool) -> Result<Value, Box<dyn st
     } else {
         ("base_metabolic_cost_plus_1pct", "global-cost-plus-1pct")
     };
+    let (config, _) = config_for(10_000, 50)?;
+    let snapshot = snapshot_for(&config, &M0RunContext::new(SEED, REPLICATE))?;
+    let verified_days = verify_branch_day_ids(&config, &snapshot, *HORIZONS.last().unwrap())?;
     measure_series(
-        |order| crn_pair(name, 10_000, 50, HORIZONS.to_vec(), 100, pool, order),
+        |order| {
+            let result = crn_pair(name, 10_000, 50, HORIZONS.to_vec(), 100, pool, order)?;
+            assert_eq!(result.3, verified_days, "M4 CRN timed day IDs");
+            Ok(result)
+        },
         label,
+        cell,
     )
 }
 
 fn measure_search(pool: &rayon::ThreadPool) -> Result<Value, Box<dyn std::error::Error>> {
+    let (config, _) = config_for(2_000, 3)?;
+    let snapshot = snapshot_for(&config, &M0RunContext::new(SEED, REPLICATE))?;
+    let verified_days = verify_branch_day_ids(&config, &snapshot, 90)?;
     measure_series(
-        |order| search_pair(false, pool, Path::new("target/m5_06_m4_pair"), order),
+        |order| {
+            let result = search_pair(false, pool, Path::new("target/m5_06_m4_pair"), order)?;
+            assert_eq!(result.3, verified_days, "M4 search timed day IDs");
+            Ok(result)
+        },
         "case-a",
+        CELLS[0],
     )
 }
 
-fn measure_series<F>(mut operation: F, label: &str) -> Result<Value, Box<dyn std::error::Error>>
+fn measure_series<F>(
+    mut operation: F,
+    label: &str,
+    cell_id: &str,
+) -> Result<Value, Box<dyn std::error::Error>>
 where
-    F: FnMut(usize) -> Result<(u128, u128, bool), Box<dyn std::error::Error>>,
+    F: FnMut(usize) -> Result<TimedPair, Box<dyn std::error::Error>>,
 {
     let mut order = 0usize;
+    let mut identity: Option<(Vec<u32>, String, String)> = None;
     let mut warmup_ns = Vec::with_capacity(WARMUPS);
     for _ in 0..WARMUPS {
         let started = Instant::now();
         let result = operation(order)?;
         order += 1;
-        assert!(result.2);
+        guard_call_identity(&mut identity, &result);
         warmup_ns.push(started.elapsed().as_nanos());
     }
     let mut repetitions = 1usize;
@@ -373,7 +506,7 @@ where
         for _ in 0..repetitions {
             let result = operation(order)?;
             order += 1;
-            assert!(result.2);
+            guard_call_identity(&mut identity, &result);
             timed_ns += result.0 + result.1;
         }
         let elapsed = start.elapsed();
@@ -398,7 +531,7 @@ where
             for _ in 0..repetitions {
                 let pair = operation(order)?;
                 order += 1;
-                assert!(pair.2);
+                guard_call_identity(&mut identity, &pair);
                 serial += pair.0;
                 parallel += pair.1;
             }
@@ -408,7 +541,9 @@ where
                 short = true;
                 break;
             }
-            values.push(json!({"sample":sample,"started_unix_ms":sample_started_ms,"timed_pair_elapsed_ns":timed_ns,"wall_elapsed_ns":elapsed.as_nanos(),"serial_ns_per_call":serial as f64/repetitions as f64,"parallel_ns_per_call":parallel as f64/repetitions as f64}));
+            let (days, config_hash, checkpoint_path) =
+                identity.as_ref().expect("guarded M4 call identity");
+            values.push(json!({"sample":sample,"started_unix_ms":sample_started_ms,"timed_pair_elapsed_ns":timed_ns,"wall_elapsed_ns":elapsed.as_nanos(),"serial_ns_per_call":serial as f64/repetitions as f64,"parallel_ns_per_call":parallel as f64/repetitions as f64,"config_hash":config_hash,"timed_day_ids":days,"checkpoint_path":checkpoint_path}));
         }
         if !short {
             break values;
@@ -422,20 +557,29 @@ where
         repetitions = ((repetitions as f64) * 1.5).ceil() as usize;
         recalibrations.push(json!({"old_r":old,"new_r":repetitions,"reason":"sample below one-second floor; discarded and series restarted"}));
     };
+    let (timed_day_ids, source_config_hash, checkpoint_path) =
+        identity.expect("M4 series made at least one API call");
+    let protocol_hash = config_hash(cell_id, &source_config_hash);
     Ok(
-        json!({"label":label,"warmups":WARMUPS,"warmup_wall_ns":warmup_ns,"samples":SAMPLES,"samples_target_ns":SAMPLE_TARGET.as_nanos(),"floor_sample_ns":SAMPLE_FLOOR.as_nanos(),"calibration_wall_ns":calibration_wall_ns,"repetitions_per_sample":repetitions,"recalibrations":recalibrations,"sample_records":sample_records}),
+        json!({"label":label,"config_hash":source_config_hash,"protocol_hash":protocol_hash,"timed_day_ids":timed_day_ids,"checkpoint_path":checkpoint_path,"warmups":WARMUPS,"warmup_wall_ns":warmup_ns,"samples":SAMPLES,"samples_target_ns":SAMPLE_TARGET.as_nanos(),"floor_sample_ns":SAMPLE_FLOOR.as_nanos(),"calibration_wall_ns":calibration_wall_ns,"repetitions_per_sample":repetitions,"recalibrations":recalibrations,"sample_records":sample_records}),
     )
 }
 
-fn config_hash(cell: &str) -> String {
+fn guard_call_identity(expected: &mut Option<(Vec<u32>, String, String)>, call: &TimedPair) {
+    assert!(call.2, "M4 serial/parallel result parity");
+    let identity = (call.3.clone(), call.4.clone(), call.5.clone());
+    if let Some(existing) = expected.as_ref() {
+        assert_eq!(existing, &identity, "M4 timed call identity changed");
+    } else {
+        *expected = Some(identity);
+    }
+}
+
+fn config_hash(cell: &str, source_config_hash: &str) -> String {
     format!(
         "sha256:{}",
         hex(&Sha256::digest(
-            format!(
-                "{FIXTURE}|{cell}|pool={THREADS}|chunk={}|horizons={HORIZONS:?}|samples={SAMPLES}",
-                CHUNK.get()
-            )
-            .as_bytes()
+            format!("{source_config_hash}|{cell}|pool={THREADS}|chunk={}|horizons={HORIZONS:?}|samples={SAMPLES}", CHUNK.get()).as_bytes()
         ))
     )
 }
@@ -462,14 +606,19 @@ fn ensure_header(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         json!({"kind":"header","stage":"M5-06","adapter":"m4-parallel","host_os":std::env::consts::OS,"host_arch":std::env::consts::ARCH}),
     )
 }
-fn completed(path: &Path, cell: &str, hash: &str) -> Result<bool, Box<dyn std::error::Error>> {
+fn completed(
+    path: &Path,
+    cell: &str,
+    config_hash: &str,
+    protocol_hash: &str,
+) -> Result<bool, Box<dyn std::error::Error>> {
     if !path.exists() {
         return Ok(false);
     }
     for line in BufReader::new(fs::File::open(path)?).lines() {
         let row: Value = serde_json::from_str(&line?)?;
         if row["kind"] == "series" && row["cell_id"] == cell {
-            if row["config_hash"] != hash {
+            if row["config_hash"] != config_hash || row["protocol_hash"] != protocol_hash {
                 return Err(format!("resume config hash differs for {cell}").into());
             }
             return Ok(row["complete"] == true);

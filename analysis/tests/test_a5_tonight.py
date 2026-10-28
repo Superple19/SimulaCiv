@@ -12,6 +12,7 @@ from simciv_analysis.a5_tonight import (
     _completed_protocol_cells,
     _exceeds_invalid_limit,
     _ingest_record_id,
+    _m2_source_config_specs,
     _overlay_failure_record,
     _protocols,
     _apply_overlay_patch,
@@ -38,6 +39,20 @@ def test_report_revisions_use_isolated_cargo_target_directories():
     assert left != right
     assert left.endswith("a" * 40)
     assert right.endswith("b" * 40)
+
+
+def test_m2_source_config_export_specs_preserve_each_registered_cell():
+    specs = _m2_source_config_specs(_protocols()["m2_explicit_rayon_speedup"])
+    assert specs == [
+        "A-N10000:10000:2",
+        "A-N20000:20000:2",
+        "A-N50000:50000:2",
+        "A-N100000:100000:2",
+        "B-N10000:10000:50",
+        "B-N20000:20000:100",
+        "B-N50000:50000:250",
+        "B-N100000:100000:500",
+    ]
 
 
 def test_ingest_reuses_completed_run_only_for_a_missing_supersession_link():

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -212,13 +213,65 @@ def _cargo_env(report_revision: str) -> dict[str, str]:
     return environment
 
 
-def _smoke_worktree(group_id: str, worktree: Path) -> list[str]:
+def _source_config_dir(group_id: str, report_revision: str) -> Path:
+    return SCRATCH / "source-configs" / report_revision / group_id
+
+
+def _m2_source_config_specs(protocol: dict[str, Any]) -> list[str]:
+    specs = []
+    for cell_id in protocol["ordered_cell_ids"]:
+        match = re.fullmatch(r"([AB])-N(\d+)", cell_id)
+        if match is None:
+            raise ValueError(f"unrecognized M2 source-config cell: {cell_id}")
+        workload, n_text = match.groups()
+        population = int(n_text)
+        settlements = 2 if workload == "A" else population // 200
+        specs.append(f"{cell_id}:{population}:{settlements}")
+    return specs
+
+
+def _export_source_configs(group_id: str, report_revision: str, worktree: Path) -> Path | None:
+    if group_id not in {"m2", "m3_09", "m4"}:
+        return None
+    directory = _source_config_dir(group_id, report_revision)
+    directory.mkdir(parents=True, exist_ok=True)
+    environment = _cargo_env(report_revision)
+    if group_id == "m2":
+        protocol = _protocols()["m2_explicit_rayon_speedup"]
+        specs = _m2_source_config_specs(protocol)
+        command = [
+            "cargo", "+1.98.1", "bench", "--locked", "-p", "sim-model", "--bench",
+            "m0_baseline_bench", "--", "--m5-08-export-configs", str(directory), *specs,
+        ]
+        subprocess.run(command, cwd=worktree, env=environment, check=True)
+    elif group_id == "m3_09":
+        environment["SIMCIV_M5_08_CONFIG_EXPORT_DIR"] = str(directory)
+        command = [
+            "cargo", "+1.98.1", "test", "--locked", "-p", "sim-model", "--test",
+            "m3p_sustained_gate_tests", "m5_08_export_sustained_configs_for_a5", "--",
+            "--exact", "--nocapture",
+        ]
+        subprocess.run(command, cwd=worktree, env=environment, check=True)
+    else:
+        command = [
+            "cargo", "+1.98.1", "run", "--release", "--locked", "-p", "sim-model", "--example",
+            "m4_07_many_branch", "--", "--m5-08-export-configs", str(directory),
+        ]
+        subprocess.run(command, cwd=worktree, env=environment, check=True)
+    return directory
+
+
+def _smoke_worktree(group_id: str, worktree: Path, config_dir: Path | None = None) -> list[str]:
     spec = GROUPS[group_id]
     temp = SCRATCH / "smoke"
     temp.mkdir(parents=True, exist_ok=True)
     example = spec["example"]
     report_revision = _protocols()[spec["protocols"][0]]["report_revision"]
     env = _cargo_env(report_revision)
+    if group_id == "m4":
+        if config_dir is None:
+            raise ValueError("M4 report-SHA smoke requires historical source configs")
+        env["SIMCIV_M5_08_M4_CONFIG_DIR"] = str(config_dir)
     if group_id == "m3_11":
         cells = [
             "N100000-k16-hops16-transmit0.2-pool6-day0",
@@ -234,19 +287,33 @@ def _smoke_worktree(group_id: str, worktree: Path) -> list[str]:
             )
         return cells
     if group_id == "m3_09":
-        cell = "N10k-paired"
-        subprocess.run(
-            ["cargo", "+1.98.1", "run", "--release", "--locked", "-p", "sim-model", "--example", example, "--", "--a5-smoke", cell],
-            cwd=worktree,
-            env=env,
-            check=True,
-        )
-        return [cell]
+        if config_dir is None:
+            raise ValueError("M3-09 report-SHA smoke requires historical source configs")
+        env["SIMCIV_M5_09_CONFIG_DIR"] = str(config_dir)
+        cells = _protocols()["m3_09_incremental_equal_live"]["ordered_cell_ids"]
+        for cell in cells:
+            subprocess.run(
+                ["cargo", "+1.98.1", "run", "--release", "--locked", "-p", "sim-model", "--example", example, "--", "--a5-smoke", cell],
+                cwd=worktree,
+                env=env,
+                check=True,
+            )
+        return list(cells)
     output = temp / f"{group_id}.jsonl"
     args = ["cargo", "+1.98.1", "run", "--release", "--locked", "-p", "sim-model", "--example", example]
     if group_id == "m2":
-        args += ["--", "--smoke", f"--output={output}"]
-        cells = ["smoke-A-N100"]
+        if config_dir is None:
+            raise ValueError("M2 report-SHA smoke requires historical source configs")
+        env["SIMCIV_M5_08_M2_CONFIG_DIR"] = str(config_dir)
+        cells = _protocols()["m2_explicit_rayon_speedup"]["ordered_cell_ids"]
+        for cell in cells:
+            subprocess.run(
+                [*args, "--", "--smoke", f"--cell={cell}", f"--config-dir={config_dir}", f"--output={output}"],
+                cwd=worktree,
+                env=env,
+                check=True,
+            )
+        return list(cells)
     else:
         args += ["--", "--smoke", f"--output={output}"]
         cells = ["smoke-crn-food-zero", "smoke-minimal-cause"]
@@ -286,8 +353,9 @@ def prepare() -> None:
         revision = protocols[GROUPS[group_id]["protocols"][0]]["report_revision"]
         worktree = worktrees[revision]
         try:
-            smoke_cells = _smoke_worktree(group_id, worktree)
-        except (OSError, subprocess.CalledProcessError) as error:
+            config_dir = _export_source_configs(group_id, revision, worktree)
+            smoke_cells = _smoke_worktree(group_id, worktree, config_dir)
+        except (OSError, ValueError, subprocess.CalledProcessError) as error:
             preflight["blocked_groups"][group_id] = {
                 "report_revision": revision,
                 "reason": str(error),
@@ -338,8 +406,9 @@ def prepare_group(group_id: str) -> None:
     preflight_path = SCRATCH / "preflight.json"
     preflight = json.loads(preflight_path.read_text(encoding="utf-8")) if preflight_path.is_file() else {"prepared_groups": [], "blocked_groups": {}}
     try:
-        smoke_cells = _smoke_worktree(group_id, worktree)
-    except (OSError, subprocess.CalledProcessError) as error:
+        config_dir = _export_source_configs(group_id, revision, worktree)
+        smoke_cells = _smoke_worktree(group_id, worktree, config_dir)
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
         preflight["prepared_groups"] = [item for item in preflight.get("prepared_groups", []) if item != group_id]
         preflight.setdefault("blocked_groups", {})[group_id] = {"report_revision": revision, "reason": str(error)}
         write_text_lf(preflight_path, json.dumps(preflight, separators=(",", ":"), sort_keys=True) + "\n")
@@ -440,7 +509,15 @@ def _stage_command(group_id: str) -> int:
     start = time.perf_counter()
     try:
         args = command.split()
-        result = subprocess.run(args, cwd=worktree, env=_cargo_env(report_revision), check=False)
+        environment = _cargo_env(report_revision)
+        config_dir = _source_config_dir(group_id, report_revision)
+        if group_id == "m2":
+            environment["SIMCIV_M5_08_M2_CONFIG_DIR"] = str(config_dir)
+        elif group_id == "m3_09":
+            environment["SIMCIV_M5_09_CONFIG_DIR"] = str(config_dir)
+        elif group_id == "m4":
+            environment["SIMCIV_M5_08_M4_CONFIG_DIR"] = str(config_dir)
+        result = subprocess.run(args, cwd=worktree, env=environment, check=False)
         complete = result.returncode == 0
         error = None if complete else f"harness exited with status {result.returncode}"
     except OSError as failure:
