@@ -199,11 +199,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         let run_started = Instant::now();
-        let series = measure_cell(&initial, &config, &context, &pool)?;
+        let (series, timed_day_ids) = measure_cell(&initial, &config, &context, &pool)?;
         append(
             &output,
             &format!(
-                "{{\"kind\":\"series\",\"cell_id\":\"{}\",\"workload\":\"{}\",\"N\":{},\"K\":{},\"config_hash\":\"{}\",\"protocol_hash\":\"{}\",\"checkpoint_path\":\"initialize_world at day 0\",\"setup_ns\":{},\"series_started_unix_ms\":{},\"series_completed_unix_ms\":{},\"timed_day_ids\":[0,1,2],\"execution_options\":{{\"days_per_call\":{},\"metrics\":true,\"events\":true,\"snapshots\":false,\"pool_threads\":6,\"chunk_size\":{}}},\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{},\"complete\":true}}",
+                "{{\"kind\":\"series\",\"cell_id\":\"{}\",\"workload\":\"{}\",\"N\":{},\"K\":{},\"config_hash\":\"{}\",\"protocol_hash\":\"{}\",\"checkpoint_path\":\"initialize_world at day 0\",\"setup_ns\":{},\"series_started_unix_ms\":{},\"series_completed_unix_ms\":{},\"timed_day_ids\":{},\"execution_options\":{{\"days_per_call\":{},\"metrics\":true,\"events\":true,\"snapshots\":false,\"pool_threads\":6,\"chunk_size\":{}}},\"process_controls\":{{\"priority_set\":{},\"affinity_set\":{}}},\"series\":{},\"complete\":true}}",
                 cell.id,
                 cell.workload,
                 cell.population,
@@ -213,6 +213,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 setup_ns,
                 series_started_ms,
                 timestamp_ms(),
+                format_day_ids(&timed_day_ids),
                 DAYS,
                 CHUNK.get(),
                 settings.priority_set,
@@ -367,7 +368,7 @@ fn measure_cell(
     config: &SimConfig,
     context: &M0RunContext,
     pool: &rayon::ThreadPool,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<(String, Vec<u32>), Box<dyn std::error::Error>> {
     let mut warmup_ns = Vec::with_capacity(WARMUPS);
     for warmup in 0..WARMUPS {
         let started = Instant::now();
@@ -394,6 +395,7 @@ fn measure_cell(
             .max((repetitions + 1) as f64) as usize;
     }
     let mut recalibrations = Vec::new();
+    let mut timed_day_ids = None;
     let samples = loop {
         let mut values = Vec::with_capacity(SAMPLES);
         let mut short = false;
@@ -402,8 +404,13 @@ fn measure_cell(
             let started = Instant::now();
             let mut serial_us = 0.0;
             let mut rayon_us = 0.0;
+            let mut sample_day_ids = None;
             for repeat in 0..repetitions {
                 let pair = pair_once(initial, config, context, pool, sample + repeat)?;
+                if let Some(previous) = &sample_day_ids {
+                    assert_eq!(previous, &pair.timed_day_ids, "M2 sample day IDs changed");
+                }
+                sample_day_ids = Some(pair.timed_day_ids);
                 serial_us += pair.serial_us;
                 rayon_us += pair.rayon_us;
             }
@@ -413,7 +420,9 @@ fn measure_cell(
                 short = true;
                 break;
             }
-            values.push(format!("{{\"sample\":{},\"started_unix_ms\":{},\"timed_pair_elapsed_ns\":{},\"wall_elapsed_ns\":{},\"timed_day_ids\":[0,1,2],\"serial_us_per_call\":{},\"rayon_us_per_call\":{}}}",sample,sample_started_ms,timed_ns,elapsed.as_nanos(),serial_us/repetitions as f64,rayon_us/repetitions as f64));
+            let sample_day_ids = sample_day_ids.expect("sample ran at least one timed call");
+            timed_day_ids = Some(sample_day_ids.clone());
+            values.push(format!("{{\"sample\":{},\"started_unix_ms\":{},\"timed_pair_elapsed_ns\":{},\"wall_elapsed_ns\":{},\"timed_day_ids\":{},\"serial_us_per_call\":{},\"rayon_us_per_call\":{}}}",sample,sample_started_ms,timed_ns,elapsed.as_nanos(),format_day_ids(&sample_day_ids),serial_us/repetitions as f64,rayon_us/repetitions as f64));
         }
         if !short {
             break values;
@@ -427,25 +436,29 @@ fn measure_cell(
         repetitions = ((repetitions as f64) * 1.5).ceil() as usize;
         recalibrations.push(format!("{{\"old_r\":{},\"new_r\":{},\"reason\":\"recorded paired sample below one-second floor; discarded and restarted series\"}}",old,repetitions));
     };
-    Ok(format!(
-        "{{\"warmups\":{},\"warmup_elapsed_ns\":[{}],\"samples\":{},\"target_sample_ns\":{},\"floor_sample_ns\":{},\"calibration_batches_elapsed_ns\":[{}],\"repetitions_per_sample\":{},\"recalibrations\":[{}],\"sample_records\":[{}]}}",
-        WARMUPS,
-        warmup_ns
-            .iter()
-            .map(u128::to_string)
-            .collect::<Vec<_>>()
-            .join(","),
-        SAMPLES,
-        SAMPLE_TARGET.as_nanos(),
-        SAMPLE_FLOOR.as_nanos(),
-        calibration_ns
-            .iter()
-            .map(u128::to_string)
-            .collect::<Vec<_>>()
-            .join(","),
-        repetitions,
-        recalibrations.join(","),
-        samples.join(",")
+    let timed_day_ids = timed_day_ids.expect("completed series has a timed sample");
+    Ok((
+        format!(
+            "{{\"warmups\":{},\"warmup_elapsed_ns\":[{}],\"samples\":{},\"target_sample_ns\":{},\"floor_sample_ns\":{},\"calibration_batches_elapsed_ns\":[{}],\"repetitions_per_sample\":{},\"recalibrations\":[{}],\"sample_records\":[{}]}}",
+            WARMUPS,
+            warmup_ns
+                .iter()
+                .map(u128::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            SAMPLES,
+            SAMPLE_TARGET.as_nanos(),
+            SAMPLE_FLOOR.as_nanos(),
+            calibration_ns
+                .iter()
+                .map(u128::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            repetitions,
+            recalibrations.join(","),
+            samples.join(",")
+        ),
+        timed_day_ids,
     ))
 }
 
