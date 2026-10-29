@@ -270,6 +270,8 @@ def _protocol_errors(conclusion: dict[str, Any], experiment: dict[str, Any], roo
         blob = _git(root, "show", f"{origin}:{overlay['path']}")
         if blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != overlay["sha256"]:
             errors.append(f"overlay origin blob SHA mismatch: {overlay['path']} at {origin}")
+        elif _git(root, "merge-base", "--is-ancestor", origin, "HEAD").returncode:
+            errors.append(f"overlay origin commit is not reachable from HEAD: {overlay['path']} at {origin}")
 
     sampling = experiment.get("sampling")
     if conclusion.get("type") == "timing" and tier == 1:
@@ -323,7 +325,10 @@ def validate_artifact_hashes(record: dict[str, Any], root: Path = ROOT) -> list[
             continue
         if path.is_file():
             actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        elif artifact["path"] in dvc_output_paths(root):
+        elif any(
+            artifact["path"] == output or artifact["path"].startswith(output.rstrip("/") + "/")
+            for output in dvc_output_paths(root)
+        ):
             manifest = root / "docs" / "data" / "SHA256SUMS"
             entries = {}
             if manifest.is_file():
@@ -332,7 +337,7 @@ def validate_artifact_hashes(record: dict[str, Any], root: Path = ROOT) -> list[
                     if separator and len(digest) == 64:
                         entries[relative] = digest
             actual = entries.get(artifact["path"])
-            if actual is None and artifact["path"] in dvc_output_paths(root):
+            if actual is None:
                 prefix = artifact["path"].rstrip("/") + "/"
                 members = sorted((name, digest) for name, digest in entries.items() if name.startswith(prefix))
                 if members:

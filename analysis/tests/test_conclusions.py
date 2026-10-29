@@ -136,6 +136,57 @@ def test_artifact_hash_check_rebuilds_unmaterialized_dvc_directory_digest(tmp_pa
     assert errors == []
 
 
+def test_artifact_hash_check_accepts_unmaterialized_dvc_file_under_directory_output(tmp_path: Path, monkeypatch):
+    import simciv_analysis.conclusions as conclusions
+
+    content = b"raw output\n"
+    digest = hashlib.sha256(content).hexdigest()
+    output = "docs/data/stage/raw"
+    artifact = f"{output}/records.jsonl"
+    write_text_lf(tmp_path / "docs/data/SHA256SUMS", f"{digest}  {artifact}\n")
+    monkeypatch.setattr(conclusions, "dvc_output_paths", lambda root: {output})
+
+    record = {"id": "dvc-child", "artifacts": [{"path": artifact, "sha256": digest}]}
+    assert validate_artifact_hashes(record, tmp_path) == []
+    record["artifacts"][0]["sha256"] = "0" * 64
+    assert "DVC SHA256SUMS mismatch" in validate_artifact_hashes(record, tmp_path)[0]
+
+
+def test_protocol_rejects_unreachable_overlay_origin(tmp_path: Path, monkeypatch):
+    import simciv_analysis.conclusions as conclusions
+
+    overlay = b"historical harness\n"
+    (tmp_path / "overlay.rs").write_bytes(overlay)
+
+    def fake_git(root: Path, *args: str, input_bytes: bytes | None = None):
+        if args[0] == "show":
+            return subprocess.CompletedProcess(args, 0, stdout=overlay, stderr=b"")
+        if args[0] == "merge-base":
+            return subprocess.CompletedProcess(args, 1, stdout=b"", stderr=b"")
+        return subprocess.CompletedProcess(args, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(conclusions, "_git", fake_git)
+    errors = _protocol_errors(
+        {"id": "M4-TIM-TEST", "tier": 2, "type": "timing"},
+        {
+            "id": "test-overlay",
+            "status": "complete",
+            "ordered_cell_ids": ["cell-1"],
+            "predicate_kind": "completion",
+            "predicate_parameters": {"required_result": "complete", "error_policy": "fail"},
+            "harness_paths": ["overlay.rs"],
+            "harness_overlays": [{
+                "path": "overlay.rs",
+                "sha256": hashlib.sha256(overlay).hexdigest(),
+                "origin_commit": "a" * 40,
+            }],
+        },
+        tmp_path,
+    )
+
+    assert any("overlay origin commit is not reachable from HEAD" in error for error in errors)
+
+
 def test_hosts_registry_requires_full_rustc_identity():
     valid_host = {
         "id": "ref", "reference": True, "cpu_model": "CPU", "physical_cores": 4,

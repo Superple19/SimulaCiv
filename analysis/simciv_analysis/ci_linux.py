@@ -54,6 +54,7 @@ else
     fi
     git clone "$src" "$dest"
 fi
+git -C "$dest" fetch "$src" "$expected"
 git -C "$dest" checkout --force "$expected"
 git -C "$dest" reset --hard "$expected"
 git -C "$dest" clean -fdx -e target/

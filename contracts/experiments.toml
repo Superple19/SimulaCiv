@@ -104,9 +104,9 @@ sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup 
 historical_sampling = "2 warmups, 7 timed samples, 3 consecutive days/sample, alternating serial/Rayon order."
 
 harness_overlays = [
-  { path = "crates/sim-model/examples/m5_06_m2_rayon_a5.rs", sha256 = "4ff12f544ce3c37e70eea9460d05230acde364f4bdb6492d7f41a2f0bd63963b", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_06_m2_rayon_a5.rs", sha256 = "4ff12f544ce3c37e70eea9460d05230acde364f4bdb6492d7f41a2f0bd63963b", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
-  { path = "crates/sim-model/examples/m5_08_m2_config_export.patch", sha256 = "d6590b99da898d9bea3781b0ee22b08fdf8bb71a53389d3663c4397e7c2f271e", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_08_m2_config_export.patch", sha256 = "d6590b99da898d9bea3781b0ee22b08fdf8bb71a53389d3663c4397e7c2f271e", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
 ]
 
 [[experiment.amendment]]
@@ -130,6 +130,13 @@ classification = "timed_day_and_source_config_guards_registered"
 source_report = "581ff6c109c24dfd24b430299d768c7e31ab6b45:docs/performance/M2_40_FINAL_RUNTIME_PROFILE_AND_GRADUATION_GATE.md#3-serial-and-explicit-rayon-full-tick-results"
 source_code = "581ff6c109c24dfd24b430299d768c7e31ab6b45:crates/sim-model/benches/m0_baseline_bench.rs::m2_35_production_intents"
 reason = "The source bridge calls m2_35_production_intents for each of the eight registered cells and hashes its serialized SimConfig. Expected day ranges are half-open [start, start+count); the adapter records executed day IDs per timed operation and fails on a mismatch. Source configuration hashes are emitted by the report-revision config function bridge and checked by the adapter. No A-5 timing was run."
+registry_values_changed = false
+
+[[experiment.amendment]]
+date = "2026-10-29"
+classification = "overlay_origin_reachable"
+source_code = "c21c5b3849834eb527587ecedf4bb2d22883f5c6"
+reason = "The prior overlay origin 7ba49bd was an intermediate amended commit that is no longer reachable from branch refs. The same registered blobs are present at c21c5b3, which remains in the report-adapter commit history and can be fetched by clean checkouts; overlay SHA-256 values are unchanged."
 registry_values_changed = false
 
 [[experiment]]
@@ -435,10 +442,10 @@ harness_paths = ["crates/sim-model/examples/m5_05_m3_09_revision.rs", "crates/si
 sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup for >=1.25s target and >=1.0s floor", reference_host_id = "ryzen5-9600x-windows-reference", validity = "both path MAD/median <= 5% where paired" }
 historical_sampling = "Checkpoint after executed day 400 (resume cursor 401); timed internal days 401, 402, and 403, with no compaction; 2 warmups; 11 samples; one three-day public-API call per sample; paired rotation of M3P serial, M3P incremental, and M3."
 harness_overlays = [
-  { path = "crates/sim-model/examples/m5_05_m3_09_revision.rs", sha256 = "6d435650f01cf17299209fe8c74dd50d8f70602103ce5fadeae5595484213b85", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_05_m3_09_revision.rs", sha256 = "6d435650f01cf17299209fe8c74dd50d8f70602103ce5fadeae5595484213b85", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
   { path = "crates/sim-model/examples/common/a5.rs", sha256 = "23d443ff87c6ba80e1c78d5cdcf3e965c0cd988ade0ab9c8a6cd15a6c3ba6bfe", origin_commit = "939d9e570e2a39328f791ea3ccfaa86592d3d0a5" },
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
-  { path = "crates/sim-model/examples/m5_08_m3_09_config_export.patch", sha256 = "2a27d5dff5f9f0a4b6c8c7878701162dde074a851f44b33ee6ae7d60f9ad2f41", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_08_m3_09_config_export.patch", sha256 = "2a27d5dff5f9f0a4b6c8c7878701162dde074a851f44b33ee6ae7d60f9ad2f41", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
 ]
 evidence_supersedes = ["m5-08-20261027T142128Z-m3_09_incremental_equal_live-report", "m5-08-20261028-m3_09-protocol-invalidation-report"]
 report_role_harness_policy = "Report-role runs use a temporary worktree at report_revision and overlay registered harness bytes unchanged, without modifying historical files. Evidence records each path, SHA-256, and origin commit. If an overlay fails against the historical API, the cell is needs-decision; do not adapt it."
@@ -494,6 +501,13 @@ classification = "timed_day_and_source_config_guards_registered"
 source_report = "681bf296ea07d3ddc4391f5f1dfd49255876300c:docs/performance/M3_09_INCREMENTAL_TOPOLOGY.md#equal-live-m3pm3-rerun-and-interleaving"
 source_code = "681bf296ea07d3ddc4391f5f1dfd49255876300c:crates/sim-model/tests/m3p_sustained_gate_tests.rs::sustained_config"
 reason = "The report states the post-day-400 checkpoint and three-day public API calls. The adapter now exports the exact report-revision sustained_config result, resumes the incremental M3P checkpoint at cursor 401, and validates 401-403 on every timed path. Expected day ranges are half-open [start, start+count); the adapter records executed day IDs per timed operation and fails on a mismatch. Source configuration hashes are emitted by the report-revision config function bridge and checked by the adapter. No A-5 timing was run."
+registry_values_changed = false
+
+[[experiment.amendment]]
+date = "2026-10-29"
+classification = "overlay_origin_reachable"
+source_code = "c21c5b3849834eb527587ecedf4bb2d22883f5c6"
+reason = "The prior overlay origin 7ba49bd was an intermediate amended commit that is no longer reachable from branch refs. The same registered adapter and bridge blobs are present at c21c5b3, which remains in the report-adapter commit history and can be fetched by clean checkouts; overlay SHA-256 values are unchanged."
 registry_values_changed = false
 
 [[experiment.protocol_history]]
@@ -1145,9 +1159,9 @@ sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup 
 historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
 
 harness_overlays = [
-  { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "d6d9574572d3cb23c256934ca4f41b1a9436d9258e4ec5651719a36b54f3bde1", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "d6d9574572d3cb23c256934ca4f41b1a9436d9258e4ec5651719a36b54f3bde1", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
-  { path = "crates/sim-model/examples/m5_08_m4_config_export.patch", sha256 = "fc80ab8fb2ab41d56de64627fef641481d3afb7246a07b8601f618201b6c5939", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_08_m4_config_export.patch", sha256 = "fc80ab8fb2ab41d56de64627fef641481d3afb7246a07b8601f618201b6c5939", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
 ]
 
 [[experiment.amendment]]
@@ -1175,6 +1189,13 @@ source_code = "fb0878ba1fa370e178aca3f763d08512c28ee122:crates/sim-model/example
 reason = "The report source config_for is invoked by a report-revision exporter. A direct branch API probe verifies day records 0-89 from the same cursor-0 snapshot/horizon before paired search calls. The old raw record lacks the source function hash and timed_day_ids. Expected day ranges are half-open [start, start+count); the adapter records executed day IDs per timed operation and fails on a mismatch. Source configuration hashes are emitted by the report-revision config function bridge and checked by the adapter. No A-5 timing was run."
 registry_values_changed = false
 
+[[experiment.amendment]]
+date = "2026-10-29"
+classification = "overlay_origin_reachable"
+source_code = "c21c5b3849834eb527587ecedf4bb2d22883f5c6"
+reason = "The prior overlay origin 7ba49bd was an intermediate amended commit that is no longer reachable from branch refs. The same registered adapter and bridge blobs are present at c21c5b3, which remains in the report-adapter commit history and can be fetched by clean checkouts; overlay SHA-256 values are unchanged."
+registry_values_changed = false
+
 [[experiment.protocol_history]]
 date = "2026-10-28"
 source = "docs/data/m5_08/m4_search_parallel/raw/records.jsonl (existing report-revision record)"
@@ -1185,6 +1206,19 @@ prior_harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates
 prior_harness_overlays = [
   { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "63c1bcc8e4411d72dabe4d58e1b0c485e0acf59676b24a2cbca86ebde2c4ca2f", origin_commit = "4e929857ef846d64caf9607f0f9074779706b9c1" },
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
+]
+
+[[experiment.protocol_history]]
+date = "2026-10-29"
+source = "contracts/evidence.jsonl#m5-08-20261028-m4-search-raw-guard-invalidation"
+reason = "Preserve the invalidation record's original overlay provenance after repinning the active protocol to reachable c21c5b3 blobs. This is administrative history only; the old A-5 output remains invalid and raw bytes are unchanged."
+superseded_evidence_ids = ["m5-08-20261028-m4-search-raw-guard-invalidation"]
+prior_ordered_cell_ids = ["case-a-exhaustive-R10-H90"]
+prior_harness_paths = ["crates/sim-model/examples/m4_07_many_branch.rs", "crates/sim-model/tests/m4_07_parallel_tests.rs", "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", "crates/sim-model/examples/m5_08_m4_config_export.patch", "crates/sim-model/examples/common/process_controls.rs"]
+prior_harness_overlays = [
+  { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "d6d9574572d3cb23c256934ca4f41b1a9436d9258e4ec5651719a36b54f3bde1", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
+  { path = "crates/sim-model/examples/m5_08_m4_config_export.patch", sha256 = "fc80ab8fb2ab41d56de64627fef641481d3afb7246a07b8601f618201b6c5939", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
 ]
 
 [[experiment]]
@@ -1213,9 +1247,9 @@ sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup 
 historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
 
 harness_overlays = [
-  { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "d6d9574572d3cb23c256934ca4f41b1a9436d9258e4ec5651719a36b54f3bde1", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "d6d9574572d3cb23c256934ca4f41b1a9436d9258e4ec5651719a36b54f3bde1", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
-  { path = "crates/sim-model/examples/m5_08_m4_config_export.patch", sha256 = "fc80ab8fb2ab41d56de64627fef641481d3afb7246a07b8601f618201b6c5939", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_08_m4_config_export.patch", sha256 = "fc80ab8fb2ab41d56de64627fef641481d3afb7246a07b8601f618201b6c5939", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
 ]
 
 [[experiment.amendment]]
@@ -1263,9 +1297,9 @@ sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup 
 historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
 
 harness_overlays = [
-  { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "d6d9574572d3cb23c256934ca4f41b1a9436d9258e4ec5651719a36b54f3bde1", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "d6d9574572d3cb23c256934ca4f41b1a9436d9258e4ec5651719a36b54f3bde1", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
-  { path = "crates/sim-model/examples/m5_08_m4_config_export.patch", sha256 = "fc80ab8fb2ab41d56de64627fef641481d3afb7246a07b8601f618201b6c5939", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_08_m4_config_export.patch", sha256 = "fc80ab8fb2ab41d56de64627fef641481d3afb7246a07b8601f618201b6c5939", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
 ]
 
 [[experiment.amendment]]
@@ -1313,9 +1347,9 @@ sampling = { rerun = "A-5; 2 warmups, 41 samples, per-cell r fixed after warmup 
 historical_sampling = "One serial and one six-thread parallel invocation; no warmup or repeat distribution; descriptive historical ratio."
 
 harness_overlays = [
-  { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "d6d9574572d3cb23c256934ca4f41b1a9436d9258e4ec5651719a36b54f3bde1", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_06_m4_parallel_a5.rs", sha256 = "d6d9574572d3cb23c256934ca4f41b1a9436d9258e4ec5651719a36b54f3bde1", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
   { path = "crates/sim-model/examples/common/process_controls.rs", sha256 = "723801c20073c32fa55ecbd3571d580efcc7b3b63306c985055665a9d657ba81", origin_commit = "8ab32fd82d2c2ce9a003af14ac8186e5961eb9df" },
-  { path = "crates/sim-model/examples/m5_08_m4_config_export.patch", sha256 = "fc80ab8fb2ab41d56de64627fef641481d3afb7246a07b8601f618201b6c5939", origin_commit = "7ba49bd7fbfebfb703a18481b9fa94b717444e24" },
+  { path = "crates/sim-model/examples/m5_08_m4_config_export.patch", sha256 = "fc80ab8fb2ab41d56de64627fef641481d3afb7246a07b8601f618201b6c5939", origin_commit = "c21c5b3849834eb527587ecedf4bb2d22883f5c6" },
 ]
 
 [[experiment.amendment]]

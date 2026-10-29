@@ -12,3 +12,7 @@ def test_wsl_check_installs_locked_mise_tools_and_uv_python_before_ci_targets(mo
     assert any("mise exec -- uv python install --directory analysis" in script for script in scripts)
     assert any("mise exec -- just ci-rust" in script for script in scripts)
     assert any("mise exec -- just ci-analysis" in script for script in scripts)
+    checkout = next(script for script in scripts if 'dest="$HOME/simciv-ci"' in script)
+    fetch_source = 'git -C "$dest" fetch "$src" "$expected"'
+    assert fetch_source in checkout
+    assert checkout.index(fetch_source) < checkout.index('git -C "$dest" checkout --force "$expected"')
